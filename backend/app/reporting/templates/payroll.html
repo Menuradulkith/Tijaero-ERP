@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Payroll</title>
+</head>
+<body>
+    <h1>Payroll Report</h1>
+    <p>Period: {{ period }}</p>
+    <table>
+        <tr><th>Employee</th><th>Salary</th><th>Deductions</th><th>Net Pay</th></tr>
+        {% for emp in employees %}
+        <tr><td>{{ emp.name }}</td><td>{{ emp.salary }}</td><td>{{ emp.deductions }}</td><td>{{ emp.net_pay }}</td></tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

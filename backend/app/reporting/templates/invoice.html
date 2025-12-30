@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Invoice</title>
+</head>
+<body>
+    <h1>Invoice #{{ invoice_number }}</h1>
+    <p>Date: {{ date }}</p>
+    <p>Customer: {{ customer_name }}</p>
+    <table>
+        <tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
+        {% for item in items %}
+        <tr><td>{{ item.name }}</td><td>{{ item.qty }}</td><td>{{ item.price }}</td><td>{{ item.total }}</td></tr>
+        {% endfor %}
+    </table>
+    <p>Total: {{ total }}</p>
+</body>
+</html>

@@ -1,0 +1,118 @@
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, Numeric, Boolean, TIMESTAMP
+from sqlalchemy.orm import relationship
+from app.db.base import Base
+from app.common.base_models import TimestampMixin
+
+class Supplier(Base, TimestampMixin):
+    __tablename__ = "supplier"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(30), nullable=False)
+    full_name = Column(String(255), nullable=False)
+    name_in_cheque_card = Column(String(255))
+    occupation = Column(String(255))
+    company_name = Column(String(255))
+    company_registration_number = Column(String(255))
+    company_postal_address = Column(Text)
+    company_contact_number = Column(String(12))
+    company_website = Column(String(200))
+    postal_address = Column(Text, nullable=False)
+    permenent_address = Column(Text, nullable=False)
+    bank_details = Column(Text)
+    date_joined = Column(TIMESTAMP, nullable=False)
+    birthdate = Column(Date)
+    id_card_number = Column(String(12))
+    gender = Column(String(30), nullable=False)
+    civil_status = Column(String(30), nullable=False)
+    passport_no = Column(String(50))
+    no_of_kids = Column(String(30), nullable=False)
+    email = Column(String(75))
+    home_contact_number = Column(String(12))
+    mobile_contact_number = Column(String(12), nullable=False)
+    credit_days = Column(Integer, nullable=False)
+    max_credit_limit = Column(Integer, nullable=False)
+    left_credit_amount = Column(Integer)
+    initial_credit_amount = Column(Integer)
+    active = Column(Boolean, nullable=False)
+    country_id = Column(Integer, ForeignKey("country.id"))
+    
+    # Relationships
+    country = relationship("Country", back_populates="suppliers")
+    purchasing_orders_first = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.first_suppliers_id", back_populates="first_supplier")
+    purchasing_orders_second = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.second_suppliers_id", back_populates="second_supplier")
+
+class PurchasingOrder(Base):
+    __tablename__ = "purchasing_orders"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    purchasing_order_no = Column(String(200), nullable=False)
+    purchasing_invoice_no = Column(String(200), nullable=False)
+    branch_code = Column(String(200), nullable=False)
+    payment_method = Column(String(30), nullable=False)
+    purchasing_order_date = Column(Date, nullable=False)
+    good_received_note_date = Column(Date, nullable=False)
+    remarks = Column(Text)
+    credit_date = Column(Integer)
+    created_date = Column(Date, nullable=False)
+    first_suppliers_id = Column(Integer, ForeignKey("supplier.id"), nullable=False)
+    second_suppliers_id = Column(Integer, ForeignKey("supplier.id"), nullable=False)
+    added_date = Column(TIMESTAMP, nullable=False)
+    approval_id = Column(Integer, ForeignKey("approvals.id"))
+    
+    # Relationships
+    first_supplier = relationship("Supplier", foreign_keys=[first_suppliers_id], back_populates="purchasing_orders_first")
+    second_supplier = relationship("Supplier", foreign_keys=[second_suppliers_id], back_populates="purchasing_orders_second")
+    approval = relationship("Approvals", back_populates="purchasing_orders")
+    items = relationship("PurchasingOrderItems", back_populates="purchasing_order")
+    good_received_notes = relationship("GoodReceivedNote", back_populates="purchasing_order")
+
+class PurchasingOrderItems(Base):
+    __tablename__ = "purchasing_order_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    quantity = Column(Integer, nullable=False)
+    unit_price = Column(Numeric(60, 2), nullable=False)
+    warrenty_month = Column(String(30), nullable=False)
+    remark = Column(String(200))
+    created_date = Column(Date, nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    purchasingorders_id = Column(Integer, ForeignKey("purchasing_orders.id"), nullable=False)
+    added_date = Column(TIMESTAMP, nullable=False)
+    
+    # Relationships
+    product = relationship("Product", back_populates="purchasing_order_items")
+    purchasing_order = relationship("PurchasingOrder", back_populates="items")
+    good_received_items = relationship("GoodReceivedItems", back_populates="purchasing_order_item")
+
+class PurchasingReturn(Base):
+    __tablename__ = "purchasing_return"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    purchasing_return_no = Column(String(200), nullable=False)
+    branch_code = Column(String(200), nullable=False)
+    remark = Column(Text)
+    added_date = Column(Date, nullable=False)
+    goodreceivednote_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False)
+    approval_id = Column(Integer, ForeignKey("approvals.id"))
+    
+    # Relationships
+    good_received_note = relationship("GoodReceivedNote", back_populates="purchasing_returns")
+    approval = relationship("Approvals", back_populates="purchasing_returns")
+    items = relationship("PurchasingReturnItems", back_populates="purchasing_return")
+
+class PurchasingReturnItems(Base):
+    __tablename__ = "purchasing_return_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    purchasing_price = Column(Numeric(60, 2), nullable=False)
+    return_price = Column(Numeric(60, 2), nullable=False)
+    barcode = Column(Text, nullable=False)
+    branch_code = Column(String(200), nullable=False)
+    added_date = Column(TIMESTAMP, nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    purchasingreturn_id = Column(Integer, ForeignKey("purchasing_return.id"), nullable=False)
+    
+    # Relationships
+    product = relationship("Product", back_populates="purchasing_return_items")
+    purchasing_return = relationship("PurchasingReturn", back_populates="items")
+
