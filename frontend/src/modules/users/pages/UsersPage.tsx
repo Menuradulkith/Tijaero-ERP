@@ -1,131 +1,163 @@
-import { useState, useEffect } from "react";
+/**
+ * UsersPage - Refactored to use Tijaero-style reusable components
+ */
+
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Box,
-  Button,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-  IconButton,
-  Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  OutlinedInput,
   Checkbox,
-  ListItemText,
-  Grid,
   Alert,
   CircularProgress,
-  Tooltip,
+  Chip,
+  Autocomplete,
+  FormControl,
+  Typography,
 } from "@mui/material";
+import PersonIcon from "@mui/icons-material/Person";
+import toast from "react-hot-toast";
+
+// Tijaero Components
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Refresh as RefreshIcon,
-  Person as PersonIcon,
-} from "@mui/icons-material";
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  DetailPanelHeader,
+  ActionToolbar,
+  FormSection,
+  EmptyState,
+  useMasterDetailState,
+  SortOption,
+} from "@/components/tijaero";
+
 import { usersApi, UserList, UserCreate, UserUpdate } from "../api";
 import { groupsApi, Group } from "../../groups/api";
 import { branchApi } from "../../branches/api";
 import type { Branch } from "../../../api/types";
-import PermissionGuard, {
-  usePermission,
-} from "@/auth/components/PermissionGuard";
+import { usePermission } from "@/auth/components/PermissionGuard";
 import { PERMISSIONS } from "@/auth/permissions";
+
+// Configuration
+const SORT_OPTIONS: SortOption[] = [
+  { value: "username", label: "Username" },
+  { value: "first_name", label: "First Name" },
+  { value: "email", label: "Email" },
+];
+
+const INITIAL_FORM_DATA: Partial<UserCreate> = {
+  username: "",
+  password: "",
+  email: "",
+  first_name: "",
+  middle_name: "",
+  last_name: "",
+  gender: "Male",
+  birthdate: new Date().toISOString().split("T")[0],
+  occupation: "",
+  employee_id: "",
+  is_active: true,
+  is_staff: false,
+  branch_ids: [],
+  group_ids: [],
+};
+
+const resetFormFromUser = (user: UserList): Partial<UserCreate> => ({
+  username: user.username,
+  email: user.email,
+  first_name: user.first_name,
+  middle_name: "",
+  last_name: user.last_name,
+  gender: "Male",
+  birthdate: new Date().toISOString().split("T")[0],
+  occupation: user.occupation || "",
+  employee_id: user.employee_id || "",
+  is_active: user.is_active,
+  is_staff: user.is_staff,
+  branch_ids: user.branches.map((b) => b.id),
+  group_ids: user.groups?.map((g) => g.id) || [],
+});
+
+// Password validation
+const validatePassword = (password: string): string | null => {
+  if (!password) return null;
+  if (password.length < 8) return "Password must be at least 8 characters long";
+  if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter";
+  if (!/[a-z]/.test(password)) return "Password must contain at least one lowercase letter";
+  if (!/[0-9]/.test(password)) return "Password must contain at least one number";
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return "Password must contain at least one special character";
+  return null;
+};
 
 export default function UsersPage() {
   const [users, setUsers] = useState<UserList[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [filterBranchId, setFilterBranchId] = useState<number | null>(null);
+  const [filterRoleId, setFilterRoleId] = useState<number | null>(null);
 
-  // Permission checks
-  const canUpdate = usePermission(
-    PERMISSIONS.USER_UPDATE.resource,
-    PERMISSIONS.USER_UPDATE.action
-  );
-  const canDelete = usePermission(
-    PERMISSIONS.USER_DELETE.resource,
-    PERMISSIONS.USER_DELETE.action
-  );
+  // Permissions
+  const canCreate = usePermission(PERMISSIONS.USER_CREATE.resource, PERMISSIONS.USER_CREATE.action);
+  const canUpdate = usePermission(PERMISSIONS.USER_UPDATE.resource, PERMISSIONS.USER_UPDATE.action);
+  const canDelete = usePermission(PERMISSIONS.USER_DELETE.resource, PERMISSIONS.USER_DELETE.action);
 
-  // Dialog states
-  const [openDialog, setOpenDialog] = useState(false);
-  const [editingUser, setEditingUser] = useState<UserList | null>(null);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [userToDelete, setUserToDelete] = useState<UserList | null>(null);
-
-  // Form state
-  const [formData, setFormData] = useState<Partial<UserCreate>>({
-    username: "",
-    password: "",
-    email: "",
-    first_name: "",
-    middle_name: "",
-    last_name: "",
-    gender: "Male",
-    birthdate: new Date().toISOString().split("T")[0],
-    occupation: "",
-    employee_id: "",
-    is_active: true,
-    is_staff: false,
-    branch_ids: [],
-    group_ids: [],
+  // Use reusable state hook
+  const {
+    searchQuery,
+    setSearchQuery,
+    sortField,
+    setSortField,
+    selectedItem: selectedUser,
+    setSelectedItem: setSelectedUser,
+    isEditing,
+    setIsEditing,
+    isCreating,
+    setIsCreating,
+    favorites,
+    toggleFavorite,
+    formData,
+    setFormData,
+    handleSelectItem: baseHandleSelectUser,
+    handleNew: handleCreate,
+    handleCancel: baseHandleCancel,
+    handleStartEdit: handleEdit,
+  } = useMasterDetailState<UserList, Partial<UserCreate>>({
+    initialFormData: INITIAL_FORM_DATA,
+    resetFormFromItem: resetFormFromUser,
+    favoritesKey: "users_favorites",
+    defaultSortField: "username",
   });
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (refreshSelectedUserId?: number) => {
     try {
       setLoading(true);
       setError(null);
 
-      // Load data with permission checks
       const promises: Promise<any>[] = [usersApi.getUsers()];
-
-      // Only load groups if user has permission
-      promises.push(
-        groupsApi.getGroups().catch((err) => {
-          if (err.response?.status === 403) {
-            console.warn("No permission to view groups");
-            return [];
-          }
-          throw err;
-        })
-      );
-
-      // Only load branches if user has permission
-      promises.push(
-        branchApi.getAll(1, 100).catch((err) => {
-          if (err.response?.status === 403) {
-            console.warn("No permission to view branches");
-            return { items: [] };
-          }
-          throw err;
-        })
-      );
+      promises.push(groupsApi.getGroups().catch(() => []));
+      promises.push(branchApi.getAll(1, 100).catch(() => ({ items: [] })));
 
       const [usersData, groupsData, branchesData] = await Promise.all(promises);
-
       setUsers(usersData);
       setGroups(groupsData);
       setBranches(branchesData.items || []);
+      
+      // Refresh selected user with updated data
+      if (refreshSelectedUserId) {
+        const updatedUser = usersData.find((u: UserList) => u.id === refreshSelectedUserId);
+        if (updatedUser) {
+          setSelectedUser(updatedUser);
+          setFormData(resetFormFromUser(updatedUser));
+        }
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Failed to load data");
     } finally {
@@ -133,609 +165,474 @@ export default function UsersPage() {
     }
   };
 
-  const handleOpenDialog = (user?: UserList) => {
-    if (user) {
-      setEditingUser(user);
-      setFormData({
-        username: user.username,
-        email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        is_active: user.is_active,
-        branch_ids: user.branches.map((b) => b.id),
-        group_ids: [],
-      });
-    } else {
-      setEditingUser(null);
-      setFormData({
-        username: "",
-        password: "",
-        email: "",
-        first_name: "",
-        middle_name: "",
-        last_name: "",
-        gender: "Male",
-        birthdate: new Date().toISOString().split("T")[0],
-        occupation: "",
-        employee_id: "",
-        is_active: true,
-        is_staff: false,
-        branch_ids: [],
-        group_ids: [],
-      });
+  // Filter users (hide superusers)
+  const filteredUsers = useMemo(() => {
+    let filtered = users.filter((user) => !user.is_superuser);
+
+    // Filter by branch
+    if (filterBranchId) {
+      filtered = filtered.filter((user) =>
+        user.branches.some((b) => b.id === filterBranchId)
+      );
     }
-    setOpenDialog(true);
-  };
 
-  const handleCloseDialog = () => {
-    setOpenDialog(false);
-    setEditingUser(null);
-    setError(null);
-  };
+    // Filter by role
+    if (filterRoleId) {
+      filtered = filtered.filter((user) =>
+        user.groups.some((g) => g.id === filterRoleId)
+      );
+    }
 
-  const handleSubmit = async () => {
+    if (searchQuery) {
+      filtered = filtered.filter(
+        (user) =>
+          user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          user.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          user.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          user.email.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    filtered.sort((a, b) => {
+      if (sortField === "username") return a.username.localeCompare(b.username);
+      if (sortField === "first_name") return a.first_name.localeCompare(b.first_name);
+      if (sortField === "email") return a.email.localeCompare(b.email);
+      return 0;
+    });
+
+    return filtered;
+  }, [users, searchQuery, sortField, filterBranchId, filterRoleId]);
+
+  // Handlers
+  const handleSelectUser = useCallback((user: UserList) => {
+    setPasswordError(null);
+    baseHandleSelectUser(user);
+  }, [baseHandleSelectUser]);
+
+  const handlePasswordChange = useCallback((value: string) => {
+    setFormData((prev) => ({ ...prev, password: value }));
+    setPasswordError(validatePassword(value));
+  }, [setFormData]);
+
+  const handleSave = useCallback(async () => {
+    console.log("[UsersPage] handleSave called:", { isCreating, isEditing, selectedUser, formData });
     try {
       setError(null);
-      if (editingUser) {
-        await usersApi.updateUser(editingUser.id, formData as UserUpdate);
-        setSuccess("User updated successfully");
-      } else {
-        await usersApi.createUser(formData as UserCreate);
-        setSuccess("User created successfully");
+      setUsernameError(null);
+      setSaving(true);
+      
+      // Check for duplicate username when creating
+      if (isCreating && formData.username) {
+        const exists = await usersApi.checkUsernameExists(formData.username);
+        if (exists) {
+          setUsernameError("Username already exists");
+          toast.error("Username already exists");
+          setSaving(false);
+          return;
+        }
       }
-      handleCloseDialog();
-      loadData();
-      setTimeout(() => setSuccess(null), 3000);
+      
+      // Clean up empty strings to null for optional fields
+      const cleanedData = {
+        ...formData,
+        middle_name: formData.middle_name?.trim() || null,
+      };
+      
+      if (isCreating) {
+        console.log("[UsersPage] Creating new user:", cleanedData);
+        await usersApi.createUser(cleanedData as UserCreate);
+        console.log("[UsersPage] Create success");
+        toast.success("User created successfully");
+        setIsCreating(false);
+        setIsEditing(false);
+        loadData();
+      } else if (selectedUser) {
+        console.log("[UsersPage] Updating user:", selectedUser.id, cleanedData);
+        await usersApi.updateUser(selectedUser.id, cleanedData as UserUpdate);
+        console.log("[UsersPage] Update success");
+        toast.success("User updated successfully");
+        setIsEditing(false);
+        // Refresh with selected user ID to update the view
+        loadData(selectedUser.id);
+      } else {
+        console.warn("[UsersPage] handleSave called but no action taken");
+        loadData();
+      }
     } catch (err: any) {
+      console.error("[UsersPage] Save error:", err);
+      console.error("[UsersPage] Error response:", err.response);
       setError(err.response?.data?.detail || "Failed to save user");
+      toast.error(err.response?.data?.detail || "Failed to save user");
+    } finally {
+      setSaving(false);
     }
-  };
+  }, [isCreating, selectedUser, formData, setIsCreating, setIsEditing]);
 
-  const handleDelete = async () => {
-    if (!userToDelete) return;
-    try {
-      await usersApi.deleteUser(userToDelete.id);
-      setSuccess("User deleted successfully");
-      setDeleteConfirmOpen(false);
-      setUserToDelete(null);
-      loadData();
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to delete user");
+  const handleCancel = useCallback(() => {
+    setPasswordError(null);
+    baseHandleCancel(filteredUsers);
+  }, [baseHandleCancel, filteredUsers]);
+
+  const handleDelete = useCallback(async () => {
+    if (selectedUser && window.confirm(`Are you sure you want to delete user "${selectedUser.username}"?`)) {
+      try {
+        await usersApi.deleteUser(selectedUser.id);
+        toast.success("User deleted successfully");
+        setSelectedUser(null);
+        loadData();
+      } catch (err: any) {
+        toast.error(err.response?.data?.detail || "Failed to delete user");
+      }
     }
-  };
+  }, [selectedUser, setSelectedUser]);
 
   if (loading) {
     return (
-      <Box
-        display="flex"
-        justifyContent="center"
-        alignItems="center"
-        minHeight="400px"
-      >
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
         <CircularProgress />
       </Box>
     );
   }
 
-  return (
-    <Box>
-      {/* Header */}
-      <Box
-        display="flex"
-        flexDirection={{ xs: "column", sm: "row" }}
-        justifyContent="space-between"
-        alignItems={{ xs: "flex-start", sm: "center" }}
-        mb={3}
-        gap={2}
-      >
-        <Box display="flex" alignItems="center" gap={2}>
-          <PersonIcon
-            sx={{ fontSize: { xs: 28, sm: 32 }, color: "primary.main" }}
+  const isFormValid = formData.username && formData.email && formData.first_name && formData.last_name &&
+    formData.employee_id && formData.occupation &&
+    (isCreating ? !passwordError && formData.password : true);
+  const isDisabled = !isEditing && !isCreating;
+
+  // Master Panel
+  const masterPanel = (
+    <SearchableList<UserList>
+      items={filteredUsers}
+      isLoading={loading}
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
+      placeholder="Search users..."
+      sortOptions={SORT_OPTIONS}
+      sortField={sortField}
+      onSortChange={setSortField}
+      selectedItem={selectedUser}
+      onSelectItem={handleSelectUser}
+      emptyMessage="No users found"
+      width={300}
+      listHeader={
+        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
+          <Autocomplete
+            size="small"
+            options={branches}
+            getOptionLabel={(option) => option.branch_name}
+            value={branches.find((b) => b.id === filterBranchId) || null}
+            onChange={(_, newValue) => setFilterBranchId(newValue?.id || null)}
+            renderInput={(params) => (
+              <TextField {...params} placeholder="Filter by Branch" size="small" />
+            )}
+            sx={{ mb: 1 }}
           />
-          <Typography
-            variant="h4"
-            fontWeight="bold"
-            sx={{ fontSize: { xs: "1.5rem", sm: "2rem", md: "2.125rem" } }}
-          >
-            User Management
-          </Typography>
+          <Autocomplete
+            size="small"
+            options={groups}
+            getOptionLabel={(option) => option.name}
+            value={groups.find((g) => g.id === filterRoleId) || null}
+            onChange={(_, newValue) => setFilterRoleId(newValue?.id || null)}
+            renderInput={(params) => (
+              <TextField {...params} placeholder="Filter by Role" size="small" />
+            )}
+          />
         </Box>
-        <Box display="flex" gap={2} flexWrap="wrap">
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={loadData}
-            sx={{
-              fontSize: { xs: "0.8125rem", sm: "0.875rem" },
-              padding: { xs: "6px 12px", sm: "8px 16px" },
-            }}
-          >
-            Refresh
-          </Button>
-          <PermissionGuard
-            resource={PERMISSIONS.USER_CREATE.resource}
-            action={PERMISSIONS.USER_CREATE.action}
-          >
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => handleOpenDialog()}
-              sx={{
-                fontSize: { xs: "0.8125rem", sm: "0.875rem" },
-                padding: { xs: "6px 12px", sm: "8px 16px" },
-              }}
-            >
-              Add User
-            </Button>
-          </PermissionGuard>
-        </Box>
-      </Box>
-
-      {/* Alerts */}
-      {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
-          {error}
-        </Alert>
+      }
+      renderItem={(user, isSelected) => (
+        <SelectableListItem
+          key={user.id}
+          id={user.id}
+          isSelected={isSelected}
+          onClick={() => handleSelectUser(user)}
+          primaryText={user.username}
+          secondaryText={`${user.first_name} ${user.last_name}`}
+          isFavorite={favorites.includes(user.id)}
+          onToggleFavorite={(e) => toggleFavorite(user.id, e)}
+          statusChip={
+            user.is_active
+              ? { label: "Active", color: "success" }
+              : { label: "Inactive", color: "default" }
+          }
+          chips={user.is_staff ? [{ label: "Staff", color: "warning" }] : []}
+        />
       )}
-      {success && (
-        <Alert
-          severity="success"
-          onClose={() => setSuccess(null)}
-          sx={{ mb: 2 }}
-        >
-          {success}
-        </Alert>
-      )}
+    />
+  );
 
-      {/* Users Table */}
-      <TableContainer
-        component={Paper}
-        elevation={2}
-        sx={{ overflowX: "auto" }}
-      >
-        <Table sx={{ minWidth: { xs: 800, md: "auto" } }}>
-          <TableHead>
-            <TableRow sx={{ backgroundColor: "primary.main" }}>
-              <TableCell
-                sx={{
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                }}
-              >
-                Username
-              </TableCell>
-              <TableCell
-                sx={{
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                }}
-              >
-                Name
-              </TableCell>
-              <TableCell
-                sx={{
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                  display: { xs: "none", md: "table-cell" },
-                }}
-              >
-                Email
-              </TableCell>
-              <TableCell
-                sx={{
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                  display: { xs: "none", lg: "table-cell" },
-                }}
-              >
-                Employee ID
-              </TableCell>
-              <TableCell
-                sx={{
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                  display: { xs: "none", lg: "table-cell" },
-                }}
-              >
-                Branches
-              </TableCell>
-              <TableCell
-                sx={{
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                }}
-              >
-                Status
-              </TableCell>
-              <TableCell
-                sx={{
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                  display: { xs: "none", sm: "table-cell" },
-                }}
-              >
-                Role
-              </TableCell>
-              <TableCell
-                sx={{
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                }}
-                align="center"
-              >
-                Actions
-              </TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {users.map((user) => (
-              <TableRow key={user.id} hover>
-                <TableCell sx={{ fontSize: { xs: "0.75rem", sm: "0.875rem" } }}>
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    gap={1}
-                    flexWrap="wrap"
-                  >
-                    {user.username}
-                    {user.is_superuser && (
-                      <Chip label="Admin" size="small" color="error" />
-                    )}
-                  </Box>
-                </TableCell>
-                <TableCell
-                  sx={{ fontSize: { xs: "0.75rem", sm: "0.875rem" } }}
-                >{`${user.first_name} ${user.last_name}`}</TableCell>
-                <TableCell
-                  sx={{
-                    fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                    display: { xs: "none", md: "table-cell" },
-                  }}
-                >
-                  {user.email}
-                </TableCell>
-                <TableCell
-                  sx={{
-                    fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                    display: { xs: "none", lg: "table-cell" },
-                  }}
-                >
-                  {user.employee_id}
-                </TableCell>
-                <TableCell sx={{ display: { xs: "none", lg: "table-cell" } }}>
-                  <Box display="flex" gap={0.5} flexWrap="wrap">
-                    {user.branches.map((branch) => (
-                      <Chip
-                        key={branch.id}
-                        label={branch.branch_code}
-                        size="small"
-                        variant="outlined"
-                      />
-                    ))}
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Chip
-                    label={user.is_active ? "Active" : "Inactive"}
-                    color={user.is_active ? "success" : "default"}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell sx={{ display: { xs: "none", sm: "table-cell" } }}>
-                  <Chip
-                    label={user.is_staff ? "Staff" : "User"}
-                    size="small"
-                    variant="outlined"
-                  />
-                </TableCell>
-                <TableCell align="center">
-                  <Box
-                    sx={{ display: "flex", gap: 0.5, justifyContent: "center" }}
-                  >
-                    {canUpdate && (
-                      <Tooltip title="Edit">
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => handleOpenDialog(user)}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {canDelete && !user.is_superuser && (
-                      <Tooltip title="Delete">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => {
-                            setUserToDelete(user);
-                            setDeleteConfirmOpen(true);
-                          }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                  </Box>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+  // Detail Panel
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "Users", href: "#" },
+          ...(selectedUser || isCreating
+            ? [{ label: isCreating ? "New User" : selectedUser?.username || "" }]
+            : []),
+        ]}
+        title={selectedUser ? `${selectedUser.first_name} ${selectedUser.last_name}` : ""}
+        titleIcon={<PersonIcon color="primary" />}
+        isCreating={isCreating}
+        createTitle="Create New User"
+        noSelectionTitle="Select a User"
+        chips={selectedUser ? [
+          { label: selectedUser.is_active ? "Active" : "Inactive", color: selectedUser.is_active ? "success" : "default" as const },
+          { label: selectedUser.is_staff ? "Staff" : "User", variant: "outlined" as const },
+        ] : []}
+        isFavorite={selectedUser ? favorites.includes(selectedUser.id) : false}
+        onToggleFavorite={selectedUser ? (e) => toggleFavorite(selectedUser.id, e) : undefined}
+      />
 
-      {/* Create/Edit Dialog */}
-      <Dialog
-        open={openDialog}
-        onClose={handleCloseDialog}
-        maxWidth="md"
-        fullWidth
-        fullScreen={false}
-        sx={{
-          "& .MuiDialog-paper": {
-            margin: { xs: 1, sm: 2 },
-            maxHeight: { xs: "calc(100% - 16px)", sm: "calc(100% - 64px)" },
-          },
-        }}
-      >
-        <DialogTitle>
-          {editingUser ? "Edit User" : "Create New User"}
-        </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} sm={6}>
+      <ActionToolbar
+        canCreate={canCreate}
+        canUpdate={canUpdate}
+        canDelete={canDelete}
+        canDuplicate={false}
+        hasSelectedItem={!!selectedUser}
+        isCreating={isCreating}
+        isEditing={isEditing}
+        isSaving={saving}
+        isFormValid={!!isFormValid}
+        onNew={handleCreate}
+        onDelete={handleDelete}
+        onSave={handleSave}
+        onCancel={handleCancel}
+        onEdit={handleEdit}
+      />
+
+      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+        {!selectedUser && !isCreating ? (
+          <EmptyState message="Select a user from the list or create a new one" />
+        ) : (
+          <>
+            {error && (
+              <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+
+            {/* Account Information */}
+            <FormSection title="Account Information" columns={2}>
               <TextField
-                fullWidth
                 label="Username"
                 value={formData.username}
-                onChange={(e) =>
-                  setFormData({ ...formData, username: e.target.value })
-                }
+                onChange={(e) => {
+                  setFormData({ ...formData, username: e.target.value });
+                  setUsernameError(null);
+                }}
+                disabled={isDisabled}
                 required
-                disabled={!!editingUser}
+                size="small"
+                fullWidth
+                autoComplete="off"
+                error={!!usernameError}
+                helperText={usernameError}
               />
-            </Grid>
-            {!editingUser && (
-              <Grid item xs={12} sm={6}>
+              {isCreating && (
                 <TextField
-                  fullWidth
                   label="Password"
                   type="password"
                   value={formData.password}
-                  onChange={(e) =>
-                    setFormData({ ...formData, password: e.target.value })
-                  }
+                  onChange={(e) => handlePasswordChange(e.target.value)}
                   required
+                  size="small"
+                  fullWidth
+                  autoComplete="new-password"
+                  error={!!passwordError}
+                  helperText={passwordError || "Min 8 chars, uppercase, lowercase, number, special char"}
                 />
-              </Grid>
-            )}
-            <Grid item xs={12} sm={6}>
+              )}
               <TextField
-                fullWidth
                 label="Email"
                 type="email"
                 value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                disabled={isDisabled}
                 required
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
+                size="small"
                 fullWidth
+              />
+              <TextField
+                label="Employee ID"
+                value={formData.employee_id}
+                onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })}
+                disabled={isDisabled}
+                required
+                size="small"
+                fullWidth
+              />
+            </FormSection>
+
+            {/* Personal Information */}
+            <FormSection title="Personal Information" columns={3}>
+              <TextField
                 label="First Name"
                 value={formData.first_name}
-                onChange={(e) =>
-                  setFormData({ ...formData, first_name: e.target.value })
-                }
+                onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                disabled={isDisabled}
                 required
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
+                size="small"
                 fullWidth
+              />
+              <TextField
                 label="Middle Name"
                 value={formData.middle_name}
-                onChange={(e) =>
-                  setFormData({ ...formData, middle_name: e.target.value })
-                }
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
+                onChange={(e) => setFormData({ ...formData, middle_name: e.target.value })}
+                disabled={isDisabled}
+                size="small"
                 fullWidth
+              />
+              <TextField
                 label="Last Name"
                 value={formData.last_name}
-                onChange={(e) =>
-                  setFormData({ ...formData, last_name: e.target.value })
-                }
+                onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                disabled={isDisabled}
                 required
+                size="small"
+                fullWidth
               />
-            </Grid>
-            {!editingUser && (
-              <>
-                <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Gender</InputLabel>
-                    <Select
-                      value={formData.gender}
-                      onChange={(e) =>
-                        setFormData({ ...formData, gender: e.target.value })
-                      }
-                      label="Gender"
-                    >
-                      <MenuItem value="Male">Male</MenuItem>
-                      <MenuItem value="Female">Female</MenuItem>
-                      <MenuItem value="Other">Other</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Birthdate"
-                    type="date"
-                    value={formData.birthdate}
-                    onChange={(e) =>
-                      setFormData({ ...formData, birthdate: e.target.value })
-                    }
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Occupation"
-                    value={formData.occupation}
-                    onChange={(e) =>
-                      setFormData({ ...formData, occupation: e.target.value })
-                    }
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Employee ID"
-                    value={formData.employee_id}
-                    onChange={(e) =>
-                      setFormData({ ...formData, employee_id: e.target.value })
-                    }
-                    required
-                  />
-                </Grid>
-              </>
-            )}
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Branches</InputLabel>
-                <Select
-                  multiple
-                  value={formData.branch_ids || []}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      branch_ids: e.target.value as number[],
-                    })
-                  }
-                  input={<OutlinedInput label="Branches" />}
-                  renderValue={(selected) =>
-                    branches
-                      .filter((b) => selected.includes(b.id))
-                      .map((b) => b.branch_name)
-                      .join(", ")
-                  }
-                >
-                  {branches.map((branch) => (
-                    <MenuItem key={branch.id} value={branch.id}>
-                      <Checkbox
-                        checked={formData.branch_ids?.includes(branch.id)}
-                      />
-                      <ListItemText primary={branch.branch_name} />
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Roles</InputLabel>
-                <Select
-                  multiple
-                  value={formData.group_ids || []}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      group_ids: e.target.value as number[],
-                    })
-                  }
-                  input={<OutlinedInput label="Roles" />}
-                  renderValue={(selected) =>
-                    groups
-                      .filter((g) => selected.includes(g.id))
-                      .map((g) => g.name)
-                      .join(", ")
-                  }
-                >
-                  {groups.map((group) => (
-                    <MenuItem key={group.id} value={group.id}>
-                      <Checkbox
-                        checked={formData.group_ids?.includes(group.id)}
-                      />
-                      <ListItemText primary={group.name} />
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl>
-                <Box display="flex" alignItems="center" gap={2}>
-                  <Box>
+              <Autocomplete
+                options={["Male", "Female", "Other"]}
+                value={formData.gender || "Male"}
+                onChange={(_, newValue) => setFormData({ ...formData, gender: newValue || "Male" })}
+                disabled={isDisabled}
+                renderInput={(params) => <TextField {...params} label="Gender" size="small" />}
+                fullWidth
+              />
+              <TextField
+                label="Birthdate"
+                type="date"
+                value={formData.birthdate}
+                onChange={(e) => setFormData({ ...formData, birthdate: e.target.value })}
+                disabled={isDisabled}
+                size="small"
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                label="Occupation"
+                value={formData.occupation}
+                onChange={(e) => setFormData({ ...formData, occupation: e.target.value })}
+                disabled={isDisabled}
+                required
+                size="small"
+                fullWidth
+              />
+            </FormSection>
+
+            {/* Access & Permissions */}
+            <FormSection title="Access & Permissions" columns={2}>
+              <Autocomplete
+                multiple
+                options={branches}
+                getOptionLabel={(option) => option.branch_name}
+                value={branches.filter((b) => formData.branch_ids?.includes(b.id))}
+                onChange={(_, newValue) => setFormData({ ...formData, branch_ids: newValue.map((b) => b.id) })}
+                disabled={isDisabled}
+                renderInput={(params) => (
+                  <TextField {...params} label="Branches" placeholder="Search branches..." size="small" />
+                )}
+                renderOption={(props, option, { selected }) => (
+                  <li {...props}>
+                    <Checkbox checked={selected} sx={{ mr: 1 }} size="small" />
+                    {option.branch_name}
+                  </li>
+                )}
+                disableCloseOnSelect
+                fullWidth
+              />
+              <Autocomplete
+                multiple
+                options={groups}
+                getOptionLabel={(option) => option.name}
+                value={groups.filter((g) => formData.group_ids?.includes(g.id))}
+                onChange={(_, newValue) => setFormData({ ...formData, group_ids: newValue.map((g) => g.id) })}
+                disabled={isDisabled}
+                renderInput={(params) => (
+                  <TextField {...params} label="Roles" placeholder="Search roles..." size="small" />
+                )}
+                renderOption={(props, option, { selected }) => (
+                  <li {...props}>
+                    <Checkbox checked={selected} sx={{ mr: 1 }} size="small" />
+                    {option.name}
+                  </li>
+                )}
+                disableCloseOnSelect
+                fullWidth
+              />
+              <Box sx={{ display: "flex", gap: 3, gridColumn: "1 / -1" }}>
+                <FormControl>
+                  <Box display="flex" alignItems="center">
                     <Checkbox
                       checked={formData.is_active}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          is_active: e.target.checked,
-                        })
-                      }
+                      onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                      disabled={isDisabled}
+                      size="small"
                     />
-                    Active
+                    <Typography variant="body2">Active</Typography>
                   </Box>
-                  <Box>
+                </FormControl>
+                <FormControl>
+                  <Box display="flex" alignItems="center">
                     <Checkbox
                       checked={formData.is_staff}
-                      onChange={(e) =>
-                        setFormData({ ...formData, is_staff: e.target.checked })
-                      }
+                      onChange={(e) => setFormData({ ...formData, is_staff: e.target.checked })}
+                      disabled={isDisabled}
+                      size="small"
                     />
-                    Staff
+                    <Typography variant="body2">Staff</Typography>
                   </Box>
-                </Box>
-              </FormControl>
-            </Grid>
-          </Grid>
-          {error && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {error}
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">
-            {editingUser ? "Update" : "Create"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+                </FormControl>
+              </Box>
+            </FormSection>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={deleteConfirmOpen}
-        onClose={() => setDeleteConfirmOpen(false)}
-      >
-        <DialogTitle>Confirm Delete</DialogTitle>
-        <DialogContent>
-          Are you sure you want to delete user "{userToDelete?.username}"?
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteConfirmOpen(false)}>Cancel</Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
+            {/* Assigned Branches (View Mode) */}
+            {selectedUser && !isEditing && !isCreating && selectedUser.branches.length > 0 && (
+              <FormSection title="Assigned Branches" columns={1}>
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                  {selectedUser.branches.map((branch) => (
+                    <Chip
+                      key={branch.id}
+                      label={`${branch.branch_name} (${branch.branch_code})`}
+                      size="small"
+                      variant="outlined"
+                      color="primary"
+                    />
+                  ))}
+                </Box>
+              </FormSection>
+            )}
+
+            {/* Assigned Roles (View Mode) */}
+            {selectedUser && !isEditing && !isCreating && selectedUser.groups && selectedUser.groups.length > 0 && (
+              <FormSection title="Assigned Roles" columns={1}>
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                  {selectedUser.groups.map((group) => (
+                    <Chip
+                      key={group.id}
+                      label={group.name}
+                      size="small"
+                      variant="outlined"
+                      color="secondary"
+                    />
+                  ))}
+                </Box>
+              </FormSection>
+            )}
+          </>
+        )}
+      </Box>
     </Box>
+  );
+
+  return (
+    <MasterDetailLayout
+      title="User Management"
+      icon={<PersonIcon color="primary" />}
+      onRefresh={loadData}
+      isLoading={loading}
+      masterPanel={masterPanel}
+      detailPanel={detailPanel}
+    />
   );
 }

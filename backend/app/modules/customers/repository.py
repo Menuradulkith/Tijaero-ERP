@@ -1,4 +1,5 @@
 from typing import List, Optional
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.modules.customers.models import Customer
@@ -13,15 +14,16 @@ class CustomerRepository:
     
     def search(self, db: Session, query: str, skip: int = 0, limit: int = 100) -> List[Customer]:
         search_filter = or_(
-            Customer.name.ilike(f"%{query}%"),
+            Customer.customer_name.ilike(f"%{query}%"),
             Customer.email.ilike(f"%{query}%"),
-            Customer.phone.ilike(f"%{query}%")
+            Customer.mobile_contact_number.ilike(f"%{query}%")
         )
         return db.query(Customer).filter(search_filter).offset(skip).limit(limit).all()
     
     def create(self, db: Session, customer: CustomerCreate, created_by: int) -> Customer:
         db_customer = Customer(
             **customer.dict(),
+            date_joined=datetime.utcnow(),
             created_by=created_by,
             updated_by=created_by
         )

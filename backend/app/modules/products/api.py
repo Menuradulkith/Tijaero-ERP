@@ -144,6 +144,36 @@ def create_category(
     """Create a new category."""
     return service.category_service.create_category(db, category, current_user.id)
 
+@router.put(
+    "/categories/{category_id}",
+    response_model=schemas.Category,
+    summary="Update Category",
+    dependencies=[Depends(require_permission(*Permissions.INVENTORY_UPDATE))]
+)
+def update_category(
+    category_id: int,
+    category: schemas.CategoryUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.INVENTORY_UPDATE))
+):
+    """Update a category."""
+    return service.category_service.update_category(db, category_id, category, current_user.id)
+
+@router.delete(
+    "/categories/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete Category",
+    dependencies=[Depends(require_permission(*Permissions.INVENTORY_DELETE))]
+)
+def delete_category(
+    category_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.INVENTORY_DELETE))
+):
+    """Delete a category."""
+    service.category_service.delete_category(db, category_id)
+    return None
+
 # Brand Endpoints
 @router.get(
     "/brands/",
@@ -160,6 +190,20 @@ def list_brands(
     """Get list of all brands."""
     return service.brand_service.get_all_brands(db, skip, limit)
 
+@router.get(
+    "/brands/{brand_id}",
+    response_model=schemas.Brand,
+    summary="Get Brand",
+    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))]
+)
+def get_brand(
+    brand_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW))
+):
+    """Get a brand by ID."""
+    return service.brand_service.get_brand(db, brand_id)
+
 @router.post(
     "/brands/",
     response_model=schemas.Brand,
@@ -174,3 +218,33 @@ def create_brand(
 ):
     """Create a new brand."""
     return service.brand_service.create_brand(db, brand)
+
+@router.put(
+    "/brands/{brand_id}",
+    response_model=schemas.Brand,
+    summary="Update Brand",
+    dependencies=[Depends(require_permission(*Permissions.INVENTORY_UPDATE))]
+)
+def update_brand(
+    brand_id: int,
+    brand: schemas.BrandUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.INVENTORY_UPDATE))
+):
+    """Update a brand."""
+    return service.brand_service.update_brand(db, brand_id, brand)
+
+@router.delete(
+    "/brands/{brand_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete Brand",
+    dependencies=[Depends(require_permission(*Permissions.INVENTORY_DELETE))]
+)
+def delete_brand(
+    brand_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.INVENTORY_DELETE))
+):
+    """Delete a brand."""
+    service.brand_service.delete_brand(db, brand_id)
+    return None

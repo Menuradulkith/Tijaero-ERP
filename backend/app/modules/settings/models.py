@@ -1,8 +1,39 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.base import Base
 
+
+class Settings(Base):
+    """Company-wide settings and configuration"""
+    __tablename__ = "settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_name = Column(String(255), nullable=False)
+    company_address = Column(Text, nullable=False)
+    company_telephone_number = Column(String(12))
+    company_fax_number = Column(String(12))
+    company_email = Column(String(254), nullable=False)
+    company_logo_id = Column(Integer)
+    
+    # Financial settings
+    depreciation_rate = Column(Float, nullable=False, default=0.0)
+    
+    # Leave settings
+    number_of_annual_leaves = Column(Integer, nullable=False, default=14)
+    number_of_casual_leaves = Column(Integer, nullable=False, default=7)
+    number_of_medical_leaves = Column(Integer, nullable=False, default=0)
+    
+    # Card surcharge settings
+    amex_card_surcharge = Column(Float, nullable=False, default=3.0)
+    visa_card_surcharge = Column(Float, nullable=False, default=2.7)
+    master_card_surcharge = Column(Float, nullable=False, default=2.7)
+    
+    # Additional settings
+    fiscal_year_start = Column(String(10), default="01-01")  # MM-DD format
+    default_currency = Column(String(3), default="LKR")
+    tax_registration_number = Column(String(50))
+    
 
 class UserNotification(Base):
     """User notifications"""

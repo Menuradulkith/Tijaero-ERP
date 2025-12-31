@@ -33,7 +33,14 @@ export interface UserList {
   is_superuser: boolean;
   is_staff: boolean;
   employee_id: string;
+  occupation: string;
   branches: BranchSimple[];
+  groups: GroupSimple[];
+}
+
+export interface GroupSimple {
+  id: number;
+  name: string;
 }
 
 export interface BranchSimple {
@@ -96,6 +103,16 @@ export const usersApi = {
       `/users?skip=${(page - 1) * size}&limit=${size}`
     );
     return response.data;
+  },
+
+  // Check if username exists
+  checkUsernameExists: async (username: string): Promise<boolean> => {
+    try {
+      const response = await apiClient.get(`/users/check-username/${username}`);
+      return response.data.exists;
+    } catch {
+      return false;
+    }
   },
 
   // Get current user

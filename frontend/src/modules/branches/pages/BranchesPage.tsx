@@ -1,82 +1,150 @@
-import { useState } from "react";
+/**
+ * BranchesPage - Refactored to use Tijaero-style reusable components
+ * 
+ * This page demonstrates how to use the Tijaero component library:
+ * - MasterDetailLayout for overall page structure
+ * - SearchableList for the master list panel
+ * - SelectableListItem for list items
+ * - DetailPanelHeader for detail panel header
+ * - ActionToolbar for action buttons
+ * - FormSection for form sections
+ * - EmptyState for empty states
+ * - useMasterDetailState hook for state management
+ */
+
+import { useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Card,
-  IconButton,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-  Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  Grid,
-  useMediaQuery,
-  useTheme,
-  Stack,
-  Paper,
-} from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Box, TextField } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
-import EmailIcon from "@mui/icons-material/Email";
-import PhoneIcon from "@mui/icons-material/Phone";
-import LocationOnIcon from "@mui/icons-material/LocationOn";
 import toast from "react-hot-toast";
+
+// Tijaero Components - Import everything from one place
+import {
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  DetailPanelHeader,
+  ActionToolbar,
+  FormSection,
+  EmptyState,
+  useMasterDetailState,
+  SortOption,
+} from "@/components/tijaero";
+
 import { branchApi } from "../api";
 import type { Branch, BranchCreate } from "@/api/types";
 
+// Configuration - Define once, use everywhere
+const SORT_OPTIONS: SortOption[] = [
+  { value: "branch_code", label: "Branch Code" },
+  { value: "branch_name", label: "Branch Name" },
+];
+
+const INITIAL_FORM_DATA: BranchCreate = {
+  branch_name: "",
+  branch_code: "",
+  address: "",
+  email: "",
+  contact_number: "",
+};
+
+const resetFormFromBranch = (branch: Branch): BranchCreate => ({
+  branch_name: branch.branch_name,
+  branch_code: branch.branch_code,
+  address: branch.address || "",
+  email: branch.email || "",
+  contact_number: branch.contact_number || "",
+});
+
 export default function BranchesPage() {
   const queryClient = useQueryClient();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const isTablet = useMediaQuery(theme.breakpoints.down("md"));
 
-  const [openDialog, setOpenDialog] = useState(false);
-  const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
-  const [formData, setFormData] = useState<BranchCreate>({
-    branch_name: "",
-    branch_code: "",
-    address: "",
-    email: "",
-    contact_number: "",
+  // Use the reusable state management hook
+  const {
+    searchQuery,
+    setSearchQuery,
+    sortField,
+    setSortField,
+    selectedItem: selectedBranch,
+    isEditing,
+    setIsEditing,
+    isCreating,
+    setIsCreating,
+    favorites,
+    toggleFavorite,
+    formData,
+    setFormData,
+    handleSelectItem: handleSelectBranch,
+    handleNew: handleNewBranch,
+    handleCancel,
+    handleStartEdit,
+  } = useMasterDetailState<Branch, BranchCreate>({
+    initialFormData: INITIAL_FORM_DATA,
+    resetFormFromItem: resetFormFromBranch,
+    favoritesKey: "branches_favorites",
+    defaultSortField: "branch_code",
   });
 
-  const { data, isLoading } = useQuery({
+  // Data fetching
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ["branches"],
     queryFn: () => branchApi.getAll(1, 100),
   });
 
+  // Filter and sort branches
+  const filteredBranches = useMemo(() => {
+    if (!data?.items) return [];
+
+    let filtered = data.items.filter(
+      (branch) =>
+        branch.branch_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        branch.branch_name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    filtered.sort((a, b) => {
+      if (sortField === "branch_code") {
+        return a.branch_code.localeCompare(b.branch_code);
+      } else if (sortField === "branch_name") {
+        return a.branch_name.localeCompare(b.branch_name);
+      }
+      return 0;
+    });
+
+    return filtered;
+  }, [data?.items, searchQuery, sortField]);
+
+  // Mutations
   const createMutation = useMutation({
     mutationFn: branchApi.create,
-    onSuccess: () => {
+    onSuccess: (newBranch) => {
+      console.log("[BranchesPage] Create success:", newBranch);
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       toast.success("Branch created successfully");
-      handleCloseDialog();
+      // Reset state first to avoid "unsaved changes" prompt
+      setIsCreating(false);
+      setIsEditing(false);
+      // Then select the new branch (with slight delay to allow state update)
+      setTimeout(() => handleSelectBranch(newBranch), 0);
     },
     onError: (error: any) => {
+      console.error("[BranchesPage] Create error:", error);
+      console.error("[BranchesPage] Error response:", error.response);
       toast.error(error.response?.data?.detail || "Failed to create branch");
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) =>
+    mutationFn: ({ id, data }: { id: number; data: BranchCreate }) =>
       branchApi.update(id, data),
     onSuccess: () => {
+      console.log("[BranchesPage] Update success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       toast.success("Branch updated successfully");
-      handleCloseDialog();
+      setIsEditing(false);
     },
     onError: (error: any) => {
+      console.error("[BranchesPage] Update error:", error);
+      console.error("[BranchesPage] Error response:", error.response);
       toast.error(error.response?.data?.detail || "Failed to update branch");
     },
   });
@@ -84,337 +152,183 @@ export default function BranchesPage() {
   const deleteMutation = useMutation({
     mutationFn: branchApi.delete,
     onSuccess: () => {
+      console.log("[BranchesPage] Delete success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       toast.success("Branch deleted successfully");
+      handleCancel(filteredBranches);
     },
     onError: (error: any) => {
+      console.error("[BranchesPage] Delete error:", error);
+      console.error("[BranchesPage] Error response:", error.response);
       toast.error(error.response?.data?.detail || "Failed to delete branch");
     },
   });
 
-  const handleOpenDialog = (branch?: Branch) => {
-    if (branch) {
-      setEditingBranch(branch);
-      setFormData({
-        branch_name: branch.branch_name,
-        branch_code: branch.branch_code,
-        address: branch.address || "",
-        email: branch.email || "",
-        contact_number: branch.contact_number || "",
-      });
-    } else {
-      setEditingBranch(null);
-      setFormData({
-        branch_name: "",
-        branch_code: "",
-        address: "",
-        email: "",
-        contact_number: "",
-      });
-    }
-    setOpenDialog(true);
-  };
-
-  const handleCloseDialog = () => {
-    setOpenDialog(false);
-    setEditingBranch(null);
-  };
-
-  const handleSubmit = () => {
-    if (editingBranch) {
-      updateMutation.mutate({ id: editingBranch.id, data: formData });
-    } else {
+  // Handlers
+  const handleSave = useCallback(() => {
+    console.log("[BranchesPage] handleSave called:", { isCreating, isEditing, selectedBranch, formData });
+    if (isCreating) {
+      console.log("[BranchesPage] Creating new branch:", formData);
       createMutation.mutate(formData);
+    } else if (selectedBranch) {
+      console.log("[BranchesPage] Updating branch:", selectedBranch.id, formData);
+      updateMutation.mutate({ id: selectedBranch.id, data: formData });
+    } else {
+      console.warn("[BranchesPage] handleSave called but no action taken - isCreating:", isCreating, "selectedBranch:", selectedBranch);
     }
-  };
+  }, [isCreating, isEditing, selectedBranch, formData, createMutation, updateMutation]);
 
-  const handleDelete = (id: number) => {
-    if (window.confirm("Are you sure you want to delete this branch?")) {
-      deleteMutation.mutate(id);
+  const handleDelete = useCallback(() => {
+    if (selectedBranch && window.confirm("Are you sure you want to delete this branch?")) {
+      deleteMutation.mutate(selectedBranch.id);
     }
-  };
+  }, [selectedBranch, deleteMutation]);
 
-  // Mobile Card View
-  const MobileCard = ({ branch }: { branch: Branch }) => (
-    <Paper
-      elevation={2}
-      sx={{
-        p: 2,
-        mb: 2,
-        borderLeft: 4,
-        borderColor: "primary.main",
-      }}
-    >
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <BusinessIcon color="primary" />
-          <Typography variant="h6" fontWeight={600}>
-            {branch.branch_name}
-          </Typography>
-        </Box>
-        <Chip label={branch.branch_code} color="primary" size="small" />
+  const handleDuplicate = useCallback(() => {
+    if (selectedBranch) {
+      setFormData({
+        ...formData,
+        branch_code: `${selectedBranch.branch_code}-COPY`,
+        branch_name: `${selectedBranch.branch_name} (Copy)`,
+      });
+      handleNewBranch();
+    }
+  }, [selectedBranch, formData, setFormData, handleNewBranch]);
+
+  const isFormValid = formData.branch_code && formData.branch_name;
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  // Render Master List using Tijaero SearchableList component
+  const masterPanel = (
+    <SearchableList<Branch>
+      items={filteredBranches}
+      isLoading={isLoading}
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
+      placeholder="Search branches..."
+      sortOptions={SORT_OPTIONS}
+      sortField={sortField}
+      onSortChange={setSortField}
+      selectedItem={selectedBranch}
+      onSelectItem={handleSelectBranch}
+      emptyMessage="No branches found"
+      renderItem={(branch, isSelected) => (
+        <SelectableListItem
+          key={branch.id}
+          id={branch.id}
+          isSelected={isSelected}
+          onClick={() => handleSelectBranch(branch)}
+          primaryText={branch.branch_code}
+          secondaryText={`Name: ${branch.branch_name}`}
+          isFavorite={favorites.includes(branch.id)}
+          onToggleFavorite={(e) => toggleFavorite(branch.id, e)}
+        />
+      )}
+    />
+  );
+
+  // Render Detail Panel
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* Header */}
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "Branches", href: "#" },
+          ...(selectedBranch || isCreating
+            ? [{ label: isCreating ? "New Branch" : selectedBranch?.branch_code || "" }]
+            : []),
+        ]}
+        title={
+          selectedBranch
+            ? `${selectedBranch.branch_code} - ${selectedBranch.branch_name}`
+            : ""
+        }
+        titleIcon={<BusinessIcon color="primary" />}
+        isCreating={isCreating}
+        createTitle="New Branch"
+        noSelectionTitle="Select a Branch"
+        isFavorite={selectedBranch ? favorites.includes(selectedBranch.id) : false}
+        onToggleFavorite={selectedBranch ? (e) => toggleFavorite(selectedBranch.id, e) : undefined}
+      />
+
+      {/* Toolbar */}
+      <ActionToolbar
+        hasSelectedItem={!!selectedBranch}
+        isCreating={isCreating}
+        isEditing={isEditing}
+        isSaving={isSaving}
+        isFormValid={!!isFormValid}
+        onNew={handleNewBranch}
+        onDuplicate={handleDuplicate}
+        onDelete={handleDelete}
+        onSave={handleSave}
+        onCancel={() => handleCancel(filteredBranches)}
+        onEdit={handleStartEdit}
+      />
+
+      {/* Content */}
+      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+        {!selectedBranch && !isCreating ? (
+          <EmptyState message="Select a branch from the list or create a new one" />
+        ) : (
+          <FormSection title="Branch Information" columns={2}>
+            <TextField
+              label="Branch Code"
+              size="small"
+              value={formData.branch_code}
+              onChange={(e) =>
+                setFormData({ ...formData, branch_code: e.target.value.toUpperCase() })
+              }
+              disabled={!isCreating}
+              required
+              inputProps={{ style: { textTransform: "uppercase" } }}
+            />
+            <TextField
+              label="Branch Name"
+              size="small"
+              value={formData.branch_name}
+              onChange={(e) => setFormData({ ...formData, branch_name: e.target.value })}
+              disabled={!isCreating}
+              required
+            />
+            <TextField
+              label="Email"
+              size="small"
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              disabled={!isEditing && !isCreating}
+            />
+            <TextField
+              label="Contact Number"
+              size="small"
+              value={formData.contact_number}
+              onChange={(e) => setFormData({ ...formData, contact_number: e.target.value })}
+              disabled={!isEditing && !isCreating}
+            />
+            <TextField
+              label="Address"
+              size="small"
+              value={formData.address}
+              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              disabled={!isEditing && !isCreating}
+              multiline
+              rows={2}
+              sx={{ gridColumn: { sm: "1 / -1" } }}
+            />
+          </FormSection>
+        )}
       </Box>
-
-      <Stack spacing={1} sx={{ mt: 2 }}>
-        {branch.address && (
-          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-            <LocationOnIcon fontSize="small" color="action" />
-            <Typography variant="body2" color="text.secondary">
-              {branch.address}
-            </Typography>
-          </Box>
-        )}
-        {branch.email && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <EmailIcon fontSize="small" color="action" />
-            <Typography variant="body2" color="text.secondary">
-              {branch.email}
-            </Typography>
-          </Box>
-        )}
-        {branch.contact_number && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <PhoneIcon fontSize="small" color="action" />
-            <Typography variant="body2" color="text.secondary">
-              {branch.contact_number}
-            </Typography>
-          </Box>
-        )}
-      </Stack>
-
-      <Box sx={{ display: "flex", gap: 1, mt: 2, justifyContent: "flex-end" }}>
-        <IconButton
-          size="small"
-          onClick={() => handleOpenDialog(branch)}
-          color="primary"
-        >
-          <EditIcon />
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={() => handleDelete(branch.id)}
-          color="error"
-        >
-          <DeleteIcon />
-        </IconButton>
-      </Box>
-    </Paper>
+    </Box>
   );
 
   return (
-    <Box sx={{ width: "100%", maxWidth: "100%" }}>
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: { xs: "column", sm: "row" },
-          justifyContent: "space-between",
-          alignItems: { xs: "flex-start", sm: "center" },
-          gap: 2,
-          mb: 3,
-        }}
-      >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <BusinessIcon
-            sx={{ fontSize: { xs: 28, sm: 32 }, color: "primary.main" }}
-          />
-          <Typography variant={isMobile ? "h5" : "h4"} fontWeight={600}>
-            Branches
-          </Typography>
-        </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-          fullWidth={isMobile}
-          size={isMobile ? "medium" : "large"}
-        >
-          Add Branch
-        </Button>
-      </Box>
-
-      {isMobile || isTablet ? (
-        // Mobile/Tablet Card View
-        <Box>
-          {isLoading ? (
-            <Typography align="center" sx={{ py: 4 }}>
-              Loading...
-            </Typography>
-          ) : data?.items.length === 0 ? (
-            <Paper sx={{ p: 4, textAlign: "center" }}>
-              <BusinessIcon
-                sx={{ fontSize: 48, color: "text.secondary", mb: 2 }}
-              />
-              <Typography color="text.secondary">No branches found</Typography>
-            </Paper>
-          ) : (
-            data?.items.map((branch) => (
-              <MobileCard key={branch.id} branch={branch} />
-            ))
-          )}
-        </Box>
-      ) : (
-        // Desktop Table View
-        <Card sx={{ width: "100%" }}>
-          <TableContainer>
-            <Table sx={{ minWidth: 650 }}>
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 600 }}>Branch Code</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Branch Name</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Address</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Email</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Contact</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>
-                    Actions
-                  </TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center">
-                      Loading...
-                    </TableCell>
-                  </TableRow>
-                ) : data?.items.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center">
-                      No branches found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  data?.items.map((branch) => (
-                    <TableRow key={branch.id}>
-                      <TableCell>
-                        <Chip
-                          label={branch.branch_code}
-                          color="primary"
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Typography fontWeight={500}>
-                          {branch.branch_name}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>{branch.address || "-"}</TableCell>
-                      <TableCell>{branch.email || "-"}</TableCell>
-                      <TableCell>{branch.contact_number || "-"}</TableCell>
-                      <TableCell align="right">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleOpenDialog(branch)}
-                          color="primary"
-                        >
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDelete(branch.id)}
-                          color="error"
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Card>
-      )}
-
-      {/* Create/Edit Dialog */}
-      <Dialog
-        open={openDialog}
-        onClose={handleCloseDialog}
-        maxWidth="sm"
-        fullWidth
-        fullScreen={isMobile}
-      >
-        <DialogTitle>
-          {editingBranch ? "Edit Branch" : "Create New Branch"}
-        </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Branch Code"
-                value={formData.branch_code}
-                onChange={(e) =>
-                  setFormData({ ...formData, branch_code: e.target.value })
-                }
-                required
-                disabled={!!editingBranch}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Branch Name"
-                value={formData.branch_name}
-                onChange={(e) =>
-                  setFormData({ ...formData, branch_name: e.target.value })
-                }
-                required
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Address"
-                value={formData.address}
-                onChange={(e) =>
-                  setFormData({ ...formData, address: e.target.value })
-                }
-                multiline
-                rows={2}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Email"
-                type="email"
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Contact Number"
-                value={formData.contact_number}
-                onChange={(e) =>
-                  setFormData({ ...formData, contact_number: e.target.value })
-                }
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={handleCloseDialog} fullWidth={isMobile}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            variant="contained"
-            disabled={
-              !formData.branch_name ||
-              !formData.branch_code ||
-              createMutation.isPending ||
-              updateMutation.isPending
-            }
-            fullWidth={isMobile}
-          >
-            {editingBranch ? "Update" : "Create"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+    <MasterDetailLayout
+      title="Branches"
+      onRefresh={refetch}
+      isLoading={isLoading}
+      masterPanel={masterPanel}
+      detailPanel={detailPanel}
+    />
   );
 }

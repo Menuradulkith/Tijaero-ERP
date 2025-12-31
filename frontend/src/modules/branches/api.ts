@@ -23,12 +23,26 @@ export const branchApi = {
   },
 
   create: async (data: BranchCreate): Promise<Branch> => {
-    const response = await apiClient.post<Branch>("/branches", data);
+    // Clean up empty strings to null for optional EmailStr fields
+    const cleanData = {
+      ...data,
+      email: data.email?.trim() || null,
+      address: data.address?.trim() || null,
+      contact_number: data.contact_number?.trim() || null,
+    };
+    const response = await apiClient.post<Branch>("/branches", cleanData);
     return response.data;
   },
 
   update: async (id: number, data: BranchUpdate): Promise<Branch> => {
-    const response = await apiClient.put<Branch>(`/branches/${id}`, data);
+    // Clean up empty strings to null for optional EmailStr fields
+    const cleanData = {
+      ...data,
+      email: data.email?.trim() || null,
+      address: data.address?.trim() || null,
+      contact_number: data.contact_number?.trim() || null,
+    };
+    const response = await apiClient.put<Branch>(`/branches/${id}`, cleanData);
     return response.data;
   },
 
