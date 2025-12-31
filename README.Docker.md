@@ -23,9 +23,11 @@ This will start:
 - Backend API on port 8000
 - Frontend on port 3000
 - Adminer (Database UI) on port 8080
+- pgAdmin (PostgreSQL Admin) on port 5050
 
 Access the application at: http://localhost:3000
 Access Adminer at: http://localhost:8080
+Access pgAdmin at: http://localhost:5050
 
 ### 2. Development Mode (with hot reload)
 
@@ -41,9 +43,11 @@ This will start:
 - Backend API on port 8000 (with hot reload)
 - Frontend on port 5173 (Vite dev server)
 - Adminer (Database UI) on port 8080
+- pgAdmin (PostgreSQL Admin) on port 5050
 
 Access the application at: http://localhost:5173
 Access Adminer at: http://localhost:8080
+Access pgAdmin at: http://localhost:5050
 
 ## Environment Configuration
 
@@ -147,6 +151,51 @@ Edit `.env` file:
 ADMINER_PORT=8081
 ```
 
+## pgAdmin - PostgreSQL Administration Tool
+
+pgAdmin is a feature-rich PostgreSQL administration tool. Access it at http://localhost:5050
+
+### Login Credentials
+
+- **Email**: admin@example.com (or value from .env PGADMIN_DEFAULT_EMAIL)
+- **Password**: admin (or value from .env PGADMIN_DEFAULT_PASSWORD)
+
+### First Time Setup - Add Database Server
+
+After logging into pgAdmin:
+
+1. Right-click "Servers" in the left panel
+2. Select "Register" → "Server"
+3. In the "General" tab:
+   - **Name**: ERP Database (or any name you prefer)
+4. In the "Connection" tab:
+   - **Host name/address**: postgres
+   - **Port**: 5432
+   - **Maintenance database**: erp_db
+   - **Username**: erp_user (or value from .env POSTGRES_USER)
+   - **Password**: erp_password (or value from .env POSTGRES_PASSWORD)
+   - Check "Save password" for convenience
+5. Click "Save"
+
+### Features
+
+- Advanced query tool with syntax highlighting
+- Visual query builder
+- Database schema designer
+- Backup and restore tools
+- User and permission management
+- Performance monitoring
+- Import/Export data
+- ERD (Entity Relationship Diagram) generation
+
+### Change pgAdmin Port
+
+Edit `.env` file:
+
+```env
+PGADMIN_PORT=5051
+```
+
 ## Database Migrations
 
 Migrations run automatically when the backend starts. To run manually:
@@ -172,6 +221,7 @@ POSTGRES_PORT=5433
 BACKEND_PORT=8001
 FRONTEND_PORT=3001
 ADMINER_PORT=8081
+PGADMIN_PORT=5051
 ```
 
 ### Database connection issues
@@ -232,6 +282,7 @@ For production:
 ## Volumes
 
 - `postgres_data`: Persistent PostgreSQL data
+- `pgadmin_data`: Persistent pgAdmin configuration and settings
 - Backend and Frontend code are mounted as volumes in dev mode for hot reload
 
 ## Networks

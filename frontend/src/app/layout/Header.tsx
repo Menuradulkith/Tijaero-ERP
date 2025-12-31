@@ -8,15 +8,19 @@ import {
   Menu,
   MenuItem,
   Divider,
+  ListItemIcon,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import SettingsIcon from "@mui/icons-material/Settings";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import LogoutIcon from "@mui/icons-material/Logout";
+import Brightness4Icon from "@mui/icons-material/Brightness4";
+import Brightness7Icon from "@mui/icons-material/Brightness7";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/state/authStore";
+import { useThemeStore } from "@/state/themeStore";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -26,6 +30,7 @@ interface HeaderProps {
 export default function Header({ onMenuClick, drawerWidth }: HeaderProps) {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  const { mode, toggleTheme } = useThemeStore();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
@@ -116,6 +121,16 @@ export default function Header({ onMenuClick, drawerWidth }: HeaderProps) {
           <MenuItem onClick={handleClose}>
             <AccountCircleIcon sx={{ mr: 1 }} fontSize="small" />
             Profile
+          </MenuItem>
+          <MenuItem onClick={toggleTheme}>
+            <ListItemIcon>
+              {mode === "dark" ? (
+                <Brightness7Icon fontSize="small" />
+              ) : (
+                <Brightness4Icon fontSize="small" />
+              )}
+            </ListItemIcon>
+            {mode === "dark" ? "Light Mode" : "Dark Mode"}
           </MenuItem>
           <MenuItem onClick={handleClose}>
             <SettingsIcon sx={{ mr: 1 }} fontSize="small" />

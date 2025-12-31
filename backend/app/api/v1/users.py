@@ -44,6 +44,20 @@ def list_users(
     return service.auth_service.get_users(db, skip, limit)
 
 @router.get(
+    "/check-username/{username}",
+    summary="Check if username exists",
+    dependencies=[Depends(require_permission(*Permissions.USER_CREATE))]
+)
+def check_username_exists(
+    username: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.USER_CREATE))
+):
+    """Check if a username already exists."""
+    exists = service.auth_service.check_username_exists(db, username)
+    return {"exists": exists, "username": username}
+
+@router.get(
     "/{user_id}",
     response_model=schemas.User,
     summary="Get User by ID",

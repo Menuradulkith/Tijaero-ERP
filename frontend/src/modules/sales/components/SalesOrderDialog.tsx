@@ -8,7 +8,6 @@ import {
   Button,
   TextField,
   Grid,
-  MenuItem,
   Box,
   Typography,
   IconButton,
@@ -18,6 +17,7 @@ import {
   TableHead,
   TableRow,
   Divider,
+  Autocomplete,
 } from "@mui/material";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { salesApi } from "../api";
@@ -173,21 +173,27 @@ export default function SalesOrderDialog({
                 name="customer_id"
                 control={control}
                 rules={{ required: "Customer is required" }}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Customer"
-                    select
-                    fullWidth
-                    required
+                render={({ field, fieldState }) => (
+                  <Autocomplete
+                    options={customers || []}
+                    getOptionLabel={(option) => option.customer_name}
+                    value={customers?.find((c) => c.id === field.value) || null}
+                    onChange={(_, newValue) =>
+                      field.onChange(newValue?.id || 0)
+                    }
                     disabled={isView}
-                  >
-                    {customers?.map((customer) => (
-                      <MenuItem key={customer.id} value={customer.id}>
-                        {customer.customer_name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Customer"
+                        required
+                        error={!!fieldState.error}
+                        helperText={fieldState.error?.message}
+                        placeholder="Search customers..."
+                      />
+                    )}
+                    fullWidth
+                  />
                 )}
               />
             </Grid>
@@ -195,23 +201,39 @@ export default function SalesOrderDialog({
               <Controller
                 name="payment_method"
                 control={control}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Payment Method"
-                    select
-                    fullWidth
-                    disabled={isView}
-                  >
-                    <MenuItem value="cash">Cash</MenuItem>
-                    <MenuItem value="card_visa">Visa Card</MenuItem>
-                    <MenuItem value="card_mastercard">Mastercard</MenuItem>
-                    <MenuItem value="card_amex">Amex Card</MenuItem>
-                    <MenuItem value="cheque">Cheque</MenuItem>
-                    <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-                    <MenuItem value="credit">Credit</MenuItem>
-                  </TextField>
-                )}
+                render={({ field }) => {
+                  const paymentOptions = [
+                    { value: "cash", label: "Cash" },
+                    { value: "card_visa", label: "Visa Card" },
+                    { value: "card_mastercard", label: "Mastercard" },
+                    { value: "card_amex", label: "Amex Card" },
+                    { value: "cheque", label: "Cheque" },
+                    { value: "bank_transfer", label: "Bank Transfer" },
+                    { value: "credit", label: "Credit" },
+                  ];
+                  return (
+                    <Autocomplete
+                      options={paymentOptions}
+                      getOptionLabel={(option) => option.label}
+                      value={
+                        paymentOptions.find((p) => p.value === field.value) ||
+                        null
+                      }
+                      onChange={(_, newValue) =>
+                        field.onChange(newValue?.value || "cash")
+                      }
+                      disabled={isView}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Payment Method"
+                          placeholder="Search payment method..."
+                        />
+                      )}
+                      fullWidth
+                    />
+                  );
+                }}
               />
             </Grid>
             <Grid item xs={12}>
@@ -262,24 +284,30 @@ export default function SalesOrderDialog({
             <TableBody>
               {fields.map((field, index) => (
                 <TableRow key={field.id}>
-                  <TableCell>
+                  <TableCell sx={{ minWidth: 200 }}>
                     <Controller
                       name={`items.${index}.product_id`}
                       control={control}
                       render={({ field }) => (
-                        <TextField
-                          {...field}
-                          select
-                          size="small"
-                          fullWidth
+                        <Autocomplete
+                          options={products || []}
+                          getOptionLabel={(option) => option.name}
+                          value={
+                            products?.find((p) => p.id === field.value) || null
+                          }
+                          onChange={(_, newValue) =>
+                            field.onChange(newValue?.id || 0)
+                          }
                           disabled={isView}
-                        >
-                          {products?.map((product) => (
-                            <MenuItem key={product.id} value={product.id}>
-                              {product.name}
-                            </MenuItem>
-                          ))}
-                        </TextField>
+                          size="small"
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              placeholder="Search products..."
+                            />
+                          )}
+                          fullWidth
+                        />
                       )}
                     />
                   </TableCell>

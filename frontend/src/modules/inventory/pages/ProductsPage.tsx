@@ -1,323 +1,866 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
-  Button,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-  IconButton,
   TextField,
+  MenuItem,
+  FormControlLabel,
+  Switch,
   InputAdornment,
-  Chip,
-  Tabs,
-  Tab,
 } from "@mui/material";
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
+  Inventory as InventoryIcon,
+  Category as CategoryIcon,
+  Sell as BrandIcon,
 } from "@mui/icons-material";
+import {
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  DetailPanelHeader,
+  ActionToolbar,
+  FormSection,
+  EmptyState,
+  useMasterDetailState,
+  SortOption,
+  TabConfig,
+} from "@/components/tijaero";
 import { productsApi, categoriesApi, brandsApi } from "../api";
-import { Product } from "../types";
-import ProductDialog from "../components/ProductDialog";
-import CategoryDialog from "../components/CategoryDialog";
-import BrandDialog from "../components/BrandDialog";
+import { Product, ProductCreate, Category, CategoryCreate, CategoryUpdate, Brand, BrandCreate, BrandUpdate } from "../types";
 import { usePermission } from "@/auth/permissions";
 import { toast } from "react-hot-toast";
 
+// Sort options for each tab
+const productSortOptions: SortOption[] = [
+  { value: "item_code", label: "Item Code" },
+  { value: "name", label: "Name" },
+  { value: "cost_price", label: "Cost Price" },
+];
+
+const categorySortOptions: SortOption[] = [
+  { value: "name", label: "Name" },
+  { value: "category_code", label: "Code" },
+];
+
+const brandSortOptions: SortOption[] = [
+  { value: "brand_name", label: "Name" },
+  { value: "brand_code", label: "Code" },
+];
+
+// Initial form data
+const emptyProductForm: ProductCreate = {
+  name: "",
+  item_code: "",
+  model: "",
+  item_type: "PRODUCT",
+  description: "",
+  website_active: false,
+  website_price: 0,
+  active: true,
+  cost_price: 0,
+  category_id: 0,
+  items_brand_id: 0,
+};
+
+const emptyCategoryForm: CategoryCreate = {
+  name: "",
+  category_code: "",
+  memo: "",
+  description: "",
+  active: true,
+};
+
+const emptyBrandForm: BrandCreate = {
+  brand_name: "",
+  brand_code: "",
+  description: "",
+};
+
 export default function ProductsPage() {
   const queryClient = useQueryClient();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [tabValue, setTabValue] = useState(0);
-  const [productDialogOpen, setProductDialogOpen] = useState(false);
-  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
-  const [brandDialogOpen, setBrandDialogOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [activeTab, setActiveTab] = useState(0);
 
+  // Permissions
   const canCreate = usePermission("inventory", "create");
   const canUpdate = usePermission("inventory", "update");
   const canDelete = usePermission("inventory", "delete");
 
-  const { data: products, isLoading: productsLoading } = useQuery({
-    queryKey: ["products", searchQuery],
-    queryFn: () =>
-      searchQuery ? productsApi.search(searchQuery) : productsApi.getAll(),
-    enabled: tabValue === 0,
+  // Products state
+  const productState = useMasterDetailState<Product, ProductCreate>({
+    initialFormData: emptyProductForm,
+    initialSortField: "item_code",
   });
 
-  const { data: categories, isLoading: categoriesLoading } = useQuery({
+  // Categories state
+  const categoryState = useMasterDetailState<Category, CategoryCreate>({
+    initialFormData: emptyCategoryForm,
+    initialSortField: "name",
+  });
+
+  // Brands state
+  const brandState = useMasterDetailState<Brand, BrandCreate>({
+    initialFormData: emptyBrandForm,
+    initialSortField: "brand_name",
+  });
+
+  // Queries
+  const { data: products, isLoading: productsLoading, refetch: refetchProducts } = useQuery({
+    queryKey: ["products"],
+    queryFn: () => productsApi.getAll(),
+    enabled: activeTab === 0,
+  });
+
+  const { data: categories, isLoading: categoriesLoading, refetch: refetchCategories } = useQuery({
     queryKey: ["categories"],
     queryFn: () => categoriesApi.getAll(),
-    enabled: tabValue === 1,
   });
 
-  const { data: brands, isLoading: brandsLoading } = useQuery({
+  const { data: brands, isLoading: brandsLoading, refetch: refetchBrands } = useQuery({
     queryKey: ["brands"],
     queryFn: () => brandsApi.getAll(),
-    enabled: tabValue === 2,
   });
 
-  const deleteMutation = useMutation({
+  // Filtered and sorted data
+  const filteredProducts = useMemo(() => {
+    if (!products) return [];
+    let filtered = products.filter(
+      (p) =>
+        p.item_code.toLowerCase().includes(productState.searchQuery.toLowerCase()) ||
+        p.name.toLowerCase().includes(productState.searchQuery.toLowerCase()) ||
+        p.model?.toLowerCase().includes(productState.searchQuery.toLowerCase())
+    );
+    filtered.sort((a, b) => {
+      if (productState.sortField === "item_code") return a.item_code.localeCompare(b.item_code);
+      if (productState.sortField === "name") return a.name.localeCompare(b.name);
+      if (productState.sortField === "cost_price") return b.cost_price - a.cost_price;
+      return 0;
+    });
+    return filtered;
+  }, [products, productState.searchQuery, productState.sortField]);
+
+  const filteredCategories = useMemo(() => {
+    if (!categories) return [];
+    let filtered = categories.filter(
+      (c) =>
+        c.name.toLowerCase().includes(categoryState.searchQuery.toLowerCase()) ||
+        c.category_code.toLowerCase().includes(categoryState.searchQuery.toLowerCase())
+    );
+    filtered.sort((a, b) => {
+      if (categoryState.sortField === "name") return a.name.localeCompare(b.name);
+      if (categoryState.sortField === "category_code") return a.category_code.localeCompare(b.category_code);
+      return 0;
+    });
+    return filtered;
+  }, [categories, categoryState.searchQuery, categoryState.sortField]);
+
+  const filteredBrands = useMemo(() => {
+    if (!brands) return [];
+    let filtered = brands.filter(
+      (b) =>
+        b.brand_name.toLowerCase().includes(brandState.searchQuery.toLowerCase()) ||
+        b.brand_code.toLowerCase().includes(brandState.searchQuery.toLowerCase())
+    );
+    filtered.sort((a, b) => {
+      if (brandState.sortField === "brand_name") return a.brand_name.localeCompare(b.brand_name);
+      if (brandState.sortField === "brand_code") return a.brand_code.localeCompare(b.brand_code);
+      return 0;
+    });
+    return filtered;
+  }, [brands, brandState.searchQuery, brandState.sortField]);
+
+  // Mutations
+  const createProductMutation = useMutation({
+    mutationFn: productsApi.create,
+    onSuccess: (newProduct) => {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      toast.success("Product created successfully");
+      productState.setIsCreating(false);
+      productState.setIsEditing(false);
+      productState.setSelectedItem(newProduct);
+    },
+    onError: () => toast.error("Failed to create product"),
+  });
+
+  const updateProductMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<ProductCreate> }) => productsApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      toast.success("Product updated successfully");
+      productState.setIsEditing(false);
+    },
+    onError: () => toast.error("Failed to update product"),
+  });
+
+  const deleteProductMutation = useMutation({
     mutationFn: productsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       toast.success("Product deleted successfully");
+      productState.setSelectedItem(null);
     },
-    onError: () => {
-      toast.error("Failed to delete product");
-    },
+    onError: () => toast.error("Failed to delete product"),
   });
 
-  const handleCreateProduct = () => {
-    setSelectedProduct(null);
-    setProductDialogOpen(true);
+  const createCategoryMutation = useMutation({
+    mutationFn: categoriesApi.create,
+    onSuccess: (newCategory) => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      toast.success("Category created successfully");
+      categoryState.setIsCreating(false);
+      categoryState.setIsEditing(false);
+      categoryState.setSelectedItem(newCategory);
+    },
+    onError: () => toast.error("Failed to create category"),
+  });
+
+  const updateCategoryMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: CategoryUpdate }) => categoriesApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      toast.success("Category updated successfully");
+      categoryState.setIsEditing(false);
+    },
+    onError: () => toast.error("Failed to update category"),
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: categoriesApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      toast.success("Category deleted successfully");
+      categoryState.setSelectedItem(null);
+    },
+    onError: () => toast.error("Failed to delete category"),
+  });
+
+  const createBrandMutation = useMutation({
+    mutationFn: brandsApi.create,
+    onSuccess: (newBrand) => {
+      queryClient.invalidateQueries({ queryKey: ["brands"] });
+      toast.success("Brand created successfully");
+      brandState.setIsCreating(false);
+      brandState.setIsEditing(false);
+      brandState.setSelectedItem(newBrand);
+    },
+    onError: () => toast.error("Failed to create brand"),
+  });
+
+  const updateBrandMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: BrandUpdate }) => brandsApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["brands"] });
+      toast.success("Brand updated successfully");
+      brandState.setIsEditing(false);
+    },
+    onError: () => toast.error("Failed to update brand"),
+  });
+
+  const deleteBrandMutation = useMutation({
+    mutationFn: brandsApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["brands"] });
+      toast.success("Brand deleted successfully");
+      brandState.setSelectedItem(null);
+    },
+    onError: () => toast.error("Failed to delete brand"),
+  });
+
+  // Product handlers
+  const handleSelectProduct = (product: Product) => {
+    if (productState.isEditing || productState.isCreating) {
+      if (!window.confirm("You have unsaved changes. Discard them?")) return;
+    }
+    productState.setSelectedItem(product);
+    productState.setFormData({
+      name: product.name,
+      item_code: product.item_code,
+      model: product.model || "",
+      item_type: product.item_type,
+      description: product.description || "",
+      website_active: product.website_active,
+      website_price: product.website_price || 0,
+      active: product.active,
+      cost_price: product.cost_price,
+      category_id: product.category_id,
+      items_brand_id: product.items_brand_id,
+    });
+    productState.setIsEditing(false);
+    productState.setIsCreating(false);
   };
 
-  const handleEditProduct = (product: Product) => {
-    setSelectedProduct(product);
-    setProductDialogOpen(true);
+  const handleNewProduct = () => {
+    productState.setSelectedItem(null);
+    productState.setFormData({
+      ...emptyProductForm,
+      category_id: categories?.[0]?.id || 0,
+      items_brand_id: brands?.[0]?.id || 0,
+    });
+    productState.setIsCreating(true);
+    productState.setIsEditing(true);
   };
 
-  const handleDeleteProduct = (id: number) => {
-    if (confirm("Are you sure you want to delete this product?")) {
-      deleteMutation.mutate(id);
+  const handleDuplicateProduct = () => {
+    if (productState.selectedItem) {
+      productState.setFormData({
+        ...productState.formData,
+        item_code: `${productState.selectedItem.item_code}-COPY`,
+        name: `${productState.selectedItem.name} (Copy)`,
+      });
+      productState.setIsCreating(true);
+      productState.setIsEditing(true);
     }
   };
 
-  return (
-    <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 3 }}>
-        <Typography variant="h4">Inventory</Typography>
-        {canCreate && (
-          <Box sx={{ display: "flex", gap: 1 }}>
-            {tabValue === 0 && (
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={handleCreateProduct}
-              >
-                Add Product
-              </Button>
-            )}
-            {tabValue === 1 && (
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setCategoryDialogOpen(true)}
-              >
-                Add Category
-              </Button>
-            )}
-            {tabValue === 2 && (
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setBrandDialogOpen(true)}
-              >
-                Add Brand
-              </Button>
-            )}
-          </Box>
-        )}
-      </Box>
+  const handleSaveProduct = () => {
+    if (productState.isCreating) {
+      createProductMutation.mutate(productState.formData);
+    } else if (productState.selectedItem) {
+      updateProductMutation.mutate({ id: productState.selectedItem.id, data: productState.formData });
+    }
+  };
 
-      <Paper sx={{ mb: 3 }}>
-        <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
-          <Tab label="Products" />
-          <Tab label="Categories" />
-          <Tab label="Brands" />
-        </Tabs>
-      </Paper>
+  const handleCancelProduct = () => {
+    if (productState.isCreating) {
+      productState.setIsCreating(false);
+      productState.setIsEditing(false);
+      if (filteredProducts.length > 0) handleSelectProduct(filteredProducts[0]);
+    } else if (productState.selectedItem) {
+      handleSelectProduct(productState.selectedItem);
+      productState.setIsEditing(false);
+    }
+  };
 
-      {tabValue === 0 && (
-        <>
-          <Paper sx={{ mb: 3, p: 2 }}>
-            <TextField
-              fullWidth
-              placeholder="Search products by name, code, or model..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon />
-                  </InputAdornment>
-                ),
-              }}
-            />
-          </Paper>
+  const handleDeleteProduct = () => {
+    if (productState.selectedItem && window.confirm("Are you sure you want to delete this product?")) {
+      deleteProductMutation.mutate(productState.selectedItem.id);
+    }
+  };
 
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Item Code</TableCell>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Model</TableCell>
-                  <TableCell>Type</TableCell>
-                  <TableCell>Cost Price</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {productsLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} align="center">
-                      Loading...
-                    </TableCell>
-                  </TableRow>
-                ) : products?.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} align="center">
-                      No products found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  products?.map((product) => (
-                    <TableRow key={product.id}>
-                      <TableCell>{product.item_code}</TableCell>
-                      <TableCell>{product.name}</TableCell>
-                      <TableCell>{product.model || "-"}</TableCell>
-                      <TableCell>{product.item_type}</TableCell>
-                      <TableCell>${product.cost_price.toFixed(2)}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={product.active ? "Active" : "Inactive"}
-                          size="small"
-                          color={product.active ? "success" : "default"}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        {canUpdate && (
-                          <IconButton
-                            size="small"
-                            onClick={() => handleEditProduct(product)}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                        )}
-                        {canDelete && (
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleDeleteProduct(product.id)}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </>
-      )}
+  // Category handlers
+  const handleSelectCategory = (category: Category) => {
+    if (categoryState.isEditing || categoryState.isCreating) {
+      if (!window.confirm("You have unsaved changes. Discard them?")) return;
+    }
+    categoryState.setSelectedItem(category);
+    categoryState.setFormData({
+      name: category.name,
+      category_code: category.category_code,
+      memo: category.memo || "",
+      description: category.description || "",
+      active: category.active,
+    });
+    categoryState.setIsEditing(false);
+    categoryState.setIsCreating(false);
+  };
 
-      {tabValue === 1 && (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Code</TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>Description</TableCell>
-                <TableCell>Status</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {categoriesLoading ? (
-                <TableRow>
-                  <TableCell colSpan={4} align="center">
-                    Loading...
-                  </TableCell>
-                </TableRow>
-              ) : categories?.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} align="center">
-                    No categories found
-                  </TableCell>
-                </TableRow>
-              ) : (
-                categories?.map((category) => (
-                  <TableRow key={category.id}>
-                    <TableCell>{category.category_code}</TableCell>
-                    <TableCell>{category.name}</TableCell>
-                    <TableCell>{category.description || "-"}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={category.active ? "Active" : "Inactive"}
-                        size="small"
-                        color={category.active ? "success" : "default"}
+  const handleNewCategory = () => {
+    categoryState.setSelectedItem(null);
+    categoryState.setFormData(emptyCategoryForm);
+    categoryState.setIsCreating(true);
+    categoryState.setIsEditing(true);
+  };
+
+  const handleSaveCategory = () => {
+    if (categoryState.isCreating) {
+      createCategoryMutation.mutate(categoryState.formData);
+    } else if (categoryState.selectedItem) {
+      updateCategoryMutation.mutate({ id: categoryState.selectedItem.id, data: categoryState.formData });
+    }
+  };
+
+  const handleDeleteCategory = () => {
+    if (categoryState.selectedItem && window.confirm("Are you sure you want to delete this category?")) {
+      deleteCategoryMutation.mutate(categoryState.selectedItem.id);
+    }
+  };
+
+  const handleCancelCategory = () => {
+    if (categoryState.isCreating) {
+      categoryState.setIsCreating(false);
+      categoryState.setIsEditing(false);
+      if (filteredCategories.length > 0) handleSelectCategory(filteredCategories[0]);
+    } else if (categoryState.selectedItem) {
+      handleSelectCategory(categoryState.selectedItem);
+      categoryState.setIsEditing(false);
+    }
+  };
+
+  // Brand handlers
+  const handleSelectBrand = (brand: Brand) => {
+    if (brandState.isEditing || brandState.isCreating) {
+      if (!window.confirm("You have unsaved changes. Discard them?")) return;
+    }
+    brandState.setSelectedItem(brand);
+    brandState.setFormData({
+      brand_name: brand.brand_name,
+      brand_code: brand.brand_code,
+      description: brand.description || "",
+    });
+    brandState.setIsEditing(false);
+    brandState.setIsCreating(false);
+  };
+
+  const handleNewBrand = () => {
+    brandState.setSelectedItem(null);
+    brandState.setFormData(emptyBrandForm);
+    brandState.setIsCreating(true);
+    brandState.setIsEditing(true);
+  };
+
+  const handleSaveBrand = () => {
+    if (brandState.isCreating) {
+      createBrandMutation.mutate(brandState.formData);
+    } else if (brandState.selectedItem) {
+      updateBrandMutation.mutate({ id: brandState.selectedItem.id, data: brandState.formData });
+    }
+  };
+
+  const handleDeleteBrand = () => {
+    if (brandState.selectedItem && window.confirm("Are you sure you want to delete this brand?")) {
+      deleteBrandMutation.mutate(brandState.selectedItem.id);
+    }
+  };
+
+  const handleCancelBrand = () => {
+    if (brandState.isCreating) {
+      brandState.setIsCreating(false);
+      brandState.setIsEditing(false);
+      if (filteredBrands.length > 0) handleSelectBrand(filteredBrands[0]);
+    } else if (brandState.selectedItem) {
+      handleSelectBrand(brandState.selectedItem);
+      brandState.setIsEditing(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    if (activeTab === 0) refetchProducts();
+    else if (activeTab === 1) refetchCategories();
+    else refetchBrands();
+  };
+
+  // Tab configuration
+  const tabs: TabConfig[] = [
+    { label: "Products" },
+    { label: "Categories" },
+    { label: "Brands" },
+  ];
+
+  // Render Products Tab
+  const renderProductsTab = () => (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
+      <SearchableList
+        searchValue={productState.searchQuery}
+        onSearchChange={productState.setSearchQuery}
+        searchPlaceholder="Search products..."
+        sortOptions={productSortOptions}
+        currentSort={productState.sortField}
+        onSortChange={productState.setSortField}
+        isLoading={productsLoading}
+        emptyMessage="No products found"
+      >
+        {filteredProducts.map((product) => (
+          <SelectableListItem
+            key={product.id}
+            isSelected={productState.selectedItem?.id === product.id}
+            onClick={() => handleSelectProduct(product)}
+            primaryText={product.item_code}
+            secondaryText={product.name}
+            isFavorite={productState.favorites.includes(product.id)}
+            onToggleFavorite={() => productState.toggleFavorite(product.id)}
+          />
+        ))}
+      </SearchableList>
+
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <DetailPanelHeader
+          icon={<InventoryIcon color="primary" />}
+          breadcrumbs={[{ label: "Products" }]}
+          title={
+            productState.isCreating
+              ? "New Product"
+              : productState.selectedItem
+              ? `${productState.selectedItem.item_code} - ${productState.selectedItem.name}`
+              : "Select a Product"
+          }
+          chips={
+            productState.selectedItem && !productState.isCreating
+              ? [{ label: productState.selectedItem.active ? "Active" : "Inactive", color: productState.selectedItem.active ? "success" : "default" }]
+              : undefined
+          }
+        />
+
+        <ActionToolbar
+          canCreate={canCreate}
+          canDelete={canDelete}
+          canUpdate={canUpdate}
+          isEditing={productState.isEditing}
+          isCreating={productState.isCreating}
+          hasSelection={!!productState.selectedItem}
+          onAdd={handleNewProduct}
+          onDuplicate={handleDuplicateProduct}
+          onDelete={handleDeleteProduct}
+          onSave={handleSaveProduct}
+          onCancel={handleCancelProduct}
+          onEdit={() => productState.setIsEditing(true)}
+          isSaving={createProductMutation.isPending || updateProductMutation.isPending}
+          saveDisabled={!productState.formData.name || !productState.formData.item_code}
+        />
+
+        <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+          {!productState.selectedItem && !productState.isCreating ? (
+            <EmptyState message="Select a product from the list or create a new one" />
+          ) : (
+            <>
+              <FormSection title="Basic Information">
+                <TextField
+                  label="Item Code"
+                  size="small"
+                  value={productState.formData.item_code}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, item_code: e.target.value.toUpperCase() })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                  required
+                  inputProps={{ style: { textTransform: "uppercase" } }}
+                />
+                <TextField
+                  label="Product Name"
+                  size="small"
+                  value={productState.formData.name}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, name: e.target.value })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                  required
+                />
+                <TextField
+                  label="Model"
+                  size="small"
+                  value={productState.formData.model}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, model: e.target.value })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                />
+                <TextField
+                  label="Item Type"
+                  size="small"
+                  select
+                  value={productState.formData.item_type}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, item_type: e.target.value })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                >
+                  <MenuItem value="PRODUCT">Product</MenuItem>
+                  <MenuItem value="SERVICE">Service</MenuItem>
+                  <MenuItem value="PART">Part</MenuItem>
+                </TextField>
+                <TextField
+                  label="Description"
+                  size="small"
+                  value={productState.formData.description}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, description: e.target.value })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                  multiline
+                  rows={2}
+                  sx={{ gridColumn: { sm: "1 / -1" } }}
+                />
+              </FormSection>
+
+              <FormSection title="Classification">
+                <TextField
+                  label="Category"
+                  size="small"
+                  select
+                  value={productState.formData.category_id}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, category_id: Number(e.target.value) })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                >
+                  {categories?.map((cat) => (
+                    <MenuItem key={cat.id} value={cat.id}>{cat.name}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Brand"
+                  size="small"
+                  select
+                  value={productState.formData.items_brand_id}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, items_brand_id: Number(e.target.value) })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                >
+                  {brands?.map((brand) => (
+                    <MenuItem key={brand.id} value={brand.id}>{brand.brand_name}</MenuItem>
+                  ))}
+                </TextField>
+              </FormSection>
+
+              <FormSection title="Pricing">
+                <TextField
+                  label="Cost Price"
+                  size="small"
+                  type="number"
+                  value={productState.formData.cost_price}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, cost_price: parseFloat(e.target.value) || 0 })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                  InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                />
+                <TextField
+                  label="Website Price"
+                  size="small"
+                  type="number"
+                  value={productState.formData.website_price}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, website_price: parseFloat(e.target.value) || 0 })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                  InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                />
+              </FormSection>
+
+              <FormSection title="Status" isLast>
+                <Box sx={{ display: "flex", gap: 3, gridColumn: { sm: "1 / -1" } }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={productState.formData.active}
+                        onChange={(e) => productState.setFormData({ ...productState.formData, active: e.target.checked })}
+                        disabled={!productState.isEditing && !productState.isCreating}
                       />
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-
-      {tabValue === 2 && (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Code</TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>Description</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {brandsLoading ? (
-                <TableRow>
-                  <TableCell colSpan={3} align="center">
-                    Loading...
-                  </TableCell>
-                </TableRow>
-              ) : brands?.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} align="center">
-                    No brands found
-                  </TableCell>
-                </TableRow>
-              ) : (
-                brands?.map((brand) => (
-                  <TableRow key={brand.id}>
-                    <TableCell>{brand.brand_code}</TableCell>
-                    <TableCell>{brand.brand_name}</TableCell>
-                    <TableCell>{brand.description || "-"}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-
-      <ProductDialog
-        open={productDialogOpen}
-        product={selectedProduct}
-        onClose={() => setProductDialogOpen(false)}
-      />
-      <CategoryDialog
-        open={categoryDialogOpen}
-        onClose={() => setCategoryDialogOpen(false)}
-      />
-      <BrandDialog
-        open={brandDialogOpen}
-        onClose={() => setBrandDialogOpen(false)}
-      />
+                    }
+                    label="Active"
+                  />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={productState.formData.website_active}
+                        onChange={(e) => productState.setFormData({ ...productState.formData, website_active: e.target.checked })}
+                        disabled={!productState.isEditing && !productState.isCreating}
+                      />
+                    }
+                    label="Website Active"
+                  />
+                </Box>
+              </FormSection>
+            </>
+          )}
+        </Box>
+      </Box>
     </Box>
+  );
+
+  // Render Categories Tab
+  const renderCategoriesTab = () => (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
+      <SearchableList
+        searchValue={categoryState.searchQuery}
+        onSearchChange={categoryState.setSearchQuery}
+        searchPlaceholder="Search categories..."
+        sortOptions={categorySortOptions}
+        currentSort={categoryState.sortField}
+        onSortChange={categoryState.setSortField}
+        isLoading={categoriesLoading}
+        emptyMessage="No categories found"
+      >
+        {filteredCategories.map((category) => (
+          <SelectableListItem
+            key={category.id}
+            isSelected={categoryState.selectedItem?.id === category.id}
+            onClick={() => handleSelectCategory(category)}
+            primaryText={category.name}
+            secondaryText={category.category_code}
+            isFavorite={categoryState.favorites.includes(category.id)}
+            onToggleFavorite={() => categoryState.toggleFavorite(category.id)}
+            chips={[{ label: category.active ? "Active" : "Inactive", color: category.active ? "success" : "default" }]}
+          />
+        ))}
+      </SearchableList>
+
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <DetailPanelHeader
+          icon={<CategoryIcon color="primary" />}
+          breadcrumbs={[{ label: "Categories" }]}
+          title={
+            categoryState.isCreating
+              ? "New Category"
+              : categoryState.selectedItem
+              ? categoryState.selectedItem.name
+              : "Select a Category"
+          }
+          chips={
+            categoryState.selectedItem && !categoryState.isCreating
+              ? [{ label: categoryState.selectedItem.active ? "Active" : "Inactive", color: categoryState.selectedItem.active ? "success" : "default" }]
+              : undefined
+          }
+        />
+
+        <ActionToolbar
+          canCreate={canCreate}
+          canDelete={canDelete}
+          canUpdate={canUpdate}
+          isEditing={categoryState.isEditing}
+          isCreating={categoryState.isCreating}
+          hasSelection={!!categoryState.selectedItem}
+          onAdd={handleNewCategory}
+          onEdit={() => categoryState.setIsEditing(true)}
+          onDelete={handleDeleteCategory}
+          onSave={handleSaveCategory}
+          onCancel={handleCancelCategory}
+          isSaving={createCategoryMutation.isPending || updateCategoryMutation.isPending}
+          saveDisabled={!categoryState.formData.name || !categoryState.formData.category_code}
+        />
+
+        <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+          {!categoryState.selectedItem && !categoryState.isCreating ? (
+            <EmptyState message="Select a category from the list or create a new one" />
+          ) : (
+            <FormSection title="Category Information" isLast>
+              <TextField
+                label="Category Name"
+                size="small"
+                value={categoryState.formData.name}
+                onChange={(e) => categoryState.setFormData({ ...categoryState.formData, name: e.target.value })}
+                disabled={!categoryState.isEditing && !categoryState.isCreating}
+                required
+              />
+              <TextField
+                label="Category Code"
+                size="small"
+                value={categoryState.formData.category_code}
+                onChange={(e) => categoryState.setFormData({ ...categoryState.formData, category_code: e.target.value.toUpperCase() })}
+                disabled={!categoryState.isEditing && !categoryState.isCreating}
+                required
+                inputProps={{ style: { textTransform: "uppercase" } }}
+              />
+              <TextField
+                label="Memo"
+                size="small"
+                value={categoryState.formData.memo}
+                onChange={(e) => categoryState.setFormData({ ...categoryState.formData, memo: e.target.value })}
+                disabled={!categoryState.isEditing && !categoryState.isCreating}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={categoryState.formData.active}
+                    onChange={(e) => categoryState.setFormData({ ...categoryState.formData, active: e.target.checked })}
+                    disabled={!categoryState.isEditing && !categoryState.isCreating}
+                  />
+                }
+                label="Active"
+              />
+              <TextField
+                label="Description"
+                size="small"
+                value={categoryState.formData.description}
+                onChange={(e) => categoryState.setFormData({ ...categoryState.formData, description: e.target.value })}
+                disabled={!categoryState.isEditing && !categoryState.isCreating}
+                multiline
+                rows={3}
+                sx={{ gridColumn: { sm: "1 / -1" } }}
+              />
+            </FormSection>
+          )}
+        </Box>
+      </Box>
+    </Box>
+  );
+
+  // Render Brands Tab
+  const renderBrandsTab = () => (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
+      <SearchableList
+        searchValue={brandState.searchQuery}
+        onSearchChange={brandState.setSearchQuery}
+        searchPlaceholder="Search brands..."
+        sortOptions={brandSortOptions}
+        currentSort={brandState.sortField}
+        onSortChange={brandState.setSortField}
+        isLoading={brandsLoading}
+        emptyMessage="No brands found"
+      >
+        {filteredBrands.map((brand) => (
+          <SelectableListItem
+            key={brand.id}
+            isSelected={brandState.selectedItem?.id === brand.id}
+            onClick={() => handleSelectBrand(brand)}
+            primaryText={brand.brand_name}
+            secondaryText={brand.brand_code}
+            isFavorite={brandState.favorites.includes(brand.id)}
+            onToggleFavorite={() => brandState.toggleFavorite(brand.id)}
+          />
+        ))}
+      </SearchableList>
+
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <DetailPanelHeader
+          icon={<BrandIcon color="primary" />}
+          breadcrumbs={[{ label: "Brands" }]}
+          title={
+            brandState.isCreating
+              ? "New Brand"
+              : brandState.selectedItem
+              ? brandState.selectedItem.brand_name
+              : "Select a Brand"
+          }
+        />
+
+        <ActionToolbar
+          canCreate={canCreate}
+          canDelete={canDelete}
+          canUpdate={canUpdate}
+          isEditing={brandState.isEditing}
+          isCreating={brandState.isCreating}
+          hasSelection={!!brandState.selectedItem}
+          onAdd={handleNewBrand}
+          onEdit={() => brandState.setIsEditing(true)}
+          onDelete={handleDeleteBrand}
+          onSave={handleSaveBrand}
+          onCancel={handleCancelBrand}
+          isSaving={createBrandMutation.isPending || updateBrandMutation.isPending}
+          saveDisabled={!brandState.formData.brand_name || !brandState.formData.brand_code}
+        />
+
+        <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+          {!brandState.selectedItem && !brandState.isCreating ? (
+            <EmptyState message="Select a brand from the list or create a new one" />
+          ) : (
+            <FormSection title="Brand Information" isLast>
+              <TextField
+                label="Brand Name"
+                size="small"
+                value={brandState.formData.brand_name}
+                onChange={(e) => brandState.setFormData({ ...brandState.formData, brand_name: e.target.value })}
+                disabled={!brandState.isEditing && !brandState.isCreating}
+                required
+              />
+              <TextField
+                label="Brand Code"
+                size="small"
+                value={brandState.formData.brand_code}
+                onChange={(e) => brandState.setFormData({ ...brandState.formData, brand_code: e.target.value.toUpperCase() })}
+                disabled={!brandState.isEditing && !brandState.isCreating}
+                required
+                inputProps={{ style: { textTransform: "uppercase" } }}
+              />
+              <TextField
+                label="Description"
+                size="small"
+                value={brandState.formData.description}
+                onChange={(e) => brandState.setFormData({ ...brandState.formData, description: e.target.value })}
+                disabled={!brandState.isEditing && !brandState.isCreating}
+                multiline
+                rows={3}
+                sx={{ gridColumn: { sm: "1 / -1" } }}
+              />
+            </FormSection>
+          )}
+        </Box>
+      </Box>
+    </Box>
+  );
+
+  return (
+    <MasterDetailLayout
+      title="Inventory"
+      onRefresh={handleRefresh}
+      tabs={tabs}
+      activeTab={activeTab}
+      onTabChange={(tab) => setActiveTab(tab as number)}
+    >
+      {activeTab === 0 && renderProductsTab()}
+      {activeTab === 1 && renderCategoriesTab()}
+      {activeTab === 2 && renderBrandsTab()}
+    </MasterDetailLayout>
   );
 }

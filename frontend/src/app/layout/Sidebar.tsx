@@ -20,7 +20,6 @@ import BusinessIcon from "@mui/icons-material/Business";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import AssessmentIcon from "@mui/icons-material/Assessment";
-import SettingsIcon from "@mui/icons-material/Settings";
 import PersonIcon from "@mui/icons-material/Person";
 import SecurityIcon from "@mui/icons-material/Security";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -111,9 +110,7 @@ const menuItems: MenuItem[] = [
   },
 ];
 
-const bottomMenuItems: MenuItem[] = [
-  { text: "Settings", icon: <SettingsIcon />, path: "/settings" },
-];
+const bottomMenuItems: MenuItem[] = [];
 
 export default function Sidebar({
   drawerWidth,

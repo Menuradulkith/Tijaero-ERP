@@ -18,6 +18,14 @@ export interface CategoryCreate {
   active?: boolean;
 }
 
+export interface CategoryUpdate {
+  name?: string;
+  category_code?: string;
+  memo?: string;
+  description?: string;
+  active?: boolean;
+}
+
 export interface Brand {
   id: number;
   brand_name: string;
@@ -28,6 +36,12 @@ export interface Brand {
 export interface BrandCreate {
   brand_name: string;
   brand_code: string;
+  description?: string;
+}
+
+export interface BrandUpdate {
+  brand_name?: string;
+  brand_code?: string;
   description?: string;
 }
 

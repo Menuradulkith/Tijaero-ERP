@@ -98,3 +98,12 @@ class Branch(Base, TimestampMixin):
     branch_code = Column(String(255), unique=True, nullable=False)
     
     users = relationship("User", secondary=user_branches, back_populates="branches")
+
+
+class LoginShortcode(Base):
+    """Login shortcodes for quick user authentication (e.g., barcode/PIN login)"""
+    __tablename__ = "login_shortcodes"
+    
+    user_id = Column(Integer, ForeignKey('users.id'), primary_key=True, index=True)
+    login_short_code = Column(Text, unique=True)
+    barcode = Column(Text)

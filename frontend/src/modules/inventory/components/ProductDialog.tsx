@@ -9,9 +9,9 @@ import {
   Button,
   TextField,
   Grid,
-  MenuItem,
   FormControlLabel,
   Checkbox,
+  Autocomplete,
 } from "@mui/material";
 import { productsApi, categoriesApi, brandsApi } from "../api";
 import { Product, ProductCreate } from "../types";
@@ -186,20 +186,28 @@ export default function ProductDialog({
                 name="category_id"
                 control={control}
                 rules={{ required: "Category is required" }}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Category"
-                    select
+                render={({ field, fieldState }) => (
+                  <Autocomplete
+                    options={categories || []}
+                    getOptionLabel={(option) => option.name}
+                    value={
+                      categories?.find((c) => c.id === field.value) || null
+                    }
+                    onChange={(_, newValue) =>
+                      field.onChange(newValue?.id || 0)
+                    }
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Category"
+                        required
+                        error={!!fieldState.error}
+                        helperText={fieldState.error?.message}
+                        placeholder="Search categories..."
+                      />
+                    )}
                     fullWidth
-                    required
-                  >
-                    {categories?.map((cat) => (
-                      <MenuItem key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                  />
                 )}
               />
             </Grid>
@@ -208,14 +216,26 @@ export default function ProductDialog({
                 name="items_brand_id"
                 control={control}
                 rules={{ required: "Brand is required" }}
-                render={({ field }) => (
-                  <TextField {...field} label="Brand" select fullWidth required>
-                    {brands?.map((brand) => (
-                      <MenuItem key={brand.id} value={brand.id}>
-                        {brand.brand_name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                render={({ field, fieldState }) => (
+                  <Autocomplete
+                    options={brands || []}
+                    getOptionLabel={(option) => option.brand_name}
+                    value={brands?.find((b) => b.id === field.value) || null}
+                    onChange={(_, newValue) =>
+                      field.onChange(newValue?.id || 0)
+                    }
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Brand"
+                        required
+                        error={!!fieldState.error}
+                        helperText={fieldState.error?.message}
+                        placeholder="Search brands..."
+                      />
+                    )}
+                    fullWidth
+                  />
                 )}
               />
             </Grid>

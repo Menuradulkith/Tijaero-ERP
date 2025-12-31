@@ -5,8 +5,10 @@ import {
   ProductUpdate,
   Category,
   CategoryCreate,
+  CategoryUpdate,
   Brand,
   BrandCreate,
+  BrandUpdate,
 } from "./types";
 
 export const productsApi = {
@@ -75,6 +77,18 @@ export const categoriesApi = {
     );
     return response.data;
   },
+
+  update: async (id: number, data: CategoryUpdate) => {
+    const response = await apiClient.put<Category>(
+      `/inventory/categories/${id}`,
+      data
+    );
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/inventory/categories/${id}`);
+  },
 };
 
 export const brandsApi = {
@@ -88,5 +102,14 @@ export const brandsApi = {
   create: async (data: BrandCreate) => {
     const response = await apiClient.post<Brand>("/inventory/brands/", data);
     return response.data;
+  },
+
+  update: async (id: number, data: BrandUpdate) => {
+    const response = await apiClient.put<Brand>(`/inventory/brands/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/inventory/brands/${id}`);
   },
 };

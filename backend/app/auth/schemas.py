@@ -37,6 +37,13 @@ class Permission(PermissionBase):
 class GroupBase(BaseModel):
     name: str = Field(..., max_length=150)
 
+class GroupSimple(BaseModel):
+    id: int
+    name: str
+    
+    class Config:
+        from_attributes = True
+
 class GroupCreate(GroupBase):
     permission_ids: List[int] = []
 
@@ -108,8 +115,11 @@ class UserList(BaseModel):
     last_name: str
     is_active: bool
     is_superuser: bool
+    is_staff: bool
     employee_id: str
+    occupation: str
     branches: List[BranchSimple] = []
+    groups: List[GroupSimple] = []
     
     class Config:
         from_attributes = True

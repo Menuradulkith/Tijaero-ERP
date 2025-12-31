@@ -31,8 +31,6 @@ class ProductRepository:
             **product.dict(),
             created_date=date.today(),
             added_date=datetime.utcnow(),
-            created_by=created_by,
-            updated_by=created_by
         )
         db.add(db_product)
         db.commit()
@@ -48,7 +46,6 @@ class ProductRepository:
         for field, value in update_data.items():
             setattr(db_product, field, value)
         
-        db_product.updated_by = updated_by
         db.commit()
         db.refresh(db_product)
         return db_product
@@ -79,8 +76,6 @@ class CategoryRepository:
         db_category = Category(
             **category.dict(),
             created_date=datetime.utcnow(),
-            created_by=created_by,
-            updated_by=created_by
         )
         db.add(db_category)
         db.commit()
@@ -96,10 +91,17 @@ class CategoryRepository:
         for field, value in update_data.items():
             setattr(db_category, field, value)
         
-        db_category.updated_by = updated_by
         db.commit()
         db.refresh(db_category)
         return db_category
+    
+    def delete(self, db: Session, category_id: int) -> bool:
+        db_category = self.get_by_id(db, category_id)
+        if not db_category:
+            return False
+        db.delete(db_category)
+        db.commit()
+        return True
 
 class BrandRepository:
     def get_by_id(self, db: Session, brand_id: int) -> Optional[ItemsBrand]:
@@ -114,6 +116,27 @@ class BrandRepository:
         db.commit()
         db.refresh(db_brand)
         return db_brand
+    
+    def update(self, db: Session, brand_id: int, brand: BrandUpdate) -> Optional[ItemsBrand]:
+        db_brand = self.get_by_id(db, brand_id)
+        if not db_brand:
+            return None
+        
+        update_data = brand.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(db_brand, field, value)
+        
+        db.commit()
+        db.refresh(db_brand)
+        return db_brand
+    
+    def delete(self, db: Session, brand_id: int) -> bool:
+        db_brand = self.get_by_id(db, brand_id)
+        if not db_brand:
+            return False
+        db.delete(db_brand)
+        db.commit()
+        return True
 
 product_repository = ProductRepository()
 category_repository = CategoryRepository()

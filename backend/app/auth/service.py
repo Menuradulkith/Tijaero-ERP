@@ -34,16 +34,13 @@ class AuthService:
                 detail="Email already exists"
             )
         
-        # Check if employee exists
-        employee = db.query(Employee).filter(Employee.employee_id == user_in.employee_id).first()
-        if not employee:
-            # Create employee record
-            employee = Employee(
-                user_id=0,  # Temporary, will update after user creation
-                employee_id=user_in.employee_id
+        # Check if employee_id already exists
+        existing_employee = db.query(Employee).filter(Employee.employee_id == user_in.employee_id).first()
+        if existing_employee:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Employee ID already exists"
             )
-            db.add(employee)
-            db.flush()
         
         # Create user
         user = models.User(
@@ -67,8 +64,15 @@ class AuthService:
         db.add(user)
         db.flush()
         
-        # Update employee user_id
-        employee.user_id = user.id
+        # Create employee record (check if one already exists for this user)
+        existing_emp_for_user = db.query(Employee).filter(Employee.user_id == user.id).first()
+        if not existing_emp_for_user:
+            employee = Employee(
+                user_id=user.id,
+                employee_id=user_in.employee_id
+            )
+            db.add(employee)
+            db.flush()
         
         # Assign branches
         if user_in.branch_ids:
@@ -86,6 +90,10 @@ class AuthService:
     
     def get_users(self, db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
         return db.query(models.User).offset(skip).limit(limit).all()
+    
+    def check_username_exists(self, db: Session, username: str) -> bool:
+        user = db.query(models.User).filter(models.User.username == username).first()
+        return user is not None
     
     def get_user(self, db: Session, user_id: int) -> Optional[models.User]:
         user = db.query(models.User).filter(models.User.id == user_id).first()

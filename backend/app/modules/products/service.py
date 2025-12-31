@@ -71,6 +71,15 @@ class CategoryService:
                 detail=f"Category with id {category_id} not found"
             )
         return updated_category
+    
+    def delete_category(self, db: Session, category_id: int) -> bool:
+        deleted = repository.category_repository.delete(db, category_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category with id {category_id} not found"
+            )
+        return True
 
 class BrandService:
     def get_brand(self, db: Session, brand_id: int) -> schemas.Brand:
@@ -87,6 +96,24 @@ class BrandService:
     
     def create_brand(self, db: Session, brand: schemas.BrandCreate) -> schemas.Brand:
         return repository.brand_repository.create(db, brand)
+    
+    def update_brand(self, db: Session, brand_id: int, brand: schemas.BrandUpdate) -> schemas.Brand:
+        updated_brand = repository.brand_repository.update(db, brand_id, brand)
+        if not updated_brand:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Brand with id {brand_id} not found"
+            )
+        return updated_brand
+    
+    def delete_brand(self, db: Session, brand_id: int) -> bool:
+        deleted = repository.brand_repository.delete(db, brand_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Brand with id {brand_id} not found"
+            )
+        return True
 
 product_service = ProductService()
 category_service = CategoryService()

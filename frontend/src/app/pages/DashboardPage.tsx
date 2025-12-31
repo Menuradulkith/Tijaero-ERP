@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import {
   Grid,
   Card,
@@ -107,6 +108,8 @@ const recentActivities: ActivityItem[] = [
 ];
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
+
   return (
     <Box>
       <Typography
@@ -272,6 +275,7 @@ export default function DashboardPage() {
             <Grid container spacing={2} sx={{ mt: 1 }}>
               <Grid item xs={12} sm={6} md={3}>
                 <Box
+                  onClick={() => navigate("/customers?action=new")}
                   sx={{
                     p: 2,
                     border: 1,
@@ -290,6 +294,7 @@ export default function DashboardPage() {
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <Box
+                  onClick={() => navigate("/sales?action=new")}
                   sx={{
                     p: 2,
                     border: 1,
@@ -308,6 +313,7 @@ export default function DashboardPage() {
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <Box
+                  onClick={() => navigate("/inventory?action=new")}
                   sx={{
                     p: 2,
                     border: 1,
@@ -326,6 +332,7 @@ export default function DashboardPage() {
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <Box
+                  onClick={() => navigate("/finance")}
                   sx={{
                     p: 2,
                     border: 1,
