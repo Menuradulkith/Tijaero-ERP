@@ -9,6 +9,7 @@ import { Toaster } from "react-hot-toast";
 import App from "./App";
 import { createAppTheme } from "./styles/theme";
 import { useThemeStore } from "./state/themeStore";
+import "./styles/global.css"; // Import global styles for required fields
 
 const queryClient = new QueryClient({
   defaultOptions: {

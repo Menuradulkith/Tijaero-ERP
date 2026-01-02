@@ -242,6 +242,7 @@ export default function CustomersPage() {
               ? { label: "Active", color: "success" }
               : { label: "Inactive", color: "default" }
           }
+          chips={customer.is_customer_agent ? [{ label: "Agent", color: "info" }] : undefined}
         />
       )}
     />
@@ -262,7 +263,10 @@ export default function CustomersPage() {
         isCreating={isCreating}
         createTitle="New Customer"
         noSelectionTitle="Select a Customer"
-        chips={selectedCustomer ? [{ label: selectedCustomer.active ? "Active" : "Inactive", color: selectedCustomer.active ? "success" : "default" as const }] : []}
+        chips={selectedCustomer ? [
+          { label: selectedCustomer.active ? "Active" : "Inactive", color: selectedCustomer.active ? "success" : "default" as const },
+          ...(selectedCustomer.is_customer_agent ? [{ label: "Agent", color: "info" as const }] : [])
+        ] : []}
         isFavorite={selectedCustomer ? favorites.includes(selectedCustomer.id) : false}
         onToggleFavorite={selectedCustomer ? (e) => toggleFavorite(selectedCustomer.id, e) : undefined}
       />
