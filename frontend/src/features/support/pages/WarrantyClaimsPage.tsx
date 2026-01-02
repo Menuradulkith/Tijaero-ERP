@@ -23,6 +23,7 @@ import {
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { warrantyClaimsApi } from "@/modules/support/api";
 import { WarrantyClaimCreate } from "@/modules/support/types";
 
@@ -30,6 +31,7 @@ export default function WarrantyClaimsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const deleteDialog = useConfirmDialog();
 
   const { data: claims, isLoading } = useQuery({
     queryKey: ["warranty-claims"],
@@ -130,9 +132,11 @@ export default function WarrantyClaimsPage() {
             size="small"
             color="error"
             onClick={() => {
-              if (confirm("Are you sure you want to delete this claim?")) {
-                deleteMutation.mutate(params.row.id);
-              }
+              deleteDialog.open(
+                "Delete Claim",
+                "Are you sure you want to delete this claim?",
+                () => deleteMutation.mutate(params.row.id)
+              );
             }}
           >
             <DeleteIcon />
@@ -337,6 +341,7 @@ export default function WarrantyClaimsPage() {
           </DialogActions>
         </form>
       </Dialog>
+      <ConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }

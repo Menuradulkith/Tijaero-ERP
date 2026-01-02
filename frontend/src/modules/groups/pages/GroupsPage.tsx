@@ -15,6 +15,7 @@ import {
 } from "@mui/material";
 import SecurityIcon from "@mui/icons-material/Security";
 import toast from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero Components
 import {
@@ -167,19 +168,29 @@ export default function GroupsPage() {
     baseHandleCancel(filteredGroups);
   }, [baseHandleCancel, filteredGroups]);
 
+  const confirmDialog = useConfirmDialog();
+
   const handleDelete = useCallback(async () => {
-    if (selectedGroup && window.confirm(`Are you sure you want to delete role "${selectedGroup.name}"?`)) {
-      try {
-        await groupsApi.deleteGroup(selectedGroup.id);
-        toast.success("Role deleted successfully");
-        setSelectedGroup(null);
-        await loadData();
-      } catch (err: any) {
-        setError(err.response?.data?.detail || "Failed to delete role");
-        toast.error(err.response?.data?.detail || "Failed to delete role");
+    if (selectedGroup) {
+      const confirmed = await confirmDialog.confirm({
+        title: "Delete Role",
+        message: `Are you sure you want to delete role "${selectedGroup.name}"?`,
+        confirmText: "Delete",
+        confirmColor: "error",
+      });
+      if (confirmed) {
+        try {
+          await groupsApi.deleteGroup(selectedGroup.id);
+          toast.success("Role deleted successfully");
+          setSelectedGroup(null);
+          await loadData();
+        } catch (err: any) {
+          setError(err.response?.data?.detail || "Failed to delete role");
+          toast.error(err.response?.data?.detail || "Failed to delete role");
+        }
       }
     }
-  }, [selectedGroup, setSelectedGroup]);
+  }, [selectedGroup, setSelectedGroup, confirmDialog]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedGroup) {
@@ -351,13 +362,16 @@ export default function GroupsPage() {
   );
 
   return (
-    <MasterDetailLayout
-      title="Roles & Permissions"
-      icon={<SecurityIcon sx={{ fontSize: 32, color: "primary.main" }} />}
-      onRefresh={loadData}
-      isLoading={loading}
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
-    />
+    <>
+      <MasterDetailLayout
+        title="Roles & Permissions"
+        icon={<SecurityIcon sx={{ fontSize: 32, color: "primary.main" }} />}
+        onRefresh={loadData}
+        isLoading={loading}
+        masterPanel={masterPanel}
+        detailPanel={detailPanel}
+      />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

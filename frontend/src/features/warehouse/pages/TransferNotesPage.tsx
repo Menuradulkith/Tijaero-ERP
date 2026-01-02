@@ -22,6 +22,7 @@ import {
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { transferNotesApi } from "@/modules/warehouse/api";
 import { ItemTransferNoteCreate } from "@/modules/warehouse/types";
 
@@ -29,6 +30,8 @@ export default function TransferNotesPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const deleteDialog = useConfirmDialog();
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
   const { data: transferNotes, isLoading } = useQuery({
     queryKey: ["transfer-notes"],
@@ -123,11 +126,15 @@ export default function TransferNotesPage() {
             size="small"
             color="error"
             onClick={() => {
-              if (
-                confirm("Are you sure you want to delete this transfer note?")
-              ) {
-                deleteMutation.mutate(params.row.id);
-              }
+              setPendingDeleteId(params.row.id);
+              deleteDialog.open(
+                "Delete Transfer Note",
+                "Are you sure you want to delete this transfer note?",
+                () => {
+                  deleteMutation.mutate(params.row.id);
+                  setPendingDeleteId(null);
+                }
+              );
             }}
           >
             <DeleteIcon />
@@ -323,6 +330,7 @@ export default function TransferNotesPage() {
           </DialogActions>
         </form>
       </Dialog>
+      <ConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }

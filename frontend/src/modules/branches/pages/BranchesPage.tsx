@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Box, TextField } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
 import toast from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero Components - Import everything from one place
 import {
@@ -178,11 +179,21 @@ export default function BranchesPage() {
     }
   }, [isCreating, isEditing, selectedBranch, formData, createMutation, updateMutation]);
 
-  const handleDelete = useCallback(() => {
-    if (selectedBranch && window.confirm("Are you sure you want to delete this branch?")) {
-      deleteMutation.mutate(selectedBranch.id);
+  const confirmDialog = useConfirmDialog();
+
+  const handleDelete = useCallback(async () => {
+    if (selectedBranch) {
+      const confirmed = await confirmDialog.confirm({
+        title: "Delete Branch",
+        message: "Are you sure you want to delete this branch?",
+        confirmText: "Delete",
+        confirmColor: "error",
+      });
+      if (confirmed) {
+        deleteMutation.mutate(selectedBranch.id);
+      }
     }
-  }, [selectedBranch, deleteMutation]);
+  }, [selectedBranch, deleteMutation, confirmDialog]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedBranch) {
@@ -323,12 +334,15 @@ export default function BranchesPage() {
   );
 
   return (
-    <MasterDetailLayout
-      title="Branches"
-      onRefresh={refetch}
-      isLoading={isLoading}
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
-    />
+    <>
+      <MasterDetailLayout
+        title="Branches"
+        onRefresh={refetch}
+        isLoading={isLoading}
+        masterPanel={masterPanel}
+        detailPanel={detailPanel}
+      />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
 import toast from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero Components
 import {
@@ -184,6 +185,8 @@ export default function CustomersPage() {
     onError: () => toast.error("Failed to delete customer"),
   });
 
+  const confirmDialog = useConfirmDialog();
+
   // Handlers
   const handleSave = useCallback(() => {
     if (isCreating) {
@@ -193,11 +196,19 @@ export default function CustomersPage() {
     }
   }, [isCreating, selectedCustomer, formData, createMutation, updateMutation]);
 
-  const handleDelete = useCallback(() => {
-    if (selectedCustomer && window.confirm("Are you sure you want to delete this customer?")) {
-      deleteMutation.mutate(selectedCustomer.id);
+  const handleDelete = useCallback(async () => {
+    if (selectedCustomer) {
+      const confirmed = await confirmDialog.confirm({
+        title: "Delete Customer",
+        message: "Are you sure you want to delete this customer?",
+        confirmText: "Delete",
+        confirmColor: "error",
+      });
+      if (confirmed) {
+        deleteMutation.mutate(selectedCustomer.id);
+      }
     }
-  }, [selectedCustomer, deleteMutation]);
+  }, [selectedCustomer, deleteMutation, confirmDialog]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedCustomer) {
@@ -498,12 +509,15 @@ export default function CustomersPage() {
   );
 
   return (
-    <MasterDetailLayout
-      title="Customers"
-      onRefresh={refetch}
-      isLoading={isLoading}
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
-    />
+    <>
+      <MasterDetailLayout
+        title="Customers"
+        onRefresh={refetch}
+        isLoading={isLoading}
+        masterPanel={masterPanel}
+        detailPanel={detailPanel}
+      />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

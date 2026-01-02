@@ -21,6 +21,7 @@ import {
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { salaryProfilesApi } from "@/modules/hr/api";
 import { EmployeeSalaryProfileCreate } from "@/modules/hr/types";
 
@@ -28,6 +29,7 @@ export default function SalaryProfilesPage() {
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [profiles, setProfiles] = useState<any[]>([]);
+  const deleteDialog = useConfirmDialog();
 
   const { control, handleSubmit, reset } = useForm<EmployeeSalaryProfileCreate>(
     {
@@ -131,9 +133,11 @@ export default function SalaryProfilesPage() {
             size="small"
             color="error"
             onClick={() => {
-              if (confirm("Are you sure you want to delete this profile?")) {
-                deleteMutation.mutate(params.row.id);
-              }
+              deleteDialog.open(
+                "Delete Profile",
+                "Are you sure you want to delete this profile?",
+                () => deleteMutation.mutate(params.row.id)
+              );
             }}
           >
             <DeleteIcon />
@@ -304,6 +308,7 @@ export default function SalaryProfilesPage() {
           </DialogActions>
         </form>
       </Dialog>
+      <ConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }

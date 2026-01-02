@@ -24,6 +24,7 @@ import {
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { employeeAssetsApi } from "@/modules/hr/api";
 import { EmployeeAssetCreate } from "@/modules/hr/types";
 
@@ -31,6 +32,7 @@ export default function EmployeeAssetsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const deleteDialog = useConfirmDialog();
 
   const { data: assets, isLoading } = useQuery({
     queryKey: ["employee-assets"],
@@ -124,9 +126,11 @@ export default function EmployeeAssetsPage() {
             size="small"
             color="error"
             onClick={() => {
-              if (confirm("Are you sure you want to delete this assignment?")) {
-                deleteMutation.mutate(params.row.id);
-              }
+              deleteDialog.open(
+                "Delete Assignment",
+                "Are you sure you want to delete this assignment?",
+                () => deleteMutation.mutate(params.row.id)
+              );
             }}
           >
             <DeleteIcon />
@@ -283,6 +287,7 @@ export default function EmployeeAssetsPage() {
           </DialogActions>
         </form>
       </Dialog>
+      <ConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }
