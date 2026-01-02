@@ -298,6 +298,60 @@ export const createAppTheme = (mode: PaletteMode) => {
                 borderColor: isLight ? "#E0E0E0" : "#333333",
               },
             },
+            // Light red background for required fields
+            "& .MuiInputBase-root.Mui-required, &.Mui-required .MuiInputBase-root": {
+              backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
+            },
+            "& input[required], & textarea[required]": {
+              backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
+            },
+          },
+        },
+      },
+      MuiOutlinedInput: {
+        styleOverrides: {
+          root: {
+            // Apply light red background when required attribute is present
+            "&.Mui-required": {
+              backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
+            },
+          },
+          input: {
+            "&[required]": {
+              backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
+            },
+          },
+        },
+      },
+      MuiFilledInput: {
+        styleOverrides: {
+          root: {
+            "&.Mui-required": {
+              backgroundColor: isLight ? "rgba(255, 235, 238, 0.5)" : "rgba(211, 47, 47, 0.12)",
+            },
+          },
+          input: {
+            "&[required]": {
+              backgroundColor: isLight ? "rgba(255, 235, 238, 0.5)" : "rgba(211, 47, 47, 0.12)",
+            },
+          },
+        },
+      },
+      MuiSelect: {
+        styleOverrides: {
+          select: {
+            "&[required]": {
+              backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
+            },
+          },
+        },
+      },
+      MuiAutocomplete: {
+        styleOverrides: {
+          inputRoot: {
+            "&.Mui-required": {
+              backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
+            },
           },
         },
       },

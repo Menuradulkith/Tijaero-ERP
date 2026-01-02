@@ -6,6 +6,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Box,
   TextField,
+  Switch,
   Checkbox,
   Alert,
   CircularProgress,
@@ -13,6 +14,7 @@ import {
   Autocomplete,
   FormControl,
   Typography,
+  FormControlLabel,
 } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
 import toast from "react-hot-toast";
@@ -561,28 +563,26 @@ export default function UsersPage() {
                 fullWidth
               />
               <Box sx={{ display: "flex", gap: 3, gridColumn: "1 / -1" }}>
-                <FormControl>
-                  <Box display="flex" alignItems="center">
-                    <Checkbox
+                <FormControlLabel
+                  control={
+                    <Switch
                       checked={formData.is_active}
                       onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                       disabled={isDisabled}
-                      size="small"
                     />
-                    <Typography variant="body2">Active</Typography>
-                  </Box>
-                </FormControl>
-                <FormControl>
-                  <Box display="flex" alignItems="center">
-                    <Checkbox
+                  }
+                  label="Active"
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
                       checked={formData.is_staff}
                       onChange={(e) => setFormData({ ...formData, is_staff: e.target.checked })}
                       disabled={isDisabled}
-                      size="small"
                     />
-                    <Typography variant="body2">Staff</Typography>
-                  </Box>
-                </FormControl>
+                  }
+                  label="Staff"
+                />
               </Box>
             </FormSection>
 

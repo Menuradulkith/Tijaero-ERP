@@ -321,12 +321,16 @@ export default function CustomerDialog({
               <Controller
                 name="credit_days"
                 control={control}
-                render={({ field }) => (
+                rules={{ required: "Credit days is required" }}
+                render={({ field, fieldState }) => (
                   <TextField
                     {...field}
                     label="Credit Days"
                     type="number"
                     fullWidth
+                    required
+                    error={!!fieldState.error}
+                    helperText={fieldState.error?.message}
                   />
                 )}
               />
@@ -335,12 +339,16 @@ export default function CustomerDialog({
               <Controller
                 name="max_credit_limit"
                 control={control}
-                render={({ field }) => (
+                rules={{ required: "Max credit limit is required" }}
+                render={({ field, fieldState }) => (
                   <TextField
                     {...field}
                     label="Max Credit Limit"
                     type="number"
                     fullWidth
+                    required
+                    error={!!fieldState.error}
+                    helperText={fieldState.error?.message}
                   />
                 )}
               />
