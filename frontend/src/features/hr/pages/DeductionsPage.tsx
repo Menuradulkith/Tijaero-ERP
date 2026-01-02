@@ -21,6 +21,7 @@ import {
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { salaryDeductionsApi } from "@/modules/hr/api";
 import { SalaryDeductionCreate } from "@/modules/hr/types";
 
@@ -28,6 +29,7 @@ export default function DeductionsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const deleteDialog = useConfirmDialog();
 
   const { data: deductions, isLoading } = useQuery({
     queryKey: ["salary-deductions"],
@@ -115,9 +117,11 @@ export default function DeductionsPage() {
             size="small"
             color="error"
             onClick={() => {
-              if (confirm("Are you sure you want to delete this deduction?")) {
-                deleteMutation.mutate(params.row.id);
-              }
+              deleteDialog.open(
+                "Delete Deduction",
+                "Are you sure you want to delete this deduction?",
+                () => deleteMutation.mutate(params.row.id)
+              );
             }}
           >
             <DeleteIcon />
@@ -276,6 +280,7 @@ export default function DeductionsPage() {
           </DialogActions>
         </form>
       </Dialog>
+      <ConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }

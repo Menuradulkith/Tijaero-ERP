@@ -21,6 +21,7 @@ import {
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { promotionsApi } from "@/modules/hr/api";
 import { EmployeePromotionCreate } from "@/modules/hr/types";
 
@@ -28,6 +29,7 @@ export default function PromotionsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const deleteDialog = useConfirmDialog();
 
   const { data: promotions, isLoading } = useQuery({
     queryKey: ["promotions"],
@@ -115,9 +117,11 @@ export default function PromotionsPage() {
             size="small"
             color="error"
             onClick={() => {
-              if (confirm("Are you sure you want to delete this promotion?")) {
-                deleteMutation.mutate(params.row.id);
-              }
+              deleteDialog.open(
+                "Delete Promotion",
+                "Are you sure you want to delete this promotion?",
+                () => deleteMutation.mutate(params.row.id)
+              );
             }}
           >
             <DeleteIcon />
@@ -275,6 +279,7 @@ export default function PromotionsPage() {
           </DialogActions>
         </form>
       </Dialog>
+      <ConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }

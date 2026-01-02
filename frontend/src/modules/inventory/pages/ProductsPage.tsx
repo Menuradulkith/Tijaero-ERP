@@ -25,6 +25,7 @@ import {
   SortOption,
   TabConfig,
 } from "@/components/tijaero";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { productsApi, categoriesApi, brandsApi } from "../api";
 import { Product, ProductCreate, Category, CategoryCreate, CategoryUpdate, Brand, BrandCreate, BrandUpdate } from "../types";
 import { usePermission } from "@/auth/permissions";
@@ -84,6 +85,19 @@ export default function ProductsPage() {
   const canCreate = usePermission("inventory", "create");
   const canUpdate = usePermission("inventory", "update");
   const canDelete = usePermission("inventory", "delete");
+
+  // Confirm dialogs
+  const deleteProductDialog = useConfirmDialog();
+  const discardProductDialog = useConfirmDialog();
+  const deleteCategoryDialog = useConfirmDialog();
+  const discardCategoryDialog = useConfirmDialog();
+  const deleteBrandDialog = useConfirmDialog();
+  const discardBrandDialog = useConfirmDialog();
+
+  // Pending item for selection after discard confirm
+  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+  const [pendingCategory, setPendingCategory] = useState<Category | null>(null);
+  const [pendingBrand, setPendingBrand] = useState<Brand | null>(null);
 
   // Products state
   const productState = useMasterDetailState<Product, ProductCreate>({
@@ -268,8 +282,21 @@ export default function ProductsPage() {
   // Product handlers
   const handleSelectProduct = (product: Product) => {
     if (productState.isEditing || productState.isCreating) {
-      if (!window.confirm("You have unsaved changes. Discard them?")) return;
+      setPendingProduct(product);
+      discardProductDialog.open(
+        "Discard Changes",
+        "You have unsaved changes. Discard them?",
+        () => {
+          selectProductInternal(product);
+          setPendingProduct(null);
+        }
+      );
+      return;
     }
+    selectProductInternal(product);
+  };
+
+  const selectProductInternal = (product: Product) => {
     productState.setSelectedItem(product);
     productState.setFormData({
       name: product.name,
@@ -331,16 +358,33 @@ export default function ProductsPage() {
   };
 
   const handleDeleteProduct = () => {
-    if (productState.selectedItem && window.confirm("Are you sure you want to delete this product?")) {
-      deleteProductMutation.mutate(productState.selectedItem.id);
+    if (productState.selectedItem) {
+      deleteProductDialog.open(
+        "Delete Product",
+        "Are you sure you want to delete this product?",
+        () => deleteProductMutation.mutate(productState.selectedItem!.id)
+      );
     }
   };
 
   // Category handlers
   const handleSelectCategory = (category: Category) => {
     if (categoryState.isEditing || categoryState.isCreating) {
-      if (!window.confirm("You have unsaved changes. Discard them?")) return;
+      setPendingCategory(category);
+      discardCategoryDialog.open(
+        "Discard Changes",
+        "You have unsaved changes. Discard them?",
+        () => {
+          selectCategoryInternal(category);
+          setPendingCategory(null);
+        }
+      );
+      return;
     }
+    selectCategoryInternal(category);
+  };
+
+  const selectCategoryInternal = (category: Category) => {
     categoryState.setSelectedItem(category);
     categoryState.setFormData({
       name: category.name,
@@ -369,8 +413,12 @@ export default function ProductsPage() {
   };
 
   const handleDeleteCategory = () => {
-    if (categoryState.selectedItem && window.confirm("Are you sure you want to delete this category?")) {
-      deleteCategoryMutation.mutate(categoryState.selectedItem.id);
+    if (categoryState.selectedItem) {
+      deleteCategoryDialog.open(
+        "Delete Category",
+        "Are you sure you want to delete this category?",
+        () => deleteCategoryMutation.mutate(categoryState.selectedItem!.id)
+      );
     }
   };
 
@@ -388,8 +436,21 @@ export default function ProductsPage() {
   // Brand handlers
   const handleSelectBrand = (brand: Brand) => {
     if (brandState.isEditing || brandState.isCreating) {
-      if (!window.confirm("You have unsaved changes. Discard them?")) return;
+      setPendingBrand(brand);
+      discardBrandDialog.open(
+        "Discard Changes",
+        "You have unsaved changes. Discard them?",
+        () => {
+          selectBrandInternal(brand);
+          setPendingBrand(null);
+        }
+      );
+      return;
     }
+    selectBrandInternal(brand);
+  };
+
+  const selectBrandInternal = (brand: Brand) => {
     brandState.setSelectedItem(brand);
     brandState.setFormData({
       brand_name: brand.brand_name,
@@ -416,8 +477,12 @@ export default function ProductsPage() {
   };
 
   const handleDeleteBrand = () => {
-    if (brandState.selectedItem && window.confirm("Are you sure you want to delete this brand?")) {
-      deleteBrandMutation.mutate(brandState.selectedItem.id);
+    if (brandState.selectedItem) {
+      deleteBrandDialog.open(
+        "Delete Brand",
+        "Are you sure you want to delete this brand?",
+        () => deleteBrandMutation.mutate(brandState.selectedItem!.id)
+      );
     }
   };
 
@@ -851,16 +916,24 @@ export default function ProductsPage() {
   );
 
   return (
-    <MasterDetailLayout
-      title="Inventory"
-      onRefresh={handleRefresh}
-      tabs={tabs}
-      activeTab={activeTab}
-      onTabChange={(tab) => setActiveTab(tab as number)}
-    >
-      {activeTab === 0 && renderProductsTab()}
-      {activeTab === 1 && renderCategoriesTab()}
-      {activeTab === 2 && renderBrandsTab()}
-    </MasterDetailLayout>
+    <>
+      <MasterDetailLayout
+        title="Inventory"
+        onRefresh={handleRefresh}
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={(tab) => setActiveTab(tab as number)}
+      >
+        {activeTab === 0 && renderProductsTab()}
+        {activeTab === 1 && renderCategoriesTab()}
+        {activeTab === 2 && renderBrandsTab()}
+      </MasterDetailLayout>
+      <ConfirmDialog {...deleteProductDialog.dialogProps} />
+      <ConfirmDialog {...discardProductDialog.dialogProps} confirmText="Discard" />
+      <ConfirmDialog {...deleteCategoryDialog.dialogProps} />
+      <ConfirmDialog {...discardCategoryDialog.dialogProps} confirmText="Discard" />
+      <ConfirmDialog {...deleteBrandDialog.dialogProps} />
+      <ConfirmDialog {...discardBrandDialog.dialogProps} confirmText="Discard" />
+    </>
   );
 }

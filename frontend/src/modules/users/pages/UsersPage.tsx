@@ -18,6 +18,7 @@ import {
 } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
 import toast from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero Components
 import {
@@ -275,18 +276,28 @@ export default function UsersPage() {
     baseHandleCancel(filteredUsers);
   }, [baseHandleCancel, filteredUsers]);
 
+  const confirmDialog = useConfirmDialog();
+
   const handleDelete = useCallback(async () => {
-    if (selectedUser && window.confirm(`Are you sure you want to delete user "${selectedUser.username}"?`)) {
-      try {
-        await usersApi.deleteUser(selectedUser.id);
-        toast.success("User deleted successfully");
-        setSelectedUser(null);
-        loadData();
-      } catch (err: any) {
-        toast.error(err.response?.data?.detail || "Failed to delete user");
+    if (selectedUser) {
+      const confirmed = await confirmDialog.confirm({
+        title: "Delete User",
+        message: `Are you sure you want to delete user "${selectedUser.username}"?`,
+        confirmText: "Delete",
+        confirmColor: "error",
+      });
+      if (confirmed) {
+        try {
+          await usersApi.deleteUser(selectedUser.id);
+          toast.success("User deleted successfully");
+          setSelectedUser(null);
+          loadData();
+        } catch (err: any) {
+          toast.error(err.response?.data?.detail || "Failed to delete user");
+        }
       }
     }
-  }, [selectedUser, setSelectedUser]);
+  }, [selectedUser, setSelectedUser, confirmDialog]);
 
   if (loading) {
     return (
@@ -626,13 +637,16 @@ export default function UsersPage() {
   );
 
   return (
-    <MasterDetailLayout
-      title="User Management"
-      icon={<PersonIcon color="primary" />}
-      onRefresh={loadData}
-      isLoading={loading}
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
-    />
+    <>
+      <MasterDetailLayout
+        title="User Management"
+        icon={<PersonIcon color="primary" />}
+        onRefresh={loadData}
+        isLoading={loading}
+        masterPanel={masterPanel}
+        detailPanel={detailPanel}
+      />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

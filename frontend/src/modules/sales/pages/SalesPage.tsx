@@ -34,6 +34,7 @@ import {
   useMasterDetailState,
   SortOption,
 } from "@/components/tijaero";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
@@ -87,6 +88,10 @@ export default function SalesPage() {
   // Permissions
   const canCreate = usePermission("sales", "create");
   const canDelete = usePermission("sales", "delete");
+
+  // Confirm dialogs
+  const deleteDialog = useConfirmDialog();
+  const discardDialog = useConfirmDialog();
 
   // Main state using Tijaero hook
   const state = useMasterDetailState<Invoice, Partial<InvoiceCreate>>({
@@ -179,10 +184,23 @@ export default function SalesPage() {
     },
   });
 
+  // Pending invoice for selection after discard confirm
+  const [pendingInvoice, setPendingInvoice] = useState<Invoice | null>(null);
+
   // Handlers
   const handleSelectInvoice = (invoice: Invoice) => {
     if (state.isCreating) {
-      if (!window.confirm("Discard unsaved changes?")) return;
+      setPendingInvoice(invoice);
+      discardDialog.open(
+        "Discard Changes",
+        "Discard unsaved changes?",
+        () => {
+          state.setSelectedItem(invoice);
+          state.setIsCreating(false);
+          setPendingInvoice(null);
+        }
+      );
+      return;
     }
     state.setSelectedItem(invoice);
     state.setIsCreating(false);
@@ -237,8 +255,12 @@ export default function SalesPage() {
   };
 
   const handleDelete = () => {
-    if (state.selectedItem && window.confirm("Are you sure you want to delete this sales order?")) {
-      deleteMutation.mutate(state.selectedItem.id);
+    if (state.selectedItem) {
+      deleteDialog.open(
+        "Delete Sales Order",
+        "Are you sure you want to delete this sales order?",
+        () => deleteMutation.mutate(state.selectedItem!.id)
+      );
     }
   };
 
@@ -527,6 +549,7 @@ export default function SalesPage() {
   );
 
   return (
+    <>
     <MasterDetailLayout title="Sales Orders" onRefresh={refetch}>
       <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
         {/* Master List */}
@@ -615,5 +638,8 @@ export default function SalesPage() {
         </Box>
       </Box>
     </MasterDetailLayout>
+    <ConfirmDialog {...deleteDialog.dialogProps} />
+    <ConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
+    </>
   );
 }

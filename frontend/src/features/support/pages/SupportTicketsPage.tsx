@@ -22,6 +22,7 @@ import {
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { supportTicketsApi } from "@/modules/support/api";
 import { CustomerSupportCreate } from "@/modules/support/types";
 
@@ -29,6 +30,7 @@ export default function SupportTicketsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const deleteDialog = useConfirmDialog();
 
   const { data: tickets, isLoading } = useQuery({
     queryKey: ["support-tickets"],
@@ -127,9 +129,11 @@ export default function SupportTicketsPage() {
             size="small"
             color="error"
             onClick={() => {
-              if (confirm("Are you sure you want to delete this ticket?")) {
-                deleteMutation.mutate(params.row.id);
-              }
+              deleteDialog.open(
+                "Delete Ticket",
+                "Are you sure you want to delete this ticket?",
+                () => deleteMutation.mutate(params.row.id)
+              );
             }}
           >
             <DeleteIcon />
@@ -369,6 +373,7 @@ export default function SupportTicketsPage() {
           </DialogActions>
         </form>
       </Dialog>
+      <ConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }
