@@ -31,7 +31,7 @@ export default function TransferNotesPage() {
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const deleteDialog = useConfirmDialog();
-  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [_pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
   const { data: transferNotes, isLoading } = useQuery({
     queryKey: ["transfer-notes"],

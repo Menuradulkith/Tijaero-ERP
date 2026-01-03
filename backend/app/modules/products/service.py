@@ -118,3 +118,45 @@ class BrandService:
 product_service = ProductService()
 category_service = CategoryService()
 brand_service = BrandService()
+
+class MinimumPriceService:
+    def get_product_price_history(self, db: Session, product_id: int) -> List[schemas.MinimumPrice]:
+        # Verify product exists
+        product = repository.product_repository.get_by_id(db, product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product with id {product_id} not found"
+            )
+        return repository.minimum_price_repository.get_by_product_id(db, product_id)
+    
+    def get_current_minimum_price(self, db: Session, product_id: int) -> Optional[schemas.MinimumPrice]:
+        # Verify product exists
+        product = repository.product_repository.get_by_id(db, product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product with id {product_id} not found"
+            )
+        return repository.minimum_price_repository.get_current_for_product(db, product_id)
+    
+    def set_minimum_price(self, db: Session, product_id: int, minimum_price: float) -> schemas.MinimumPrice:
+        # Verify product exists
+        product = repository.product_repository.get_by_id(db, product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product with id {product_id} not found"
+            )
+        return repository.minimum_price_repository.create(db, product_id, minimum_price)
+    
+    def delete_minimum_price(self, db: Session, price_id: int) -> dict:
+        success = repository.minimum_price_repository.delete(db, price_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Minimum price with id {price_id} not found"
+            )
+        return {"message": "Minimum price deleted successfully"}
+
+minimum_price_service = MinimumPriceService()

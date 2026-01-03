@@ -64,6 +64,19 @@ export interface Product {
   updated_at: string;
 }
 
+export interface MinimumPrice {
+  id: number;
+  minimum_price: number;
+  product_id: number;
+  created_date: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MinimumPriceCreate {
+  minimum_price: number;
+}
+
 export interface ProductCreate {
   name: string;
   item_code: string;
@@ -89,4 +102,24 @@ export interface ProductUpdate {
   cost_price?: number;
   category_id?: number;
   items_brand_id?: number;
+}
+
+// Product with related details
+export interface ProductWithDetails extends Product {
+  category?: Category;
+  brand?: Brand;
+}
+
+// Minimum Price types
+export interface MinimumPrice {
+  id: number;
+  minimum_price: number;
+  product_id: number;
+  created_date: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MinimumPriceCreate {
+  minimum_price: number;
 }
