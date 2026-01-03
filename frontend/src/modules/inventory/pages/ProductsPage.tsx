@@ -7,6 +7,13 @@ import {
   FormControlLabel,
   Switch,
   InputAdornment,
+  Chip,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Typography,
 } from "@mui/material";
 import {
   Inventory as InventoryIcon,
@@ -26,7 +33,7 @@ import {
   TabConfig,
 } from "@/components/tijaero";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
-import { productsApi, categoriesApi, brandsApi } from "../api";
+import { productsApi, categoriesApi, brandsApi, minimumPriceApi } from "../api";
 import { Product, ProductCreate, Category, CategoryCreate, CategoryUpdate, Brand, BrandCreate, BrandUpdate } from "../types";
 import { usePermission } from "@/auth/permissions";
 import { toast } from "react-hot-toast";
@@ -95,9 +102,13 @@ export default function ProductsPage() {
   const discardBrandDialog = useConfirmDialog();
 
   // Pending item for selection after discard confirm
-  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
-  const [pendingCategory, setPendingCategory] = useState<Category | null>(null);
-  const [pendingBrand, setPendingBrand] = useState<Brand | null>(null);
+  const [_pendingProduct, setPendingProduct] = useState<Product | null>(null);
+  const [_pendingCategory, setPendingCategory] = useState<Category | null>(null);
+  const [_pendingBrand, setPendingBrand] = useState<Brand | null>(null);
+
+  // Minimum price dialog state
+  const [minPriceDialogOpen, setMinPriceDialogOpen] = useState(false);
+  const [newMinPrice, setNewMinPrice] = useState<number>(0);
 
   // Products state
   const productState = useMasterDetailState<Product, ProductCreate>({
@@ -132,6 +143,14 @@ export default function ProductsPage() {
   const { data: brands, isLoading: brandsLoading, refetch: refetchBrands } = useQuery({
     queryKey: ["brands"],
     queryFn: () => brandsApi.getAll(),
+  });
+
+  // Fetch current minimum price for selected product
+  const { data: currentMinPrice } = useQuery({
+    queryKey: ["minimum-price", productState.selectedItem?.id],
+    queryFn: () => minimumPriceApi.getCurrent(productState.selectedItem!.id),
+    enabled: !!productState.selectedItem?.id,
+    retry: false,
   });
 
   // Filtered and sorted data
@@ -277,6 +296,18 @@ export default function ProductsPage() {
       brandState.setSelectedItem(null);
     },
     onError: () => toast.error("Failed to delete brand"),
+  });
+
+  // Minimum price mutation
+  const setMinimumPriceMutation = useMutation({
+    mutationFn: (price: number) => minimumPriceApi.set(productState.selectedItem!.id, { minimum_price: price }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["minimum-price", productState.selectedItem?.id] });
+      toast.success("Minimum price set successfully");
+      setMinPriceDialogOpen(false);
+      setNewMinPrice(0);
+    },
+    onError: () => toast.error("Failed to set minimum price"),
   });
 
   // Product handlers
@@ -532,6 +563,10 @@ export default function ProductsPage() {
             secondaryText={product.name}
             isFavorite={productState.favorites.includes(product.id)}
             onToggleFavorite={() => productState.toggleFavorite(product.id)}
+            chips={[
+              ...(product.active ? [{ label: "Active", color: "success" as const }] : []),
+              ...(product.website_active ? [{ label: "Web", color: "info" as const }] : []),
+            ]}
           />
         ))}
       </SearchableList>
@@ -549,7 +584,10 @@ export default function ProductsPage() {
           }
           chips={
             productState.selectedItem && !productState.isCreating
-              ? [{ label: productState.selectedItem.active ? "Active" : "Inactive", color: productState.selectedItem.active ? "success" : "default" }]
+              ? [
+                  { label: productState.selectedItem.active ? "Active" : "Inactive", color: productState.selectedItem.active ? "success" : "default" },
+                  ...(productState.selectedItem.website_active ? [{ label: "Website Active", color: "info" as const }] : []),
+                ]
               : undefined
           }
         />
@@ -582,7 +620,7 @@ export default function ProductsPage() {
                   size="small"
                   value={productState.formData.item_code}
                   onChange={(e) => productState.setFormData({ ...productState.formData, item_code: e.target.value.toUpperCase() })}
-                  disabled={!productState.isEditing && !productState.isCreating}
+                  disabled={!productState.isCreating}
                   required
                   inputProps={{ style: { textTransform: "uppercase" } }}
                 />
@@ -671,6 +709,35 @@ export default function ProductsPage() {
                   disabled={!productState.isEditing && !productState.isCreating}
                   InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                 />
+                {/* Minimum Price - View mode only, managed separately */}
+                {!productState.isCreating && productState.selectedItem && (
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, gridColumn: { sm: "1 / -1" } }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Minimum Price:
+                    </Typography>
+                    {currentMinPrice ? (
+                      <Chip
+                        label={`$${currentMinPrice.minimum_price.toFixed(2)}`}
+                        color="primary"
+                        size="small"
+                      />
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">Not set</Typography>
+                    )}
+                    {canUpdate && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          setNewMinPrice(currentMinPrice?.minimum_price || 0);
+                          setMinPriceDialogOpen(true);
+                        }}
+                      >
+                        {currentMinPrice ? "Update" : "Set"} Min Price
+                      </Button>
+                    )}
+                  </Box>
+                )}
               </FormSection>
 
               <FormSection title="Status" isLast>
@@ -783,7 +850,7 @@ export default function ProductsPage() {
                 size="small"
                 value={categoryState.formData.category_code}
                 onChange={(e) => categoryState.setFormData({ ...categoryState.formData, category_code: e.target.value.toUpperCase() })}
-                disabled={!categoryState.isEditing && !categoryState.isCreating}
+                disabled={!categoryState.isCreating}
                 required
                 inputProps={{ style: { textTransform: "uppercase" } }}
               />
@@ -894,7 +961,7 @@ export default function ProductsPage() {
                 size="small"
                 value={brandState.formData.brand_code}
                 onChange={(e) => brandState.setFormData({ ...brandState.formData, brand_code: e.target.value.toUpperCase() })}
-                disabled={!brandState.isEditing && !brandState.isCreating}
+                disabled={!brandState.isCreating}
                 required
                 inputProps={{ style: { textTransform: "uppercase" } }}
               />
@@ -934,6 +1001,34 @@ export default function ProductsPage() {
       <ConfirmDialog {...discardCategoryDialog.dialogProps} confirmText="Discard" />
       <ConfirmDialog {...deleteBrandDialog.dialogProps} />
       <ConfirmDialog {...discardBrandDialog.dialogProps} confirmText="Discard" />
+      
+      {/* Minimum Price Dialog */}
+      <Dialog open={minPriceDialogOpen} onClose={() => setMinPriceDialogOpen(false)}>
+        <DialogTitle>Set Minimum Price</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="Minimum Price"
+            type="number"
+            fullWidth
+            value={newMinPrice}
+            onChange={(e) => setNewMinPrice(parseFloat(e.target.value) || 0)}
+            InputProps={{
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
+            }}
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMinPriceDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => setMinimumPriceMutation.mutate(newMinPrice)}
+            disabled={setMinimumPriceMutation.isPending}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

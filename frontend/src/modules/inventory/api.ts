@@ -9,6 +9,8 @@ import {
   Brand,
   BrandCreate,
   BrandUpdate,
+  MinimumPrice,
+  MinimumPriceCreate,
 } from "./types";
 
 export const productsApi = {
@@ -99,6 +101,11 @@ export const brandsApi = {
     return response.data;
   },
 
+  getById: async (id: number) => {
+    const response = await apiClient.get<Brand>(`/inventory/brands/${id}`);
+    return response.data;
+  },
+
   create: async (data: BrandCreate) => {
     const response = await apiClient.post<Brand>("/inventory/brands/", data);
     return response.data;
@@ -111,5 +118,33 @@ export const brandsApi = {
 
   delete: async (id: number) => {
     await apiClient.delete(`/inventory/brands/${id}`);
+  },
+};
+
+export const minimumPriceApi = {
+  getHistory: async (productId: number) => {
+    const response = await apiClient.get<MinimumPrice[]>(
+      `/inventory/products/${productId}/minimum-prices`
+    );
+    return response.data;
+  },
+
+  getCurrent: async (productId: number) => {
+    const response = await apiClient.get<MinimumPrice>(
+      `/inventory/products/${productId}/minimum-prices/current`
+    );
+    return response.data;
+  },
+
+  set: async (productId: number, data: MinimumPriceCreate) => {
+    const response = await apiClient.post<MinimumPrice>(
+      `/inventory/products/${productId}/minimum-prices`,
+      data
+    );
+    return response.data;
+  },
+
+  delete: async (priceId: number) => {
+    await apiClient.delete(`/inventory/minimum-prices/${priceId}`);
   },
 };

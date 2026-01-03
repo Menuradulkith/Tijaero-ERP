@@ -12,8 +12,6 @@ import {
   CircularProgress,
   Chip,
   Autocomplete,
-  FormControl,
-  Typography,
   FormControlLabel,
 } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";

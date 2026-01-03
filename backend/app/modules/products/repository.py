@@ -138,6 +138,37 @@ class BrandRepository:
         db.commit()
         return True
 
+class MinimumPriceRepository:
+    def get_by_id(self, db: Session, price_id: int) -> Optional[MinimumPrice]:
+        return db.query(MinimumPrice).filter(MinimumPrice.id == price_id).first()
+    
+    def get_by_product_id(self, db: Session, product_id: int) -> List[MinimumPrice]:
+        return db.query(MinimumPrice).filter(MinimumPrice.product_id == product_id).order_by(MinimumPrice.created_date.desc()).all()
+    
+    def get_current_for_product(self, db: Session, product_id: int) -> Optional[MinimumPrice]:
+        return db.query(MinimumPrice).filter(MinimumPrice.product_id == product_id).order_by(MinimumPrice.created_date.desc()).first()
+    
+    def create(self, db: Session, product_id: int, minimum_price: float) -> MinimumPrice:
+        from datetime import datetime
+        db_price = MinimumPrice(
+            product_id=product_id,
+            minimum_price=minimum_price,
+            created_date=datetime.utcnow(),
+        )
+        db.add(db_price)
+        db.commit()
+        db.refresh(db_price)
+        return db_price
+    
+    def delete(self, db: Session, price_id: int) -> bool:
+        db_price = self.get_by_id(db, price_id)
+        if not db_price:
+            return False
+        db.delete(db_price)
+        db.commit()
+        return True
+
 product_repository = ProductRepository()
 category_repository = CategoryRepository()
 brand_repository = BrandRepository()
+minimum_price_repository = MinimumPriceRepository()

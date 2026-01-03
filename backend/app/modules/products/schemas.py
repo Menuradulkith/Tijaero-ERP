@@ -98,13 +98,13 @@ class ProductWithDetails(Product):
 # Minimum Price Schemas
 class MinimumPriceBase(BaseModel):
     minimum_price: float = Field(..., ge=0)
-    product_id: int
 
-class MinimumPriceCreate(MinimumPriceBase):
-    pass
+class MinimumPriceCreate(BaseModel):
+    minimum_price: float = Field(..., ge=0)
 
 class MinimumPrice(MinimumPriceBase):
     id: int
+    product_id: int
     created_date: datetime
     created_at: datetime
     updated_at: datetime

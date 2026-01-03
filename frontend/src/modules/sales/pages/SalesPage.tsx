@@ -185,7 +185,7 @@ export default function SalesPage() {
   });
 
   // Pending invoice for selection after discard confirm
-  const [pendingInvoice, setPendingInvoice] = useState<Invoice | null>(null);
+  const [_pendingInvoice, setPendingInvoice] = useState<Invoice | null>(null);
 
   // Handlers
   const handleSelectInvoice = (invoice: Invoice) => {

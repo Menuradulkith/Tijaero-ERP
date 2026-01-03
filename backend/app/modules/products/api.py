@@ -248,3 +248,66 @@ def delete_brand(
     """Delete a brand."""
     service.brand_service.delete_brand(db, brand_id)
     return None
+
+# Minimum Price Endpoints
+@router.get(
+    "/products/{product_id}/minimum-prices",
+    response_model=List[schemas.MinimumPrice],
+    summary="Get Product Minimum Price History",
+    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))]
+)
+def get_product_minimum_price_history(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW))
+):
+    """Get the price history of minimum prices for a product."""
+    return service.minimum_price_service.get_product_price_history(db, product_id)
+
+@router.get(
+    "/products/{product_id}/minimum-prices/current",
+    response_model=schemas.MinimumPrice,
+    summary="Get Current Minimum Price",
+    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))]
+)
+def get_current_minimum_price(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW))
+):
+    """Get the current (latest) minimum price for a product."""
+    price = service.minimum_price_service.get_current_minimum_price(db, product_id)
+    if not price:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="No minimum price set for this product")
+    return price
+
+@router.post(
+    "/products/{product_id}/minimum-prices",
+    response_model=schemas.MinimumPrice,
+    status_code=status.HTTP_201_CREATED,
+    summary="Set Product Minimum Price",
+    dependencies=[Depends(require_permission(*Permissions.INVENTORY_UPDATE))]
+)
+def set_product_minimum_price(
+    product_id: int,
+    price_data: schemas.MinimumPriceCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.INVENTORY_UPDATE))
+):
+    """Set a new minimum price for a product. This creates a new price record for history tracking."""
+    return service.minimum_price_service.set_minimum_price(db, product_id, price_data.minimum_price)
+
+@router.delete(
+    "/minimum-prices/{price_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete Minimum Price",
+    dependencies=[Depends(require_permission(*Permissions.INVENTORY_DELETE))]
+)
+def delete_minimum_price(
+    price_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.INVENTORY_DELETE))
+):
+    """Delete a minimum price record."""
+    return service.minimum_price_service.delete_minimum_price(db, price_id)
