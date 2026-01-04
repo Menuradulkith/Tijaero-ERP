@@ -312,6 +312,7 @@ export interface SupplierCreditStatus {
     due_date: string;
     days_overdue: number;
     is_overdue: boolean;
+    branch_code: string;
   }[];
 }
 

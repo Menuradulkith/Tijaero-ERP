@@ -193,7 +193,8 @@ class SupplierCreditService:
                 "grn_no": grn.good_received_no if grn else None,
                 "due_date": due_date,
                 "days_overdue": days_overdue,
-                "is_overdue": days_overdue > 0 and not is_settled
+                "is_overdue": days_overdue > 0 and not is_settled,
+                "branch_code": po.branch_code
             })
         
         return result

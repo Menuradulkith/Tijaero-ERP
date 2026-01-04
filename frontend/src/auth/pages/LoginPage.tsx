@@ -49,6 +49,12 @@ export default function LoginPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (username.trim() === "" || password.trim() === "") {
+      toast.error("Username and password are required");
+      return;
+    }
+
     loginMutation.mutate({ username, password });
   };
 
@@ -156,7 +162,6 @@ export default function LoginPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               margin="normal"
-              required
               autoFocus
               InputProps={{
                 startAdornment: (
@@ -173,7 +178,6 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               margin="normal"
-              required
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
