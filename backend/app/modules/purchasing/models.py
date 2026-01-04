@@ -3,6 +3,46 @@ from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.common.base_models import TimestampMixin
 
+
+class GoodReceivedNote(Base):
+    __tablename__ = "good_received_note"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    good_received_no = Column(String(200), unique=True, nullable=False)
+    good_received_date = Column(Date, nullable=False)
+    supplier_invoice_no = Column(String(200), nullable=False)
+    supplier_invoice_date = Column(Date, nullable=False)
+    remark = Column(Text)
+    branch_code = Column(String(200), nullable=False)
+    created_date = Column(Date, nullable=False)
+    good_received_locations_id = Column(Integer, ForeignKey("good_received_locations.id"), nullable=False)
+    purchasingorders_id = Column(Integer, ForeignKey("purchasing_orders.id"), nullable=False)
+    added_date = Column(TIMESTAMP, nullable=False)
+    
+    # Relationships
+    location = relationship("Locations", back_populates="good_received_notes")
+    purchasing_order = relationship("PurchasingOrder", back_populates="good_received_notes")
+    purchasing_returns = relationship("PurchasingReturn", back_populates="good_received_note")
+    credit_settle_transactions = relationship("SupplierCreditsSettleTransaction", back_populates="good_received_note")
+
+
+class GoodReceivedItems(Base):
+    __tablename__ = "good_received_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    good_received_note = Column(String(355), nullable=False)
+    barcode = Column(Text, nullable=False)
+    branch_code = Column(String(200), nullable=False)
+    active = Column(Boolean, nullable=False)
+    created_date = Column(Date, nullable=False)
+    purchasing_order_items_id = Column(Integer, ForeignKey("purchasing_order_items.id"), nullable=False)
+    added_date = Column(TIMESTAMP, nullable=False)
+    
+    # Relationships
+    purchasing_order_item = relationship("PurchasingOrderItems", back_populates="good_received_items")
+    invoice_barcodes = relationship("InvoiceItemsBarcode", back_populates="good_received_item")
+
+
 class Supplier(Base, TimestampMixin):
     __tablename__ = "supplier"
     
@@ -59,6 +99,7 @@ class PurchasingOrder(Base):
     second_suppliers_id = Column(Integer, ForeignKey("supplier.id"), nullable=False)
     added_date = Column(TIMESTAMP, nullable=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"))
+    status = Column(String(30), nullable=False, default="pending")
     
     # Relationships
     first_supplier = relationship("Supplier", foreign_keys=[first_suppliers_id], back_populates="purchasing_orders_first")

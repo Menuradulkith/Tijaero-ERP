@@ -65,6 +65,7 @@ class PurchasingOrderRepository:
         self.db = db
     
     def create(self, order: schemas.PurchasingOrderCreate) -> models.PurchasingOrder:
+        # Exclude items - they're handled separately
         order_data = order.model_dump(exclude={'items'})
         db_order = models.PurchasingOrder(
             **order_data,
@@ -125,6 +126,14 @@ class PurchasingOrderRepository:
     def delete(self, order_id: int) -> bool:
         db_order = self.get_by_id(order_id)
         if db_order:
+            # Check if there are any GRNs associated with this order
+            grn_count = self.db.query(models.GoodReceivedNote).filter(
+                models.GoodReceivedNote.purchasingorders_id == order_id
+            ).count()
+            
+            if grn_count > 0:
+                raise ValueError(f"Cannot delete purchase order: {grn_count} Good Received Note(s) are associated with this order")
+            
             # Delete related items first
             self.db.query(models.PurchasingOrderItems).filter(
                 models.PurchasingOrderItems.purchasingorders_id == order_id
@@ -173,10 +182,8 @@ class GoodReceivedNoteRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, grn: schemas.GoodReceivedNoteCreate) -> "GoodReceivedNote":
-        from app.modules.inventory.models import GoodReceivedNote, GoodReceivedItems
-        
-        db_grn = GoodReceivedNote(
+    def create(self, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
+        db_grn = models.GoodReceivedNote(
             **grn.model_dump(),
             created_date=date.today(),
             added_date=datetime.now()
@@ -186,27 +193,22 @@ class GoodReceivedNoteRepository:
         self.db.refresh(db_grn)
         return db_grn
     
-    def get_by_id(self, grn_id: int) -> Optional["GoodReceivedNote"]:
-        from app.modules.inventory.models import GoodReceivedNote
-        return self.db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
+    def get_by_id(self, grn_id: int) -> Optional[models.GoodReceivedNote]:
+        return self.db.query(models.GoodReceivedNote).filter(models.GoodReceivedNote.id == grn_id).first()
     
-    def get_all(self, filters: schemas.GoodReceivedNoteListFilter) -> List["GoodReceivedNote"]:
-        from app.modules.inventory.models import GoodReceivedNote
-        
-        query = self.db.query(GoodReceivedNote)
+    def get_all(self, filters: schemas.GoodReceivedNoteListFilter) -> List[models.GoodReceivedNote]:
+        query = self.db.query(models.GoodReceivedNote)
         
         if filters.branch_code:
-            query = query.filter(GoodReceivedNote.branch_code == filters.branch_code)
+            query = query.filter(models.GoodReceivedNote.branch_code == filters.branch_code)
         if filters.date_from:
-            query = query.filter(GoodReceivedNote.good_received_date >= filters.date_from)
+            query = query.filter(models.GoodReceivedNote.good_received_date >= filters.date_from)
         if filters.date_to:
-            query = query.filter(GoodReceivedNote.good_received_date <= filters.date_to)
+            query = query.filter(models.GoodReceivedNote.good_received_date <= filters.date_to)
         
-        return query.order_by(GoodReceivedNote.good_received_date.desc()).offset(filters.skip).limit(filters.limit).all()
+        return query.order_by(models.GoodReceivedNote.good_received_date.desc()).offset(filters.skip).limit(filters.limit).all()
     
-    def update(self, grn_id: int, grn: schemas.GoodReceivedNoteCreate) -> Optional["GoodReceivedNote"]:
-        from app.modules.inventory.models import GoodReceivedNote
-        
+    def update(self, grn_id: int, grn: schemas.GoodReceivedNoteCreate) -> Optional[models.GoodReceivedNote]:
         db_grn = self.get_by_id(grn_id)
         if db_grn:
             update_data = grn.model_dump()
@@ -216,20 +218,16 @@ class GoodReceivedNoteRepository:
             self.db.refresh(db_grn)
         return db_grn
     
-    def get_items(self, grn_id: int) -> List["GoodReceivedItems"]:
-        from app.modules.inventory.models import GoodReceivedNote, GoodReceivedItems
-        
+    def get_items(self, grn_id: int) -> List[models.GoodReceivedItems]:
         grn = self.get_by_id(grn_id)
         if not grn:
             return []
-        return self.db.query(GoodReceivedItems).filter(
-            GoodReceivedItems.good_received_note == grn.good_received_no
+        return self.db.query(models.GoodReceivedItems).filter(
+            models.GoodReceivedItems.good_received_note == grn.good_received_no
         ).all()
     
-    def create_item(self, item: schemas.GoodReceivedItemCreate) -> "GoodReceivedItems":
-        from app.modules.inventory.models import GoodReceivedItems
-        
-        db_item = GoodReceivedItems(
+    def create_item(self, item: schemas.GoodReceivedItemCreate) -> models.GoodReceivedItems:
+        db_item = models.GoodReceivedItems(
             **item.model_dump(),
             created_date=date.today(),
             added_date=datetime.now()

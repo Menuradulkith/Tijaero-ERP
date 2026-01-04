@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from . import models, schemas, repository
-from app.modules.inventory import models as inventory_models
 from fastapi import HTTPException, status
 
 class SupplierService:
@@ -88,14 +87,51 @@ class PurchasingOrderService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Purchase order with id {order_id} not found"
             )
-        self.repo.delete(order_id)
+        try:
+            self.repo.delete(order_id)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
 
 class PurchasingReturnService:
     def __init__(self, db: Session):
         self.repo = repository.PurchasingReturnRepository(db)
+        self.db = db
     
     def create_return(self, return_data: schemas.PurchasingReturnCreate) -> models.PurchasingReturn:
-        return self.repo.create(return_data)
+        """
+        Create a purchase return and update supplier credit.
+        When goods are returned, supplier.left_credit_amount increases (we owe them less).
+        """
+        from app.modules.purchasing.credit_service import SupplierCreditService
+        
+        # Get GRN to find the supplier
+        grn = self.db.query(models.GoodReceivedNote).filter(
+            models.GoodReceivedNote.id == return_data.goodreceivednote_id
+        ).first()
+        
+        if not grn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"GRN {return_data.goodreceivednote_id} not found"
+            )
+        
+        # Get PO to find supplier
+        po = self.db.query(models.PurchasingOrder).filter(
+            models.PurchasingOrder.id == grn.purchasingorders_id
+        ).first()
+        
+        # Create the return
+        created_return = self.repo.create(return_data)
+        
+        # Update supplier credit balance if we have supplier
+        if po and po.first_suppliers_id:
+            credit_service = SupplierCreditService()
+            credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
+        
+        return created_return
     
     def get_return(self, return_id: int) -> models.PurchasingReturn:
         return_record = self.repo.get_by_id(return_id)
@@ -112,11 +148,36 @@ class PurchasingReturnService:
 class GoodReceivedNoteService:
     def __init__(self, db: Session):
         self.repo = repository.GoodReceivedNoteRepository(db)
+        self.db = db
     
-    def create(self, grn: schemas.GoodReceivedNoteCreate) -> inventory_models.GoodReceivedNote:
-        return self.repo.create(grn)
+    def create(self, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
+        """
+        Create a GRN and update supplier credit.
+        When goods are received on credit, supplier.left_credit_amount decreases.
+        """
+        from app.modules.purchasing.credit_service import SupplierCreditService
+        
+        # Get PO to find supplier
+        po = self.db.query(models.PurchasingOrder).filter(
+            models.PurchasingOrder.id == grn.purchasingorders_id
+        ).first()
+        
+        if not po:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase order {grn.purchasingorders_id} not found"
+            )
+        
+        # Create the GRN
+        created_grn = self.repo.create(grn)
+        
+        # Update supplier credit balance
+        credit_service = SupplierCreditService()
+        credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
+        
+        return created_grn
     
-    def get_by_id(self, grn_id: int) -> inventory_models.GoodReceivedNote:
+    def get_by_id(self, grn_id: int) -> models.GoodReceivedNote:
         grn = self.repo.get_by_id(grn_id)
         if not grn:
             raise HTTPException(
@@ -125,10 +186,10 @@ class GoodReceivedNoteService:
             )
         return grn
     
-    def list_grns(self, filters: schemas.GoodReceivedNoteListFilter) -> List[inventory_models.GoodReceivedNote]:
+    def list_grns(self, filters: schemas.GoodReceivedNoteListFilter) -> List[models.GoodReceivedNote]:
         return self.repo.get_all(filters)
     
-    def update(self, grn_id: int, grn: schemas.GoodReceivedNoteCreate) -> inventory_models.GoodReceivedNote:
+    def update(self, grn_id: int, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
         updated = self.repo.update(grn_id, grn)
         if not updated:
             raise HTTPException(
@@ -137,19 +198,33 @@ class GoodReceivedNoteService:
             )
         return updated
     
-    def get_items(self, grn_id: int) -> List[inventory_models.GoodReceivedItems]:
+    def get_items(self, grn_id: int) -> List[models.GoodReceivedItems]:
         return self.repo.get_items(grn_id)
     
-    def create_item(self, item: schemas.GoodReceivedItemCreate) -> inventory_models.GoodReceivedItems:
+    def create_item(self, item: schemas.GoodReceivedItemCreate) -> models.GoodReceivedItems:
         return self.repo.create_item(item)
 
 
 class SupplierCreditsSettleService:
     def __init__(self, db: Session):
         self.repo = repository.SupplierCreditsSettleRepository(db)
+        self.db = db
     
     def create(self, settle: schemas.SupplierCreditsSettleCreate) -> models.SupplierCreditsSettle:
-        return self.repo.create(settle)
+        """
+        Create a credit settlement and update supplier credit.
+        When supplier is paid, supplier.left_credit_amount increases.
+        """
+        from app.modules.purchasing.credit_service import SupplierCreditService
+        
+        # Create the settlement
+        created_settle = self.repo.create(settle)
+        
+        # Update supplier credit balance
+        credit_service = SupplierCreditService()
+        credit_service.update_supplier_credit_balance(self.db, settle.suppliers_id)
+        
+        return created_settle
     
     def get_by_id(self, settle_id: int) -> models.SupplierCreditsSettle:
         settle = self.repo.get_by_id(settle_id)
@@ -169,19 +244,72 @@ class SupplierCreditsSettleService:
     def get_with_transactions(self, settle_id: int) -> schemas.SupplierCreditsSettleWithTransactions:
         settle = self.get_by_id(settle_id)
         transactions = self.repo.get_transactions(settle_id)
+        
+        # Build transactions with GRN and PO details
+        enriched_transactions = []
+        for t in transactions:
+            # Get GRN details
+            grn = self.db.query(models.GoodReceivedNote).filter(
+                models.GoodReceivedNote.id == t.good_received_id
+            ).first()
+            
+            grn_no = None
+            po_no = None
+            invoice_no = None
+            
+            if grn:
+                grn_no = grn.good_received_no
+                # Get PO details
+                po = self.db.query(models.PurchasingOrder).filter(
+                    models.PurchasingOrder.id == grn.purchasingorders_id
+                ).first()
+                if po:
+                    po_no = po.purchasing_order_no
+                    invoice_no = po.purchasing_invoice_no
+            
+            enriched_transactions.append(schemas.SupplierCreditsSettleTransaction(
+                id=t.id,
+                payment_method=t.payment_method,
+                cheque_date=t.cheque_date,
+                payment_amount=t.payment_amount,
+                payment_method_number=t.payment_method_number,
+                remarks=t.remarks,
+                created_date=t.created_date,
+                good_received_id=t.good_received_id,
+                supplier_credit_settle_id=t.supplier_credit_settle_id,
+                grn_no=grn_no,
+                po_no=po_no,
+                invoice_no=invoice_no
+            ))
+        
         return schemas.SupplierCreditsSettleWithTransactions(
             id=settle.id,
             supplier_credits_settle_no=settle.supplier_credits_settle_no,
             branch_code=settle.branch_code,
             created_date=settle.created_date,
             suppliers_id=settle.suppliers_id,
-            transactions=[schemas.SupplierCreditsSettleTransaction.model_validate(t) for t in transactions]
+            transactions=enriched_transactions
         )
     
     def delete(self, settle_id: int) -> bool:
-        if not self.repo.get_by_id(settle_id):
+        """
+        Delete a credit settlement and recalculate supplier credit.
+        When settlement is deleted, supplier.left_credit_amount decreases.
+        """
+        from app.modules.purchasing.credit_service import SupplierCreditService
+        
+        settle = self.repo.get_by_id(settle_id)
+        if not settle:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Credit settlement with id {settle_id} not found"
             )
-        return self.repo.delete(settle_id)
+        
+        supplier_id = settle.suppliers_id
+        result = self.repo.delete(settle_id)
+        
+        # Update supplier credit balance after deleting settlement
+        credit_service = SupplierCreditService()
+        credit_service.update_supplier_credit_balance(self.db, supplier_id)
+        
+        return result

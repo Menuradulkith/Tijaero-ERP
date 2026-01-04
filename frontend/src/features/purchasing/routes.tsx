@@ -6,6 +6,7 @@ import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
 import PurchaseReturnsPage from "./pages/PurchaseReturnsPage";
 import GoodReceivedNotesPage from "./pages/GoodReceivedNotesPage";
 import PurchasingDashboard from "./pages/PurchasingDashboard";
+import CreditSettlementPage from "./pages/CreditSettlementPage";
 
 function PurchasingNavTabs() {
   const navigate = useNavigate();
@@ -17,13 +18,14 @@ function PurchasingNavTabs() {
     if (path.includes("/orders")) return 2;
     if (path.includes("/grn")) return 3;
     if (path.includes("/returns")) return 4;
+    if (path.includes("/settlements")) return 5;
     return 0;
   };
 
   return (
     <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
       <Tabs value={getTabValue()} onChange={(_, v) => {
-        const paths = ["", "suppliers", "orders", "grn", "returns"];
+        const paths = ["", "suppliers", "orders", "grn", "returns", "settlements"];
         navigate(`/purchasing/${paths[v]}`);
       }}>
         <Tab label="Dashboard" />
@@ -31,6 +33,7 @@ function PurchasingNavTabs() {
         <Tab label="Purchase Orders" />
         <Tab label="Good Received Notes" />
         <Tab label="Purchase Returns" />
+        <Tab label="Credit Settlements" />
       </Tabs>
     </Box>
   );
@@ -53,6 +56,7 @@ export default function PurchasingRoutes() {
       <Route path="orders" element={<PurchasingLayout><PurchaseOrdersPage /></PurchasingLayout>} />
       <Route path="grn" element={<PurchasingLayout><GoodReceivedNotesPage /></PurchasingLayout>} />
       <Route path="returns" element={<PurchasingLayout><PurchaseReturnsPage /></PurchasingLayout>} />
+      <Route path="settlements" element={<PurchasingLayout><CreditSettlementPage /></PurchasingLayout>} />
     </Routes>
   );
 }

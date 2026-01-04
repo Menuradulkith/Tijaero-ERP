@@ -24,9 +24,10 @@ from app.modules.purchasing.models import (
     Supplier,
     PurchasingOrder,
     SupplierCreditsSettle,
-    SupplierCreditsSettleTransaction
+    SupplierCreditsSettleTransaction,
+    GoodReceivedNote,
+    GoodReceivedItems
 )
-from app.modules.inventory.models import GoodReceivedNote
 from app.modules.purchasing import schemas
 
 
@@ -108,6 +109,12 @@ class SupplierCreditService:
         # Get overdue GRNs
         overdue_grns = self._get_overdue_grns(db, supplier_id, supplier.credit_days)
         
+        # Get all unpaid GRNs (for settlement)
+        unpaid_grns = self._get_unpaid_grns(db, supplier_id, supplier.credit_days)
+        
+        # Get credit purchase orders (unsettled)
+        credit_purchase_orders = self._get_credit_purchase_orders(db, supplier_id, supplier.credit_days)
+        
         return {
             "supplier_id": supplier_id,
             "supplier_name": supplier.full_name,
@@ -120,31 +127,120 @@ class SupplierCreditService:
             "available_credit": max(0, supplier.max_credit_limit - float(outstanding)),
             "overdue_count": len(overdue_grns),
             "total_overdue_amount": sum(grn["remaining_amount"] for grn in overdue_grns),
-            "overdue_grns": overdue_grns
+            "overdue_grns": overdue_grns,
+            "unpaid_grns": unpaid_grns,
+            "credit_purchase_orders": credit_purchase_orders
         }
     
-    def _calculate_outstanding_payable(self, db: Session, supplier_id: int) -> Decimal:
-        """Calculate total outstanding payable to a supplier"""
-        # Get all GRNs for this supplier through purchasing orders
-        # First, get all POs for this supplier
-        po_ids = db.query(PurchasingOrder.id).filter(
-            PurchasingOrder.first_suppliers_id == supplier_id
-        ).all()
-        po_ids = [p[0] for p in po_ids]
-        
-        if not po_ids:
-            return Decimal("0")
-        
-        # Get total from PO items (quantity * unit_price) for credit purchases
+    def _get_credit_purchase_orders(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
+        """
+        Get all credit purchase orders for a supplier with their settlement status.
+        Only includes POs with payment_method='Credit'.
+        """
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        total_credit = db.query(
+        # Get all credit POs for this supplier
+        credit_pos = db.query(PurchasingOrder).filter(
+            PurchasingOrder.first_suppliers_id == supplier_id,
+            PurchasingOrder.payment_method == "Credit"
+        ).order_by(PurchasingOrder.purchasing_order_date.desc()).all()
+        
+        result = []
+        for po in credit_pos:
+            # Calculate PO total from items
+            po_total = db.query(
+                func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+            ).filter(
+                PurchasingOrderItems.purchasingorders_id == po.id
+            ).scalar() or Decimal("0")
+            
+            # Check if this PO has a GRN (goods received)
+            grn = db.query(GoodReceivedNote).filter(
+                GoodReceivedNote.purchasingorders_id == po.id
+            ).first()
+            
+            # Get settlements for this PO (through GRN)
+            total_settled = Decimal("0")
+            if grn:
+                total_settled = db.query(
+                    func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
+                ).filter(
+                    SupplierCreditsSettleTransaction.good_received_id == grn.id
+                ).scalar() or Decimal("0")
+            
+            remaining = float(po_total) - float(total_settled)
+            is_settled = remaining <= 0
+            
+            # Calculate due date based on PO date
+            po_date = po.purchasing_order_date
+            if isinstance(po_date, str):
+                po_date = datetime.strptime(po_date, "%Y-%m-%d").date()
+            due_date = self.calculate_due_date(po_date, credit_days)
+            days_overdue = (date.today() - due_date).days
+            
+            result.append({
+                "po_id": po.id,
+                "po_no": po.purchasing_order_no,
+                "invoice_no": po.purchasing_invoice_no,
+                "po_date": po.purchasing_order_date,
+                "status": po.status,
+                "total_amount": float(po_total),
+                "settled_amount": float(total_settled),
+                "remaining_amount": remaining,
+                "is_settled": is_settled,
+                "has_grn": grn is not None,
+                "grn_id": grn.id if grn else None,
+                "grn_no": grn.good_received_no if grn else None,
+                "due_date": due_date,
+                "days_overdue": days_overdue,
+                "is_overdue": days_overdue > 0 and not is_settled
+            })
+        
+        return result
+    
+    def _calculate_outstanding_payable(self, db: Session, supplier_id: int) -> Decimal:
+        """
+        Calculate total outstanding payable to a supplier.
+        
+        Outstanding = PO Values (for POs with GRN) - Settlements - Purchase Returns
+        
+        Credit only starts when goods are received (GRN created),
+        not when purchase order is created.
+        
+        Note: We calculate based on PO total, not GRN items, because GRN items
+        may not exist immediately when GRN is created.
+        """
+        from app.modules.purchasing.models import PurchasingOrderItems
+        
+        # Get all POs for this supplier that have a GRN (goods received)
+        # This ensures credit only counts after goods are received
+        po_ids_with_grn = db.query(GoodReceivedNote.purchasingorders_id).filter(
+            GoodReceivedNote.purchasingorders_id.in_(
+                db.query(PurchasingOrder.id).filter(
+                    PurchasingOrder.first_suppliers_id == supplier_id
+                )
+            )
+        ).distinct().all()
+        po_ids_with_grn = [p[0] for p in po_ids_with_grn]
+        
+        if not po_ids_with_grn:
+            return Decimal("0")
+        
+        # Get GRN IDs for these POs (for returns calculation)
+        grn_ids = db.query(GoodReceivedNote.id).filter(
+            GoodReceivedNote.purchasingorders_id.in_(po_ids_with_grn)
+        ).all()
+        grn_ids = [g[0] for g in grn_ids]
+        
+        # Get total PO value for POs that have GRN (goods received)
+        # Using PO items total since GRN confirms receipt of the PO
+        total_grn_value = db.query(
             func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
         ).filter(
-            PurchasingOrderItems.purchasingorders_id.in_(po_ids)
+            PurchasingOrderItems.purchasingorders_id.in_(po_ids_with_grn)
         ).scalar() or Decimal("0")
         
-        # Get all settled amounts
+        # Get all settled amounts for this supplier
         total_settled = db.query(
             func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
         ).join(
@@ -154,7 +250,23 @@ class SupplierCreditService:
             SupplierCreditsSettle.suppliers_id == supplier_id
         ).scalar() or Decimal("0")
         
-        return total_credit - total_settled
+        # Get total purchase returns value (reduces what we owe)
+        from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
+        
+        return_ids = db.query(PurchasingReturn.id).filter(
+            PurchasingReturn.goodreceivednote_id.in_(grn_ids)
+        ).all()
+        return_ids = [r[0] for r in return_ids]
+        
+        total_returns = Decimal("0")
+        if return_ids:
+            total_returns = db.query(
+                func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+            ).filter(
+                PurchasingReturnItems.purchasingreturn_id.in_(return_ids)
+            ).scalar() or Decimal("0")
+        
+        return total_grn_value - total_settled - total_returns
     
     def _get_overdue_grns(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
         """Get list of overdue GRNs for a supplier"""
@@ -191,18 +303,59 @@ class SupplierCreditService:
                 })
         
         return overdue_list
+
+    def _get_unpaid_grns(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
+        """Get list of ALL unpaid GRNs for a supplier (including not yet due)"""
+        # Get PO IDs for this supplier
+        po_ids = db.query(PurchasingOrder.id).filter(
+            PurchasingOrder.first_suppliers_id == supplier_id
+        ).all()
+        po_ids = [p[0] for p in po_ids]
+        
+        if not po_ids:
+            return []
+        
+        # Get all GRNs for this supplier
+        grns = db.query(GoodReceivedNote).filter(
+            GoodReceivedNote.purchasingorders_id.in_(po_ids)
+        ).order_by(GoodReceivedNote.good_received_date).all()
+        
+        unpaid_list = []
+        for grn in grns:
+            remaining = self._get_grn_remaining_payable(db, grn.id)
+            if remaining > 0:
+                due_date = self.calculate_due_date(grn.good_received_date, credit_days)
+                days_overdue = (date.today() - due_date).days
+                unpaid_list.append({
+                    "grn_id": grn.id,
+                    "grn_no": grn.good_received_no,
+                    "grn_date": grn.good_received_date,
+                    "supplier_invoice_no": grn.supplier_invoice_no,
+                    "due_date": due_date,
+                    "days_overdue": days_overdue,
+                    "is_overdue": days_overdue > 0,
+                    "remaining_amount": float(remaining)
+                })
+        
+        return unpaid_list
     
     def _get_grn_remaining_payable(self, db: Session, grn_id: int) -> Decimal:
-        """Get remaining unpaid amount for a GRN"""
-        # Get GRN total from PO items
+        """
+        Get remaining unpaid amount for a specific GRN.
+        Remaining = GRN Value - Settlements - Returns
+        """
         grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
         if not grn:
             return Decimal("0")
         
         from app.modules.purchasing.models import PurchasingOrderItems
         
+        # Get total value of received items for this GRN
         total = db.query(
             func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+        ).join(
+            GoodReceivedItems,
+            GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
         ).filter(
             PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id
         ).scalar() or Decimal("0")
@@ -214,7 +367,23 @@ class SupplierCreditService:
             SupplierCreditsSettleTransaction.good_received_id == grn_id
         ).scalar() or Decimal("0")
         
-        return total - paid
+        # Get returns for this GRN
+        from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
+        
+        return_ids = db.query(PurchasingReturn.id).filter(
+            PurchasingReturn.goodreceivednote_id == grn_id
+        ).all()
+        return_ids = [r[0] for r in return_ids]
+        
+        total_returns = Decimal("0")
+        if return_ids:
+            total_returns = db.query(
+                func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+            ).filter(
+                PurchasingReturnItems.purchasingreturn_id.in_(return_ids)
+            ).scalar() or Decimal("0")
+        
+        return total - paid - total_returns
     
     def validate_credit_purchase(
         self, 

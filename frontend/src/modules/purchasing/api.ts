@@ -286,6 +286,33 @@ export interface SupplierCreditStatus {
     days_overdue: number;
     remaining_amount: number;
   }[];
+  unpaid_grns: {
+    grn_id: number;
+    grn_no: string;
+    grn_date: string;
+    supplier_invoice_no: string;
+    due_date: string;
+    days_overdue: number;
+    is_overdue: boolean;
+    remaining_amount: number;
+  }[];
+  credit_purchase_orders: {
+    po_id: number;
+    po_no: string;
+    invoice_no: string;
+    po_date: string;
+    status: string;
+    total_amount: number;
+    settled_amount: number;
+    remaining_amount: number;
+    is_settled: boolean;
+    has_grn: boolean;
+    grn_id: number | null;
+    grn_no: string | null;
+    due_date: string;
+    days_overdue: number;
+    is_overdue: boolean;
+  }[];
 }
 
 export interface SupplierCreditCheckResult {

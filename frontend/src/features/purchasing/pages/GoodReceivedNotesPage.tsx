@@ -350,7 +350,7 @@ export default function GoodReceivedNotesPage() {
               />
               <TextField
                 select
-                label="Purchase Order"
+                label="Purchase Order (Approved Only)"
                 size="small"
                 value={formData.purchasingorders_id}
                 onChange={(e) => setFormData({ ...formData, purchasingorders_id: parseInt(e.target.value) })}
@@ -358,7 +358,7 @@ export default function GoodReceivedNotesPage() {
                 required
               >
                 <MenuItem value={0}>Select Order</MenuItem>
-                {purchaseOrders?.map((order: PurchasingOrder) => (
+                {purchaseOrders?.filter((order: PurchasingOrder) => order.status === "approved").map((order: PurchasingOrder) => (
                   <MenuItem key={order.id} value={order.id}>
                     {order.purchasing_order_no}
                   </MenuItem>
