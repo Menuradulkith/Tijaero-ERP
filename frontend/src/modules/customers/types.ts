@@ -84,3 +84,207 @@ export interface CustomerUpdate {
   is_customer_agent?: boolean;
   country_id?: number;
 }
+
+
+// Customer Advance Payments Types
+export interface CustomerAdvancePayments {
+  id: number;
+  advance_payments_no: string;
+  payment_method: string;
+  branch_code: string;
+  payment_amount: number;
+  remarks?: string;
+  created_date: string;
+  customer_id: number;
+  cheque_date: string;
+  active: boolean;
+}
+
+export interface CustomerAdvancePaymentsCreate {
+  advance_payments_no: string;
+  payment_method: string;
+  branch_code: string;
+  payment_amount: number;
+  remarks?: string;
+  customer_id: number;
+  cheque_date: string;
+  active?: boolean;
+}
+
+export interface CustomerAdvancePaymentsUpdate {
+  payment_method?: string;
+  branch_code?: string;
+  payment_amount?: number;
+  remarks?: string;
+  cheque_date?: string;
+  active?: boolean;
+}
+
+
+// Customer Credit Notes Types
+export interface CustomerCreditNotes {
+  id: number;
+  customer_id: number;
+  date: string;
+  amount: number;
+  remark: string;
+  invoice_no?: string;
+}
+
+export interface CustomerCreditNotesCreate {
+  customer_id: number;
+  amount: number;
+  remark: string;
+  invoice_no?: string;
+}
+
+
+// Customer Credits Settle Types
+export interface CustomerCreditsSettleTransaction {
+  id: number;
+  payment_method: string;
+  cheque_date: string;
+  payment_amount: number;
+  payment_method_number?: string;
+  remarks?: string;
+  created_date: string;
+  customer_credit_settle_id: number;
+  invoice_id: number;
+}
+
+export interface CustomerCreditsSettleTransactionCreate {
+  payment_method: string;
+  cheque_date: string;
+  payment_amount: number;
+  payment_method_number?: string;
+  remarks?: string;
+  invoice_id: number;
+}
+
+export interface CustomerCreditsSettle {
+  id: number;
+  customer_credits_settle_no: string;
+  branch_code: string;
+  created_date: string;
+  customer_id: number;
+}
+
+export interface CustomerCreditsSettleCreate {
+  customer_credits_settle_no: string;
+  branch_code: string;
+  customer_id: number;
+  transactions: CustomerCreditsSettleTransactionCreate[];
+}
+
+export interface CustomerCreditsSettleWithTransactions extends CustomerCreditsSettle {
+  transactions: CustomerCreditsSettleTransaction[];
+}
+
+
+// Customer Coupon Codes Types
+export interface CustomerCuponCodes {
+  id: number;
+  cupon_code: string;
+  limit_by_usage: number;
+  limit_for_customer: number;
+  valid_until_date: string;
+  limit_validity_product_id?: number;
+}
+
+export interface CustomerCuponCodesCreate {
+  cupon_code: string;
+  limit_by_usage?: number;
+  limit_for_customer?: number;
+  valid_until_date: string;
+  limit_validity_product_id?: number;
+}
+
+export interface CustomerCuponCodesUpdate {
+  cupon_code?: string;
+  limit_by_usage?: number;
+  limit_for_customer?: number;
+  valid_until_date?: string;
+  limit_validity_product_id?: number;
+}
+
+
+// Customer Gift Voucher Types
+export interface CustomerGiftVoucher {
+  id: number;
+  date: string;
+  amount: number;
+  barcode_no: number;
+  valid_period_in_months: number;
+  claimed_date?: string;
+  purchased_invoice_no?: string;
+  claimed_invoice_no?: string;
+}
+
+export interface CustomerGiftVoucherCreate {
+  date: string;
+  amount: number;
+  barcode_no: number;
+  valid_period_in_months?: number;
+  purchased_invoice_no?: string;
+}
+
+export interface CustomerGiftVoucherUpdate {
+  claimed_date?: string;
+  claimed_invoice_no?: string;
+}
+
+
+// Customer Support Types
+export interface CustomerCallLog {
+  id: number;
+  date: string;
+  contact_person?: string;
+  comment?: string;
+  customer_support_id?: number;
+}
+
+export interface CustomerCallLogCreate {
+  contact_person?: string;
+  comment?: string;
+  customer_support_id?: number;
+}
+
+export interface CustomerSupport {
+  id: number;
+  job_number: string;
+  job_type: string;
+  date: string;
+  job_description?: string;
+  contact_person: string;
+  branch_code: string;
+  assigned_user_id: number;
+  customer_id?: number;
+  invoice_id?: number;
+}
+
+export interface CustomerSupportCreate {
+  job_number: string;
+  job_type: string;
+  date: string;
+  job_description?: string;
+  contact_person: string;
+  branch_code: string;
+  assigned_user_id: number;
+  customer_id?: number;
+  invoice_id?: number;
+}
+
+export interface CustomerSupportUpdate {
+  job_type?: string;
+  date?: string;
+  job_description?: string;
+  contact_person?: string;
+  branch_code?: string;
+  assigned_user_id?: number;
+  customer_id?: number;
+  invoice_id?: number;
+}
+
+export interface CustomerSupportWithCallLogs extends CustomerSupport {
+  call_logs: CustomerCallLog[];
+}

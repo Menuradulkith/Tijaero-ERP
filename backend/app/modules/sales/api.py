@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
@@ -7,6 +7,20 @@ from app.auth.rbac import require_permission, Permissions
 from app.modules.sales import schemas, service
 
 router = APIRouter()
+
+# Statistics endpoint
+@router.get(
+    "/statistics",
+    response_model=Dict[str, Any],
+    summary="Get Sales Statistics",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_sales_statistics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get sales statistics for dashboard."""
+    return service.sales_service.get_sales_statistics(db)
 
 # Invoice/Sales Order Endpoints
 @router.get(
@@ -113,6 +127,20 @@ def list_sale_returns(
 ):
     """Get list of all sale returns."""
     return service.sales_service.get_all_sale_returns(db, skip, limit)
+
+@router.get(
+    "/returns/{return_id}",
+    response_model=schemas.SaleReturnWithItems,
+    summary="Get Sale Return by ID",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_sale_return(
+    return_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get sale return details with items."""
+    return service.sales_service.get_sale_return(db, return_id)
 
 @router.post(
     "/returns/",

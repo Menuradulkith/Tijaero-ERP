@@ -21,7 +21,7 @@ class GoodReceivedNote(Base):
     location = relationship("Locations", back_populates="good_received_notes")
     purchasing_order = relationship("PurchasingOrder", back_populates="good_received_notes")
     purchasing_returns = relationship("PurchasingReturn", back_populates="good_received_note")
-    supplier_credits_settle_transactions = relationship("SupplierCreditsSettleTransaction", back_populates="good_received_note")
+    credit_settle_transactions = relationship("SupplierCreditsSettleTransaction", back_populates="good_received_note")
 
 class GoodReceivedItems(Base):
     __tablename__ = "good_received_items"

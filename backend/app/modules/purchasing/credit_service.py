@@ -1,0 +1,662 @@
+"""
+Credit Management Service for Suppliers
+
+Handles the complete credit cycle for purchases:
+1. Credit Days - Calculate due dates based on supplier's credit_days
+2. Credit Limit - Validate and track available credit from suppliers
+3. Credit Settle - Process payments to suppliers against credit purchases
+
+Key Fields:
+- supplier.credit_days: Number of days supplier gives you to pay
+- supplier.max_credit_limit: Maximum credit the supplier extends to you
+- supplier.left_credit_amount: Remaining credit available from supplier
+- supplier.initial_credit_amount: Original credit limit
+"""
+
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from fastapi import HTTPException, status
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from typing import List, Optional, Dict, Any
+
+from app.modules.purchasing.models import (
+    Supplier,
+    PurchasingOrder,
+    SupplierCreditsSettle,
+    SupplierCreditsSettleTransaction
+)
+from app.modules.inventory.models import GoodReceivedNote
+from app.modules.purchasing import schemas
+
+
+class SupplierCreditService:
+    """Service for managing supplier credit operations (payables)"""
+    
+    # ==================== CREDIT DAYS ====================
+    
+    def calculate_due_date(self, grn_date: date, credit_days: int) -> date:
+        """
+        Calculate the due date for a credit purchase.
+        
+        Args:
+            grn_date: The date goods were received (GRN date)
+            credit_days: Number of days the supplier allows for payment
+            
+        Returns:
+            The due date for payment
+        """
+        return grn_date + timedelta(days=credit_days)
+    
+    def get_grn_due_date(self, db: Session, grn_id: int) -> date:
+        """Get the due date for a specific GRN"""
+        grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
+        if not grn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"GRN {grn_id} not found"
+            )
+        
+        # Get supplier from the purchasing order
+        po = db.query(PurchasingOrder).filter(
+            PurchasingOrder.id == grn.purchasingorders_id
+        ).first()
+        if not po:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchasing order not found for GRN {grn_id}"
+            )
+        
+        supplier = db.query(Supplier).filter(Supplier.id == po.first_suppliers_id).first()
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier not found for GRN {grn_id}"
+            )
+        
+        return self.calculate_due_date(grn.good_received_date, supplier.credit_days)
+    
+    def get_days_overdue(self, grn_date: date, credit_days: int) -> int:
+        """
+        Calculate how many days a payment is overdue.
+        
+        Returns:
+            Positive number if overdue, negative if not yet due, 0 if due today
+        """
+        due_date = self.calculate_due_date(grn_date, credit_days)
+        return (date.today() - due_date).days
+    
+    # ==================== CREDIT LIMIT ====================
+    
+    def get_supplier_credit_status(self, db: Session, supplier_id: int) -> Dict[str, Any]:
+        """
+        Get complete credit status for a supplier.
+        
+        Returns:
+            Dictionary with credit limit, outstanding payables, available credit, and overdue info
+        """
+        supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier {supplier_id} not found"
+            )
+        
+        # Calculate total outstanding (what you owe the supplier)
+        outstanding = self._calculate_outstanding_payable(db, supplier_id)
+        
+        # Get overdue GRNs
+        overdue_grns = self._get_overdue_grns(db, supplier_id, supplier.credit_days)
+        
+        return {
+            "supplier_id": supplier_id,
+            "supplier_name": supplier.full_name,
+            "company_name": supplier.company_name,
+            "credit_days": supplier.credit_days,
+            "max_credit_limit": supplier.max_credit_limit,
+            "initial_credit_amount": supplier.initial_credit_amount or supplier.max_credit_limit,
+            "left_credit_amount": supplier.left_credit_amount or (supplier.max_credit_limit - int(outstanding)),
+            "outstanding_payable": float(outstanding),
+            "available_credit": max(0, supplier.max_credit_limit - float(outstanding)),
+            "overdue_count": len(overdue_grns),
+            "total_overdue_amount": sum(grn["remaining_amount"] for grn in overdue_grns),
+            "overdue_grns": overdue_grns
+        }
+    
+    def _calculate_outstanding_payable(self, db: Session, supplier_id: int) -> Decimal:
+        """Calculate total outstanding payable to a supplier"""
+        # Get all GRNs for this supplier through purchasing orders
+        # First, get all POs for this supplier
+        po_ids = db.query(PurchasingOrder.id).filter(
+            PurchasingOrder.first_suppliers_id == supplier_id
+        ).all()
+        po_ids = [p[0] for p in po_ids]
+        
+        if not po_ids:
+            return Decimal("0")
+        
+        # Get total from PO items (quantity * unit_price) for credit purchases
+        from app.modules.purchasing.models import PurchasingOrderItems
+        
+        total_credit = db.query(
+            func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+        ).filter(
+            PurchasingOrderItems.purchasingorders_id.in_(po_ids)
+        ).scalar() or Decimal("0")
+        
+        # Get all settled amounts
+        total_settled = db.query(
+            func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
+        ).join(
+            SupplierCreditsSettle,
+            SupplierCreditsSettleTransaction.supplier_credit_settle_id == SupplierCreditsSettle.id
+        ).filter(
+            SupplierCreditsSettle.suppliers_id == supplier_id
+        ).scalar() or Decimal("0")
+        
+        return total_credit - total_settled
+    
+    def _get_overdue_grns(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
+        """Get list of overdue GRNs for a supplier"""
+        cutoff_date = date.today() - timedelta(days=credit_days)
+        
+        # Get PO IDs for this supplier
+        po_ids = db.query(PurchasingOrder.id).filter(
+            PurchasingOrder.first_suppliers_id == supplier_id
+        ).all()
+        po_ids = [p[0] for p in po_ids]
+        
+        if not po_ids:
+            return []
+        
+        # Get GRNs that are past due date
+        grns = db.query(GoodReceivedNote).filter(
+            GoodReceivedNote.purchasingorders_id.in_(po_ids),
+            GoodReceivedNote.good_received_date < cutoff_date
+        ).all()
+        
+        overdue_list = []
+        for grn in grns:
+            remaining = self._get_grn_remaining_payable(db, grn.id)
+            if remaining > 0:
+                due_date = self.calculate_due_date(grn.good_received_date, credit_days)
+                overdue_list.append({
+                    "grn_id": grn.id,
+                    "grn_no": grn.good_received_no,
+                    "grn_date": grn.good_received_date,
+                    "supplier_invoice_no": grn.supplier_invoice_no,
+                    "due_date": due_date,
+                    "days_overdue": (date.today() - due_date).days,
+                    "remaining_amount": float(remaining)
+                })
+        
+        return overdue_list
+    
+    def _get_grn_remaining_payable(self, db: Session, grn_id: int) -> Decimal:
+        """Get remaining unpaid amount for a GRN"""
+        # Get GRN total from PO items
+        grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
+        if not grn:
+            return Decimal("0")
+        
+        from app.modules.purchasing.models import PurchasingOrderItems
+        
+        total = db.query(
+            func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+        ).filter(
+            PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id
+        ).scalar() or Decimal("0")
+        
+        # Get paid amount
+        paid = db.query(
+            func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
+        ).filter(
+            SupplierCreditsSettleTransaction.good_received_id == grn_id
+        ).scalar() or Decimal("0")
+        
+        return total - paid
+    
+    def validate_credit_purchase(
+        self, 
+        db: Session, 
+        supplier_id: int, 
+        purchase_amount: Decimal,
+        allow_over_limit: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Validate if a credit purchase can be made from a supplier.
+        
+        Args:
+            supplier_id: The supplier ID
+            purchase_amount: The credit amount for the new purchase
+            allow_over_limit: If True, return warning instead of blocking
+            
+        Returns:
+            Dictionary with validation result and details
+        """
+        status = self.get_supplier_credit_status(db, supplier_id)
+        
+        new_outstanding = status["outstanding_payable"] + float(purchase_amount)
+        will_exceed = new_outstanding > status["max_credit_limit"]
+        
+        result = {
+            "allowed": not will_exceed or allow_over_limit,
+            "current_outstanding": status["outstanding_payable"],
+            "new_purchase_amount": float(purchase_amount),
+            "new_total_outstanding": new_outstanding,
+            "max_credit_limit": status["max_credit_limit"],
+            "available_credit": status["available_credit"],
+            "will_exceed_limit": will_exceed,
+            "excess_amount": max(0, new_outstanding - status["max_credit_limit"]),
+            "overdue_count": status["overdue_count"],
+            "has_overdue": status["overdue_count"] > 0,
+            "message": ""
+        }
+        
+        if will_exceed:
+            result["message"] = f"Supplier credit limit exceeded. Max: {status['max_credit_limit']}, New total: {new_outstanding}"
+        elif status["overdue_count"] > 0:
+            result["message"] = f"You have {status['overdue_count']} overdue payment(s) to this supplier"
+        else:
+            result["message"] = "Credit purchase approved"
+        
+        return result
+    
+    def update_supplier_credit_balance(self, db: Session, supplier_id: int):
+        """
+        Recalculate and update supplier's left_credit_amount.
+        Call this after any credit transaction.
+        """
+        supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+        if not supplier:
+            return
+        
+        outstanding = self._calculate_outstanding_payable(db, supplier_id)
+        supplier.left_credit_amount = int(supplier.max_credit_limit - outstanding)
+        db.commit()
+    
+    # ==================== CREDIT SETTLE ====================
+    
+    def create_credit_settlement(
+        self, 
+        db: Session, 
+        settlement_data: schemas.SupplierCreditsSettleCreate
+    ) -> SupplierCreditsSettle:
+        """
+        Create a credit settlement record with transactions.
+        
+        This records payments made to a supplier against credit purchases.
+        """
+        # Validate supplier exists
+        supplier = db.query(Supplier).filter(
+            Supplier.id == settlement_data.suppliers_id
+        ).first()
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier {settlement_data.suppliers_id} not found"
+            )
+        
+        # Validate all GRN IDs in transactions
+        for trans in settlement_data.transactions:
+            grn = db.query(GoodReceivedNote).filter(
+                GoodReceivedNote.id == trans.good_received_id
+            ).first()
+            if not grn:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"GRN {trans.good_received_id} not found"
+                )
+            
+            # Verify GRN belongs to this supplier
+            po = db.query(PurchasingOrder).filter(
+                PurchasingOrder.id == grn.purchasingorders_id
+            ).first()
+            if not po or po.first_suppliers_id != settlement_data.suppliers_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"GRN {trans.good_received_id} does not belong to supplier {settlement_data.suppliers_id}"
+                )
+            
+            # Check if payment amount exceeds remaining payable
+            remaining = self._get_grn_remaining_payable(db, grn.id)
+            if trans.payment_amount > remaining:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Payment amount {trans.payment_amount} exceeds remaining payable {remaining} for GRN {grn.good_received_no}"
+                )
+        
+        # Create settlement header
+        settlement = SupplierCreditsSettle(
+            supplier_credits_settle_no=settlement_data.supplier_credits_settle_no,
+            branch_code=settlement_data.branch_code,
+            suppliers_id=settlement_data.suppliers_id,
+            created_date=datetime.now()
+        )
+        db.add(settlement)
+        db.flush()
+        
+        # Create transaction records
+        for trans in settlement_data.transactions:
+            transaction = SupplierCreditsSettleTransaction(
+                payment_method=trans.payment_method,
+                cheque_date=trans.cheque_date,
+                payment_amount=trans.payment_amount,
+                payment_method_number=trans.payment_method_number,
+                remarks=trans.remarks,
+                supplier_credit_settle_id=settlement.id,
+                good_received_id=trans.good_received_id,
+                created_date=datetime.now()
+            )
+            db.add(transaction)
+        
+        db.commit()
+        
+        # Update supplier's available credit
+        self.update_supplier_credit_balance(db, settlement_data.suppliers_id)
+        
+        db.refresh(settlement)
+        return settlement
+    
+    def get_settlement(self, db: Session, settlement_id: int) -> SupplierCreditsSettle:
+        """Get a credit settlement by ID"""
+        settlement = db.query(SupplierCreditsSettle).filter(
+            SupplierCreditsSettle.id == settlement_id
+        ).first()
+        if not settlement:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Credit settlement {settlement_id} not found"
+            )
+        return settlement
+    
+    def get_settlement_with_transactions(
+        self, 
+        db: Session, 
+        settlement_id: int
+    ) -> schemas.SupplierCreditsSettleWithTransactions:
+        """Get settlement with all transaction details"""
+        settlement = self.get_settlement(db, settlement_id)
+        transactions = db.query(SupplierCreditsSettleTransaction).filter(
+            SupplierCreditsSettleTransaction.supplier_credit_settle_id == settlement_id
+        ).all()
+        
+        return schemas.SupplierCreditsSettleWithTransactions(
+            id=settlement.id,
+            supplier_credits_settle_no=settlement.supplier_credits_settle_no,
+            branch_code=settlement.branch_code,
+            created_date=settlement.created_date,
+            suppliers_id=settlement.suppliers_id,
+            transactions=[
+                schemas.SupplierCreditsSettleTransaction.model_validate(t) 
+                for t in transactions
+            ]
+        )
+    
+    def get_supplier_settlements(
+        self, 
+        db: Session, 
+        supplier_id: int,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[SupplierCreditsSettle]:
+        """Get all settlements for a supplier"""
+        return db.query(SupplierCreditsSettle).filter(
+            SupplierCreditsSettle.suppliers_id == supplier_id
+        ).order_by(
+            SupplierCreditsSettle.created_date.desc()
+        ).offset(skip).limit(limit).all()
+    
+    def get_grn_payment_history(
+        self, 
+        db: Session, 
+        grn_id: int
+    ) -> Dict[str, Any]:
+        """Get payment history for a specific GRN"""
+        grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
+        if not grn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"GRN {grn_id} not found"
+            )
+        
+        # Get PO and supplier info
+        po = db.query(PurchasingOrder).filter(
+            PurchasingOrder.id == grn.purchasingorders_id
+        ).first()
+        supplier = db.query(Supplier).filter(Supplier.id == po.first_suppliers_id).first()
+        
+        # Get total payable
+        from app.modules.purchasing.models import PurchasingOrderItems
+        total_amount = db.query(
+            func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+        ).filter(
+            PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id
+        ).scalar() or Decimal("0")
+        
+        transactions = db.query(SupplierCreditsSettleTransaction).filter(
+            SupplierCreditsSettleTransaction.good_received_id == grn_id
+        ).order_by(SupplierCreditsSettleTransaction.created_date).all()
+        
+        total_paid = sum(t.payment_amount for t in transactions)
+        remaining = total_amount - total_paid
+        
+        due_date = self.calculate_due_date(grn.good_received_date, supplier.credit_days)
+        
+        return {
+            "grn_id": grn_id,
+            "grn_no": grn.good_received_no,
+            "grn_date": grn.good_received_date,
+            "supplier_invoice_no": grn.supplier_invoice_no,
+            "due_date": due_date,
+            "total_amount": float(total_amount),
+            "total_paid": float(total_paid),
+            "remaining": float(remaining),
+            "is_fully_paid": remaining <= 0,
+            "payments": [
+                {
+                    "transaction_id": t.id,
+                    "settlement_id": t.supplier_credit_settle_id,
+                    "payment_date": t.created_date,
+                    "payment_method": t.payment_method,
+                    "amount": float(t.payment_amount),
+                    "reference": t.payment_method_number,
+                    "remarks": t.remarks
+                }
+                for t in transactions
+            ]
+        }
+    
+    # ==================== AGING REPORTS ====================
+    
+    def get_aging_report(self, db: Session, supplier_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Generate aging report for payables.
+        
+        Categories:
+        - Current (not yet due)
+        - 1-30 days overdue
+        - 31-60 days overdue
+        - 61-90 days overdue
+        - Over 90 days overdue
+        """
+        # Get all GRNs
+        grn_query = db.query(GoodReceivedNote)
+        
+        if supplier_id:
+            # Filter by supplier through PO
+            po_ids = db.query(PurchasingOrder.id).filter(
+                PurchasingOrder.first_suppliers_id == supplier_id
+            ).all()
+            po_ids = [p[0] for p in po_ids]
+            grn_query = grn_query.filter(GoodReceivedNote.purchasingorders_id.in_(po_ids))
+        
+        grns = grn_query.all()
+        
+        aging = {
+            "current": {"count": 0, "amount": Decimal("0")},
+            "1_30_days": {"count": 0, "amount": Decimal("0")},
+            "31_60_days": {"count": 0, "amount": Decimal("0")},
+            "61_90_days": {"count": 0, "amount": Decimal("0")},
+            "over_90_days": {"count": 0, "amount": Decimal("0")},
+            "total": {"count": 0, "amount": Decimal("0")}
+        }
+        
+        for grn in grns:
+            remaining = self._get_grn_remaining_payable(db, grn.id)
+            if remaining <= 0:
+                continue
+            
+            # Get supplier credit days
+            po = db.query(PurchasingOrder).filter(
+                PurchasingOrder.id == grn.purchasingorders_id
+            ).first()
+            if not po:
+                continue
+            
+            supplier = db.query(Supplier).filter(Supplier.id == po.first_suppliers_id).first()
+            if not supplier:
+                continue
+            
+            days_overdue = self.get_days_overdue(grn.good_received_date, supplier.credit_days)
+            
+            if days_overdue <= 0:
+                bucket = "current"
+            elif days_overdue <= 30:
+                bucket = "1_30_days"
+            elif days_overdue <= 60:
+                bucket = "31_60_days"
+            elif days_overdue <= 90:
+                bucket = "61_90_days"
+            else:
+                bucket = "over_90_days"
+            
+            aging[bucket]["count"] += 1
+            aging[bucket]["amount"] += remaining
+            aging["total"]["count"] += 1
+            aging["total"]["amount"] += remaining
+        
+        # Convert Decimal to float for JSON serialization
+        for key in aging:
+            aging[key]["amount"] = float(aging[key]["amount"])
+        
+        return aging
+    
+    def get_supplier_statement(
+        self, 
+        db: Session, 
+        supplier_id: int,
+        from_date: Optional[date] = None,
+        to_date: Optional[date] = None
+    ) -> Dict[str, Any]:
+        """Generate a supplier statement showing all credit transactions"""
+        supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier {supplier_id} not found"
+            )
+        
+        # Get PO IDs for this supplier
+        po_ids = db.query(PurchasingOrder.id).filter(
+            PurchasingOrder.first_suppliers_id == supplier_id
+        ).all()
+        po_ids = [p[0] for p in po_ids]
+        
+        # Get GRNs (purchases)
+        grn_query = db.query(GoodReceivedNote).filter(
+            GoodReceivedNote.purchasingorders_id.in_(po_ids)
+        )
+        if from_date:
+            grn_query = grn_query.filter(GoodReceivedNote.good_received_date >= from_date)
+        if to_date:
+            grn_query = grn_query.filter(GoodReceivedNote.good_received_date <= to_date)
+        
+        grns = grn_query.order_by(GoodReceivedNote.good_received_date).all()
+        
+        # Get settlements (payments)
+        settle_query = db.query(SupplierCreditsSettle).filter(
+            SupplierCreditsSettle.suppliers_id == supplier_id
+        )
+        if from_date:
+            settle_query = settle_query.filter(SupplierCreditsSettle.created_date >= from_date)
+        if to_date:
+            settle_query = settle_query.filter(SupplierCreditsSettle.created_date <= to_date)
+        
+        settlements = settle_query.order_by(SupplierCreditsSettle.created_date).all()
+        
+        # Build statement lines
+        from app.modules.purchasing.models import PurchasingOrderItems
+        
+        lines = []
+        running_balance = Decimal("0")
+        
+        # Add GRN lines (purchases = what you owe)
+        for grn in grns:
+            total = db.query(
+                func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+            ).filter(
+                PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id
+            ).scalar() or Decimal("0")
+            
+            due_date = self.calculate_due_date(grn.good_received_date, supplier.credit_days)
+            running_balance += total
+            
+            lines.append({
+                "date": grn.good_received_date,
+                "type": "PURCHASE",
+                "reference": grn.good_received_no,
+                "description": f"GRN {grn.good_received_no} - Invoice: {grn.supplier_invoice_no}",
+                "debit": float(total),  # What you owe
+                "credit": 0,
+                "balance": float(running_balance),
+                "due_date": due_date
+            })
+        
+        # Add settlement lines (payments = reducing what you owe)
+        for settlement in settlements:
+            transactions = db.query(SupplierCreditsSettleTransaction).filter(
+                SupplierCreditsSettleTransaction.supplier_credit_settle_id == settlement.id
+            ).all()
+            
+            total_payment = sum(t.payment_amount for t in transactions)
+            running_balance -= total_payment
+            
+            lines.append({
+                "date": settlement.created_date.date() if hasattr(settlement.created_date, 'date') else settlement.created_date,
+                "type": "PAYMENT",
+                "reference": settlement.supplier_credits_settle_no,
+                "description": f"Payment made - {settlement.supplier_credits_settle_no}",
+                "debit": 0,
+                "credit": float(total_payment),
+                "balance": float(running_balance),
+                "due_date": None
+            })
+        
+        # Sort by date
+        lines.sort(key=lambda x: x["date"])
+        
+        # Recalculate running balance in order
+        running_balance = Decimal("0")
+        for line in lines:
+            if line["type"] == "PURCHASE":
+                running_balance += Decimal(str(line["debit"]))
+            else:
+                running_balance -= Decimal(str(line["credit"]))
+            line["balance"] = float(running_balance)
+        
+        return {
+            "supplier_id": supplier_id,
+            "supplier_name": supplier.full_name,
+            "company_name": supplier.company_name,
+            "from_date": from_date,
+            "to_date": to_date,
+            "credit_days": supplier.credit_days,
+            "max_credit_limit": supplier.max_credit_limit,
+            "current_balance": float(running_balance),
+            "statement_lines": lines
+        }
+
+
+# Singleton instance
+supplier_credit_service = SupplierCreditService()

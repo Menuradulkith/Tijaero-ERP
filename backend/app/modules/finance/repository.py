@@ -4,6 +4,14 @@ from typing import List, Optional
 from datetime import date, datetime
 from . import models, schemas
 
+# Import customer-related models from customers module
+from app.modules.customers.models import (
+    CustomerAdvancePayments,
+    CustomerCreditNotes,
+    CustomerCreditsSettle,
+    CustomerCreditsSettleTransaction
+)
+
 class BankDepositRepository:
     def __init__(self, db: Session):
         self.db = db
@@ -135,12 +143,12 @@ class CustomerAdvancePaymentRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, advance: schemas.CustomerAdvancePaymentCreate) -> models.CustomerAdvancePayments:
+    def create(self, advance: schemas.CustomerAdvancePaymentCreate) -> CustomerAdvancePayments:
         # Generate advance payment number
-        count = self.db.query(func.count(models.CustomerAdvancePayments.id)).scalar()
+        count = self.db.query(func.count(CustomerAdvancePayments.id)).scalar()
         advance_no = f"ADV{date.today().strftime('%Y%m%d')}{count + 1:04d}"
         
-        db_advance = models.CustomerAdvancePayments(
+        db_advance = CustomerAdvancePayments(
             **advance.model_dump(),
             advance_payments_no=advance_no,
             created_date=date.today(),
@@ -151,23 +159,23 @@ class CustomerAdvancePaymentRepository:
         self.db.refresh(db_advance)
         return db_advance
     
-    def get_by_id(self, advance_id: int) -> Optional[models.CustomerAdvancePayments]:
-        return self.db.query(models.CustomerAdvancePayments).filter(
-            models.CustomerAdvancePayments.id == advance_id
+    def get_by_id(self, advance_id: int) -> Optional[CustomerAdvancePayments]:
+        return self.db.query(CustomerAdvancePayments).filter(
+            CustomerAdvancePayments.id == advance_id
         ).first()
     
-    def get_by_customer(self, customer_id: int) -> List[models.CustomerAdvancePayments]:
-        return self.db.query(models.CustomerAdvancePayments).filter(
-            models.CustomerAdvancePayments.customer_id == customer_id,
-            models.CustomerAdvancePayments.active == True
+    def get_by_customer(self, customer_id: int) -> List[CustomerAdvancePayments]:
+        return self.db.query(CustomerAdvancePayments).filter(
+            CustomerAdvancePayments.customer_id == customer_id,
+            CustomerAdvancePayments.active == True
         ).all()
 
 class CustomerCreditNoteRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, credit_note: schemas.CustomerCreditNoteCreate) -> models.CustomerCreditNotes:
-        db_credit_note = models.CustomerCreditNotes(
+    def create(self, credit_note: schemas.CustomerCreditNoteCreate) -> CustomerCreditNotes:
+        db_credit_note = CustomerCreditNotes(
             **credit_note.model_dump(),
             date=datetime.now()
         )
@@ -176,12 +184,12 @@ class CustomerCreditNoteRepository:
         self.db.refresh(db_credit_note)
         return db_credit_note
     
-    def get_by_id(self, credit_note_id: int) -> Optional[models.CustomerCreditNotes]:
-        return self.db.query(models.CustomerCreditNotes).filter(
-            models.CustomerCreditNotes.id == credit_note_id
+    def get_by_id(self, credit_note_id: int) -> Optional[CustomerCreditNotes]:
+        return self.db.query(CustomerCreditNotes).filter(
+            CustomerCreditNotes.id == credit_note_id
         ).first()
     
-    def get_by_customer(self, customer_id: int) -> List[models.CustomerCreditNotes]:
-        return self.db.query(models.CustomerCreditNotes).filter(
-            models.CustomerCreditNotes.customer_id == customer_id
+    def get_by_customer(self, customer_id: int) -> List[CustomerCreditNotes]:
+        return self.db.query(CustomerCreditNotes).filter(
+            CustomerCreditNotes.customer_id == customer_id
         ).all()

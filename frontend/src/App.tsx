@@ -7,6 +7,7 @@ import DashboardPage from "./app/pages/DashboardPage";
 import CustomersRoutes from "./features/customers/routes";
 import SalesRoutes from "./features/sales/routes";
 import InventoryRoutes from "./features/inventory/routes";
+import PurchasingRoutes from "./features/purchasing/routes";
 import FinanceRoutes from "./features/finance/routes";
 import HRRoutes from "./features/hr/routes";
 import WarehouseRoutes from "./features/warehouse/routes";
@@ -42,6 +43,7 @@ function App() {
           <Route path="/customers/*" element={<CustomersRoutes />} />
           <Route path="/sales/*" element={<SalesRoutes />} />
           <Route path="/inventory/*" element={<InventoryRoutes />} />
+          <Route path="/purchasing/*" element={<PurchasingRoutes />} />
           <Route path="/finance/*" element={<FinanceRoutes />} />
           <Route path="/hr/*" element={<HRRoutes />} />
           <Route path="/warehouse/*" element={<WarehouseRoutes />} />

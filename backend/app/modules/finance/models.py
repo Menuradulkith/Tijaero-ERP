@@ -102,90 +102,23 @@ class PettyCash(Base):
     approved = Column(Boolean, default=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"), nullable=True)
 
-class CustomerAdvancePayments(Base):
-    __tablename__ = "customer_advance_payments"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    advance_payments_no = Column(String(200), unique=True, nullable=False)
-    payment_method = Column(String(30), nullable=False)
-    branch_code = Column(String(200), nullable=False)
-    payment_amount = Column(Numeric(60, 2), nullable=False)
-    remarks = Column(Text)
-    created_date = Column(Date, nullable=False)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    cheque_date = Column(Date, nullable=False)
-    active = Column(Boolean, nullable=False)
-    
-    # Relationships
-    customer = relationship("Customer", back_populates="advance_payments")
-    invoices = relationship("Invoice", back_populates="advance_payment")
 
-class CustomerCreditNotes(Base):
-    __tablename__ = "customer_credit_notes"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    date = Column(TIMESTAMP, nullable=False)
-    amount = Column(Numeric(60, 2), nullable=False)
-    remark = Column(Text, nullable=False)
-    invoice_no = Column(String(200))
-    
-    # Relationships
-    customer = relationship("Customer", back_populates="credit_notes")
-    invoices = relationship("Invoice", back_populates="credit_note")
+# NOTE: Customer-related models (CustomerAdvancePayments, CustomerCreditNotes, 
+# CustomerCreditsSettle, CustomerCreditsSettleTransaction) are defined in 
+# app.modules.customers.models to avoid duplication.
+# Import them from there when needed:
+# from app.modules.customers.models import (
+#     CustomerAdvancePayments, CustomerCreditNotes, 
+#     CustomerCreditsSettle, CustomerCreditsSettleTransaction
+# )
 
-class CustomerCreditsSettle(Base):
-    __tablename__ = "customer_credits_settle"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    customer_credits_settle_no = Column(String(200), unique=True, nullable=False)
-    branch_code = Column(String(200), nullable=False)
-    created_date = Column(TIMESTAMP, nullable=False)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    
-    # Relationship
-    customer = relationship("Customer", back_populates="credits_settle")
+# NOTE: Supplier-related models (SupplierCreditsSettle, SupplierCreditsSettleTransaction)
+# are defined in app.modules.purchasing.models to avoid duplication.
+# Import them from there when needed:
+# from app.modules.purchasing.models import (
+#     SupplierCreditsSettle, SupplierCreditsSettleTransaction
+# )
 
-class CustomerCreditsSettleTransaction(Base):
-    __tablename__ = "customer_credits_settle_transaction"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    payment_method = Column(String(30), nullable=False)
-    cheque_date = Column(Date, nullable=False)
-    payment_amount = Column(Numeric(60, 2), nullable=False)
-    payment_method_number = Column(String(300))
-    remarks = Column(Text)
-    created_date = Column(Date, nullable=False)
-    customer_credit_settle_id = Column(Integer, ForeignKey("customer_credits_settle.id"), nullable=False)
-    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
-    
-    # Relationships
-    invoice = relationship("Invoice", back_populates="credits_settle_transactions")
-
-class SupplierCreditsSettle(Base):
-    __tablename__ = "supplier_credits_settle"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    supplier_credits_settle_no = Column(String(200), nullable=False)
-    branch_code = Column(String(200), nullable=False)
-    created_date = Column(TIMESTAMP, nullable=False)
-    suppliers_id = Column(Integer)
-
-class SupplierCreditsSettleTransaction(Base):
-    __tablename__ = "supplier_credits_settle_transaction"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    payment_method = Column(String(30), nullable=False)
-    cheque_date = Column(Date, nullable=False)
-    payment_amount = Column(Numeric(60, 2), nullable=False)
-    payment_method_number = Column(String(300))
-    remarks = Column(Text)
-    created_date = Column(TIMESTAMP, nullable=False)
-    good_received_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False)
-    supplier_credit_settle_id = Column(Integer)
-    
-    # Relationships
-    good_received_note = relationship("GoodReceivedNote", back_populates="supplier_credits_settle_transactions")
 
 class Expenses(Base):
     __tablename__ = "expenses"

@@ -5,6 +5,14 @@ from decimal import Decimal
 from . import models, schemas, repository
 from fastapi import HTTPException, status
 
+# Import customer-related models from customers module
+from app.modules.customers.models import (
+    CustomerAdvancePayments,
+    CustomerCreditNotes,
+    CustomerCreditsSettle,
+    CustomerCreditsSettleTransaction
+)
+
 class BankDepositService:
     def __init__(self, db: Session):
         self.repo = repository.BankDepositRepository(db)
@@ -94,10 +102,10 @@ class CustomerAdvancePaymentService:
     def __init__(self, db: Session):
         self.repo = repository.CustomerAdvancePaymentRepository(db)
     
-    def create_advance_payment(self, advance: schemas.CustomerAdvancePaymentCreate) -> models.CustomerAdvancePayments:
+    def create_advance_payment(self, advance: schemas.CustomerAdvancePaymentCreate) -> CustomerAdvancePayments:
         return self.repo.create(advance)
     
-    def get_advance_payment(self, advance_id: int) -> models.CustomerAdvancePayments:
+    def get_advance_payment(self, advance_id: int) -> CustomerAdvancePayments:
         advance = self.repo.get_by_id(advance_id)
         if not advance:
             raise HTTPException(
@@ -106,17 +114,17 @@ class CustomerAdvancePaymentService:
             )
         return advance
     
-    def get_customer_advances(self, customer_id: int) -> List[models.CustomerAdvancePayments]:
+    def get_customer_advances(self, customer_id: int) -> List[CustomerAdvancePayments]:
         return self.repo.get_by_customer(customer_id)
 
 class CustomerCreditNoteService:
     def __init__(self, db: Session):
         self.repo = repository.CustomerCreditNoteRepository(db)
     
-    def create_credit_note(self, credit_note: schemas.CustomerCreditNoteCreate) -> models.CustomerCreditNotes:
+    def create_credit_note(self, credit_note: schemas.CustomerCreditNoteCreate) -> CustomerCreditNotes:
         return self.repo.create(credit_note)
     
-    def get_credit_note(self, credit_note_id: int) -> models.CustomerCreditNotes:
+    def get_credit_note(self, credit_note_id: int) -> CustomerCreditNotes:
         credit_note = self.repo.get_by_id(credit_note_id)
         if not credit_note:
             raise HTTPException(
@@ -125,5 +133,5 @@ class CustomerCreditNoteService:
             )
         return credit_note
     
-    def get_customer_credit_notes(self, customer_id: int) -> List[models.CustomerCreditNotes]:
+    def get_customer_credit_notes(self, customer_id: int) -> List[CustomerCreditNotes]:
         return self.repo.get_by_customer(customer_id)

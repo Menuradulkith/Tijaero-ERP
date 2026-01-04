@@ -1,8 +1,10 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from fastapi import HTTPException, status
 from app.modules.sales import repository, schemas
 from app.modules.sales.models import Invoice, InvoiceItems, SaleReturn, SaleReturnItems
 from datetime import datetime, date
+from dateutil.relativedelta import relativedelta
 
 class SalesService:
     def get_all_invoices(self, db: Session, skip: int = 0, limit: int = 100):
@@ -19,6 +21,62 @@ class SalesService:
                 detail="Invoice not found"
             )
         return invoice
+    
+    def get_sales_statistics(self, db: Session):
+        """Get sales statistics for dashboard"""
+        today = date.today()
+        current_month_start = today.replace(day=1)
+        last_month_start = (today - relativedelta(months=1)).replace(day=1)
+        last_month_end = current_month_start - relativedelta(days=1)
+        
+        # Total invoices count
+        total_invoices = db.query(func.count(Invoice.id)).scalar() or 0
+        
+        # Current month invoices
+        current_month_invoices = db.query(func.count(Invoice.id)).filter(
+            Invoice.created_date >= current_month_start
+        ).scalar() or 0
+        
+        # Last month invoices
+        last_month_invoices = db.query(func.count(Invoice.id)).filter(
+            Invoice.created_date >= last_month_start,
+            Invoice.created_date <= last_month_end
+        ).scalar() or 0
+        
+        # Revenue calculations
+        def calc_revenue(query):
+            return query.with_entities(
+                func.coalesce(func.sum(Invoice.cash_amount), 0) +
+                func.coalesce(func.sum(Invoice.card_visa_amount), 0) +
+                func.coalesce(func.sum(Invoice.card_mastercard_amount), 0) +
+                func.coalesce(func.sum(Invoice.card_amex_amount), 0) +
+                func.coalesce(func.sum(Invoice.cheque_amount), 0) +
+                func.coalesce(func.sum(Invoice.bank_transfer_amount), 0) +
+                func.coalesce(func.sum(Invoice.credit_amount), 0)
+            ).scalar() or 0
+        
+        total_revenue = calc_revenue(db.query(Invoice))
+        current_month_revenue = calc_revenue(
+            db.query(Invoice).filter(Invoice.created_date >= current_month_start)
+        )
+        
+        # Pending approval count
+        pending_approval = db.query(func.count(Invoice.id)).filter(
+            Invoice.approval == False
+        ).scalar() or 0
+        
+        # Total sale returns
+        sale_returns_count = db.query(func.count(SaleReturn.id)).scalar() or 0
+        
+        return {
+            "total_orders": total_invoices,
+            "current_month_orders": current_month_invoices,
+            "last_month_orders": last_month_invoices,
+            "total_revenue": float(total_revenue),
+            "current_month_revenue": float(current_month_revenue),
+            "pending_approval": pending_approval,
+            "sale_returns_count": sale_returns_count
+        }
     
     def create_invoice(self, db: Session, invoice_data: schemas.InvoiceCreate, user_id: int):
         # Create invoice
@@ -66,6 +124,15 @@ class SalesService:
     
     def get_all_sale_returns(self, db: Session, skip: int = 0, limit: int = 100):
         return db.query(SaleReturn).offset(skip).limit(limit).all()
+    
+    def get_sale_return(self, db: Session, return_id: int):
+        sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).first()
+        if not sale_return:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Sale return not found"
+            )
+        return sale_return
     
     def create_sale_return(self, db: Session, sale_return_data: schemas.SaleReturnCreate):
         # Create sale return
