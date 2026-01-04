@@ -27,6 +27,7 @@ import {
   Card,
   CardContent,
   Grid,
+  Autocomplete,
 } from "@mui/material";
 import PaymentIcon from "@mui/icons-material/Payment";
 import BusinessIcon from "@mui/icons-material/Business";
@@ -41,8 +42,6 @@ import {
   SearchableList,
   SelectableListItem,
   DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
   EmptyState,
   SortOption,
 } from "@/components/tijaero";
@@ -53,6 +52,7 @@ import {
   supplierCreditApi,
   SupplierCreditStatus,
 } from "@/modules/purchasing/api";
+import { branchApi } from "@/modules/branches/api";
 import {
   Supplier,
   SupplierCreditsSettleCreate,
@@ -91,6 +91,7 @@ interface CreditPurchaseOrder {
   due_date: string;
   days_overdue: number;
   is_overdue: boolean;
+  branch_code: string;
 }
 
 interface PaymentFormData {
@@ -138,10 +139,31 @@ export default function CreditSettlementPage() {
 
   const confirmDialog = useConfirmDialog();
 
+  // Load branches
+  const [branches, setBranches] = useState<{ branch_code: string; branch_name: string }[]>([]);
+  
+  // Filter state
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  
   // Load suppliers
   useEffect(() => {
     loadSuppliers();
+    loadBranches();
   }, []);
+
+  const loadBranches = async () => {
+    try {
+      const data = await branchApi.getAll(1, 100);
+      setBranches(data.items || []);
+    } catch (err) {
+      console.error("Failed to load branches:", err);
+    }
+  };
+
+  const getBranchDisplay = (branchCode: string) => {
+    const branch = branches.find((b) => b.branch_code === branchCode);
+    return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
+  };
 
   const loadSuppliers = useCallback(async () => {
     try {
@@ -184,7 +206,12 @@ export default function CreditSettlementPage() {
       filtered = filtered.filter(
         (s) =>
           s.full_name.toLowerCase().includes(query) ||
-          s.company_name?.toLowerCase().includes(query)
+          s.company_name?.toLowerCase().includes(query) ||
+          // Search by branch name
+          branches.some(b => 
+            b.branch_name.toLowerCase().includes(query) || 
+            b.branch_code.toLowerCase().includes(query)
+          )
       );
     }
 
@@ -202,15 +229,22 @@ export default function CreditSettlementPage() {
     });
 
     return filtered;
-  }, [suppliers, showOnlyWithCredit, searchQuery, sortField]);
+  }, [suppliers, showOnlyWithCredit, searchQuery, sortField, branches]);
 
   // Get payable POs (approved with GRN, not fully settled)
   const payablePOs = useMemo(() => {
     if (!supplierCreditStatus?.credit_purchase_orders) return [];
-    return supplierCreditStatus.credit_purchase_orders.filter(
+    let pos = supplierCreditStatus.credit_purchase_orders.filter(
       (po) => po.status === "approved" && po.has_grn && !po.is_settled
     );
-  }, [supplierCreditStatus]);
+    
+    // Apply branch filter if set
+    if (filterBranch) {
+      pos = pos.filter((po) => po.branch_code === filterBranch);
+    }
+    
+    return pos;
+  }, [supplierCreditStatus, filterBranch]);
 
   // Handlers
   const handleSelectSupplier = useCallback((supplier: Supplier) => {
@@ -277,7 +311,7 @@ export default function CreditSettlementPage() {
 
       const settlementData: SupplierCreditsSettleCreate = {
         supplier_credits_settle_no: paymentForm.settlement_no,
-        branch_code: "MAIN",
+        branch_code: selectedPO.branch_code,
         suppliers_id: selectedSupplier.id,
         transactions: [transactionData],
       };
@@ -337,7 +371,7 @@ export default function CreditSettlementPage() {
       isLoading={loading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search suppliers..."
+      placeholder="Search suppliers or branch..."
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
@@ -347,16 +381,29 @@ export default function CreditSettlementPage() {
       width={300}
       listHeader={
         <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
-          <Chip
-            label="Credit Only"
+          <Autocomplete
             size="small"
-            variant={showOnlyWithCredit ? "filled" : "outlined"}
-            color={showOnlyWithCredit ? "primary" : "default"}
-            onClick={() => setShowOnlyWithCredit(!showOnlyWithCredit)}
+            options={branches}
+            getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+            value={branches.find(b => b.branch_code === filterBranch) || null}
+            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
+            renderInput={(params) => (
+              <TextField {...params} label="Filter by Branch" placeholder="All Branches" />
+            )}
+            sx={{ mb: 1 }}
           />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-            {filteredSuppliers.length} suppliers
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Chip
+              label="Credit Only"
+              size="small"
+              variant={showOnlyWithCredit ? "filled" : "outlined"}
+              color={showOnlyWithCredit ? "primary" : "default"}
+              onClick={() => setShowOnlyWithCredit(!showOnlyWithCredit)}
+            />
+            <Typography variant="caption" color="text.secondary">
+              {filteredSuppliers.length} suppliers
+            </Typography>
+          </Box>
         </Box>
       }
       renderItem={(supplier, isSelected) => {
@@ -599,6 +646,10 @@ export default function CreditSettlementPage() {
             <Typography variant="body1">{selectedPO?.invoice_no}</Typography>
           </Grid>
           <Grid item xs={6} sm={4}>
+            <Typography variant="caption" color="text.secondary">Branch</Typography>
+            <Typography variant="body1">{selectedPO ? getBranchDisplay(selectedPO.branch_code) : ""}</Typography>
+          </Grid>
+          <Grid item xs={6} sm={4}>
             <Typography variant="caption" color="text.secondary">GRN Number</Typography>
             <Typography variant="body1">{selectedPO?.grn_no}</Typography>
           </Grid>
@@ -693,7 +744,7 @@ export default function CreditSettlementPage() {
           <Grid item xs={12} sm={6}>
             <TextField
               label="Branch"
-              value="MAIN"
+              value={selectedPO?.branch_code || ""}
               size="small"
               fullWidth
               disabled

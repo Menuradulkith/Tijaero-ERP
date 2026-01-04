@@ -7,7 +7,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   TextField,
-  MenuItem,
   Typography,
   IconButton,
   Table,
@@ -16,10 +15,17 @@ import {
   TableRow,
   TableCell,
   Paper,
+  Autocomplete,
+  Button,
+  Stepper,
+  Step,
+  StepLabel,
 } from "@mui/material";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import toast from "react-hot-toast";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -36,6 +42,7 @@ import {
 } from "@/components/tijaero";
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
+import { branchApi } from "@/modules/branches/api";
 import { 
   PurchasingReturn, 
   PurchasingReturnWithItems,
@@ -48,6 +55,8 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "added_date", label: "Date" },
   { value: "purchasing_return_no", label: "Return Number" },
 ];
+
+const FORM_STEPS = ["Return Information", "Return Items"];
 
 const generateReturnNo = () => `RET-${Date.now().toString(36).toUpperCase()}`;
 
@@ -79,6 +88,10 @@ const resetFormFromReturn = (ret: PurchasingReturn | PurchasingReturnWithItems):
 export default function PurchaseReturnsPage() {
   const queryClient = useQueryClient();
   const [lineItems, setLineItems] = useState<ReturnLineItem[]>([]);
+  const [formStep, setFormStep] = useState(0);
+  
+  // Filter states
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   const {
     searchQuery,
@@ -112,10 +125,12 @@ export default function PurchaseReturnsPage() {
       purchasing_return_no: generateReturnNo(),
     }));
     setLineItems([]);
+    setFormStep(0);
   }, [handleNewReturnBase, setFormData]);
 
   const handleStartEdit = useCallback(() => {
     handleStartEditBase();
+    setFormStep(0);
     // @ts-ignore
     if (selectedReturn?.items) {
       // @ts-ignore
@@ -132,6 +147,7 @@ export default function PurchaseReturnsPage() {
   const handleCancel = useCallback((items: PurchasingReturn[]) => {
     handleCancelBase(items);
     setLineItems([]);
+    setFormStep(0);
   }, [handleCancelBase]);
 
   const handleSelectReturnWithItems = useCallback((ret: PurchasingReturn) => {
@@ -164,6 +180,12 @@ export default function PurchaseReturnsPage() {
     queryFn: () => goodReceivedNotesApi.getAll(),
   });
 
+  const { data: branchesData } = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => branchApi.getAll(1, 100),
+  });
+  const branches = branchesData?.items || [];
+
   const filteredReturns = useMemo(() => {
     if (!returns) return [];
 
@@ -172,6 +194,11 @@ export default function PurchaseReturnsPage() {
         ret.purchasing_return_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(ret.id).includes(searchQuery)
     );
+
+    // Apply branch filter
+    if (filterBranch) {
+      filtered = filtered.filter(ret => ret.branch_code === filterBranch);
+    }
 
     filtered.sort((a, b) => {
       if (sortField === "added_date") {
@@ -183,7 +210,7 @@ export default function PurchaseReturnsPage() {
     });
 
     return filtered;
-  }, [returns, searchQuery, sortField]);
+  }, [returns, searchQuery, sortField, filterBranch]);
 
   const createMutation = useMutation({
     mutationFn: purchaseReturnsApi.create,
@@ -279,8 +306,29 @@ export default function PurchaseReturnsPage() {
     return lineItems.reduce((sum, item) => sum + item.return_price, 0);
   };
 
-  const isFormValid = formData.purchasing_return_no && formData.goodreceivednote_id > 0 && lineItems.length > 0;
+  const getBranchDisplay = (branchCode: string) => {
+    const branch = branches.find((b) => b.branch_code === branchCode);
+    return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
+  };
+
+  // Step 1 validation
+  const isStep1Valid = formData.purchasing_return_no && formData.goodreceivednote_id > 0;
+  
+  // Full form validation
+  const isFormValid = isStep1Valid && lineItems.length > 0;
   const isSaving = createMutation.isPending;
+
+  const handleNextStep = useCallback(() => {
+    if (formStep < FORM_STEPS.length - 1) {
+      setFormStep(prev => prev + 1);
+    }
+  }, [formStep]);
+
+  const handlePreviousStep = useCallback(() => {
+    if (formStep > 0) {
+      setFormStep(prev => prev - 1);
+    }
+  }, [formStep]);
 
   const masterPanel = (
     <SearchableList<PurchasingReturn>
@@ -295,6 +343,20 @@ export default function PurchaseReturnsPage() {
       selectedItem={selectedReturn}
       onSelectItem={handleSelectReturnWithItems}
       emptyMessage="No purchase returns found"
+      listHeader={
+        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
+          <Autocomplete
+            size="small"
+            options={branches}
+            getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+            value={branches.find(b => b.branch_code === filterBranch) || null}
+            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
+            renderInput={(params) => (
+              <TextField {...params} label="Filter by Branch" placeholder="All Branches" />
+            )}
+          />
+        </Box>
+      }
       renderItem={(ret, isSelected) => (
         <SelectableListItem
           key={ret.id}
@@ -302,7 +364,7 @@ export default function PurchaseReturnsPage() {
           isSelected={isSelected}
           onClick={() => handleSelectReturnWithItems(ret)}
           primaryText={ret.purchasing_return_no || `RET-${ret.id}`}
-          secondaryText={`GRN: ${getGRNNumber(ret.goodreceivednote_id)} - ${new Date(ret.added_date || "").toLocaleDateString()}`}
+          secondaryText={`GRN: ${getGRNNumber(ret.goodreceivednote_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}`}
           isFavorite={favorites.includes(ret.id)}
           onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
           statusChip={{ label: "Returned", color: "warning" }}
@@ -348,61 +410,117 @@ export default function PurchaseReturnsPage() {
           <EmptyState message="Select a purchase return from the list or create a new one" />
         ) : (
           <>
-            <FormSection title="Return Information" columns={3}>
-              <TextField
-                label="Return Number"
-                size="small"
-                value={formData.purchasing_return_no}
-                onChange={(e) => setFormData({ ...formData, purchasing_return_no: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                required
-              />
-              <TextField
-                select
-                label="Good Received Note"
-                size="small"
-                value={formData.goodreceivednote_id}
-                onChange={(e) => setFormData({ ...formData, goodreceivednote_id: parseInt(e.target.value) })}
-                disabled={!isEditing && !isCreating}
-                required
-              >
-                <MenuItem value={0}>Select GRN</MenuItem>
-                {grns?.map((grn: GoodReceivedNote) => (
-                  <MenuItem key={grn.id} value={grn.id}>
-                    {grn.good_received_no}
-                  </MenuItem>
+            {/* Stepper for create mode only */}
+            {isCreating && (
+              <Stepper activeStep={formStep} sx={{ mb: 3 }}>
+                {FORM_STEPS.map((label) => (
+                  <Step key={label}>
+                    <StepLabel>{label}</StepLabel>
+                  </Step>
                 ))}
-              </TextField>
-              <TextField
-                label="Branch Code"
-                size="small"
-                value={formData.branch_code}
-                onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
-                disabled={!isEditing && !isCreating}
-              />
-            </FormSection>
+              </Stepper>
+            )}
 
-            <FormSection title="Remarks" columns={1}>
-              <TextField
-                label="Remarks"
-                size="small"
-                value={formData.remark}
-                onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                multiline
-                rows={2}
-              />
-            </FormSection>
+            {/* Step 1: Return Information (always show in view/edit mode) */}
+            {(formStep === 0 || !isCreating) && (
+              <>
+                <FormSection title="Return Information" columns={3}>
+                  <TextField
+                    label="Return Number"
+                    size="small"
+                    value={formData.purchasing_return_no}
+                    onChange={(e) => setFormData({ ...formData, purchasing_return_no: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    required
+                  />
+                  <Autocomplete
+                    size="small"
+                    options={grns || []}
+                    getOptionLabel={(option: GoodReceivedNote) => option.good_received_no || `GRN-${option.id}`}
+                    value={grns?.find((g: GoodReceivedNote) => g.id === formData.goodreceivednote_id) || null}
+                    onChange={(_, newValue: GoodReceivedNote | null) => {
+                      if (newValue) {
+                        setFormData({ 
+                          ...formData, 
+                          goodreceivednote_id: newValue.id,
+                          branch_code: newValue.branch_code 
+                        });
+                      } else {
+                        setFormData({ ...formData, goodreceivednote_id: 0 });
+                      }
+                    }}
+                    disabled={!isEditing && !isCreating}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Good Received Note" required />
+                    )}
+                  />
+                  <TextField
+                    label="Branch"
+                    size="small"
+                    value={getBranchDisplay(formData.branch_code)}
+                    disabled
+                    helperText="Auto-filled from GRN"
+                  />
+                </FormSection>
 
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: 2 }}>
-              <Typography variant="subtitle1" fontWeight="bold">Return Items</Typography>
-              {(isEditing || isCreating) && (
-                <IconButton size="small" onClick={handleAddLineItem} color="primary">
-                  <AddIcon />
-                </IconButton>
-              )}
-            </Box>
-            <Box>
+                <FormSection title="Remarks" columns={1}>
+                  <TextField
+                    label="Remarks"
+                    size="small"
+                    value={formData.remark}
+                    onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    multiline
+                    rows={2}
+                  />
+                </FormSection>
+
+                {/* Next/Cancel buttons for step 1 in create mode */}
+                {isCreating && (
+                  <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
+                    <Button 
+                      variant="outlined" 
+                      onClick={() => handleCancel(filteredReturns)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      variant="contained" 
+                      onClick={handleNextStep}
+                      disabled={!isStep1Valid}
+                      endIcon={<ArrowForwardIcon />}
+                    >
+                      Next
+                    </Button>
+                  </Box>
+                )}
+              </>
+            )}
+
+            {/* Step 2: Return Items (always show in view/edit mode, step 2 in create mode) */}
+            {(formStep === 1 || !isCreating) && (
+              <>
+                {/* Back button in create mode only */}
+                {isCreating && (
+                  <Button 
+                    variant="text" 
+                    onClick={handlePreviousStep}
+                    startIcon={<ArrowBackIcon />}
+                    sx={{ mb: 2 }}
+                  >
+                    Back to Return Information
+                  </Button>
+                )}
+
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: isCreating ? 0 : 2 }}>
+                  <Typography variant="subtitle1" fontWeight="bold">Return Items</Typography>
+                  {(isEditing || isCreating) && (
+                    <IconButton size="small" onClick={handleAddLineItem} color="primary">
+                      <AddIcon />
+                    </IconButton>
+                  )}
+                </Box>
+                <Box>
               <Paper variant="outlined" sx={{ overflow: "hidden" }}>
                 <Table size="small">
                   <TableHead>
@@ -503,6 +621,8 @@ export default function PurchaseReturnsPage() {
                 </Table>
               </Paper>
             </Box>
+              </>
+            )}
           </>
         )}
       </Box>

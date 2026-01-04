@@ -18,12 +18,17 @@ import {
   Paper,
   Chip,
   Autocomplete,
+  Button,
+  Stepper,
+  Step,
+  StepLabel,
 } from "@mui/material";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
   MasterDetailLayout,
@@ -62,6 +67,8 @@ const STATUS_OPTIONS = [
 ];
 
 const PAYMENT_METHODS = ["Cash", "Credit", "Cheque", "Bank Transfer"];
+
+const FORM_STEPS = ["Order Information", "Order Items"];
 
 const generateOrderNo = () => `PO-${Date.now().toString(36).toUpperCase()}`;
 
@@ -113,6 +120,11 @@ const resetFormFromOrder = (order: PurchasingOrder | PurchasingOrderWithItems): 
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
+  const [formStep, setFormStep] = useState(0);
+  
+  // Filter states
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
 
   const {
     searchQuery,
@@ -146,10 +158,12 @@ export default function PurchaseOrdersPage() {
       purchasing_order_no: generateOrderNo(),
     }));
     setLineItems([]);
+    setFormStep(0);
   }, [handleNewOrderBase, setFormData]);
 
   const handleStartEdit = useCallback(() => {
     handleStartEditBase();
+    setFormStep(0);
     // @ts-ignore - selectedOrder might have items from detailed fetch
     if (selectedOrder?.items) {
       // @ts-ignore
@@ -167,6 +181,7 @@ export default function PurchaseOrdersPage() {
   const handleCancel = useCallback((items: PurchasingOrder[]) => {
     handleCancelBase(items);
     setLineItems([]);
+    setFormStep(0);
   }, [handleCancelBase]);
 
   const handleSelectOrderWithItems = useCallback((order: PurchasingOrder) => {
@@ -225,6 +240,19 @@ export default function PurchaseOrdersPage() {
         String(order.id).includes(searchQuery)
     );
 
+    // Apply branch filter
+    if (filterBranch) {
+      filtered = filtered.filter(order => order.branch_code === filterBranch);
+    }
+
+    // Apply supplier filter (matches either primary or secondary supplier)
+    if (filterSupplier) {
+      filtered = filtered.filter(order => 
+        order.first_suppliers_id === filterSupplier || 
+        order.second_suppliers_id === filterSupplier
+      );
+    }
+
     filtered.sort((a, b) => {
       if (sortField === "added_date") {
         return new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
@@ -235,7 +263,7 @@ export default function PurchaseOrdersPage() {
     });
 
     return filtered;
-  }, [orders, searchQuery, sortField]);
+  }, [orders, searchQuery, sortField, filterBranch, filterSupplier]);
 
   const createMutation = useMutation({
     mutationFn: purchaseOrdersApi.create,
@@ -261,18 +289,6 @@ export default function PurchaseOrdersPage() {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || "Failed to update purchase order");
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => purchaseOrdersApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      toast.success("Purchase order deleted successfully");
-      handleCancel(filteredOrders);
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to delete purchase order");
     },
   });
 
@@ -327,22 +343,6 @@ export default function PurchaseOrdersPage() {
     }
   }, [isCreating, selectedOrder, formData, lineItems, createMutation, updateMutation]);
 
-  const confirmDialog = useConfirmDialog();
-
-  const handleDelete = useCallback(async () => {
-    if (selectedOrder) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Purchase Order",
-        message: `Are you sure you want to delete order "${selectedOrder.purchasing_order_no || selectedOrder.id}"?`,
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (confirmed) {
-        deleteMutation.mutate(selectedOrder.id);
-      }
-    }
-  }, [selectedOrder, confirmDialog, deleteMutation]);
-
   const handleDuplicate = useCallback(() => {
     if (selectedOrder) {
       const newFormData = {
@@ -370,8 +370,29 @@ export default function PurchaseOrdersPage() {
     return lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
   };
 
-  const isFormValid = formData.first_suppliers_id > 0 && formData.second_suppliers_id > 0 && lineItems.length > 0 && formData.purchasing_order_no && formData.purchasing_invoice_no && formData.branch_code;
-  const isSaving = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
+  // Step 1 validation: Order Information, Dates & Payments, Remarks
+  const isStep1Valid = formData.first_suppliers_id > 0 && 
+    formData.second_suppliers_id > 0 && 
+    formData.purchasing_order_no && 
+    formData.purchasing_invoice_no && 
+    formData.branch_code;
+
+  // Full form validation (both steps)
+  const isFormValid = isStep1Valid && lineItems.length > 0;
+
+  const handleNextStep = useCallback(() => {
+    if (formStep < FORM_STEPS.length - 1) {
+      setFormStep(prev => prev + 1);
+    }
+  }, [formStep]);
+
+  const handlePreviousStep = useCallback(() => {
+    if (formStep > 0) {
+      setFormStep(prev => prev - 1);
+    }
+  }, [formStep]);
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
 
   const masterPanel = (
     <SearchableList<PurchasingOrder>
@@ -386,6 +407,35 @@ export default function PurchaseOrdersPage() {
       selectedItem={selectedOrder}
       onSelectItem={handleSelectOrderWithItems}
       emptyMessage="No purchase orders found"
+      listHeader={
+        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
+          <Autocomplete
+            size="small"
+            options={branches}
+            getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+            value={branches.find(b => b.branch_code === filterBranch) || null}
+            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
+            renderInput={(params) => (
+              <TextField {...params} placeholder="Filter by Branch" size="small" />
+            )}
+            sx={{ mb: 1 }}
+          />
+          <Autocomplete
+            size="small"
+            options={suppliers || []}
+            getOptionLabel={(option: Supplier) => 
+              option.company_name 
+                ? `${option.full_name} (${option.company_name})` 
+                : option.full_name
+            }
+            value={suppliers?.find((s: Supplier) => s.id === filterSupplier) || null}
+            onChange={(_, newValue: Supplier | null) => setFilterSupplier(newValue?.id || null)}
+            renderInput={(params) => (
+              <TextField {...params} placeholder="Filter by Supplier" size="small" />
+            )}
+          />
+        </Box>
+      }
       renderItem={(order, isSelected) => (
         <SelectableListItem
           key={order.id}
@@ -428,7 +478,6 @@ export default function PurchaseOrdersPage() {
         isFormValid={!!isFormValid}
         onNew={handleNewOrder}
         onDuplicate={handleDuplicate}
-        onDelete={handleDelete}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredOrders)}
         onEdit={handleStartEdit}
@@ -439,195 +488,241 @@ export default function PurchaseOrdersPage() {
           <EmptyState message="Select a purchase order from the list or create a new one" />
         ) : (
           <>
-            <FormSection title="Order Information" columns={3}>
-              <TextField
-                label="Order Number"
-                size="small"
-                value={formData.purchasing_order_no}
-                onChange={(e) => setFormData({ ...formData, purchasing_order_no: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                required
-              />
-              <TextField
-                label="Invoice Number"
-                size="small"
-                value={formData.purchasing_invoice_no}
-                onChange={(e) => setFormData({ ...formData, purchasing_invoice_no: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                required
-              />
-              <TextField
-                select
-                label="Branch"
-                size="small"
-                value={formData.branch_code}
-                onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                required
-              >
-                <MenuItem value="">Select Branch</MenuItem>
-                {branches.map((branch) => (
-                  <MenuItem key={branch.id} value={branch.branch_code}>
-                    {branch.branch_code} - {branch.branch_name}
-                  </MenuItem>
+            {/* Stepper for create mode only */}
+            {isCreating && (
+              <Stepper activeStep={formStep} sx={{ mb: 3 }}>
+                {FORM_STEPS.map((label) => (
+                  <Step key={label}>
+                    <StepLabel>{label}</StepLabel>
+                  </Step>
                 ))}
-              </TextField>
-              <TextField
-                select
-                label="Primary Supplier"
-                size="small"
-                value={formData.first_suppliers_id}
-                onChange={(e) => {
-                  const supplierId = parseInt(e.target.value);
-                  const selectedSupplier = suppliers?.find((s: Supplier) => s.id === supplierId);
-                  setFormData({ 
-                    ...formData, 
-                    first_suppliers_id: supplierId,
-                    // Auto-fill credit_date from supplier's credit_days
-                    credit_date: selectedSupplier?.credit_days ?? formData.credit_date
-                  });
-                }}
-                disabled={!isEditing && !isCreating}
-                required
-              >
-                <MenuItem value={0}>Select Supplier</MenuItem>
-                {suppliers?.map((supplier: Supplier) => (
-                  <MenuItem key={supplier.id} value={supplier.id}>
-                    {supplier.full_name} {supplier.company_name ? `(${supplier.company_name})` : ""}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                select
-                label="Secondary Supplier"
-                size="small"
-                value={formData.second_suppliers_id}
-                onChange={(e) => setFormData({ ...formData, second_suppliers_id: parseInt(e.target.value) })}
-                disabled={!isEditing && !isCreating}
-                required
-              >
-                <MenuItem value={0}>Select Supplier</MenuItem>
-                {suppliers?.map((supplier: Supplier) => (
-                  <MenuItem key={supplier.id} value={supplier.id}>
-                    {supplier.full_name}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                select
-                label="Payment Method"
-                size="small"
-                value={formData.payment_method}
-                onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
-                disabled={!isEditing && !isCreating}
-              >
-                {PAYMENT_METHODS.map((method) => (
-                  <MenuItem key={method} value={method}>
-                    {method}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </FormSection>
+              </Stepper>
+            )}
 
-            <FormSection title="Dates & Payment" columns={3}>
-              <TextField
-                label="Order Date"
-                size="small"
-                type="date"
-                value={formData.purchasing_order_date}
-                onChange={(e) => setFormData({ ...formData, purchasing_order_date: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                InputLabelProps={{ shrink: true }}
-              />
-              <TextField
-                label="GRN Date"
-                size="small"
-                type="date"
-                value={formData.good_received_note_date}
-                onChange={(e) => setFormData({ ...formData, good_received_note_date: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                InputLabelProps={{ shrink: true }}
-              />
-              <TextField
-                label="Credit Days"
-                size="small"
-                type="number"
-                value={formData.credit_date}
-                onChange={(e) => setFormData({ ...formData, credit_date: parseInt(e.target.value) || 0 })}
-                disabled={!isEditing && !isCreating}
-                inputProps={{ min: 0 }}
-                helperText={isCreating || isEditing ? "Auto-filled from supplier, can be changed" : ""}
-              />
-            </FormSection>
-
-            {selectedOrder && !isCreating && (
+            {/* Step 1: Order Information, Dates & Payments, Remarks (always show in view/edit mode) */}
+            {(formStep === 0 || !isCreating) && (
               <>
-                <FormSection title="Order Status" columns={4}>
-                  {isEditing ? (
-                    <TextField
-                      select
-                      label="Status"
-                      size="small"
-                      value={formData.status || selectedOrder.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    >
-                      {STATUS_OPTIONS.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  ) : (
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Typography variant="body2" color="text.secondary">Status:</Typography>
-                      <Chip 
-                        label={selectedOrder.status} 
-                        color={getStatusColor(selectedOrder.status)} 
-                        size="small" 
-                      />
-                    </Box>
-                  )}
-                </FormSection>
-                <FormSection title="Tracking" columns={2}>
+                <FormSection title="Order Information" columns={3}>
                   <TextField
-                    label="Created Date"
+                    label="Order Number"
                     size="small"
-                    value={selectedOrder.added_date ? new Date(selectedOrder.added_date).toLocaleString() : ""}
-                    disabled
-                    InputProps={{ readOnly: true }}
+                    value={formData.purchasing_order_no}
+                    onChange={(e) => setFormData({ ...formData, purchasing_order_no: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    required
                   />
+                  <TextField
+                    label="Invoice Number"
+                    size="small"
+                    value={formData.purchasing_invoice_no}
+                    onChange={(e) => setFormData({ ...formData, purchasing_invoice_no: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    required
+                  />
+                  {/* Searchable Branch Dropdown */}
+                  <Autocomplete
+                    size="small"
+                    options={branches}
+                    getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+                    value={branches.find(b => b.branch_code === formData.branch_code) || null}
+                    onChange={(_, newValue) => setFormData({ ...formData, branch_code: newValue?.branch_code || "" })}
+                    disabled={!isEditing && !isCreating}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Branch" required />
+                    )}
+                  />
+                  {/* Searchable Primary Supplier Dropdown */}
+                  <Autocomplete
+                    size="small"
+                    options={suppliers || []}
+                    getOptionLabel={(option: Supplier) => 
+                      option.company_name 
+                        ? `${option.full_name} (${option.company_name})` 
+                        : option.full_name
+                    }
+                    value={suppliers?.find((s: Supplier) => s.id === formData.first_suppliers_id) || null}
+                    onChange={(_, newValue: Supplier | null) => {
+                      setFormData({ 
+                        ...formData, 
+                        first_suppliers_id: newValue?.id || 0,
+                        credit_date: newValue?.credit_days ?? formData.credit_date
+                      });
+                    }}
+                    disabled={!isEditing && !isCreating}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Primary Supplier" required />
+                    )}
+                  />
+                  {/* Searchable Secondary Supplier Dropdown */}
+                  <Autocomplete
+                    size="small"
+                    options={suppliers || []}
+                    getOptionLabel={(option: Supplier) => 
+                      option.company_name 
+                        ? `${option.full_name} (${option.company_name})` 
+                        : option.full_name
+                    }
+                    value={suppliers?.find((s: Supplier) => s.id === formData.second_suppliers_id) || null}
+                    onChange={(_, newValue: Supplier | null) => {
+                      setFormData({ ...formData, second_suppliers_id: newValue?.id || 0 });
+                    }}
+                    disabled={!isEditing && !isCreating}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Secondary Supplier" required />
+                    )}
+                  />
+                  <TextField
+                    select
+                    label="Payment Method"
+                    size="small"
+                    value={formData.payment_method}
+                    onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                  >
+                    {PAYMENT_METHODS.map((method) => (
+                      <MenuItem key={method} value={method}>
+                        {method}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </FormSection>
+
+                <FormSection title="Dates & Payment" columns={3}>
                   <TextField
                     label="Order Date"
                     size="small"
-                    value={selectedOrder.created_date ? new Date(selectedOrder.created_date).toLocaleDateString() : ""}
-                    disabled
-                    InputProps={{ readOnly: true }}
+                    type="date"
+                    value={formData.purchasing_order_date}
+                    onChange={(e) => setFormData({ ...formData, purchasing_order_date: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  <TextField
+                    label="GRN Date"
+                    size="small"
+                    type="date"
+                    value={formData.good_received_note_date}
+                    onChange={(e) => setFormData({ ...formData, good_received_note_date: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  <TextField
+                    label="Credit Days"
+                    size="small"
+                    type="number"
+                    value={formData.credit_date}
+                    onChange={(e) => setFormData({ ...formData, credit_date: parseInt(e.target.value) || 0 })}
+                    disabled={!isEditing && !isCreating}
+                    inputProps={{ min: 0 }}
+                    helperText={isCreating || isEditing ? "Auto-filled from supplier, can be changed" : ""}
                   />
                 </FormSection>
+
+                {selectedOrder && !isCreating && (
+                  <>
+                    <FormSection title="Order Status" columns={4}>
+                      {isEditing ? (
+                        <TextField
+                          select
+                          label="Status"
+                          size="small"
+                          value={formData.status || selectedOrder.status}
+                          onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <MenuItem key={option.value} value={option.value}>
+                              {option.label}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      ) : (
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">Status:</Typography>
+                          <Chip 
+                            label={selectedOrder.status} 
+                            color={getStatusColor(selectedOrder.status)} 
+                            size="small" 
+                          />
+                        </Box>
+                      )}
+                    </FormSection>
+                    <FormSection title="Tracking" columns={2}>
+                      <TextField
+                        label="Created Date"
+                        size="small"
+                        value={selectedOrder.added_date ? new Date(selectedOrder.added_date).toLocaleString() : ""}
+                        disabled
+                        InputProps={{ readOnly: true }}
+                      />
+                      <TextField
+                        label="Order Date"
+                        size="small"
+                        value={selectedOrder.created_date ? new Date(selectedOrder.created_date).toLocaleDateString() : ""}
+                        disabled
+                        InputProps={{ readOnly: true }}
+                      />
+                    </FormSection>
+                  </>
+                )}
+
+                <FormSection title="Remarks" columns={1}>
+                  <TextField
+                    label="Remarks"
+                    size="small"
+                    value={formData.remarks}
+                    onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    multiline
+                    rows={2}
+                  />
+                </FormSection>
+
+                {/* Next/Cancel buttons for step 1 in create mode */}
+                {isCreating && (
+                  <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
+                    <Button 
+                      variant="outlined" 
+                      onClick={() => handleCancel(filteredOrders)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      variant="contained" 
+                      onClick={handleNextStep}
+                      disabled={!isStep1Valid}
+                      endIcon={<ArrowForwardIcon />}
+                    >
+                      Next
+                    </Button>
+                  </Box>
+                )}
               </>
             )}
 
-            <FormSection title="Remarks" columns={1}>
-              <TextField
-                label="Remarks"
-                size="small"
-                value={formData.remarks}
-                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                multiline
-                rows={2}
-              />
-            </FormSection>
+            {/* Step 2: Order Items (always show in view/edit mode, step 2 in create mode) */}
+            {(formStep === 1 || !isCreating) && (
+              <>
+                {/* Back button in create mode only */}
+                {isCreating && (
+                  <Button 
+                    variant="text" 
+                    onClick={handlePreviousStep}
+                    startIcon={<ArrowBackIcon />}
+                    sx={{ mb: 2 }}
+                  >
+                    Back to Order Information
+                  </Button>
+                )}
 
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: 2 }}>
-              <Typography variant="subtitle1" fontWeight="bold">Order Items</Typography>
-              {(isEditing || isCreating) && (
-                <IconButton size="small" onClick={handleAddLineItem} color="primary">
-                  <AddIcon />
-                </IconButton>
-              )}
-            </Box>
-            <Box>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: isCreating ? 0 : 2 }}>
+                  <Typography variant="subtitle1" fontWeight="bold">Order Items</Typography>
+                  {(isEditing || isCreating) && (
+                    <IconButton size="small" onClick={handleAddLineItem} color="primary">
+                      <AddIcon />
+                    </IconButton>
+                  )}
+                </Box>
+                <Box>
               <Paper variant="outlined" sx={{ overflow: "hidden" }}>
                 <Table size="small">
                   <TableHead>
@@ -750,6 +845,8 @@ export default function PurchaseOrdersPage() {
                 </Table>
               </Paper>
             </Box>
+              </>
+            )}
           </>
         )}
       </Box>
@@ -765,7 +862,6 @@ export default function PurchaseOrdersPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }
