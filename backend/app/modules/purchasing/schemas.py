@@ -35,13 +35,31 @@ class SupplierCreate(SupplierBase):
     pass
 
 class SupplierUpdate(BaseModel):
+    title: Optional[str] = None
     full_name: Optional[str] = None
+    name_in_cheque_card: Optional[str] = None
+    occupation: Optional[str] = None
     company_name: Optional[str] = None
+    company_registration_number: Optional[str] = None
+    company_postal_address: Optional[str] = None
+    company_contact_number: Optional[str] = None
+    company_website: Optional[str] = None
+    postal_address: Optional[str] = None
+    permenent_address: Optional[str] = None
+    bank_details: Optional[str] = None
+    birthdate: Optional[date] = None
+    id_card_number: Optional[str] = None
+    gender: Optional[str] = None
+    civil_status: Optional[str] = None
+    passport_no: Optional[str] = None
+    no_of_kids: Optional[str] = None
     email: Optional[EmailStr] = None
+    home_contact_number: Optional[str] = None
     mobile_contact_number: Optional[str] = None
     credit_days: Optional[int] = None
     max_credit_limit: Optional[int] = None
     active: Optional[bool] = None
+    country_id: Optional[int] = None
 
 class Supplier(SupplierBase):
     id: int
@@ -89,9 +107,18 @@ class PurchasingOrderCreate(PurchasingOrderBase):
     items: List[PurchasingOrderItemCreate]
 
 class PurchasingOrderUpdate(BaseModel):
+    purchasing_invoice_no: Optional[str] = None
+    branch_code: Optional[str] = None
+    payment_method: Optional[str] = None
+    purchasing_order_date: Optional[date] = None
+    good_received_note_date: Optional[date] = None
+    remarks: Optional[str] = None
+    credit_date: Optional[int] = None
+    first_suppliers_id: Optional[int] = None
+    second_suppliers_id: Optional[int] = None
+    expected_delivery_date: Optional[date] = None
     status: Optional[str] = None
     actual_delivery_date: Optional[date] = None
-    remarks: Optional[str] = None
 
 class PurchasingOrder(PurchasingOrderBase):
     id: int
@@ -148,26 +175,6 @@ class PurchasingReturn(PurchasingReturnBase):
 class PurchasingReturnWithItems(PurchasingReturn):
     items: List[PurchasingReturnItem] = []
 
-# Supplier Credit Settlement Schemas (using existing table)
-class SupplierCreditsSettleTransactionBase(BaseModel):
-    payment_method: str
-    cheque_date: date
-    payment_amount: Decimal
-    payment_method_number: Optional[str] = None
-    remarks: Optional[str] = None
-    good_received_id: int
-
-class SupplierCreditsSettleTransactionCreate(SupplierCreditsSettleTransactionBase):
-    pass
-
-class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase):
-    id: int
-    created_date: datetime
-    supplier_credit_settle_id: Optional[int] = None
-    
-    class Config:
-        from_attributes = True
-
 # List and Filter Schemas
 class SupplierListFilter(BaseModel):
     active: Optional[bool] = None
@@ -185,3 +192,93 @@ class PurchaseOrderListFilter(BaseModel):
     date_to: Optional[date] = None
     skip: int = 0
     limit: int = 100
+
+# Good Received Note Schemas
+class GoodReceivedNoteBase(BaseModel):
+    good_received_no: str
+    good_received_date: date
+    supplier_invoice_no: str
+    supplier_invoice_date: date
+    remark: Optional[str] = None
+    branch_code: str
+    good_received_locations_id: int
+    purchasingorders_id: int
+
+class GoodReceivedNoteCreate(GoodReceivedNoteBase):
+    pass
+
+class GoodReceivedNote(GoodReceivedNoteBase):
+    id: int
+    created_date: date
+    added_date: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Good Received Items Schemas
+class GoodReceivedItemBase(BaseModel):
+    good_received_note: str
+    barcode: str
+    branch_code: str
+    active: bool = True
+    purchasing_order_items_id: int
+
+class GoodReceivedItemCreate(GoodReceivedItemBase):
+    pass
+
+class GoodReceivedItem(GoodReceivedItemBase):
+    id: int
+    created_date: date
+    added_date: datetime
+    
+    class Config:
+        from_attributes = True
+
+class GoodReceivedNoteListFilter(BaseModel):
+    branch_code: Optional[str] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    skip: int = 0
+    limit: int = 100
+
+
+# Supplier Credits Settle Schemas
+class SupplierCreditsSettleTransactionBase(BaseModel):
+    payment_method: str
+    cheque_date: date
+    payment_amount: Decimal
+    payment_method_number: Optional[str] = None
+    remarks: Optional[str] = None
+    good_received_id: int
+
+class SupplierCreditsSettleTransactionCreate(SupplierCreditsSettleTransactionBase):
+    pass
+
+class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase):
+    id: int
+    supplier_credit_settle_id: int
+    created_date: datetime
+    
+    class Config:
+        from_attributes = True
+
+class SupplierCreditsSettleBase(BaseModel):
+    supplier_credits_settle_no: str
+    branch_code: str
+    suppliers_id: int
+
+class SupplierCreditsSettleCreate(SupplierCreditsSettleBase):
+    transactions: List[SupplierCreditsSettleTransactionCreate]
+
+class SupplierCreditsSettleUpdate(BaseModel):
+    branch_code: Optional[str] = None
+
+class SupplierCreditsSettle(SupplierCreditsSettleBase):
+    id: int
+    created_date: datetime
+    
+    class Config:
+        from_attributes = True
+
+class SupplierCreditsSettleWithTransactions(SupplierCreditsSettle):
+    transactions: List[SupplierCreditsSettleTransaction] = []

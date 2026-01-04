@@ -13,6 +13,7 @@ from app.modules.warehouse.api import router as warehouse_router
 from app.modules.support.api import router as support_router
 from app.modules.reporting.api import router as reporting_router
 from app.modules.settings.api import router as settings_router
+from app.modules.common.api import router as common_router
 
 api_router = APIRouter()
 
@@ -30,6 +31,7 @@ api_router.include_router(warehouse_router)  # Has its own prefix
 api_router.include_router(support_router)  # Has its own prefix
 api_router.include_router(reporting_router)  # Has its own prefix
 api_router.include_router(settings_router)  # Has its own prefix
+api_router.include_router(common_router)  # Has its own prefix
 api_router.include_router(employees_router, prefix="/employees", tags=["employees"])
 api_router.include_router(branches_router, prefix="/branches", tags=["branches"])
 api_router.include_router(health.router, prefix="/health", tags=["health"])

@@ -13,6 +13,7 @@ import {
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import PeopleIcon from "@mui/icons-material/People";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import GroupIcon from "@mui/icons-material/Group";
@@ -53,6 +54,12 @@ const menuItems: MenuItem[] = [
     icon: <ShoppingCartIcon />,
     path: "/sales",
     permission: PERMISSIONS.SALES_VIEW,
+  },
+  {
+    text: "Purchasing",
+    icon: <LocalShippingIcon />,
+    path: "/purchasing",
+    permission: PERMISSIONS.PURCHASING_VIEW,
   },
   {
     text: "Inventory",

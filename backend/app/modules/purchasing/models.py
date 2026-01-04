@@ -40,6 +40,7 @@ class Supplier(Base, TimestampMixin):
     country = relationship("Country", back_populates="suppliers")
     purchasing_orders_first = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.first_suppliers_id", back_populates="first_supplier")
     purchasing_orders_second = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.second_suppliers_id", back_populates="second_supplier")
+    credit_settlements = relationship("SupplierCreditsSettle", back_populates="supplier")
 
 class PurchasingOrder(Base):
     __tablename__ = "purchasing_orders"
@@ -115,4 +116,36 @@ class PurchasingReturnItems(Base):
     # Relationships
     product = relationship("Product", back_populates="purchasing_return_items")
     purchasing_return = relationship("PurchasingReturn", back_populates="items")
+
+
+class SupplierCreditsSettle(Base):
+    __tablename__ = "supplier_credits_settle"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    supplier_credits_settle_no = Column(String(200), nullable=False)
+    branch_code = Column(String(200), nullable=False)
+    created_date = Column(TIMESTAMP, nullable=False)
+    suppliers_id = Column(Integer, ForeignKey("supplier.id"), nullable=False)
+    
+    # Relationships
+    supplier = relationship("Supplier", back_populates="credit_settlements")
+    transactions = relationship("SupplierCreditsSettleTransaction", back_populates="credit_settle")
+
+
+class SupplierCreditsSettleTransaction(Base):
+    __tablename__ = "supplier_credits_settle_transaction"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    payment_method = Column(String(30), nullable=False)
+    cheque_date = Column(Date, nullable=False)
+    payment_amount = Column(Numeric(60, 2), nullable=False)
+    payment_method_number = Column(String(300))
+    remarks = Column(Text)
+    created_date = Column(TIMESTAMP, nullable=False)
+    good_received_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False)
+    supplier_credit_settle_id = Column(Integer, ForeignKey("supplier_credits_settle.id"), nullable=False)
+    
+    # Relationships
+    good_received_note = relationship("GoodReceivedNote", back_populates="credit_settle_transactions")
+    credit_settle = relationship("SupplierCreditsSettle", back_populates="transactions")
 

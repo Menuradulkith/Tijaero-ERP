@@ -16,12 +16,17 @@ import {
   InputAdornment,
   Autocomplete,
   Paper,
+  Chip,
+  Tooltip,
 } from "@mui/material";
 import {
   Receipt as ReceiptIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
   Print as PrintIcon,
+  Visibility as ViewIcon,
+  AssignmentReturn as ReturnIcon,
+  CheckCircle as ApproveIcon,
 } from "@mui/icons-material";
 import {
   MasterDetailLayout,
@@ -38,10 +43,14 @@ import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
-import { Invoice, InvoiceCreate } from "../types";
+import { employeesApi } from "@/modules/employees/api";
+import { branchApi } from "@/modules/branches/api";
+import { Invoice, InvoiceCreate, PAYMENT_METHODS } from "../types";
 import { usePermission } from "@/auth/permissions";
 import { toast } from "react-hot-toast";
 import { format } from "date-fns";
+import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
+import SaleReturnDialog from "../components/SaleReturnDialog";
 
 // Sort options
 const sortOptions: SortOption[] = [
@@ -84,14 +93,21 @@ export default function SalesPage() {
   
   // Line items state (separate from main form for complex management)
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
+  
+  // Dialog states
+  const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState(false);
+  const [saleReturnOpen, setSaleReturnOpen] = useState(false);
+  const [selectedInvoiceForView, setSelectedInvoiceForView] = useState<Invoice | null>(null);
 
   // Permissions
   const canCreate = usePermission("sales", "create");
   const canDelete = usePermission("sales", "delete");
+  const canUpdate = usePermission("sales", "update");
 
   // Confirm dialogs
   const deleteDialog = useConfirmDialog();
   const discardDialog = useConfirmDialog();
+  const approveDialog = useConfirmDialog();
 
   // Main state using Tijaero hook
   const state = useMasterDetailState<Invoice, Partial<InvoiceCreate>>({
@@ -114,6 +130,28 @@ export default function SalesPage() {
     queryKey: ["products"],
     queryFn: () => productsApi.getAll(),
   });
+
+  const { data: employees } = useQuery({
+    queryKey: ["employees"],
+    queryFn: () => employeesApi.getAll(),
+  });
+
+  const { data: branchesData } = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => branchApi.getAll(1, 100),
+  });
+
+  const branches = branchesData?.items || [];
+
+  // Get branch name by code
+  const getBranchName = (branchCode: string) => {
+    return branches.find((b) => b.branch_code === branchCode)?.branch_name || branchCode;
+  };
+
+  // Get customer name by id
+  const getCustomerName = (customerId: number) => {
+    return customers?.find((c) => c.id === customerId)?.customer_name || `Customer #${customerId}`;
+  };
 
   // Calculate total for an invoice
   const calculateTotal = (invoice: Invoice) => {
@@ -181,6 +219,17 @@ export default function SalesPage() {
     },
     onError: () => {
       toast.error("Failed to create sales order");
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (id: number) => salesApi.approve(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sales"] });
+      toast.success("Invoice approved successfully");
+    },
+    onError: () => {
+      toast.error("Failed to approve invoice");
     },
   });
 
@@ -287,11 +336,61 @@ export default function SalesPage() {
     setLineItems(updated);
   };
 
-  // Custom actions for toolbar (Print button)
+  // Handle view invoice details
+  const handleViewDetails = () => {
+    if (state.selectedItem) {
+      setSelectedInvoiceForView(state.selectedItem);
+      setInvoiceDetailsOpen(true);
+    }
+  };
+
+  // Handle process return
+  const handleProcessReturn = () => {
+    if (state.selectedItem) {
+      setSelectedInvoiceForView(state.selectedItem);
+      setSaleReturnOpen(true);
+    }
+  };
+
+  // Handle approve
+  const handleApprove = () => {
+    if (state.selectedItem && !state.selectedItem.approval) {
+      approveDialog.open(
+        "Approve Invoice",
+        `Are you sure you want to approve invoice ${state.selectedItem.invoice_no}?`,
+        () => approveMutation.mutate(state.selectedItem!.id)
+      );
+    }
+  };
+
+  // Custom actions for toolbar
   const customActions = state.selectedItem && !state.isCreating ? (
-    <IconButton size="small" disabled>
-      <PrintIcon />
-    </IconButton>
+    <Box sx={{ display: "flex", gap: 0.5 }}>
+      <Tooltip title="View Details">
+        <IconButton size="small" onClick={handleViewDetails}>
+          <ViewIcon />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Print Invoice">
+        <IconButton size="small" onClick={handleViewDetails}>
+          <PrintIcon />
+        </IconButton>
+      </Tooltip>
+      {canCreate && (
+        <Tooltip title="Process Return">
+          <IconButton size="small" color="warning" onClick={handleProcessReturn}>
+            <ReturnIcon />
+          </IconButton>
+        </Tooltip>
+      )}
+      {canUpdate && !state.selectedItem.approval && (
+        <Tooltip title="Approve Invoice">
+          <IconButton size="small" color="success" onClick={handleApprove}>
+            <ApproveIcon />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Box>
   ) : undefined;
 
   // Render view invoice details
@@ -304,7 +403,9 @@ export default function SalesPage() {
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary">Branch</Typography>
-          <Typography variant="body2" fontWeight={500}>{state.selectedItem?.branch_code}</Typography>
+          <Typography variant="body2" fontWeight={500}>
+            {state.selectedItem && getBranchName(state.selectedItem.branch_code)}
+          </Typography>
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary">Date</Typography>
@@ -313,16 +414,33 @@ export default function SalesPage() {
           </Typography>
         </Box>
         <Box>
+          <Typography variant="caption" color="text.secondary">Customer</Typography>
+          <Typography variant="body2" fontWeight={500}>
+            {state.selectedItem && getCustomerName(state.selectedItem.customer_id)}
+          </Typography>
+        </Box>
+        <Box>
           <Typography variant="caption" color="text.secondary">Payment Method</Typography>
-          <Typography variant="body2" fontWeight={500}>{state.selectedItem?.payment_method}</Typography>
+          <Typography variant="body2" fontWeight={500} sx={{ textTransform: "capitalize" }}>
+            {state.selectedItem?.payment_method?.replace(/_/g, " ")}
+          </Typography>
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary">Status</Typography>
-          <Typography variant="body2" fontWeight={500}>{state.selectedItem?.status ? "Active" : "Inactive"}</Typography>
+          <Chip 
+            label={state.selectedItem?.status ? "Active" : "Inactive"} 
+            size="small"
+            color={state.selectedItem?.status ? "success" : "default"}
+          />
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary">Approval</Typography>
-          <Typography variant="body2" fontWeight={500}>{state.selectedItem?.approval ? "Approved" : "Pending"}</Typography>
+          <Chip 
+            label={state.selectedItem?.approval ? "Approved" : "Pending"} 
+            size="small"
+            color={state.selectedItem?.approval ? "success" : "warning"}
+            variant="outlined"
+          />
         </Box>
       </FormSection>
 
@@ -428,11 +546,12 @@ export default function SalesPage() {
           onChange={(e) => state.setFormData({ ...state.formData, invoice_no: e.target.value })}
           required
         />
-        <TextField
-          label="Branch Code"
-          size="small"
-          value={state.formData.branch_code}
-          onChange={(e) => state.setFormData({ ...state.formData, branch_code: e.target.value })}
+        <Autocomplete
+          options={branches}
+          getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+          value={branches.find((b) => b.branch_code === state.formData.branch_code) || null}
+          onChange={(_, newValue) => state.setFormData({ ...state.formData, branch_code: newValue?.branch_code || "" })}
+          renderInput={(params) => <TextField {...params} label="Branch" size="small" required />}
         />
         <Autocomplete
           options={customers || []}
@@ -640,6 +759,27 @@ export default function SalesPage() {
     </MasterDetailLayout>
     <ConfirmDialog {...deleteDialog.dialogProps} />
     <ConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
+    <ConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
+    
+    {/* Invoice Details Dialog */}
+    <InvoiceDetailsDialog
+      open={invoiceDetailsOpen}
+      invoice={selectedInvoiceForView}
+      onClose={() => {
+        setInvoiceDetailsOpen(false);
+        setSelectedInvoiceForView(null);
+      }}
+    />
+
+    {/* Sale Return Dialog */}
+    <SaleReturnDialog
+      open={saleReturnOpen}
+      onClose={() => {
+        setSaleReturnOpen(false);
+        setSelectedInvoiceForView(null);
+      }}
+      preselectedInvoice={selectedInvoiceForView}
+    />
     </>
   );
 }

@@ -114,3 +114,37 @@ export interface SaleReturnCreate {
   remark?: string;
   items: SaleReturnItemCreate[];
 }
+
+export interface SaleReturnWithItems extends SaleReturn {
+  items: SaleReturnItem[];
+}
+
+// Sales Statistics Types
+export interface SalesStats {
+  totalOrders: number;
+  totalRevenue: number;
+  currentMonthOrders: number;
+  currentMonthRevenue: number;
+  pendingApproval: number;
+  saleReturnsCount: number;
+}
+
+// Payment Method Options
+export type PaymentMethod = 
+  | "cash"
+  | "card_visa"
+  | "card_mastercard"
+  | "card_amex"
+  | "cheque"
+  | "bank_transfer"
+  | "credit";
+
+export const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
+  { value: "cash", label: "Cash" },
+  { value: "card_visa", label: "Visa Card" },
+  { value: "card_mastercard", label: "Mastercard" },
+  { value: "card_amex", label: "Amex Card" },
+  { value: "cheque", label: "Cheque" },
+  { value: "bank_transfer", label: "Bank Transfer" },
+  { value: "credit", label: "Credit" },
+];

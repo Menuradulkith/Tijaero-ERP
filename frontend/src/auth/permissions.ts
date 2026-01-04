@@ -18,6 +18,13 @@ export const PERMISSIONS = {
   SALES_DELETE: { resource: "sales", action: "delete" },
   SALES_APPROVE: { resource: "sales", action: "approve" },
 
+  // Purchasing permissions
+  PURCHASING_VIEW: { resource: "purchasing", action: "view" },
+  PURCHASING_CREATE: { resource: "purchasing", action: "create" },
+  PURCHASING_UPDATE: { resource: "purchasing", action: "update" },
+  PURCHASING_DELETE: { resource: "purchasing", action: "delete" },
+  PURCHASING_APPROVE: { resource: "purchasing", action: "approve" },
+
   // Inventory permissions
   INVENTORY_VIEW: { resource: "inventory", action: "view" },
   INVENTORY_CREATE: { resource: "inventory", action: "create" },

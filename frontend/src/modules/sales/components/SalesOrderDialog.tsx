@@ -23,6 +23,7 @@ import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
+import { branchApi } from "@/modules/branches/api";
 import { Invoice, InvoiceCreate } from "../types";
 import { toast } from "react-hot-toast";
 
@@ -49,6 +50,13 @@ export default function SalesOrderDialog({
     queryKey: ["products"],
     queryFn: () => productsApi.getAll(),
   });
+
+  const { data: branchesData } = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => branchApi.getAll(1, 100),
+  });
+
+  const branches = branchesData?.items || [];
 
   const { control, handleSubmit, watch } = useForm<InvoiceCreate>({
     defaultValues: {
@@ -158,12 +166,25 @@ export default function SalesOrderDialog({
               <Controller
                 name="branch_code"
                 control={control}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Branch Code"
-                    fullWidth
+                rules={{ required: "Branch is required" }}
+                render={({ field, fieldState }) => (
+                  <Autocomplete
+                    options={branches}
+                    getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+                    value={branches.find((b) => b.branch_code === field.value) || null}
+                    onChange={(_, newValue) => field.onChange(newValue?.branch_code || "")}
                     disabled={isView}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Branch"
+                        fullWidth
+                        required
+                        disabled={isView}
+                        error={!!fieldState.error}
+                        helperText={fieldState.error?.message}
+                      />
+                    )}
                   />
                 )}
               />

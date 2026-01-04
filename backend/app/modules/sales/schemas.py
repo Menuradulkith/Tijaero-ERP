@@ -102,3 +102,9 @@ class SaleReturn(SaleReturnBase):
     
     class Config:
         from_attributes = True
+
+class SaleReturnWithItems(SaleReturn):
+    items: List[SaleReturnItem] = []
+    
+    class Config:
+        from_attributes = True
