@@ -9,11 +9,12 @@ from app.modules.customers.models import (
 from app.modules.employees.models import Employee, EmployeePayroll, EmployeeSalaryProfile, EmployeePromotions, EmployeesAssets
 from app.modules.attendance.models import Attendance, Leaves
 from app.modules.products.models import Product, Category, ItemsBrand, MinimumPrice
-from app.modules.inventory.models import CompanyAssets, GoodReceivedItems, GoodReceivedNote
+from app.modules.inventory.models import CompanyAssets
 from app.modules.sales.models import Invoice, InvoiceItems, InvoiceItemsBarcode, SaleReturn, SaleReturnItems
 from app.modules.purchasing.models import (
     PurchasingOrder, PurchasingOrderItems, PurchasingReturn, PurchasingReturnItems, Supplier,
-    SupplierCreditsSettle, SupplierCreditsSettleTransaction
+    SupplierCreditsSettle, SupplierCreditsSettleTransaction,
+    GoodReceivedNote, GoodReceivedItems
 )
 from app.modules.finance.models import (
     BankDeposits, CardPayments, ChequePayments, CreditPayments, 

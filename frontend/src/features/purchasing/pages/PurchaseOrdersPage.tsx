@@ -51,7 +51,6 @@ import {
 const SORT_OPTIONS: SortOption[] = [
   { value: "added_date", label: "Date" },
   { value: "purchasing_order_no", label: "Order Number" },
-  { value: "total_amount", label: "Amount" },
 ];
 
 const STATUS_OPTIONS = [
@@ -69,7 +68,6 @@ const generateOrderNo = () => `PO-${Date.now().toString(36).toUpperCase()}`;
 // Extended form type to include editable status fields
 interface PurchaseOrderFormData extends PurchasingOrderCreate {
   status?: string;
-  actual_delivery_date?: string;
 }
 
 const INITIAL_FORM_DATA: PurchaseOrderFormData = {
@@ -83,10 +81,8 @@ const INITIAL_FORM_DATA: PurchaseOrderFormData = {
   credit_date: 0,
   first_suppliers_id: 0,
   second_suppliers_id: 0,
-  expected_delivery_date: "",
   items: [],
   status: "draft",
-  actual_delivery_date: "",
 };
 
 interface OrderLineItem extends PurchasingOrderItemCreate {
@@ -104,9 +100,7 @@ const resetFormFromOrder = (order: PurchasingOrder | PurchasingOrderWithItems): 
   credit_date: order.credit_date || 0,
   first_suppliers_id: order.first_suppliers_id,
   second_suppliers_id: order.second_suppliers_id,
-  expected_delivery_date: order.expected_delivery_date?.split("T")[0] || "",
   status: order.status || "draft",
-  actual_delivery_date: order.actual_delivery_date?.split("T")[0] || "",
   items: "items" in order && order.items ? order.items.map(item => ({
     product_id: item.product_id,
     quantity: item.quantity,
@@ -324,9 +318,7 @@ export default function PurchaseOrdersPage() {
         credit_date: formData.credit_date,
         first_suppliers_id: formData.first_suppliers_id,
         second_suppliers_id: formData.second_suppliers_id,
-        expected_delivery_date: formData.expected_delivery_date || null,
         status: formData.status || selectedOrder.status,
-        actual_delivery_date: formData.actual_delivery_date || null,
       };
       updateMutation.mutate({ 
         id: selectedOrder.id, 
@@ -378,7 +370,7 @@ export default function PurchaseOrdersPage() {
     return lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
   };
 
-  const isFormValid = formData.first_suppliers_id > 0 && lineItems.length > 0 && formData.purchasing_order_no && formData.branch_code;
+  const isFormValid = formData.first_suppliers_id > 0 && formData.second_suppliers_id > 0 && lineItems.length > 0 && formData.purchasing_order_no && formData.purchasing_invoice_no && formData.branch_code;
   const isSaving = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
 
   const masterPanel = (
@@ -462,6 +454,7 @@ export default function PurchaseOrdersPage() {
                 value={formData.purchasing_invoice_no}
                 onChange={(e) => setFormData({ ...formData, purchasing_invoice_no: e.target.value })}
                 disabled={!isEditing && !isCreating}
+                required
               />
               <TextField
                 select
@@ -484,7 +477,16 @@ export default function PurchaseOrdersPage() {
                 label="Primary Supplier"
                 size="small"
                 value={formData.first_suppliers_id}
-                onChange={(e) => setFormData({ ...formData, first_suppliers_id: parseInt(e.target.value) })}
+                onChange={(e) => {
+                  const supplierId = parseInt(e.target.value);
+                  const selectedSupplier = suppliers?.find((s: Supplier) => s.id === supplierId);
+                  setFormData({ 
+                    ...formData, 
+                    first_suppliers_id: supplierId,
+                    // Auto-fill credit_date from supplier's credit_days
+                    credit_date: selectedSupplier?.credit_days ?? formData.credit_date
+                  });
+                }}
                 disabled={!isEditing && !isCreating}
                 required
               >
@@ -502,8 +504,9 @@ export default function PurchaseOrdersPage() {
                 value={formData.second_suppliers_id}
                 onChange={(e) => setFormData({ ...formData, second_suppliers_id: parseInt(e.target.value) })}
                 disabled={!isEditing && !isCreating}
+                required
               >
-                <MenuItem value={0}>None</MenuItem>
+                <MenuItem value={0}>Select Supplier</MenuItem>
                 {suppliers?.map((supplier: Supplier) => (
                   <MenuItem key={supplier.id} value={supplier.id}>
                     {supplier.full_name}
@@ -526,7 +529,7 @@ export default function PurchaseOrdersPage() {
               </TextField>
             </FormSection>
 
-            <FormSection title="Dates & Payment" columns={4}>
+            <FormSection title="Dates & Payment" columns={3}>
               <TextField
                 label="Order Date"
                 size="small"
@@ -546,15 +549,6 @@ export default function PurchaseOrdersPage() {
                 InputLabelProps={{ shrink: true }}
               />
               <TextField
-                label="Expected Delivery"
-                size="small"
-                type="date"
-                value={formData.expected_delivery_date}
-                onChange={(e) => setFormData({ ...formData, expected_delivery_date: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                InputLabelProps={{ shrink: true }}
-              />
-              <TextField
                 label="Credit Days"
                 size="small"
                 type="number"
@@ -562,6 +556,7 @@ export default function PurchaseOrdersPage() {
                 onChange={(e) => setFormData({ ...formData, credit_date: parseInt(e.target.value) || 0 })}
                 disabled={!isEditing && !isCreating}
                 inputProps={{ min: 0 }}
+                helperText={isCreating || isEditing ? "Auto-filled from supplier, can be changed" : ""}
               />
             </FormSection>
 
@@ -592,37 +587,21 @@ export default function PurchaseOrdersPage() {
                       />
                     </Box>
                   )}
-                  <TextField
-                    label="Total Amount"
-                    size="small"
-                    value={Number(selectedOrder.total_amount || 0).toFixed(2)}
-                    disabled
-                    InputProps={{ readOnly: true }}
-                  />
-                  <TextField
-                    label="Paid Amount"
-                    size="small"
-                    value={Number(selectedOrder.paid_amount || 0).toFixed(2)}
-                    disabled
-                    InputProps={{ readOnly: true }}
-                  />
-                  <TextField
-                    label="Balance"
-                    size="small"
-                    value={Number((selectedOrder.total_amount || 0) - (selectedOrder.paid_amount || 0)).toFixed(2)}
-                    disabled
-                    InputProps={{ readOnly: true }}
-                  />
                 </FormSection>
-                <FormSection title="Delivery Status" columns={2}>
+                <FormSection title="Tracking" columns={2}>
                   <TextField
-                    label="Actual Delivery Date"
+                    label="Created Date"
                     size="small"
-                    type="date"
-                    value={isEditing ? (formData.actual_delivery_date || "") : (selectedOrder.actual_delivery_date?.split("T")[0] || "")}
-                    onChange={(e) => setFormData({ ...formData, actual_delivery_date: e.target.value })}
-                    disabled={!isEditing}
-                    InputLabelProps={{ shrink: true }}
+                    value={selectedOrder.added_date ? new Date(selectedOrder.added_date).toLocaleString() : ""}
+                    disabled
+                    InputProps={{ readOnly: true }}
+                  />
+                  <TextField
+                    label="Order Date"
+                    size="small"
+                    value={selectedOrder.created_date ? new Date(selectedOrder.created_date).toLocaleDateString() : ""}
+                    disabled
+                    InputProps={{ readOnly: true }}
                   />
                 </FormSection>
               </>

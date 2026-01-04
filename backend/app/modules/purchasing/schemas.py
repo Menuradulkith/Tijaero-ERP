@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
@@ -101,7 +101,6 @@ class PurchasingOrderBase(BaseModel):
     credit_date: Optional[int] = None
     first_suppliers_id: int
     second_suppliers_id: int
-    expected_delivery_date: Optional[date] = None
 
 class PurchasingOrderCreate(PurchasingOrderBase):
     items: List[PurchasingOrderItemCreate]
@@ -116,9 +115,7 @@ class PurchasingOrderUpdate(BaseModel):
     credit_date: Optional[int] = None
     first_suppliers_id: Optional[int] = None
     second_suppliers_id: Optional[int] = None
-    expected_delivery_date: Optional[date] = None
     status: Optional[str] = None
-    actual_delivery_date: Optional[date] = None
 
 class PurchasingOrder(PurchasingOrderBase):
     id: int
@@ -128,7 +125,11 @@ class PurchasingOrder(PurchasingOrderBase):
     status: str = "pending"
     total_amount: Decimal = Decimal("0.00")
     paid_amount: Decimal = Decimal("0.00")
-    actual_delivery_date: Optional[date] = None
+    
+    @field_validator('status', mode='before')
+    @classmethod
+    def default_status(cls, v):
+        return v if v is not None else "pending"
     
     class Config:
         from_attributes = True
@@ -258,6 +259,10 @@ class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase):
     id: int
     supplier_credit_settle_id: int
     created_date: datetime
+    # GRN details for display
+    grn_no: Optional[str] = None
+    po_no: Optional[str] = None
+    invoice_no: Optional[str] = None
     
     class Config:
         from_attributes = True

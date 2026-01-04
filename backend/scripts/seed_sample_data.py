@@ -21,8 +21,8 @@ from app.modules.finance.models import (
     BankDeposits, CardPayments, ChequePayments, CreditPayments, Vouchers, Expenses
 )
 from app.modules.support.models import CustomerSupport, CSJobItem, CustomerCallLog, WarrantyClaims
-from app.modules.purchasing.models import PurchasingOrder, PurchasingOrderItems, PurchasingReturn, PurchasingReturnItems
-from app.modules.inventory.models import GoodReceivedNote, GoodReceivedItems, CompanyAssets
+from app.modules.purchasing.models import PurchasingOrder, PurchasingOrderItems, PurchasingReturn, PurchasingReturnItems, GoodReceivedNote, GoodReceivedItems
+from app.modules.inventory.models import CompanyAssets
 from app.modules.warehouse.models import (
     ItemTransferNote, ItemTransferNoteItems, ItemTransferNoteItemProduct,
     ItemTransferNoteApproved, ItemReceiveNote

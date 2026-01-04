@@ -120,14 +120,12 @@ export interface PurchasingOrder {
   credit_date?: number;
   first_suppliers_id: number;
   second_suppliers_id: number;
-  expected_delivery_date?: string;
   created_date: string;
   added_date: string;
   approval_id?: number;
   status: string;
   total_amount: number;
   paid_amount: number;
-  actual_delivery_date?: string;
 }
 
 export interface PurchasingOrderWithItems extends PurchasingOrder {
@@ -145,7 +143,6 @@ export interface PurchasingOrderCreate {
   credit_date?: number;
   first_suppliers_id: number;
   second_suppliers_id: number;
-  expected_delivery_date?: string;
   items: PurchasingOrderItemCreate[];
 }
 
@@ -159,9 +156,7 @@ export interface PurchasingOrderUpdate {
   credit_date?: number;
   first_suppliers_id?: number;
   second_suppliers_id?: number;
-  expected_delivery_date?: string;
   status?: string;
-  actual_delivery_date?: string;
 }
 
 // Purchase Return Types
@@ -270,6 +265,10 @@ export interface SupplierCreditsSettleTransaction {
   created_date: string;
   good_received_id: number;
   supplier_credit_settle_id: number;
+  // GRN details for display
+  grn_no?: string;
+  po_no?: string;
+  invoice_no?: string;
 }
 
 export interface SupplierCreditsSettleTransactionCreate {
