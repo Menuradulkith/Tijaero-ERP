@@ -1,58 +1,55 @@
-import { useState, useMemo, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { usePermission } from "@/auth/permissions";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import {
-  Box,
-  TextField,
-  MenuItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography,
-  Button,
-  IconButton,
-  Divider,
-  InputAdornment,
-  Autocomplete,
-  Paper,
-  Chip,
-  Tooltip,
-} from "@mui/material";
-import {
-  Receipt as ReceiptIcon,
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Print as PrintIcon,
-  Visibility as ViewIcon,
-  AssignmentReturn as ReturnIcon,
-  CheckCircle as ApproveIcon,
-} from "@mui/icons-material";
-import {
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
-  SortOption,
-  TConfirmDialog,
-  useTConfirmDialog,
-  showSuccessToast,
-  showErrorToast,
+    ActionToolbar,
+    DetailPanelHeader,
+    EmptyState,
+    FormSection,
+    MasterDetailLayout,
+    SearchableList,
+    SelectableListItem,
+    SortOption,
+    useMasterDetailState,
 } from "@/components/tijaero";
-import { salesApi } from "../api";
+import { branchApi } from "@/modules/branches/api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
-// import { employeesApi } from "@/modules/employees/api";
-import { branchApi } from "@/modules/branches/api";
-import { Invoice, InvoiceCreate } from "../types";
-import { usePermission } from "@/auth/permissions";
+import {
+    Add as AddIcon,
+    CheckCircle as ApproveIcon,
+    Delete as DeleteIcon,
+    Print as PrintIcon,
+    Receipt as ReceiptIcon,
+    AssignmentReturn as ReturnIcon,
+    Visibility as ViewIcon,
+} from "@mui/icons-material";
+import {
+    Autocomplete,
+    Box,
+    Button,
+    Chip,
+    Divider,
+    IconButton,
+    InputAdornment,
+    MenuItem,
+    Paper,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+    TextField,
+    Tooltip,
+    Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
+import { salesApi } from "../api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import SaleReturnDialog from "../components/SaleReturnDialog";
+import { Invoice, InvoiceCreate } from "../types";
 
 // Sort options
 const sortOptions: SortOption[] = [
@@ -107,9 +104,9 @@ export default function SalesPage() {
   const canUpdate = usePermission("sales", "update");
 
   // Confirm dialogs
-  const deleteDialog = useTConfirmDialog();
-  const discardDialog = useTConfirmDialog();
-  const approveDialog = useTConfirmDialog();
+  const deleteDialog = useConfirmDialog();
+  const discardDialog = useConfirmDialog();
+  const approveDialog = useConfirmDialog();
 
   // Main state using Tijaero hook
   const state = useMasterDetailState<Invoice, Partial<InvoiceCreate>>({
@@ -131,11 +128,6 @@ export default function SalesPage() {
   const { data: products } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.getAll(),
-  });
-
-  const { data: _employees } = useQuery({
-    queryKey: ["employees"],
-    queryFn: () => employeesApi.getAll(),
   });
 
   const { data: branchesData } = useQuery({
@@ -197,23 +189,16 @@ export default function SalesPage() {
     return filtered;
   }, [invoices, state.searchQuery, state.sortField]);
 
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredInvoices.length > 0 && !state.selectedItem && !state.isCreating) {
-      state.setSelectedItem(filteredInvoices[0]);
-    }
-  }, [filteredInvoices, state.selectedItem, state.isCreating]);
-
   // Mutations
   const deleteMutation = useMutation({
     mutationFn: salesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
-      showSuccessToast("Sales order deleted successfully");
+      toast.success("Sales order deleted successfully");
       state.setSelectedItem(null);
     },
     onError: () => {
-      showErrorToast("Failed to delete sales order");
+      toast.error("Failed to delete sales order");
     },
   });
 
@@ -221,13 +206,13 @@ export default function SalesPage() {
     mutationFn: salesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
-      showSuccessToast("Sales order created successfully");
+      toast.success("Sales order created successfully");
       state.setIsCreating(false);
       setLineItems([]);
       state.setFormData(emptyInvoiceForm);
     },
     onError: () => {
-      showErrorToast("Failed to create sales order");
+      toast.error("Failed to create sales order");
     },
   });
 
@@ -235,10 +220,10 @@ export default function SalesPage() {
     mutationFn: (id: number) => salesApi.approve(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
-      showSuccessToast("Invoice approved successfully");
+      toast.success("Invoice approved successfully");
     },
     onError: () => {
-      showErrorToast("Failed to approve invoice");
+      toast.error("Failed to approve invoice");
     },
   });
 
@@ -458,43 +443,43 @@ export default function SalesPage() {
           {state.selectedItem && state.selectedItem.cash_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Cash</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cash_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.cash_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.card_visa_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Visa</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_visa_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.card_visa_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.card_mastercard_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Mastercard</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_mastercard_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.card_mastercard_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.card_amex_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Amex</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_amex_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.card_amex_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.cheque_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Cheque</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cheque_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.cheque_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.bank_transfer_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Bank Transfer</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.bank_transfer_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.bank_transfer_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.credit_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Credit</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.credit_amount.toFixed(2)}</Typography>
             </Box>
           )}
         </Box>
@@ -503,7 +488,7 @@ export default function SalesPage() {
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="subtitle2" fontWeight={600}>Total Amount</Typography>
             <Typography variant="h6" fontWeight={700} color="success.main">
-              Rs. {state.selectedItem && calculateTotal(state.selectedItem).toFixed(2)}
+              ${state.selectedItem && calculateTotal(state.selectedItem).toFixed(2)}
             </Typography>
           </Box>
         </Box>
@@ -516,19 +501,19 @@ export default function SalesPage() {
           {state.selectedItem.payment_adjustments !== 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Payment Adjustments</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem.cupon_amount !== 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Coupon Amount</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cupon_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.cupon_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem.credit_note_amount !== 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Credit Note</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>${state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
             </Box>
           )}
         </FormSection>
@@ -650,11 +635,11 @@ export default function SalesPage() {
                       value={item.selling_price}
                       onChange={(e) => updateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)}
                       sx={{ width: 100 }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Typography fontWeight={500}>Rs. {(item.quantity * item.selling_price).toFixed(2)}</Typography>
+                    <Typography fontWeight={500}>${(item.quantity * item.selling_price).toFixed(2)}</Typography>
                   </TableCell>
                   <TableCell align="center">
                     <IconButton size="small" color="error" onClick={() => removeLineItem(index)}>
@@ -669,7 +654,7 @@ export default function SalesPage() {
         <Divider sx={{ my: 2 }} />
         <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
           <Typography variant="h6" fontWeight={700} color="success.main">
-            Total: Rs. {calculateLineItemsTotal().toFixed(2)}
+            Total: ${calculateLineItemsTotal().toFixed(2)}
           </Typography>
         </Box>
       </Paper>
@@ -691,93 +676,29 @@ export default function SalesPage() {
           isLoading={isLoading}
           emptyMessage="No sales orders found"
         >
-          {filteredInvoices.map((invoice) => {
-            const isSelected = state.selectedItem?.id === invoice.id;
-            return (
-              <SelectableListItem
-                key={invoice.id}
-                isSelected={isSelected}
-                onClick={() => handleSelectInvoice(invoice)}
-                primaryText={
-                  <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                    {/* Invoice No */}
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span>{invoice.invoice_no}</span>
-                      {isSelected && (
-                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                          (Invoice No)
-                        </Typography>
-                      )}
-                    </Box>
-                    {/* Total */}
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography
-                        component="span"
-                        variant="caption"
-                        fontWeight={600}
-                        sx={{ color: isSelected ? "inherit" : "success.main" }}
-                      >
-                        Rs. {calculateTotal(invoice).toFixed(2)}
-                      </Typography>
-                      {isSelected && (
-                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                          (Total)
-                        </Typography>
-                      )}
-                    </Box>
-                    {/* Date & Branch - only when selected */}
-                    {isSelected && (
-                      <>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <Typography component="span" variant="caption">
-                            {format(new Date(invoice.created_date), "MMM dd, yyyy")}
-                          </Typography>
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                            (Date)
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <Typography component="span" variant="caption">
-                            {invoice.branch_code}
-                          </Typography>
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                            (Branch)
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <Typography component="span" variant="caption" sx={{ textTransform: "capitalize" }}>
-                            {invoice.payment_method?.replace(/_/g, " ")}
-                          </Typography>
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                            (Payment)
-                          </Typography>
-                        </Box>
-                        {/* Status Chips - shown below all fields when selected */}
-                        <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                          <Chip
-                            label={invoice.status ? "Active" : "Inactive"}
-                            size="small"
-                            color={invoice.status ? "success" : "default"}
-                            sx={{ height: 18, fontSize: "0.65rem" }}
-                          />
-                          <Chip
-                            label={invoice.approval ? "Approved" : "Pending"}
-                            size="small"
-                            color={invoice.approval ? "info" : "warning"}
-                            variant="outlined"
-                            sx={{ height: 18, fontSize: "0.65rem" }}
-                          />
-                        </Box>
-                      </>
-                    )}
-                  </Box>
-                }
-                secondaryText={!isSelected ? `${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${invoice.branch_code}` : undefined}
-                isFavorite={state.favorites.includes(invoice.id)}
-                onToggleFavorite={() => state.toggleFavorite(invoice.id)}
-              />
-            );
-          })}
+          {filteredInvoices.map((invoice) => (
+            <SelectableListItem
+              key={invoice.id}
+              isSelected={state.selectedItem?.id === invoice.id}
+              onClick={() => handleSelectInvoice(invoice)}
+              primaryText={
+                <Box sx={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                  <span>{invoice.invoice_no}</span>
+                  <Typography
+                    component="span"
+                    variant="caption"
+                    fontWeight={600}
+                    sx={{ color: state.selectedItem?.id === invoice.id ? "inherit" : "success.main" }}
+                  >
+                    ${calculateTotal(invoice).toFixed(2)}
+                  </Typography>
+                </Box>
+              }
+              secondaryText={`${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${invoice.branch_code}`}
+              isFavorite={state.favorites.includes(invoice.id)}
+              onToggleFavorite={() => state.toggleFavorite(invoice.id)}
+            />
+          ))}
         </SearchableList>
 
         {/* Detail Panel */}
@@ -818,7 +739,7 @@ export default function SalesPage() {
             customActions={customActions}
           />
 
-          <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+          <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
             {!state.selectedItem && !state.isCreating ? (
               <EmptyState message="Select a sales order from the list or create a new one" />
             ) : state.isCreating ? (
@@ -830,9 +751,9 @@ export default function SalesPage() {
         </Box>
       </Box>
     </MasterDetailLayout>
-    <TConfirmDialog {...deleteDialog.dialogProps} />
-    <TConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
-    <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
+    <ConfirmDialog {...deleteDialog.dialogProps} />
+    <ConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
+    <ConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
     
     {/* Invoice Details Dialog */}
     <InvoiceDetailsDialog
