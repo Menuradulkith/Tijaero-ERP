@@ -202,7 +202,7 @@ export default function SaleReturnsPage() {
           <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <DetailPanelHeader
               icon={<ReturnIcon color="warning" />}
-              breadcrumbs={[{ label: "Sale Returns" }]}
+              breadcrumbs={[{ label: "Sales", href: "/sales" }, { label: "Sale Returns" }]}
               title={
                 state.selectedItem
                   ? state.selectedItem.sale_return_no

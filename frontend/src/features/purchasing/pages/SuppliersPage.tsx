@@ -274,7 +274,8 @@ export default function SuppliersPage() {
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Suppliers", href: "#" },
+          { label: "Purchasing", href: "/purchasing" },
+          { label: "Suppliers", href: "/purchasing/suppliers" },
           ...(selectedSupplier || isCreating
             ? [{ label: isCreating ? "New Supplier" : selectedSupplier?.full_name || "" }]
             : []),

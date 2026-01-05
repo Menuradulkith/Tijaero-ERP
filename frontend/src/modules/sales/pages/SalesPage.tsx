@@ -711,7 +711,7 @@ export default function SalesPage() {
         <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <DetailPanelHeader
             icon={<ReceiptIcon color="primary" />}
-            breadcrumbs={[{ label: "Sales Orders" }]}
+            breadcrumbs={[{ label: "Sales", href: "/sales" }, { label: "Sales Orders" }]}
             title={
               state.isCreating
                 ? "Create New Sales Order"
