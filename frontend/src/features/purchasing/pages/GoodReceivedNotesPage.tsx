@@ -381,7 +381,8 @@ export default function GoodReceivedNotesPage() {
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Good Received Notes", href: "#" },
+          { label: "Purchasing", href: "/purchasing" },
+          { label: "Good Received Notes", href: "/purchasing/grn" },
           ...(selectedGRN || isCreating
             ? [{ label: isCreating ? "New GRN" : selectedGRN?.good_received_no || `GRN-${selectedGRN?.id}` }]
             : []),

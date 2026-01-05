@@ -872,7 +872,8 @@ export default function CreditSettlementPage() {
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Credit Settlements" },
+          { label: "Purchasing", href: "/purchasing" },
+          { label: "Credit Settlements", href: "/purchasing/settlements" },
           ...(selectedSupplier ? [{ label: selectedSupplier.full_name }] : []),
           ...(selectedPO ? [{ label: selectedPO.po_no }] : []),
         ]}

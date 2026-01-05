@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -84,9 +84,24 @@ const emptyBrandForm: BrandCreate = {
   description: "",
 };
 
-export default function ProductsPage() {
+type InventoryView = "products" | "categories" | "brands";
+
+interface ProductsPageProps {
+  view?: InventoryView;
+  hideTabs?: boolean;
+}
+
+export default function ProductsPage({ view = "products", hideTabs = false }: ProductsPageProps) {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState(0);
+  const viewToTab = (v: InventoryView) => (v === "products" ? 0 : v === "categories" ? 1 : 2);
+  const [activeTab, setActiveTab] = useState<number>(viewToTab(view));
+
+  useEffect(() => {
+    if (hideTabs) {
+      const nextTab = viewToTab(view);
+      if (activeTab !== nextTab) setActiveTab(nextTab);
+    }
+  }, [view, hideTabs, activeTab]);
 
   // Permissions
   const canCreate = usePermission("inventory", "create");
@@ -109,6 +124,7 @@ export default function ProductsPage() {
   // Minimum price dialog state
   const [minPriceDialogOpen, setMinPriceDialogOpen] = useState(false);
   const [newMinPrice, setNewMinPrice] = useState<number>(0);
+  const [createMinPrice, setCreateMinPrice] = useState<number | "">("");
 
   // Products state
   const productState = useMasterDetailState<Product, ProductCreate>({
@@ -210,6 +226,12 @@ export default function ProductsPage() {
       productState.setIsCreating(false);
       productState.setIsEditing(false);
       productState.setSelectedItem(newProduct);
+
+      const priceToSet = typeof createMinPrice === "number" ? createMinPrice : 0;
+      if (priceToSet > 0 && canUpdate) {
+        setMinimumPriceForProductMutation.mutate({ productId: newProduct.id, price: priceToSet });
+      }
+      setCreateMinPrice("");
     },
     onError: () => toast.error("Failed to create product"),
   });
@@ -299,6 +321,16 @@ export default function ProductsPage() {
   });
 
   // Minimum price mutation
+  const setMinimumPriceForProductMutation = useMutation({
+    mutationFn: ({ productId, price }: { productId: number; price: number }) =>
+      minimumPriceApi.set(productId, { minimum_price: price }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["minimum-price", variables.productId] });
+      toast.success("Minimum price set successfully");
+    },
+    onError: () => toast.error("Failed to set minimum price"),
+  });
+
   const setMinimumPriceMutation = useMutation({
     mutationFn: (price: number) => minimumPriceApi.set(productState.selectedItem!.id, { minimum_price: price }),
     onSuccess: () => {
@@ -353,6 +385,7 @@ export default function ProductsPage() {
       category_id: categories?.[0]?.id || 0,
       items_brand_id: brands?.[0]?.id || 0,
     });
+    setCreateMinPrice("");
     productState.setIsCreating(true);
     productState.setIsEditing(true);
   };
@@ -364,6 +397,7 @@ export default function ProductsPage() {
         item_code: `${productState.selectedItem.item_code}-COPY`,
         name: `${productState.selectedItem.name} (Copy)`,
       });
+      setCreateMinPrice("");
       productState.setIsCreating(true);
       productState.setIsEditing(true);
     }
@@ -381,6 +415,7 @@ export default function ProductsPage() {
     if (productState.isCreating) {
       productState.setIsCreating(false);
       productState.setIsEditing(false);
+      setCreateMinPrice("");
       if (filteredProducts.length > 0) handleSelectProduct(filteredProducts[0]);
     } else if (productState.selectedItem) {
       handleSelectProduct(productState.selectedItem);
@@ -541,6 +576,8 @@ export default function ProductsPage() {
     { label: "Brands" },
   ];
 
+  const pageTitle = activeTab === 0 ? "Products" : activeTab === 1 ? "Categories" : "Brands";
+
   // Render Products Tab
   const renderProductsTab = () => (
     <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
@@ -574,7 +611,7 @@ export default function ProductsPage() {
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <DetailPanelHeader
           icon={<InventoryIcon color="primary" />}
-          breadcrumbs={[{ label: "Products" }]}
+          breadcrumbs={[{ label: "Inventory", href: "/inventory" }, { label: "Products" }]}
           title={
             productState.isCreating
               ? "New Product"
@@ -709,8 +746,26 @@ export default function ProductsPage() {
                   disabled={!productState.isEditing && !productState.isCreating}
                   InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                 />
-                {/* Minimum Price - View mode only, managed separately */}
-                {!productState.isCreating && productState.selectedItem && (
+                {/* Minimum Price */}
+                {productState.isCreating ? (
+                  <TextField
+                    label="Minimum Price"
+                    size="small"
+                    type="number"
+                    value={createMinPrice}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw.trim() === "") {
+                        setCreateMinPrice("");
+                        return;
+                      }
+                      const parsed = Number(raw);
+                      setCreateMinPrice(Number.isFinite(parsed) ? Math.max(0, parsed) : "");
+                    }}
+                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  />
+                ) : (
+                  productState.selectedItem && (
                   <Box sx={{ display: "flex", alignItems: "center", gap: 2, gridColumn: { sm: "1 / -1" } }}>
                     <Typography variant="body2" color="text.secondary">
                       Minimum Price:
@@ -737,6 +792,7 @@ export default function ProductsPage() {
                       </Button>
                     )}
                   </Box>
+                  )
                 )}
               </FormSection>
 
@@ -801,7 +857,7 @@ export default function ProductsPage() {
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <DetailPanelHeader
           icon={<CategoryIcon color="primary" />}
-          breadcrumbs={[{ label: "Categories" }]}
+          breadcrumbs={[{ label: "Inventory", href: "/inventory" }, { label: "Categories" }]}
           title={
             categoryState.isCreating
               ? "New Category"
@@ -917,7 +973,7 @@ export default function ProductsPage() {
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <DetailPanelHeader
           icon={<BrandIcon color="primary" />}
-          breadcrumbs={[{ label: "Brands" }]}
+          breadcrumbs={[{ label: "Inventory", href: "/inventory" }, { label: "Brands" }]}
           title={
             brandState.isCreating
               ? "New Brand"
@@ -985,11 +1041,15 @@ export default function ProductsPage() {
   return (
     <>
       <MasterDetailLayout
-        title="Inventory"
+        title={pageTitle}
         onRefresh={handleRefresh}
-        tabs={tabs}
-        activeTab={activeTab}
-        onTabChange={(tab) => setActiveTab(tab as number)}
+        {...(!hideTabs
+          ? {
+              tabs,
+              activeTab,
+              onTabChange: (tab: number | string) => setActiveTab(tab as number),
+            }
+          : {})}
       >
         {activeTab === 0 && renderProductsTab()}
         {activeTab === 1 && renderCategoriesTab()}

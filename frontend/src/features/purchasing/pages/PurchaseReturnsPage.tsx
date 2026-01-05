@@ -377,7 +377,8 @@ export default function PurchaseReturnsPage() {
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Purchase Returns", href: "#" },
+          { label: "Purchasing", href: "/purchasing" },
+          { label: "Purchase Returns", href: "/purchasing/returns" },
           ...(selectedReturn || isCreating
             ? [{ label: isCreating ? "New Return" : selectedReturn?.purchasing_return_no || `RET-${selectedReturn?.id}` }]
             : []),

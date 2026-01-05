@@ -2,7 +2,7 @@
  * PurchasingDashboard - Overview dashboard for purchasing module
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -19,6 +19,8 @@ import {
   Skeleton,
   Paper,
   Divider,
+  Autocomplete,
+  TextField,
 } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
@@ -26,6 +28,8 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 
 import { suppliersApi, purchaseOrdersApi, goodReceivedNotesApi, purchaseReturnsApi } from "@/modules/purchasing/api";
+import { branchApi } from "@/modules/branches/api";
+import type { Branch } from "@/api/types";
 
 interface StatCardProps {
   title: string;
@@ -110,6 +114,13 @@ function RecentItem({ primary, secondary, status, statusColor, icon, onClick }: 
 
 export default function PurchasingDashboard() {
   const navigate = useNavigate();
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  const { data: branchesResponse } = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => branchApi.getAll(1, 100),
+  });
+  const branches = branchesResponse?.items || [];
 
   const { data: suppliers, isLoading: suppliersLoading } = useQuery({
     queryKey: ["suppliers"],
@@ -131,28 +142,47 @@ export default function PurchasingDashboard() {
     queryFn: () => purchaseReturnsApi.getAll(),
   });
 
+  // Filter data by branch
+  const filteredOrders = useMemo(() => {
+    if (!orders) return [];
+    if (!filterBranch) return orders;
+    return orders.filter((o) => o.branch_code === filterBranch);
+  }, [orders, filterBranch]);
+
+  const filteredGRNs = useMemo(() => {
+    if (!grns) return [];
+    if (!filterBranch) return grns;
+    return grns.filter((g) => g.branch_code === filterBranch);
+  }, [grns, filterBranch]);
+
+  const filteredReturns = useMemo(() => {
+    if (!returns) return [];
+    if (!filterBranch) return returns;
+    return returns.filter((r) => r.branch_code === filterBranch);
+  }, [returns, filterBranch]);
+
   const stats = useMemo(() => {
     const activeSuppliers = suppliers?.filter((s) => s.active).length || 0;
-    const pendingOrders = orders?.filter((o) => o.status === "pending" || o.status === "draft").length || 0;
-    const totalGRNs = grns?.length || 0;
-    const totalReturns = returns?.length || 0;
+    const pendingOrders = filteredOrders.filter((o) => o.status === "pending" || o.status === "draft").length || 0;
+    const totalGRNs = filteredGRNs.length;
+    const totalReturns = filteredReturns.length;
 
     return { activeSuppliers, pendingOrders, totalGRNs, totalReturns };
-  }, [suppliers, orders, grns, returns]);
+  }, [suppliers, filteredOrders, filteredGRNs, filteredReturns]);
 
   const recentOrders = useMemo(() => {
-    if (!orders) return [];
-    return [...orders]
+    if (!filteredOrders.length) return [];
+    return [...filteredOrders]
       .sort((a, b) => new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime())
       .slice(0, 5);
-  }, [orders]);
+  }, [filteredOrders]);
 
   const recentGRNs = useMemo(() => {
-    if (!grns) return [];
-    return [...grns]
+    if (!filteredGRNs.length) return [];
+    return [...filteredGRNs]
       .sort((a, b) => new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime())
       .slice(0, 5);
-  }, [grns]);
+  }, [filteredGRNs]);
 
   const getStatusColor = (status: string): "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" => {
     const colorMap: Record<string, "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning"> = {
@@ -175,12 +205,35 @@ export default function PurchasingDashboard() {
 
   return (
     <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
-      <Typography variant="h4" fontWeight="bold" gutterBottom>
-        Purchasing Dashboard
-      </Typography>
-      <Typography variant="body2" color="text.secondary" mb={3}>
-        Overview of purchasing activities and pending items
-      </Typography>
+      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 2, mb: 3 }}>
+        <Box>
+          <Typography variant="h4" fontWeight="bold" gutterBottom>
+            Purchasing Dashboard
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Overview of purchasing activities and pending items
+            {filterBranch && (
+              <Chip
+                label={branches.find((b) => b.branch_code === filterBranch)?.branch_name || filterBranch}
+                size="small"
+                onDelete={() => setFilterBranch(null)}
+                sx={{ ml: 1 }}
+              />
+            )}
+          </Typography>
+        </Box>
+        <Autocomplete
+          size="small"
+          options={branches}
+          getOptionLabel={(option: Branch) => `${option.branch_code} - ${option.branch_name}`}
+          value={branches.find((b) => b.branch_code === filterBranch) || null}
+          onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
+          renderInput={(params) => (
+            <TextField {...params} label="Filter by Branch" placeholder="All Branches" />
+          )}
+          sx={{ minWidth: 250 }}
+        />
+      </Box>
 
       {/* Stats Row */}
       <Grid container spacing={3} mb={4}>
@@ -235,7 +288,7 @@ export default function PurchasingDashboard() {
                 Recent Purchase Orders
               </Typography>
               <Chip
-                label={`${orders?.length || 0} total`}
+                label={`${filteredOrders.length} total`}
                 size="small"
                 color="primary"
                 variant="outlined"
@@ -278,7 +331,7 @@ export default function PurchasingDashboard() {
                 Recent Good Received Notes
               </Typography>
               <Chip
-                label={`${grns?.length || 0} total`}
+                label={`${filteredGRNs.length} total`}
                 size="small"
                 color="info"
                 variant="outlined"

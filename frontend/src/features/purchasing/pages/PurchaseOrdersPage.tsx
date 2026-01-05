@@ -456,7 +456,8 @@ export default function PurchaseOrdersPage() {
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Purchase Orders", href: "#" },
+          { label: "Purchasing", href: "/purchasing" },
+          { label: "Purchase Orders", href: "/purchasing/orders" },
           ...(selectedOrder || isCreating
             ? [{ label: isCreating ? "New Order" : selectedOrder?.purchasing_order_no || `PO-${selectedOrder?.id}` }]
             : []),
