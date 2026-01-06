@@ -2,54 +2,54 @@
  * PurchaseReturnsPage - Using Tijaero-style reusable components
  */
 
-import { useMemo, useCallback, useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  TextField,
-  Typography,
-  IconButton,
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-  Paper,
-  Autocomplete,
-  Button,
-  Stepper,
-  Step,
-  StepLabel,
-  Chip,
-} from "@mui/material";
-import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { formatErrorMessage } from "@/utils/errorHandling";
 import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import DeleteIcon from "@mui/icons-material/Delete";
+import {
+  Autocomplete,
+  Box,
+  Button,
+  IconButton,
+  Paper,
+  Step,
+  StepLabel,
+  Stepper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
   SortOption,
+  useMasterDetailState,
 } from "@/components/tijaero";
 
-import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
 import { branchApi } from "@/modules/branches/api";
-import { 
-  PurchasingReturn, 
-  PurchasingReturnWithItems,
-  PurchasingReturnCreate, 
-  PurchasingReturnItemCreate,
+import { goodReceivedNotesApi, purchaseReturnsApi } from "@/modules/purchasing/api";
+import {
   GoodReceivedNote,
+  PurchasingReturn,
+  PurchasingReturnCreate,
+  PurchasingReturnItemCreate,
+  PurchasingReturnWithItems,
 } from "@/modules/purchasing/types";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -213,13 +213,6 @@ export default function PurchaseReturnsPage() {
     return filtered;
   }, [returns, searchQuery, sortField, filterBranch]);
 
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredReturns.length > 0 && !selectedReturn && !isCreating) {
-      handleSelectReturnWithItems(filteredReturns[0]);
-    }
-  }, [filteredReturns, selectedReturn, isCreating]);
-
   const createMutation = useMutation({
     mutationFn: purchaseReturnsApi.create,
     onSuccess: (newReturn) => {
@@ -230,7 +223,7 @@ export default function PurchaseReturnsPage() {
       setTimeout(() => handleSelectReturnWithItems(newReturn), 0);
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to create purchase return");
+      toast.error(formatErrorMessage(error) || "Failed to create purchase return");
     },
   });
 
@@ -371,61 +364,11 @@ export default function PurchaseReturnsPage() {
           id={ret.id}
           isSelected={isSelected}
           onClick={() => handleSelectReturnWithItems(ret)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Return Number */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{ret.purchasing_return_no || `RET-${ret.id}`}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Return No)
-                  </Typography>
-                )}
-              </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {getGRNNumber(ret.goodreceivednote_id)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (GRN)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {getBranchDisplay(ret.branch_code)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Branch)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {new Date(ret.added_date || "").toLocaleDateString()}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Date)
-                    </Typography>
-                  </Box>
-                  {/* Status Chips - shown below all fields when selected */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label="Returned"
-                      size="small"
-                      color="warning"
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
-                  </Box>
-                </>
-              )}
-            </Box>
-          }
-          secondaryText={!isSelected ? `GRN: ${getGRNNumber(ret.goodreceivednote_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
+          primaryText={ret.purchasing_return_no || `RET-${ret.id}`}
+          secondaryText={`GRN: ${getGRNNumber(ret.goodreceivednote_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}`}
           isFavorite={favorites.includes(ret.id)}
           onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
-          statusChip={!isSelected ? { label: "Returned", color: "warning" } : undefined}
+          statusChip={{ label: "Returned", color: "warning" }}
         />
       )}
     />
@@ -464,7 +407,7 @@ export default function PurchaseReturnsPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         {!selectedReturn && !isCreating ? (
           <EmptyState message="Select a purchase return from the list or create a new one" />
         ) : (
@@ -640,7 +583,7 @@ export default function PurchaseReturnsPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              `Rs. ${Number(item.purchasing_price).toFixed(2)}`
+                              Number(item.purchasing_price).toFixed(2)
                             )}
                           </TableCell>
                           <TableCell align="right">
@@ -654,7 +597,7 @@ export default function PurchaseReturnsPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              `Rs. ${Number(item.return_price).toFixed(2)}`
+                              Number(item.return_price).toFixed(2)
                             )}
                           </TableCell>
                           {(isEditing || isCreating) && (
@@ -672,7 +615,7 @@ export default function PurchaseReturnsPage() {
                         <Typography fontWeight="bold">Total Return:</Typography>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography fontWeight="bold">Rs. {calculateTotal().toFixed(2)}</Typography>
+                        <Typography fontWeight="bold">{calculateTotal().toFixed(2)}</Typography>
                       </TableCell>
                       {(isEditing || isCreating) && <TableCell />}
                     </TableRow>

@@ -2,79 +2,56 @@
  * GoodReceivedNotesPage - Using Tijaero-style reusable components
  */
 
-import { useMemo, useCallback, useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  TextField,
-  MenuItem,
-  Typography,
-  IconButton,
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-  Paper,
-  CircularProgress,
-  Autocomplete,
-  Button,
-  Stepper,
-  Step,
-  StepLabel,
-  Chip,
-  Card,
-  CardContent,
-  LinearProgress,
-  Divider,
-  Collapse,
-  Alert,
-  InputAdornment,
-  Checkbox,
-  FormControlLabel,
-  FormGroup,
-} from "@mui/material";
-import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import { formatErrorMessage } from "@/utils/errorHandling";
 import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import ErrorIcon from "@mui/icons-material/Error";
-import InventoryIcon from "@mui/icons-material/Inventory";
-import BusinessIcon from "@mui/icons-material/Business";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import SaveIcon from "@mui/icons-material/Save";
+import DeleteIcon from "@mui/icons-material/Delete";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import {
+  Autocomplete,
+  Box,
+  Button,
+  CircularProgress,
+  IconButton,
+  MenuItem,
+  Paper,
+  Step,
+  StepLabel,
+  Stepper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 
 import {
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
   SortOption,
+  useMasterDetailState,
 } from "@/components/tijaero";
 
-import { goodReceivedNotesApi, goodReceivedItemsApi, purchaseOrdersApi } from "@/modules/purchasing/api";
-import { locationsApi, Location } from "@/modules/common/api";
 import { branchApi } from "@/modules/branches/api";
-import { productsApi, salesStockApi, companyAssetsApi } from "@/modules/inventory/api";
-import { Product, SalesStockCreate, CompanyAssetCreate } from "@/modules/inventory/types";
-import { formatCurrency } from "@/utils/formatters";
-import { 
-  GoodReceivedNote, 
-  GoodReceivedNoteCreate, 
-  GoodReceivedItemCreate,
+import { Location, locationsApi } from "@/modules/common/api";
+import { goodReceivedItemsApi, goodReceivedNotesApi, purchaseOrdersApi } from "@/modules/purchasing/api";
+import {
   GoodReceivedItem,
+  GoodReceivedItemCreate,
+  GoodReceivedNote,
+  GoodReceivedNoteCreate,
   PurchasingOrder,
-  PurchasingOrderItem,
-  PurchasingOrderWithItems,
 } from "@/modules/purchasing/types";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -101,25 +78,8 @@ interface GRNLineItem extends GoodReceivedItemCreate {
   _id: string;
   id?: number; // For existing items
   product_name?: string;
-  product_id?: number;
   quantity?: number;
   unit_price?: number;
-  po_item_id?: number;
-  warranty_month?: string;  // Warranty from PO or entered in GRN
-  scanned?: boolean;
-  saveToSalesStock: boolean;
-  saveToCompanyAssets: boolean;
-  barcodeError?: string;  // Error message if barcode already exists
-}
-
-// Grouped items by product for nice display
-interface ProductGroup {
-  product_id: number;
-  product_name: string;
-  unit_price: number;
-  total_quantity: number;
-  items: GRNLineItem[];
-  expanded: boolean;
 }
 
 const resetFormFromGRN = (grn: GoodReceivedNote): GoodReceivedNoteCreate => ({
@@ -138,13 +98,6 @@ export default function GoodReceivedNotesPage() {
   const [lineItems, setLineItems] = useState<GRNLineItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [formStep, setFormStep] = useState(0);
-  const [defaultSaveToSalesStock, setDefaultSaveToSalesStock] = useState(true);
-  const [defaultSaveToCompanyAssets, setDefaultSaveToCompanyAssets] = useState(false);
-  const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loadingPOItems, setLoadingPOItems] = useState(false);
-  const [activeScanItem, setActiveScanItem] = useState<string | null>(null);
-  const barcodeInputRef = useRef<HTMLInputElement>(null);
   
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -265,91 +218,17 @@ export default function GoodReceivedNotesPage() {
     return filtered;
   }, [grns, searchQuery, sortField, filterBranch]);
 
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredGRNs.length > 0 && !selectedGRN && !isCreating) {
-      handleSelectGRNWithItems(filteredGRNs[0]);
-    }
-  }, [filteredGRNs, selectedGRN, isCreating]);
-
   const createMutation = useMutation({
-    mutationFn: async (data: GoodReceivedNoteCreate) => {
-      // First create the GRN
-      const newGRN = await goodReceivedNotesApi.create(data);
-      
-      // Get items with barcodes to save - exclude items with barcode errors
-      const itemsToSave = lineItems.filter(item => item.barcode && !item.barcodeError);
-      let grnItemCount = 0;
-      let salesStockCount = 0;
-      let companyAssetCount = 0;
-      
-      // Check for any barcode errors before saving
-      const itemsWithErrors = lineItems.filter(item => item.barcodeError);
-      if (itemsWithErrors.length > 0) {
-        throw new Error(`Cannot save: ${itemsWithErrors.length} item(s) have duplicate barcodes`);
-      }
-      
-      for (const item of itemsToSave) {
-        // Step 1: Always save to good_received_items table first
-        await goodReceivedItemsApi.create({
-          good_received_note: newGRN.good_received_no,
-          barcode: item.barcode,
-          branch_code: item.branch_code,
-          active: true,
-          purchasing_order_items_id: item.purchasing_order_items_id,
-        });
-        grnItemCount++;
-        
-        // Step 2: Then distribute to sales_stock and/or company_assets based on selection
-        
-        // Save to sales_stock if selected
-        if (item.saveToSalesStock && item.product_id) {
-          await salesStockApi.create({
-            product_id: item.product_id,
-            barcode: item.barcode,
-            branch_code: item.branch_code,
-            good_received_note_id: newGRN.id,
-            purchasing_order_items_id: item.purchasing_order_items_id,
-            warranty_month: item.warranty_month || undefined,  // Include warranty from PO or GRN
-            status: "available",
-          });
-          salesStockCount++;
-        }
-        
-        // Save to company_assets if selected
-        if (item.saveToCompanyAssets && item.product_id) {
-          await companyAssetsApi.create({
-            product_id: item.product_id,
-            inventory_no: `INV-${newGRN.good_received_no}-${item.barcode}`,
-            item: item.product_name || `Product ${item.product_id}`,
-            description: `Received from GRN ${newGRN.good_received_no}`,
-            branch_code: item.branch_code,
-            barcode: item.barcode,
-            warranty_month: item.warranty_month || undefined,  // Include warranty from PO or GRN
-            good_received_note_id: newGRN.id,
-            purchasing_order_items_id: item.purchasing_order_items_id,
-            status: "available",
-          });
-          companyAssetCount++;
-        }
-      }
-      
-      return { grn: newGRN, grnItemCount, salesStockCount, companyAssetCount };
-    },
-    onSuccess: ({ grn: newGRN, grnItemCount, salesStockCount, companyAssetCount }) => {
+    mutationFn: goodReceivedNotesApi.create,
+    onSuccess: (newGRN) => {
       queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
-      const messages = [`${grnItemCount} items received`];
-      if (salesStockCount > 0) messages.push(`${salesStockCount} to Sales Stock`);
-      if (companyAssetCount > 0) messages.push(`${companyAssetCount} to Company Assets`);
-      toast.success(`GRN created successfully! ${messages.join(", ")}`);
+      toast.success("GRN created successfully");
       setIsCreating(false);
       setIsEditing(false);
-      setLineItems([]);
-      setProductGroups([]);
       setTimeout(() => handleSelectGRNWithItems(newGRN), 0);
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || error.message || "Failed to create GRN");
+      toast.error(formatErrorMessage(error) || "Failed to create GRN");
     },
   });
 
@@ -362,7 +241,7 @@ export default function GoodReceivedNotesPage() {
       setIsEditing(false);
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to update GRN");
+      toast.error(formatErrorMessage(error) || "Failed to update GRN");
     },
   });
 
@@ -374,9 +253,6 @@ export default function GoodReceivedNotesPage() {
       branch_code: formData.branch_code,
       active: true,
       purchasing_order_items_id: 0,
-      saveToSalesStock: defaultSaveToSalesStock,
-      saveToCompanyAssets: defaultSaveToCompanyAssets,
-      scanned: false,
     };
     setLineItems([...lineItems, newItem]);
   };
@@ -414,7 +290,7 @@ export default function GoodReceivedNotesPage() {
     return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
   };
 
-  const handlePOChange = async (poId: number) => {
+  const handlePOChange = (poId: number) => {
     const selectedPO = purchaseOrders?.find((o: PurchasingOrder) => o.id === poId);
     if (selectedPO) {
       setFormData({ 
@@ -422,280 +298,10 @@ export default function GoodReceivedNotesPage() {
         purchasingorders_id: poId,
         branch_code: selectedPO.branch_code 
       });
-      
-      // Load PO items when PO is selected
-      if (poId > 0 && isCreating) {
-        setLoadingPOItems(true);
-        try {
-          // Fetch PO with items
-          const poWithItems: PurchasingOrderWithItems = await purchaseOrdersApi.getById(poId);
-          
-          // Fetch all products to get names
-          const allProducts = await productsApi.getAll(0, 1000, true);
-          setProducts(allProducts);
-          
-          // Create line items from PO items - one for each quantity
-          const newLineItems: GRNLineItem[] = [];
-          poWithItems.items?.forEach((poItem: PurchasingOrderItem) => {
-            const product = allProducts.find((p: Product) => p.id === poItem.product_id);
-            // Create one line item for each quantity
-            for (let i = 0; i < poItem.quantity; i++) {
-              newLineItems.push({
-                _id: `po-${poItem.id}-${i}`,
-                good_received_note: formData.good_received_no,
-                barcode: "",
-                branch_code: selectedPO.branch_code,
-                active: true,
-                purchasing_order_items_id: poItem.id,
-                product_id: poItem.product_id,
-                product_name: product?.name || `Product ${poItem.product_id}`,
-                unit_price: poItem.unit_price,
-                po_item_id: poItem.id,
-                warranty_month: poItem.warrenty_month || "",  // Get warranty from PO item
-                scanned: false,
-                saveToSalesStock: defaultSaveToSalesStock,
-                saveToCompanyAssets: defaultSaveToCompanyAssets,
-              });
-            }
-          });
-          
-          setLineItems(newLineItems);
-          
-          // Group items by product for display
-          updateProductGroups(newLineItems, allProducts);
-        } catch (error) {
-          console.error("Failed to load PO items:", error);
-          toast.error("Failed to load purchase order items");
-        } finally {
-          setLoadingPOItems(false);
-        }
-      }
     } else {
       setFormData({ ...formData, purchasingorders_id: poId });
     }
   };
-  
-  // Function to update product groups from line items
-  const updateProductGroups = useCallback((items: GRNLineItem[], productList: Product[]) => {
-    const groupMap = new Map<number, ProductGroup>();
-    
-    items.forEach((item) => {
-      const productId = item.product_id || 0;
-      if (groupMap.has(productId)) {
-        const group = groupMap.get(productId)!;
-        group.items.push(item);
-        group.total_quantity++;
-      } else {
-        const product = productList.find((p: Product) => p.id === productId);
-        groupMap.set(productId, {
-          product_id: productId,
-          product_name: item.product_name || product?.name || `Product ${productId}`,
-          unit_price: item.unit_price || 0,
-          total_quantity: 1,
-          items: [item],
-          expanded: true,
-        });
-      }
-    });
-    
-    setProductGroups(Array.from(groupMap.values()));
-  }, []);
-  
-  // Toggle product group expansion
-  const toggleProductGroup = (productId: number) => {
-    setProductGroups(groups => 
-      groups.map(g => 
-        g.product_id === productId ? { ...g, expanded: !g.expanded } : g
-      )
-    );
-  };
-  
-  // Handle barcode scan for an item - check for duplicates
-  const handleBarcodeChange = async (itemId: string, barcode: string) => {
-    // First update the barcode value
-    setLineItems(items => 
-      items.map(item => 
-        item._id === itemId 
-          ? { ...item, barcode, scanned: barcode.length > 0, barcodeError: undefined } 
-          : item
-      )
-    );
-    // Also update the product groups
-    setProductGroups(groups => 
-      groups.map(g => ({
-        ...g,
-        items: g.items.map(item => 
-          item._id === itemId 
-            ? { ...item, barcode, scanned: barcode.length > 0, barcodeError: undefined } 
-            : item
-        ),
-      }))
-    );
-    
-    // Check if barcode already exists in the system or in current line items
-    if (barcode) {
-      // Check for duplicates in current line items
-      const duplicateInList = lineItems.find(item => item._id !== itemId && item.barcode === barcode);
-      if (duplicateInList) {
-        setLineItems(items => 
-          items.map(item => 
-            item._id === itemId 
-              ? { ...item, barcodeError: "Duplicate barcode in current list" } 
-              : item
-          )
-        );
-        setProductGroups(groups => 
-          groups.map(g => ({
-            ...g,
-            items: g.items.map(item => 
-              item._id === itemId 
-                ? { ...item, barcodeError: "Duplicate barcode in current list" } 
-                : item
-            ),
-          }))
-        );
-        return;
-      }
-      
-      // Check if barcode exists in database (both sales_stock and company_assets)
-      try {
-        // Check sales_stock
-        const salesResult = await salesStockApi.checkBarcodeExists(barcode);
-        if (salesResult.exists) {
-          setLineItems(items => 
-            items.map(item => 
-              item._id === itemId 
-                ? { ...item, barcodeError: "Barcode already exists in Sales Stock" } 
-                : item
-            )
-          );
-          setProductGroups(groups => 
-            groups.map(g => ({
-              ...g,
-              items: g.items.map(item => 
-                item._id === itemId 
-                  ? { ...item, barcodeError: "Barcode already exists in Sales Stock" } 
-                  : item
-              ),
-            }))
-          );
-          return;
-        }
-        
-        // Check company_assets
-        const assetsResult = await companyAssetsApi.checkBarcodeExists(barcode);
-        if (assetsResult.exists) {
-          setLineItems(items => 
-            items.map(item => 
-              item._id === itemId 
-                ? { ...item, barcodeError: "Barcode already exists in Company Assets" } 
-                : item
-            )
-          );
-          setProductGroups(groups => 
-            groups.map(g => ({
-              ...g,
-              items: g.items.map(item => 
-                item._id === itemId 
-                  ? { ...item, barcodeError: "Barcode already exists in Company Assets" } 
-                  : item
-              ),
-            }))
-          );
-        }
-      } catch (error) {
-        // Ignore error if endpoint doesn't exist yet
-        console.log("Barcode check failed:", error);
-      }
-    }
-  };
-  
-  // Handle warranty change for an item
-  const handleWarrantyChange = (itemId: string, warranty: string) => {
-    setLineItems(items => 
-      items.map(item => 
-        item._id === itemId ? { ...item, warranty_month: warranty } : item
-      )
-    );
-    setProductGroups(groups => 
-      groups.map(g => ({
-        ...g,
-        items: g.items.map(item => 
-          item._id === itemId ? { ...item, warranty_month: warranty } : item
-        ),
-      }))
-    );
-  };
-  
-  // Handle save destination change for individual item
-  const handleSaveDestinationChange = (itemId: string, field: "saveToSalesStock" | "saveToCompanyAssets", value: boolean) => {
-    setLineItems(items => 
-      items.map(item => 
-        item._id === itemId ? { ...item, [field]: value } : item
-      )
-    );
-    setProductGroups(groups => 
-      groups.map(g => ({
-        ...g,
-        items: g.items.map(item => 
-          item._id === itemId ? { ...item, [field]: value } : item
-        ),
-      }))
-    );
-  };
-  
-  // Handle default save destination change - updates all items
-  const handleDefaultSaveDestinationChange = (field: "saveToSalesStock" | "saveToCompanyAssets", value: boolean) => {
-    if (field === "saveToSalesStock") {
-      setDefaultSaveToSalesStock(value);
-    } else {
-      setDefaultSaveToCompanyAssets(value);
-    }
-    setLineItems(items => 
-      items.map(item => ({ ...item, [field]: value }))
-    );
-    setProductGroups(groups => 
-      groups.map(g => ({
-        ...g,
-        items: g.items.map(item => ({ ...item, [field]: value })),
-      }))
-    );
-  };
-  
-  // Start scanning for a specific item
-  const startScanning = (itemId: string) => {
-    setActiveScanItem(itemId);
-    // Focus the barcode input after a short delay
-    setTimeout(() => {
-      barcodeInputRef.current?.focus();
-    }, 100);
-  };
-  
-  // Complete scanning and move to next
-  const completeScan = (itemId: string) => {
-    const currentIndex = lineItems.findIndex(item => item._id === itemId);
-    const nextUnscanned = lineItems.find((item, idx) => idx > currentIndex && !item.scanned);
-    if (nextUnscanned) {
-      startScanning(nextUnscanned._id);
-    } else {
-      setActiveScanItem(null);
-    }
-  };
-  
-  // Check if all items are scanned
-  const allItemsScanned = useMemo(() => {
-    return lineItems.length > 0 && lineItems.every(item => item.scanned);
-  }, [lineItems]);
-  
-  // Check if any items have barcode errors
-  const hasBarcodeErrors = useMemo(() => {
-    return lineItems.some(item => item.barcodeError);
-  }, [lineItems]);
-  
-  // Count scanned items
-  const scannedCount = useMemo(() => {
-    return lineItems.filter(item => item.scanned).length;
-  }, [lineItems]);
 
   const poIdsWithGrn = useMemo(() => {
     const ids = new Set<number>();
@@ -762,61 +368,11 @@ export default function GoodReceivedNotesPage() {
           id={grn.id}
           isSelected={isSelected}
           onClick={() => handleSelectGRNWithItems(grn)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* GRN Number */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{grn.good_received_no || `GRN-${grn.id}`}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (GRN No)
-                  </Typography>
-                )}
-              </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {getOrderNumber(grn.purchasingorders_id)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (PO)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {getLocationName(grn.good_received_locations_id)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Location)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {new Date(grn.good_received_date || "").toLocaleDateString()}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Date)
-                    </Typography>
-                  </Box>
-                  {/* Status Chips - shown below all fields when selected */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label="Received"
-                      size="small"
-                      color="success"
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
-                  </Box>
-                </>
-              )}
-            </Box>
-          }
-          secondaryText={!isSelected ? `PO: ${getOrderNumber(grn.purchasingorders_id)} • ${getLocationName(grn.good_received_locations_id)} • ${new Date(grn.good_received_date || "").toLocaleDateString()}` : undefined}
+          primaryText={grn.good_received_no || `GRN-${grn.id}`}
+          secondaryText={`PO: ${getOrderNumber(grn.purchasingorders_id)} • ${getLocationName(grn.good_received_locations_id)} • ${new Date(grn.good_received_date || "").toLocaleDateString()}`}
           isFavorite={favorites.includes(grn.id)}
           onToggleFavorite={(e) => toggleFavorite(grn.id, e)}
-          statusChip={!isSelected ? { label: "Received", color: "success" } : undefined}
+          statusChip={{ label: "Received", color: "success" }}
         />
       )}
     />
@@ -853,7 +409,7 @@ export default function GoodReceivedNotesPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         {!selectedGRN && !isCreating ? (
           <EmptyState message="Select a GRN from the list or create a new one" />
         ) : (
@@ -1007,423 +563,93 @@ export default function GoodReceivedNotesPage() {
                   </Button>
                 )}
 
-                {/* Loading PO items indicator */}
-                {loadingPOItems && (
-                  <Box sx={{ mb: 2 }}>
-                    <Alert severity="info" sx={{ mb: 1 }}>
-                      Loading purchase order items...
-                    </Alert>
-                    <LinearProgress />
-                  </Box>
-                )}
-
-                {/* Save Destination Checkboxes - Sales Stock / Company Assets */}
-                {isCreating && lineItems.length > 0 && (
-                  <Box sx={{ mb: 3 }}>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Save Items To (applies to all items - you can select both)
-                    </Typography>
-                    <Paper variant="outlined" sx={{ p: 2 }}>
-                      <FormGroup row>
-                        <FormControlLabel
-                          control={
-                            <Checkbox 
-                              checked={defaultSaveToSalesStock}
-                              onChange={(e) => handleDefaultSaveDestinationChange("saveToSalesStock", e.target.checked)}
-                              color="success"
-                            />
-                          }
-                          label={
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                              <InventoryIcon color="success" />
-                              <Typography>Sales Stock</Typography>
-                            </Box>
-                          }
-                        />
-                        <FormControlLabel
-                          control={
-                            <Checkbox 
-                              checked={defaultSaveToCompanyAssets}
-                              onChange={(e) => handleDefaultSaveDestinationChange("saveToCompanyAssets", e.target.checked)}
-                              color="info"
-                            />
-                          }
-                          label={
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                              <BusinessIcon color="info" />
-                              <Typography>Company Assets</Typography>
-                            </Box>
-                          }
-                        />
-                      </FormGroup>
-                      {!defaultSaveToSalesStock && !defaultSaveToCompanyAssets && (
-                        <Alert severity="warning" sx={{ mt: 1 }}>
-                          Please select at least one destination for the items
-                        </Alert>
-                      )}
-                    </Paper>
-                  </Box>
-                )}
-
-                {/* Progress indicator */}
-                {isCreating && lineItems.length > 0 && (
-                  <Box sx={{ mb: 2 }}>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                      <Typography variant="body2" color="text.secondary">
-                        Scanning Progress
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {scannedCount} / {lineItems.length} items scanned
-                      </Typography>
-                    </Box>
-                    <LinearProgress 
-                      variant="determinate" 
-                      value={(scannedCount / lineItems.length) * 100} 
-                      sx={{ 
-                        height: 8, 
-                        borderRadius: 4,
-                        bgcolor: 'grey.200',
-                        '& .MuiLinearProgress-bar': {
-                          bgcolor: allItemsScanned ? 'success.main' : 'primary.main',
-                        }
-                      }}
-                    />
-                    {allItemsScanned && (
-                      <Alert severity="success" sx={{ mt: 1 }} icon={<CheckCircleIcon />}>
-                        All items scanned! Ready to save.
-                      </Alert>
-                    )}
-                  </Box>
-                )}
-
                 <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: isCreating ? 0 : 2 }}>
                   <Typography variant="subtitle1" fontWeight="bold">
                     Received Items
                     {loadingItems && <CircularProgress size={16} sx={{ ml: 1 }} />}
                   </Typography>
-                  {!isCreating && (isEditing || isCreating) && (
+                  {(isEditing || isCreating) && (
                     <IconButton size="small" onClick={handleAddLineItem} color="primary">
                       <AddIcon />
                     </IconButton>
                   )}
                 </Box>
-
-                {/* Products grouped by product ID - Nice card-based layout */}
-                {isCreating && productGroups.length > 0 ? (
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    {productGroups.map((group) => (
-                      <Card 
-                        key={group.product_id} 
-                        variant="outlined"
-                        sx={{ 
-                          borderLeft: 4, 
-                          borderLeftColor: group.items.every(i => i.scanned) ? 'success.main' : 'primary.main' 
-                        }}
-                      >
-                        {/* Product Header */}
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            p: 1.5,
-                            bgcolor: "action.hover",
-                            cursor: "pointer",
-                          }}
-                          onClick={() => toggleProductGroup(group.product_id)}
-                        >
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <InventoryIcon color="primary" />
-                            <Box>
-                              <Typography variant="subtitle1" fontWeight="bold">
-                                {group.product_name}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {formatCurrency(group.unit_price)} per unit • Qty: {group.total_quantity}
-                              </Typography>
-                            </Box>
-                          </Box>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <Chip 
-                              label={`${group.items.filter(i => i.scanned).length}/${group.total_quantity} scanned`}
-                              size="small"
-                              color={group.items.every(i => i.scanned) ? "success" : "default"}
-                            />
-                            <IconButton size="small">
-                              {group.expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                            </IconButton>
-                          </Box>
-                        </Box>
-
-                        {/* Individual Items for barcode scanning */}
-                        <Collapse in={group.expanded}>
-                          <Divider />
-                          <CardContent sx={{ p: 1 }}>
-                            {group.items.map((item, index) => (
-                              <Box
-                                key={item._id}
-                                sx={{
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: 1,
-                                  p: 1.5,
-                                  mb: index < group.items.length - 1 ? 1 : 0,
-                                  borderRadius: 1,
-                                  bgcolor: item.scanned ? "success.lighter" : "background.paper",
-                                  border: 1,
-                                  borderColor: item.scanned ? "success.light" : "divider",
-                                }}
-                              >
-                                {/* Item Info Row */}
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
-                                  {/* Item number */}
-                                  <Chip 
-                                    label={`#${index + 1}`} 
-                                    size="small" 
-                                    sx={{ minWidth: 40 }}
-                                    color={item.scanned ? "success" : "default"}
-                                  />
-                                  
-                                  {/* Product Name */}
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                    <Typography variant="caption" color="text.secondary">Product:</Typography>
-                                    <Typography variant="body2" fontWeight="medium">
-                                      {item.product_name}
-                                    </Typography>
-                                  </Box>
-                                  
-                                  {/* Branch */}
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                    <Typography variant="caption" color="text.secondary">Branch:</Typography>
-                                    <Chip label={item.branch_code} size="small" variant="outlined" />
-                                  </Box>
-                                  
-                                  {/* PO Item ID */}
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                    <Typography variant="caption" color="text.secondary">PO Item ID:</Typography>
-                                    <Chip label={item.purchasing_order_items_id} size="small" color="primary" variant="outlined" />
-                                  </Box>
-                                </Box>
-                                
-                                {/* Barcode and Actions Row */}
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                                  {/* Barcode Input */}
-                                  <TextField
-                                    inputRef={activeScanItem === item._id ? barcodeInputRef : undefined}
-                                    size="small"
-                                    placeholder="Scan or enter barcode"
-                                    value={item.barcode}
-                                    onChange={(e) => handleBarcodeChange(item._id, e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" && item.barcode) {
-                                        completeScan(item._id);
-                                      }
-                                    }}
-                                    error={!!item.barcodeError}
-                                    helperText={item.barcodeError}
-                                    sx={{ flex: 1, minWidth: 200 }}
-                                    InputProps={{
-                                      startAdornment: (
-                                        <InputAdornment position="start">
-                                          <QrCodeScannerIcon color={item.barcodeError ? "error" : item.scanned ? "success" : "action"} />
-                                        </InputAdornment>
-                                      ),
-                                      endAdornment: item.barcodeError ? (
-                                        <InputAdornment position="end">
-                                          <ErrorIcon color="error" />
-                                        </InputAdornment>
-                                      ) : item.scanned ? (
-                                        <InputAdornment position="end">
-                                          <CheckCircleIcon color="success" />
-                                        </InputAdornment>
-                                      ) : undefined,
-                                    }}
-                                  />
-                                  
-                                  {/* Warranty Input - show if empty or allow edit */}
-                                  <TextField
-                                    size="small"
-                                    placeholder="Warranty (months)"
-                                    value={item.warranty_month || ""}
-                                    onChange={(e) => handleWarrantyChange(item._id, e.target.value)}
-                                    sx={{ width: 130 }}
-                                    InputProps={{
-                                      startAdornment: (
-                                        <InputAdornment position="start">
-                                          <Typography variant="caption" color="text.secondary">W:</Typography>
-                                        </InputAdornment>
-                                      ),
-                                    }}
-                                  />
-
-                                  {/* Save Destination Checkboxes */}
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                  <Checkbox
-                                    checked={item.saveToSalesStock}
-                                    onChange={(e) => handleSaveDestinationChange(item._id, "saveToSalesStock", e.target.checked)}
-                                    size="small"
-                                    color="success"
-                                    title="Sales Stock"
-                                    icon={<InventoryIcon fontSize="small" />}
-                                    checkedIcon={<InventoryIcon fontSize="small" />}
-                                    sx={{ 
-                                      p: 0.5,
-                                      '&.Mui-checked': { color: 'success.main' }
-                                    }}
-                                  />
-                                  <Checkbox
-                                    checked={item.saveToCompanyAssets}
-                                    onChange={(e) => handleSaveDestinationChange(item._id, "saveToCompanyAssets", e.target.checked)}
-                                    size="small"
-                                    color="info"
-                                    title="Company Assets"
-                                    icon={<BusinessIcon fontSize="small" />}
-                                    checkedIcon={<BusinessIcon fontSize="small" />}
-                                    sx={{ 
-                                      p: 0.5,
-                                      '&.Mui-checked': { color: 'info.main' }
-                                    }}
-                                  />
-                                  </Box>
-
-                                  {/* Scan button */}
-                                  {!item.scanned && (
-                                    <Button
-                                      variant="outlined"
-                                      size="small"
-                                      startIcon={<QrCodeScannerIcon />}
-                                      onClick={() => startScanning(item._id)}
-                                      sx={{ minWidth: 80 }}
-                                    >
-                                      Scan
-                                    </Button>
-                                  )}
-                                </Box>
-                              </Box>
-                            ))}
-                          </CardContent>
-                        </Collapse>
-                      </Card>
-                    ))}
-
-                    {/* Barcode Error Alert */}
-                    {hasBarcodeErrors && (
-                      <Alert severity="error" sx={{ mb: 2 }}>
-                        Some barcodes are duplicates. Please fix them before saving.
-                      </Alert>
-                    )}
-
-                    {/* Save Button */}
-                    {allItemsScanned && (defaultSaveToSalesStock || defaultSaveToCompanyAssets) && (
-                      <Button
-                        variant="contained"
-                        color="success"
-                        size="large"
-                        startIcon={<SaveIcon />}
-                        onClick={handleSave}
-                        disabled={isSaving || hasBarcodeErrors}
-                        sx={{ mt: 2 }}
-                      >
-                        {isSaving ? "Saving..." : `Save GRN with ${lineItems.length} Items`}
-                      </Button>
-                    )}
-                  </Box>
-                ) : (
-                  /* View/Edit mode - Table layout */
-                  <Box>
-                    <Paper variant="outlined" sx={{ overflow: "hidden" }}>
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow sx={{ bgcolor: "action.hover" }}>
-                            <TableCell>Barcode</TableCell>
-                            <TableCell>Product</TableCell>
-                            <TableCell>Saved To</TableCell>
-                            <TableCell>Branch</TableCell>
-                            <TableCell align="center">Active</TableCell>
-                            {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {loadingItems ? (
-                            <TableRow>
-                              <TableCell colSpan={isEditing || isCreating ? 6 : 5} align="center">
-                                <CircularProgress size={24} sx={{ my: 2 }} />
-                              </TableCell>
-                            </TableRow>
-                          ) : lineItems.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={isEditing || isCreating ? 6 : 5} align="center">
-                                <Typography variant="body2" color="text.secondary" py={2}>
-                                  {isCreating 
-                                    ? "Select a Purchase Order to load items" 
-                                    : "No items received yet"}
-                                </Typography>
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            lineItems.map((item) => (
-                              <TableRow key={item._id}>
-                                <TableCell>
-                                  {(isEditing) ? (
-                                    <TextField
-                                      size="small"
-                                      fullWidth
-                                      value={item.barcode}
-                                      onChange={(e) => handleUpdateLineItem(item._id, "barcode", e.target.value)}
-                                      placeholder="Barcode"
-                                    />
-                                  ) : (
-                                    item.barcode
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  {item.product_name || `PO Item #${item.purchasing_order_items_id}`}
-                                </TableCell>
-                                <TableCell>
-                                  <Box sx={{ display: "flex", gap: 0.5 }}>
-                                    {item.saveToSalesStock && (
-                                      <Chip 
-                                        size="small" 
-                                        label="Sales Stock"
-                                        color="success"
-                                        icon={<InventoryIcon />}
-                                      />
-                                    )}
-                                    {item.saveToCompanyAssets && (
-                                      <Chip 
-                                        size="small" 
-                                        label="Company Asset"
-                                        color="info"
-                                        icon={<BusinessIcon />}
-                                      />
-                                    )}
-                                  </Box>
-                                </TableCell>
-                                <TableCell>
-                                  {item.branch_code}
-                                </TableCell>
-                                <TableCell align="center">
-                                  <Chip 
-                                    size="small" 
-                                    label={item.active ? "Yes" : "No"}
-                                    color={item.active ? "success" : "default"}
-                                  />
-                                </TableCell>
-                                {(isEditing) && (
-                                  <TableCell>
-                                    <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
-                                      <DeleteIcon fontSize="small" />
-                                    </IconButton>
-                                  </TableCell>
-                                )}
-                              </TableRow>
-                            ))
+            <Box>
+              <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: "action.hover" }}>
+                      <TableCell>Barcode</TableCell>
+                      <TableCell>PO Item ID</TableCell>
+                      <TableCell>Branch</TableCell>
+                      <TableCell align="center">Active</TableCell>
+                      {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {loadingItems ? (
+                      <TableRow>
+                        <TableCell colSpan={isEditing || isCreating ? 5 : 4} align="center">
+                          <CircularProgress size={24} sx={{ my: 2 }} />
+                        </TableCell>
+                      </TableRow>
+                    ) : lineItems.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={isEditing || isCreating ? 5 : 4} align="center">
+                          <Typography variant="body2" color="text.secondary" py={2}>
+                            No items added yet
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      lineItems.map((item) => (
+                        <TableRow key={item._id}>
+                          <TableCell>
+                            {(isEditing || isCreating) ? (
+                              <TextField
+                                size="small"
+                                fullWidth
+                                value={item.barcode}
+                                onChange={(e) => handleUpdateLineItem(item._id, "barcode", e.target.value)}
+                                placeholder="Barcode"
+                              />
+                            ) : (
+                              item.barcode
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {(isEditing || isCreating) ? (
+                              <TextField
+                                size="small"
+                                type="number"
+                                value={item.purchasing_order_items_id}
+                                onChange={(e) => handleUpdateLineItem(item._id, "purchasing_order_items_id", parseInt(e.target.value) || 0)}
+                                sx={{ width: 100 }}
+                              />
+                            ) : (
+                              item.purchasing_order_items_id
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {item.branch_code}
+                          </TableCell>
+                          <TableCell align="center">
+                            {item.active ? "Yes" : "No"}
+                          </TableCell>
+                          {(isEditing || isCreating) && (
+                            <TableCell>
+                              <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </TableCell>
                           )}
-                        </TableBody>
-                      </Table>
-                    </Paper>
-                  </Box>
-                )}
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </Paper>
+            </Box>
               </>
             )}
           </>
