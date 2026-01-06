@@ -43,9 +43,9 @@ import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
-import { employeesApi } from "@/modules/employees/api";
+// import { employeesApi } from "@/modules/employees/api";
 import { branchApi } from "@/modules/branches/api";
-import { Invoice, InvoiceCreate, PAYMENT_METHODS } from "../types";
+import { Invoice, InvoiceCreate/*, PAYMENT_METHODS*/ } from "../types";
 import { usePermission } from "@/auth/permissions";
 import { toast } from "react-hot-toast";
 import { format } from "date-fns";
@@ -131,10 +131,10 @@ export default function SalesPage() {
     queryFn: () => productsApi.getAll(),
   });
 
-  const { data: employees } = useQuery({
-    queryKey: ["employees"],
-    queryFn: () => employeesApi.getAll(),
-  });
+  // const { data: employees } = useQuery({
+  //   queryKey: ["employees"],
+  //   queryFn: () => employeesApi.getAll(),
+  // });
 
   const { data: branchesData } = useQuery({
     queryKey: ["branches"],
