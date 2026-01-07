@@ -15,7 +15,7 @@ import {
 } from "@mui/material";
 import { productsApi, categoriesApi, brandsApi } from "../api";
 import { Product, ProductCreate } from "../types";
-import { toast } from "react-hot-toast";
+import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
 interface ProductDialogProps {
   open: boolean;
@@ -93,11 +93,11 @@ export default function ProductDialog({
     mutationFn: productsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
-      toast.success("Product created successfully");
+      showSuccessToast("Product created successfully");
       onClose();
     },
     onError: () => {
-      toast.error("Failed to create product");
+      showErrorToast("Failed to create product");
     },
   });
 
@@ -106,11 +106,11 @@ export default function ProductDialog({
       productsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
-      toast.success("Product updated successfully");
+      showSuccessToast("Product updated successfully");
       onClose();
     },
     onError: () => {
-      toast.error("Failed to update product");
+      showErrorToast("Failed to update product");
     },
   });
 

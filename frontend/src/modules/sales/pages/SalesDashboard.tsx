@@ -15,73 +15,21 @@ import {
   Chip,
 } from "@mui/material";
 import {
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
   Receipt as ReceiptIcon,
   AttachMoney as MoneyIcon,
   People as PeopleIcon,
   AssignmentReturn as ReturnIcon,
 } from "@mui/icons-material";
+import {
+  TStatCard,
+  TPageHeader,
+  TStatusChip,
+  TLoading,
+  TCurrency,
+} from "@/components/tijaero";
 import { salesApi, saleReturnsApi } from "../api";
 import { Invoice } from "../types";
 import { format, startOfMonth, endOfMonth, isWithinInterval, subMonths } from "date-fns";
-
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  subtitle?: string;
-  icon: React.ReactNode;
-  color: string;
-  trend?: number;
-}
-
-const StatCard = ({ title, value, subtitle, icon, color, trend }: StatCardProps) => (
-  <Card sx={{ height: "100%" }}>
-    <CardContent>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <Box>
-          <Typography variant="body2" color="text.secondary">
-            {title}
-          </Typography>
-          <Typography variant="h4" fontWeight={700} sx={{ my: 1 }}>
-            {value}
-          </Typography>
-          {subtitle && (
-            <Typography variant="caption" color="text.secondary">
-              {subtitle}
-            </Typography>
-          )}
-        </Box>
-        <Box
-          sx={{
-            p: 1.5,
-            borderRadius: 2,
-            bgcolor: `${color}.lighter`,
-            color: `${color}.main`,
-          }}
-        >
-          {icon}
-        </Box>
-      </Box>
-      {trend !== undefined && (
-        <Box sx={{ display: "flex", alignItems: "center", mt: 2 }}>
-          {trend >= 0 ? (
-            <TrendingUpIcon fontSize="small" color="success" />
-          ) : (
-            <TrendingDownIcon fontSize="small" color="error" />
-          )}
-          <Typography
-            variant="caption"
-            color={trend >= 0 ? "success.main" : "error.main"}
-            sx={{ ml: 0.5 }}
-          >
-            {Math.abs(trend).toFixed(1)}% from last month
-          </Typography>
-        </Box>
-      )}
-    </CardContent>
-  </Card>
-);
 
 export default function SalesDashboard() {
   const { data: invoices, isLoading: invoicesLoading } = useQuery({
@@ -185,14 +133,7 @@ export default function SalesDashboard() {
   }, [invoices, saleReturns]);
 
   if (isLoading) {
-    return (
-      <Box sx={{ width: "100%", p: 3 }}>
-        <LinearProgress />
-        <Typography align="center" sx={{ mt: 2 }}>
-          Loading sales data...
-        </Typography>
-      </Box>
-    );
+    return <TLoading message="Loading sales data..." />;
   }
 
   if (!stats) {
@@ -205,37 +146,37 @@ export default function SalesDashboard() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" fontWeight={600} gutterBottom>
-        Sales Dashboard
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Overview of sales performance and statistics
-      </Typography>
+      <TPageHeader
+        title="Sales Dashboard"
+        subtitle="Overview of sales performance and statistics"
+      />
 
       <Grid container spacing={3}>
         {/* Stat Cards */}
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <TStatCard
             title="Total Revenue"
             value={`$${stats.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             subtitle={`This month: $${stats.currentMonthRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             icon={<MoneyIcon />}
             color="success"
             trend={stats.revenueTrend}
+            trendLabel="from last month"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <TStatCard
             title="Total Orders"
             value={stats.totalOrders}
             subtitle={`This month: ${stats.currentMonthOrders}`}
             icon={<ReceiptIcon />}
             color="primary"
             trend={stats.ordersTrend}
+            trendLabel="from last month"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <TStatCard
             title="Pending Approval"
             value={stats.pendingApproval}
             subtitle={`Approved: ${stats.approved}`}
@@ -244,7 +185,7 @@ export default function SalesDashboard() {
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <TStatCard
             title="Sale Returns"
             value={stats.saleReturnsCount}
             subtitle="Total returns processed"
@@ -299,13 +240,12 @@ export default function SalesDashboard() {
                   />
                   <Box sx={{ textAlign: "right" }}>
                     <Typography variant="body2" fontWeight={600} color="success.main">
-                      ${stats.calculateTotal(invoice).toFixed(2)}
+                      <TCurrency value={stats.calculateTotal(invoice)} />
                     </Typography>
-                    <Chip
-                      label={invoice.approval ? "Approved" : "Pending"}
+                    <TStatusChip
+                      status={invoice.approval ? "approved" : "pending"}
+                      statusMap="orderStatus"
                       size="small"
-                      color={invoice.approval ? "success" : "warning"}
-                      variant="outlined"
                     />
                   </Box>
                 </ListItem>

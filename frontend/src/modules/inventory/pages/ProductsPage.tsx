@@ -31,12 +31,14 @@ import {
   useMasterDetailState,
   SortOption,
   TabConfig,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { productsApi, categoriesApi, brandsApi, minimumPriceApi } from "../api";
 import { Product, ProductCreate, Category, CategoryCreate, CategoryUpdate, Brand, BrandCreate, BrandUpdate } from "../types";
 import { usePermission } from "@/auth/permissions";
-import { toast } from "react-hot-toast";
 
 // Sort options for each tab
 const productSortOptions: SortOption[] = [
@@ -109,12 +111,12 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   const canDelete = usePermission("inventory", "delete");
 
   // Confirm dialogs
-  const deleteProductDialog = useConfirmDialog();
-  const discardProductDialog = useConfirmDialog();
-  const deleteCategoryDialog = useConfirmDialog();
-  const discardCategoryDialog = useConfirmDialog();
-  const deleteBrandDialog = useConfirmDialog();
-  const discardBrandDialog = useConfirmDialog();
+  const deleteProductDialog = useTConfirmDialog();
+  const discardProductDialog = useTConfirmDialog();
+  const deleteCategoryDialog = useTConfirmDialog();
+  const discardCategoryDialog = useTConfirmDialog();
+  const deleteBrandDialog = useTConfirmDialog();
+  const discardBrandDialog = useTConfirmDialog();
 
   // Pending item for selection after discard confirm
   const [_pendingProduct, setPendingProduct] = useState<Product | null>(null);
@@ -222,7 +224,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     mutationFn: productsApi.create,
     onSuccess: (newProduct) => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
-      toast.success("Product created successfully");
+      showSuccessToast("Product created successfully");
       productState.setIsCreating(false);
       productState.setIsEditing(false);
       productState.setSelectedItem(newProduct);
@@ -233,91 +235,91 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       }
       setCreateMinPrice("");
     },
-    onError: () => toast.error("Failed to create product"),
+    onError: () => showErrorToast("Failed to create product"),
   });
 
   const updateProductMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<ProductCreate> }) => productsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
-      toast.success("Product updated successfully");
+      showSuccessToast("Product updated successfully");
       productState.setIsEditing(false);
     },
-    onError: () => toast.error("Failed to update product"),
+    onError: () => showErrorToast("Failed to update product"),
   });
 
   const deleteProductMutation = useMutation({
     mutationFn: productsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
-      toast.success("Product deleted successfully");
+      showSuccessToast("Product deleted successfully");
       productState.setSelectedItem(null);
     },
-    onError: () => toast.error("Failed to delete product"),
+    onError: () => showErrorToast("Failed to delete product"),
   });
 
   const createCategoryMutation = useMutation({
     mutationFn: categoriesApi.create,
     onSuccess: (newCategory) => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast.success("Category created successfully");
+      showSuccessToast("Category created successfully");
       categoryState.setIsCreating(false);
       categoryState.setIsEditing(false);
       categoryState.setSelectedItem(newCategory);
     },
-    onError: () => toast.error("Failed to create category"),
+    onError: () => showErrorToast("Failed to create category"),
   });
 
   const updateCategoryMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: CategoryUpdate }) => categoriesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast.success("Category updated successfully");
+      showSuccessToast("Category updated successfully");
       categoryState.setIsEditing(false);
     },
-    onError: () => toast.error("Failed to update category"),
+    onError: () => showErrorToast("Failed to update category"),
   });
 
   const deleteCategoryMutation = useMutation({
     mutationFn: categoriesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast.success("Category deleted successfully");
+      showSuccessToast("Category deleted successfully");
       categoryState.setSelectedItem(null);
     },
-    onError: () => toast.error("Failed to delete category"),
+    onError: () => showErrorToast("Failed to delete category"),
   });
 
   const createBrandMutation = useMutation({
     mutationFn: brandsApi.create,
     onSuccess: (newBrand) => {
       queryClient.invalidateQueries({ queryKey: ["brands"] });
-      toast.success("Brand created successfully");
+      showSuccessToast("Brand created successfully");
       brandState.setIsCreating(false);
       brandState.setIsEditing(false);
       brandState.setSelectedItem(newBrand);
     },
-    onError: () => toast.error("Failed to create brand"),
+    onError: () => showErrorToast("Failed to create brand"),
   });
 
   const updateBrandMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: BrandUpdate }) => brandsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["brands"] });
-      toast.success("Brand updated successfully");
+      showSuccessToast("Brand updated successfully");
       brandState.setIsEditing(false);
     },
-    onError: () => toast.error("Failed to update brand"),
+    onError: () => showErrorToast("Failed to update brand"),
   });
 
   const deleteBrandMutation = useMutation({
     mutationFn: brandsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["brands"] });
-      toast.success("Brand deleted successfully");
+      showSuccessToast("Brand deleted successfully");
       brandState.setSelectedItem(null);
     },
-    onError: () => toast.error("Failed to delete brand"),
+    onError: () => showErrorToast("Failed to delete brand"),
   });
 
   // Minimum price mutation
@@ -326,20 +328,20 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       minimumPriceApi.set(productId, { minimum_price: price }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["minimum-price", variables.productId] });
-      toast.success("Minimum price set successfully");
+      showSuccessToast("Minimum price set successfully");
     },
-    onError: () => toast.error("Failed to set minimum price"),
+    onError: () => showErrorToast("Failed to set minimum price"),
   });
 
   const setMinimumPriceMutation = useMutation({
     mutationFn: (price: number) => minimumPriceApi.set(productState.selectedItem!.id, { minimum_price: price }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["minimum-price", productState.selectedItem?.id] });
-      toast.success("Minimum price set successfully");
+      showSuccessToast("Minimum price set successfully");
       setMinPriceDialogOpen(false);
       setNewMinPrice(0);
     },
-    onError: () => toast.error("Failed to set minimum price"),
+    onError: () => showErrorToast("Failed to set minimum price"),
   });
 
   // Product handlers
@@ -1055,12 +1057,12 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
         {activeTab === 1 && renderCategoriesTab()}
         {activeTab === 2 && renderBrandsTab()}
       </MasterDetailLayout>
-      <ConfirmDialog {...deleteProductDialog.dialogProps} />
-      <ConfirmDialog {...discardProductDialog.dialogProps} confirmText="Discard" />
-      <ConfirmDialog {...deleteCategoryDialog.dialogProps} />
-      <ConfirmDialog {...discardCategoryDialog.dialogProps} confirmText="Discard" />
-      <ConfirmDialog {...deleteBrandDialog.dialogProps} />
-      <ConfirmDialog {...discardBrandDialog.dialogProps} confirmText="Discard" />
+      <TConfirmDialog {...deleteProductDialog.dialogProps} />
+      <TConfirmDialog {...discardProductDialog.dialogProps} confirmText="Discard" />
+      <TConfirmDialog {...deleteCategoryDialog.dialogProps} />
+      <TConfirmDialog {...discardCategoryDialog.dialogProps} confirmText="Discard" />
+      <TConfirmDialog {...deleteBrandDialog.dialogProps} />
+      <TConfirmDialog {...discardBrandDialog.dialogProps} confirmText="Discard" />
       
       {/* Minimum Price Dialog */}
       <Dialog open={minPriceDialogOpen} onClose={() => setMinPriceDialogOpen(false)}>

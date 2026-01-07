@@ -1,29 +1,24 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Paper,
-  Typography,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  IconButton,
-  FormControlLabel,
-  Checkbox,
-} from "@mui/material";
+import { Box, Paper } from "@mui/material";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
 } from "@mui/icons-material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { useForm } from "react-hook-form";
+import {
+  TPageHeader,
+  TButton,
+  TIconButton,
+  TFormDialog,
+  TFormField,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
+} from "@/components/tijaero";
 import { warrantyClaimsApi } from "@/modules/support/api";
 import { WarrantyClaimCreate } from "@/modules/support/types";
 
@@ -31,7 +26,7 @@ export default function WarrantyClaimsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const deleteDialog = useConfirmDialog();
+  const { dialogProps, confirm } = useTConfirmDialog();
 
   const { data: claims, isLoading } = useQuery({
     queryKey: ["warranty-claims"],
@@ -54,12 +49,12 @@ export default function WarrantyClaimsPage() {
     mutationFn: warrantyClaimsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["warranty-claims"] });
-      toast.success("Warranty claim created successfully");
+      showSuccessToast("Warranty claim created successfully");
       setOpenDialog(false);
       reset();
     },
     onError: () => {
-      toast.error("Failed to create warranty claim");
+      showErrorToast("Failed to create warranty claim");
     },
   });
 
@@ -68,13 +63,13 @@ export default function WarrantyClaimsPage() {
       warrantyClaimsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["warranty-claims"] });
-      toast.success("Warranty claim updated successfully");
+      showSuccessToast("Warranty claim updated successfully");
       setOpenDialog(false);
       setEditingId(null);
       reset();
     },
     onError: () => {
-      toast.error("Failed to update warranty claim");
+      showErrorToast("Failed to update warranty claim");
     },
   });
 
@@ -82,12 +77,24 @@ export default function WarrantyClaimsPage() {
     mutationFn: warrantyClaimsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["warranty-claims"] });
-      toast.success("Warranty claim deleted successfully");
+      showSuccessToast("Warranty claim deleted successfully");
     },
     onError: () => {
-      toast.error("Failed to delete warranty claim");
+      showErrorToast("Failed to delete warranty claim");
     },
   });
+
+  const handleDelete = async (id: number) => {
+    const confirmed = await confirm({
+      title: "Delete Claim",
+      message: "Are you sure you want to delete this claim?",
+      confirmText: "Delete",
+      danger: true,
+    });
+    if (confirmed) {
+      deleteMutation.mutate(id);
+    }
+  };
 
   const columns: GridColDef[] = [
     { field: "id", headerName: "ID", width: 70 },
@@ -116,10 +123,11 @@ export default function WarrantyClaimsPage() {
       width: 120,
       sortable: false,
       renderCell: (params) => (
-        <Box>
-          <IconButton
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          <TIconButton
             size="small"
             color="primary"
+            tooltip="Edit"
             onClick={() => {
               setEditingId(params.row.id);
               reset(params.row);
@@ -127,20 +135,15 @@ export default function WarrantyClaimsPage() {
             }}
           >
             <EditIcon />
-          </IconButton>
-          <IconButton
+          </TIconButton>
+          <TIconButton
             size="small"
-            color="error"
-            onClick={() => {
-              deleteDialog.open(
-                "Delete Claim",
-                "Are you sure you want to delete this claim?",
-                () => deleteMutation.mutate(params.row.id)
-              );
-            }}
+            color="danger"
+            tooltip="Delete"
+            onClick={() => handleDelete(params.row.id)}
           >
             <DeleteIcon />
-          </IconButton>
+          </TIconButton>
         </Box>
       ),
     },
@@ -154,30 +157,33 @@ export default function WarrantyClaimsPage() {
     }
   };
 
+  const handleClose = () => {
+    setOpenDialog(false);
+    setEditingId(null);
+  };
+
+  const handleAdd = () => {
+    setEditingId(null);
+    reset({
+      warranty_type: "",
+      warranty_status: "",
+      product_barcode_old_code: "",
+      order_id: 0,
+      supplier_warrenty_claims: false,
+    });
+    setOpenDialog(true);
+  };
+
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 3 }}>
-        <Typography variant="h4" fontWeight="bold">
-          Warranty Claims
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setEditingId(null);
-            reset({
-              warranty_type: "",
-              warranty_status: "",
-              product_barcode_old_code: "",
-              order_id: 0,
-              supplier_warrenty_claims: false,
-            });
-            setOpenDialog(true);
-          }}
-        >
-          New Claim
-        </Button>
-      </Box>
+      <TPageHeader
+        title="Warranty Claims"
+        actions={
+          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+            New Claim
+          </TButton>
+        }
+      />
 
       <Paper sx={{ height: 600 }}>
         <DataGrid
@@ -186,162 +192,82 @@ export default function WarrantyClaimsPage() {
           loading={isLoading}
           pageSizeOptions={[10, 25, 50, 100]}
           initialState={{
-            pagination: { paginationModel: { pageSize: 25 } },
+            pagination: { paginationModel: { pageSize: 10 } },
           }}
         />
       </Paper>
 
-      <Dialog
+      <TFormDialog
         open={openDialog}
-        onClose={() => {
-          setOpenDialog(false);
-          setEditingId(null);
-        }}
+        onClose={handleClose}
+        title={editingId ? "Edit Warranty Claim" : "New Warranty Claim"}
+        onSubmit={handleSubmit(onSubmit)}
+        submitText={editingId ? "Update" : "Create"}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
         maxWidth="sm"
-        fullWidth
       >
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogTitle>
-            {editingId ? "Edit Warranty Claim" : "New Warranty Claim"}
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="warranty_type"
-                  control={control}
-                  rules={{ required: "Warranty type is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Warranty Type"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="warranty_status"
-                  control={control}
-                  rules={{ required: "Status is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Status"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="product_barcode_old_code"
-                  control={control}
-                  rules={{ required: "Old barcode is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Old Product Barcode"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="product_barcode_new_code"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="New Product Barcode (Optional)"
-                      fullWidth
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="order_id"
-                  control={control}
-                  rules={{ required: "Order ID is required", min: 1 }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Order ID"
-                      type="number"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="comment"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Comment"
-                      fullWidth
-                      multiline
-                      rows={3}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="supplier_warrenty_claims"
-                  control={control}
-                  render={({ field }) => (
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={field.value}
-                          onChange={field.onChange}
-                        />
-                      }
-                      label="Supplier Warranty Claim"
-                    />
-                  )}
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => {
-                setOpenDialog(false);
-                setEditingId(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {editingId ? "Update" : "Create"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
-      <ConfirmDialog {...deleteDialog.dialogProps} />
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
+          <TFormField
+            name="warranty_type"
+            control={control}
+            label="Warranty Type"
+            required
+            rules={{ required: "Warranty type is required" }}
+          />
+          <TFormField
+            name="warranty_status"
+            control={control}
+            label="Status"
+            required
+            rules={{ required: "Status is required" }}
+          />
+          <Box sx={{ gridColumn: "span 2" }}>
+            <TFormField
+              name="product_barcode_old_code"
+              control={control}
+              label="Old Product Barcode"
+              required
+              rules={{ required: "Old barcode is required" }}
+            />
+          </Box>
+          <Box sx={{ gridColumn: "span 2" }}>
+            <TFormField
+              name="product_barcode_new_code"
+              control={control}
+              label="New Product Barcode (Optional)"
+            />
+          </Box>
+          <Box sx={{ gridColumn: "span 2" }}>
+            <TFormField
+              name="order_id"
+              control={control}
+              label="Order ID"
+              fieldType="number"
+              required
+              rules={{ required: "Order ID is required", min: { value: 1, message: "Must be at least 1" } }}
+            />
+          </Box>
+          <Box sx={{ gridColumn: "span 2" }}>
+            <TFormField
+              name="comment"
+              control={control}
+              label="Comment"
+              fieldType="textarea"
+              rows={3}
+            />
+          </Box>
+          <Box sx={{ gridColumn: "span 2" }}>
+            <TFormField
+              name="supplier_warrenty_claims"
+              control={control}
+              label="Supplier Warranty Claim"
+              fieldType="checkbox"
+            />
+          </Box>
+        </Box>
+      </TFormDialog>
+
+      <TConfirmDialog {...dialogProps} />
     </Box>
   );
 }

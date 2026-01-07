@@ -1,5 +1,6 @@
-import { Box, Typography, Paper } from "@mui/material";
+import { Box, Paper } from "@mui/material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { TPageHeader } from "@/components/tijaero";
 
 export default function CallLogsPage() {
   const columns: GridColDef[] = [
@@ -17,19 +18,17 @@ export default function CallLogsPage() {
 
   return (
     <Box>
-      <Typography variant="h4" fontWeight="bold" gutterBottom>
-        Customer Call Logs
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Track customer call history and communications
-      </Typography>
+      <TPageHeader
+        title="Customer Call Logs"
+        subtitle="Track customer call history and communications"
+      />
       <Paper sx={{ height: 600 }}>
         <DataGrid
           rows={[]}
           columns={columns}
-          pageSizeOptions={[10, 25, 50]}
+          pageSizeOptions={[10, 25, 50, 100]}
           initialState={{
-            pagination: { paginationModel: { pageSize: 25 } },
+            pagination: { paginationModel: { pageSize: 10 } },
           }}
         />
       </Paper>

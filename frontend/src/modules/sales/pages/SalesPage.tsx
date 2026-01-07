@@ -38,16 +38,18 @@ import {
   EmptyState,
   useMasterDetailState,
   SortOption,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
 // import { employeesApi } from "@/modules/employees/api";
 import { branchApi } from "@/modules/branches/api";
-import { Invoice, InvoiceCreate/*, PAYMENT_METHODS*/ } from "../types";
+import { Invoice, InvoiceCreate } from "../types";
 import { usePermission } from "@/auth/permissions";
-import { toast } from "react-hot-toast";
 import { format } from "date-fns";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import SaleReturnDialog from "../components/SaleReturnDialog";
@@ -105,9 +107,9 @@ export default function SalesPage() {
   const canUpdate = usePermission("sales", "update");
 
   // Confirm dialogs
-  const deleteDialog = useConfirmDialog();
-  const discardDialog = useConfirmDialog();
-  const approveDialog = useConfirmDialog();
+  const deleteDialog = useTConfirmDialog();
+  const discardDialog = useTConfirmDialog();
+  const approveDialog = useTConfirmDialog();
 
   // Main state using Tijaero hook
   const state = useMasterDetailState<Invoice, Partial<InvoiceCreate>>({
@@ -131,10 +133,10 @@ export default function SalesPage() {
     queryFn: () => productsApi.getAll(),
   });
 
-  // const { data: employees } = useQuery({
-  //   queryKey: ["employees"],
-  //   queryFn: () => employeesApi.getAll(),
-  // });
+  const { data: _employees } = useQuery({
+    queryKey: ["employees"],
+    queryFn: () => employeesApi.getAll(),
+  });
 
   const { data: branchesData } = useQuery({
     queryKey: ["branches"],
@@ -200,11 +202,11 @@ export default function SalesPage() {
     mutationFn: salesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
-      toast.success("Sales order deleted successfully");
+      showSuccessToast("Sales order deleted successfully");
       state.setSelectedItem(null);
     },
     onError: () => {
-      toast.error("Failed to delete sales order");
+      showErrorToast("Failed to delete sales order");
     },
   });
 
@@ -212,13 +214,13 @@ export default function SalesPage() {
     mutationFn: salesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
-      toast.success("Sales order created successfully");
+      showSuccessToast("Sales order created successfully");
       state.setIsCreating(false);
       setLineItems([]);
       state.setFormData(emptyInvoiceForm);
     },
     onError: () => {
-      toast.error("Failed to create sales order");
+      showErrorToast("Failed to create sales order");
     },
   });
 
@@ -226,10 +228,10 @@ export default function SalesPage() {
     mutationFn: (id: number) => salesApi.approve(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
-      toast.success("Invoice approved successfully");
+      showSuccessToast("Invoice approved successfully");
     },
     onError: () => {
-      toast.error("Failed to approve invoice");
+      showErrorToast("Failed to approve invoice");
     },
   });
 
@@ -757,9 +759,9 @@ export default function SalesPage() {
         </Box>
       </Box>
     </MasterDetailLayout>
-    <ConfirmDialog {...deleteDialog.dialogProps} />
-    <ConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
-    <ConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
+    <TConfirmDialog {...deleteDialog.dialogProps} />
+    <TConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
+    <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
     
     {/* Invoice Details Dialog */}
     <InvoiceDetailsDialog

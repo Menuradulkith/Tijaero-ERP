@@ -13,7 +13,7 @@ import {
 } from "@mui/material";
 import { customersApi } from "../api";
 import { Customer, CustomerCreate } from "../types";
-import { toast } from "react-hot-toast";
+import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
 interface CustomerDialogProps {
   open: boolean;
@@ -99,11 +99,11 @@ export default function CustomerDialog({
     mutationFn: customersApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
-      toast.success("Customer created successfully");
+      showSuccessToast("Customer created successfully");
       onClose();
     },
     onError: () => {
-      toast.error("Failed to create customer");
+      showErrorToast("Failed to create customer");
     },
   });
 
@@ -112,11 +112,11 @@ export default function CustomerDialog({
       customersApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
-      toast.success("Customer updated successfully");
+      showSuccessToast("Customer updated successfully");
       onClose();
     },
     onError: () => {
-      toast.error("Failed to update customer");
+      showErrorToast("Failed to update customer");
     },
   });
 

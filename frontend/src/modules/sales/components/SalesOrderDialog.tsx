@@ -25,7 +25,7 @@ import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
 import { branchApi } from "@/modules/branches/api";
 import { Invoice, InvoiceCreate } from "../types";
-import { toast } from "react-hot-toast";
+import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
 interface SalesOrderDialogProps {
   open: boolean;
@@ -98,11 +98,11 @@ export default function SalesOrderDialog({
     mutationFn: salesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
-      toast.success("Sales order created successfully");
+      showSuccessToast("Sales order created successfully");
       onClose();
     },
     onError: () => {
-      toast.error("Failed to create sales order");
+      showErrorToast("Failed to create sales order");
     },
   });
 

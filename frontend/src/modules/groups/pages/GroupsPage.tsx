@@ -14,8 +14,6 @@ import {
   Typography,
 } from "@mui/material";
 import SecurityIcon from "@mui/icons-material/Security";
-import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero Components
 import {
@@ -28,6 +26,10 @@ import {
   EmptyState,
   useMasterDetailState,
   SortOption,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
 } from "@/components/tijaero";
 
 import {
@@ -145,7 +147,7 @@ export default function GroupsPage() {
       setError(null);
       if (isCreating) {
         const newGroup = await groupsApi.createGroup(formData);
-        toast.success("Role created successfully");
+        showSuccessToast("Role created successfully");
         // Reset state first
         setIsCreating(false);
         setIsEditing(false);
@@ -154,13 +156,13 @@ export default function GroupsPage() {
         setTimeout(() => setSelectedGroup(newGroup), 0);
       } else if (selectedGroup) {
         await groupsApi.updateGroup(selectedGroup.id, formData as GroupUpdate);
-        toast.success("Role updated successfully");
+        showSuccessToast("Role updated successfully");
         setIsEditing(false);
         await loadData();
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Failed to save role");
-      toast.error(err.response?.data?.detail || "Failed to save role");
+      showErrorToast(err.response?.data?.detail || "Failed to save role");
     }
   }, [isCreating, selectedGroup, formData, setIsCreating, setIsEditing, setSelectedGroup]);
 
@@ -168,7 +170,7 @@ export default function GroupsPage() {
     baseHandleCancel(filteredGroups);
   }, [baseHandleCancel, filteredGroups]);
 
-  const confirmDialog = useConfirmDialog();
+  const confirmDialog = useTConfirmDialog();
 
   const handleDelete = useCallback(async () => {
     if (selectedGroup) {
@@ -181,12 +183,12 @@ export default function GroupsPage() {
       if (confirmed) {
         try {
           await groupsApi.deleteGroup(selectedGroup.id);
-          toast.success("Role deleted successfully");
+          showSuccessToast("Role deleted successfully");
           setSelectedGroup(null);
           await loadData();
         } catch (err: any) {
           setError(err.response?.data?.detail || "Failed to delete role");
-          toast.error(err.response?.data?.detail || "Failed to delete role");
+          showErrorToast(err.response?.data?.detail || "Failed to delete role");
         }
       }
     }
@@ -371,7 +373,7 @@ export default function GroupsPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

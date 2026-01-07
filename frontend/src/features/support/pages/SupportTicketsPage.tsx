@@ -1,28 +1,25 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Paper,
-  Typography,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  IconButton,
-} from "@mui/material";
+import { Box, Paper } from "@mui/material";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Visibility as ViewIcon,
 } from "@mui/icons-material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { useForm } from "react-hook-form";
+import {
+  TPageHeader,
+  TButton,
+  TIconButton,
+  TFormDialog,
+  TFormField,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
+} from "@/components/tijaero";
 import { supportTicketsApi } from "@/modules/support/api";
 import { CustomerSupportCreate } from "@/modules/support/types";
 
@@ -30,7 +27,7 @@ export default function SupportTicketsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const deleteDialog = useConfirmDialog();
+  const { dialogProps, confirm } = useTConfirmDialog();
 
   const { data: tickets, isLoading } = useQuery({
     queryKey: ["support-tickets"],
@@ -55,12 +52,12 @@ export default function SupportTicketsPage() {
     mutationFn: supportTicketsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["support-tickets"] });
-      toast.success("Support ticket created successfully");
+      showSuccessToast("Support ticket created successfully");
       setOpenDialog(false);
       reset();
     },
     onError: () => {
-      toast.error("Failed to create support ticket");
+      showErrorToast("Failed to create support ticket");
     },
   });
 
@@ -69,13 +66,13 @@ export default function SupportTicketsPage() {
       supportTicketsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["support-tickets"] });
-      toast.success("Support ticket updated successfully");
+      showSuccessToast("Support ticket updated successfully");
       setOpenDialog(false);
       setEditingId(null);
       reset();
     },
     onError: () => {
-      toast.error("Failed to update support ticket");
+      showErrorToast("Failed to update support ticket");
     },
   });
 
@@ -83,12 +80,24 @@ export default function SupportTicketsPage() {
     mutationFn: supportTicketsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["support-tickets"] });
-      toast.success("Support ticket deleted successfully");
+      showSuccessToast("Support ticket deleted successfully");
     },
     onError: () => {
-      toast.error("Failed to delete support ticket");
+      showErrorToast("Failed to delete support ticket");
     },
   });
+
+  const handleDelete = async (id: number) => {
+    const confirmed = await confirm({
+      title: "Delete Ticket",
+      message: "Are you sure you want to delete this ticket?",
+      confirmText: "Delete",
+      danger: true,
+    });
+    if (confirmed) {
+      deleteMutation.mutate(id);
+    }
+  };
 
   const columns: GridColDef[] = [
     { field: "id", headerName: "ID", width: 70 },
@@ -110,13 +119,14 @@ export default function SupportTicketsPage() {
       width: 150,
       sortable: false,
       renderCell: (params) => (
-        <Box>
-          <IconButton size="small" color="primary">
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          <TIconButton size="small" color="primary" tooltip="View">
             <ViewIcon />
-          </IconButton>
-          <IconButton
+          </TIconButton>
+          <TIconButton
             size="small"
             color="primary"
+            tooltip="Edit"
             onClick={() => {
               setEditingId(params.row.id);
               reset(params.row);
@@ -124,20 +134,15 @@ export default function SupportTicketsPage() {
             }}
           >
             <EditIcon />
-          </IconButton>
-          <IconButton
+          </TIconButton>
+          <TIconButton
             size="small"
-            color="error"
-            onClick={() => {
-              deleteDialog.open(
-                "Delete Ticket",
-                "Are you sure you want to delete this ticket?",
-                () => deleteMutation.mutate(params.row.id)
-              );
-            }}
+            color="danger"
+            tooltip="Delete"
+            onClick={() => handleDelete(params.row.id)}
           >
             <DeleteIcon />
-          </IconButton>
+          </TIconButton>
         </Box>
       ),
     },
@@ -151,31 +156,34 @@ export default function SupportTicketsPage() {
     }
   };
 
+  const handleClose = () => {
+    setOpenDialog(false);
+    setEditingId(null);
+  };
+
+  const handleAdd = () => {
+    setEditingId(null);
+    reset({
+      job_number: "",
+      job_type: "",
+      date: new Date().toISOString().split("T")[0],
+      contact_person: "",
+      branch_code: "",
+      assigned_user_id: 0,
+    });
+    setOpenDialog(true);
+  };
+
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 3 }}>
-        <Typography variant="h4" fontWeight="bold">
-          Support Tickets
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setEditingId(null);
-            reset({
-              job_number: "",
-              job_type: "",
-              date: new Date().toISOString().split("T")[0],
-              contact_person: "",
-              branch_code: "",
-              assigned_user_id: 0,
-            });
-            setOpenDialog(true);
-          }}
-        >
-          New Ticket
-        </Button>
-      </Box>
+      <TPageHeader
+        title="Support Tickets"
+        actions={
+          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+            New Ticket
+          </TButton>
+        }
+      />
 
       <Paper sx={{ height: 600 }}>
         <DataGrid
@@ -184,196 +192,90 @@ export default function SupportTicketsPage() {
           loading={isLoading}
           pageSizeOptions={[10, 25, 50, 100]}
           initialState={{
-            pagination: { paginationModel: { pageSize: 25 } },
+            pagination: { paginationModel: { pageSize: 10 } },
           }}
         />
       </Paper>
 
-      <Dialog
+      <TFormDialog
         open={openDialog}
-        onClose={() => {
-          setOpenDialog(false);
-          setEditingId(null);
-        }}
+        onClose={handleClose}
+        title={editingId ? "Edit Support Ticket" : "New Support Ticket"}
+        onSubmit={handleSubmit(onSubmit)}
+        submitText={editingId ? "Update" : "Create"}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
         maxWidth="md"
-        fullWidth
       >
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogTitle>
-            {editingId ? "Edit Support Ticket" : "New Support Ticket"}
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="job_number"
-                  control={control}
-                  rules={{ required: "Job number is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Job Number"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="job_type"
-                  control={control}
-                  rules={{ required: "Job type is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Job Type"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="contact_person"
-                  control={control}
-                  rules={{ required: "Contact person is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Contact Person"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="branch_code"
-                  control={control}
-                  rules={{ required: "Branch code is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Branch Code"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="assigned_user_id"
-                  control={control}
-                  rules={{ required: "Assigned user is required", min: 1 }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Assigned User ID"
-                      type="number"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="date"
-                  control={control}
-                  rules={{ required: "Date is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Date"
-                      type="date"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                      InputLabelProps={{ shrink: true }}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="job_description"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Job Description"
-                      fullWidth
-                      multiline
-                      rows={3}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="customer_id"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Customer ID (Optional)"
-                      type="number"
-                      fullWidth
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="invoice_id"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Invoice ID (Optional)"
-                      type="number"
-                      fullWidth
-                    />
-                  )}
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => {
-                setOpenDialog(false);
-                setEditingId(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {editingId ? "Update" : "Create"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
-      <ConfirmDialog {...deleteDialog.dialogProps} />
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
+          <TFormField
+            name="job_number"
+            control={control}
+            label="Job Number"
+            required
+            rules={{ required: "Job number is required" }}
+          />
+          <TFormField
+            name="job_type"
+            control={control}
+            label="Job Type"
+            required
+            rules={{ required: "Job type is required" }}
+          />
+          <TFormField
+            name="contact_person"
+            control={control}
+            label="Contact Person"
+            required
+            rules={{ required: "Contact person is required" }}
+          />
+          <TFormField
+            name="branch_code"
+            control={control}
+            label="Branch Code"
+            required
+            rules={{ required: "Branch code is required" }}
+          />
+          <TFormField
+            name="assigned_user_id"
+            control={control}
+            label="Assigned User ID"
+            fieldType="number"
+            required
+            rules={{ required: "Assigned user is required", min: { value: 1, message: "Must be at least 1" } }}
+          />
+          <TFormField
+            name="date"
+            control={control}
+            label="Date"
+            fieldType="date"
+            required
+            rules={{ required: "Date is required" }}
+          />
+          <Box sx={{ gridColumn: "span 2" }}>
+            <TFormField
+              name="job_description"
+              control={control}
+              label="Job Description"
+              fieldType="textarea"
+              rows={3}
+            />
+          </Box>
+          <TFormField
+            name="customer_id"
+            control={control}
+            label="Customer ID (Optional)"
+            fieldType="number"
+          />
+          <TFormField
+            name="invoice_id"
+            control={control}
+            label="Invoice ID (Optional)"
+            fieldType="number"
+          />
+        </Box>
+      </TFormDialog>
+
+      <TConfirmDialog {...dialogProps} />
     </Box>
   );
 }
