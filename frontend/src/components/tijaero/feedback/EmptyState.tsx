@@ -27,13 +27,13 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         justifyContent: "center",
         height: "100%",
         color: "text.secondary",
-        p: 4,
+        p: 3,
         textAlign: "center",
         ...sx,
       }}
     >
-      {icon || <InboxIcon sx={{ fontSize: 48, mb: 2, opacity: 0.5 }} />}
-      <Typography variant="body1" sx={{ mb: action ? 2 : 0 }}>
+      {icon || <InboxIcon sx={{ fontSize: 40, mb: 1.5, opacity: 0.5 }} />}
+      <Typography variant="body2" sx={{ mb: action ? 1.5 : 0 }}>
         {message}
       </Typography>
       {action && (

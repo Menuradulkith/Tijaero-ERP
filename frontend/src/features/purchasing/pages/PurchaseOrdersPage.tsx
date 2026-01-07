@@ -2,7 +2,7 @@
  * PurchaseOrdersPage - Using Tijaero-style reusable components
  */
 
-import { useMemo, useCallback, useState } from "react";
+import { useMemo, useCallback, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -265,6 +265,13 @@ export default function PurchaseOrdersPage() {
     return filtered;
   }, [orders, searchQuery, sortField, filterBranch, filterSupplier]);
 
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredOrders.length > 0 && !selectedOrder && !isCreating) {
+      handleSelectOrderWithItems(filteredOrders[0]);
+    }
+  }, [filteredOrders, selectedOrder, isCreating]);
+
   const createMutation = useMutation({
     mutationFn: purchaseOrdersApi.create,
     onSuccess: (newOrder) => {
@@ -442,11 +449,53 @@ export default function PurchaseOrdersPage() {
           id={order.id}
           isSelected={isSelected}
           onClick={() => handleSelectOrderWithItems(order)}
-          primaryText={order.purchasing_order_no || `PO-${order.id}`}
-          secondaryText={`${getSupplierName(order.first_suppliers_id)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* PO Number */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{order.purchasing_order_no || `PO-${order.id}`}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (PO No)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {getSupplierName(order.first_suppliers_id)}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Supplier)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {new Date(order.purchasing_order_date || "").toLocaleDateString()}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Date)
+                    </Typography>
+                  </Box>
+                  {/* Status Chips - shown below all fields when selected */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label={order.status}
+                      size="small"
+                      color={getStatusColor(order.status)}
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? `${getSupplierName(order.first_suppliers_id)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}` : undefined}
           isFavorite={favorites.includes(order.id)}
           onToggleFavorite={(e) => toggleFavorite(order.id, e)}
-          statusChip={{ label: order.status, color: getStatusColor(order.status) }}
+          statusChip={!isSelected ? { label: order.status, color: getStatusColor(order.status) } : undefined}
         />
       )}
     />
@@ -484,7 +533,7 @@ export default function PurchaseOrdersPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedOrder && !isCreating ? (
           <EmptyState message="Select a purchase order from the list or create a new one" />
         ) : (

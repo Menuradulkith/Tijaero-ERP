@@ -59,7 +59,8 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
       {/* Page Header */}
       <Box
         sx={{
-          p: 2,
+          px: 1.5,
+          py: 1,
           borderBottom: 1,
           borderColor: "divider",
           display: "flex",
@@ -69,10 +70,10 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {icon}
-          <Typography variant="h5" fontWeight={600}>
+          <Typography variant="h6" fontWeight={600}>
             {title}
           </Typography>
-          {isLoading && <CircularProgress size={20} sx={{ ml: 2 }} />}
+          {isLoading && <CircularProgress size={18} sx={{ ml: 1 }} />}
         </Box>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {headerActions}

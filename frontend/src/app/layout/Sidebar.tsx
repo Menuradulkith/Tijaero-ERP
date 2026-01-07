@@ -217,10 +217,10 @@ export default function Sidebar({
 
   const drawer = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <Toolbar sx={{ bgcolor: "primary.main", color: "white" }}>
+      <Toolbar sx={{ bgcolor: "primary.main", color: "white", minHeight: { xs: 48, sm: 56 } }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <AccountBalanceIcon />
-          <Typography variant="h6" noWrap>
+          <AccountBalanceIcon fontSize="small" />
+          <Typography variant="subtitle1" fontWeight={600} noWrap>
             ERP System
           </Typography>
         </Box>
@@ -235,20 +235,21 @@ export default function Sidebar({
               <ListItemButton
                 onClick={handleBackClick}
                 sx={{
+                  py: 0.75,
                   bgcolor: "grey.100",
                   "&:hover": {
                     bgcolor: "grey.200",
                   },
                 }}
               >
-                <ListItemIcon sx={{ minWidth: 36 }}>
+                <ListItemIcon sx={{ minWidth: 32 }}>
                   <ArrowBackIcon fontSize="small" />
                 </ListItemIcon>
                 <ListItemText
                   primary={expandedMenuItem.text}
                   primaryTypographyProps={{
                     fontWeight: 600,
-                    fontSize: "0.95rem",
+                    fontSize: "0.875rem",
                   }}
                 />
               </ListItemButton>
@@ -267,6 +268,7 @@ export default function Sidebar({
                     onClick={() => handleNavigation(subItem.path)}
                     selected={isActive}
                     sx={{
+                      py: 0.75,
                       pl: 2,
                       "&.Mui-selected": {
                         bgcolor: "primary.light",
@@ -283,12 +285,15 @@ export default function Sidebar({
                     <ListItemIcon
                       sx={{
                         color: isActive ? "white" : "inherit",
-                        minWidth: 40,
+                        minWidth: 32,
                       }}
                     >
                       {subItem.icon}
                     </ListItemIcon>
-                    <ListItemText primary={subItem.text} />
+                    <ListItemText 
+                      primary={subItem.text}
+                      primaryTypographyProps={{ fontSize: "0.875rem" }}
+                    />
                   </ListItemButton>
                 </ListItem>
               );
@@ -305,6 +310,7 @@ export default function Sidebar({
                     onClick={() => handleMenuClick(item)}
                     selected={isActive}
                     sx={{
+                      py: 0.75,
                       "&.Mui-selected": {
                         bgcolor: "primary.light",
                         color: "white",
@@ -317,10 +323,13 @@ export default function Sidebar({
                       },
                     }}
                   >
-                    <ListItemIcon sx={{ color: isActive ? "white" : "inherit" }}>
+                    <ListItemIcon sx={{ color: isActive ? "white" : "inherit", minWidth: 32 }}>
                       {item.icon}
                     </ListItemIcon>
-                    <ListItemText primary={item.text} />
+                    <ListItemText 
+                      primary={item.text}
+                      primaryTypographyProps={{ fontSize: "0.875rem" }}
+                    />
                     {hasSubItems && (
                       <Typography variant="body2" color="text.secondary" sx={{ color: isActive ? "white" : "inherit" }}>
                         ›

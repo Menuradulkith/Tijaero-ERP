@@ -255,6 +255,18 @@ export default function CreditSettlementPage() {
     loadSupplierCredit(supplier.id);
   }, [loadSupplierCredit]);
 
+  // Auto-select first supplier when data loads
+  useEffect(() => {
+    if (filteredSuppliers.length > 0 && !selectedSupplier && !loading) {
+      const firstSupplier = filteredSuppliers[0];
+      setSelectedSupplier(firstSupplier);
+      setSelectedPO(null);
+      setViewMode("supplier");
+      setPaymentForm(INITIAL_PAYMENT_FORM);
+      loadSupplierCredit(firstSupplier.id);
+    }
+  }, [filteredSuppliers.length, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSelectPO = useCallback((po: CreditPurchaseOrder) => {
     setSelectedPO(po);
     setViewMode("po");
@@ -414,8 +426,62 @@ export default function CreditSettlementPage() {
             id={supplier.id}
             isSelected={isSelected}
             onClick={() => handleSelectSupplier(supplier)}
-            primaryText={supplier.full_name}
-            secondaryText={
+            primaryText={
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                {/* Supplier Name */}
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{supplier.full_name}</span>
+                  {isSelected && (
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Name)
+                    </Typography>
+                  )}
+                </Box>
+                {/* Additional fields when selected */}
+                {isSelected && (
+                  <>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {supplier.company_name || "Individual"}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Company)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {(supplier.left_credit_amount ?? supplier.max_credit_limit).toLocaleString()} / {supplier.max_credit_limit.toLocaleString()}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Credit)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
+                      <Box
+                        sx={{
+                          width: `${Math.min(usage, 100)}%`,
+                          height: "100%",
+                          bgcolor: usage > 80 ? "error.main" : usage > 50 ? "warning.main" : "success.main",
+                          borderRadius: 1,
+                        }}
+                      />
+                    </Box>
+                    {/* Status Chips - shown below all fields when selected */}
+                    {supplier.max_credit_limit > 0 && (
+                      <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                        <Chip
+                          label={`${supplier.credit_days} days`}
+                          size="small"
+                          color="info"
+                          sx={{ height: 18, fontSize: "0.65rem" }}
+                        />
+                      </Box>
+                    )}
+                  </>
+                )}
+              </Box>
+            }
+            secondaryText={!isSelected ? (
               <Box component="span">
                 <Typography variant="caption" display="block">
                   {supplier.company_name || "Individual"}
@@ -434,11 +500,10 @@ export default function CreditSettlementPage() {
                   />
                 </Box>
               </Box>
-            }
-            statusChip={
-              supplier.max_credit_limit > 0
-                ? { label: `${supplier.credit_days}d`, color: "info" }
-                : undefined
+            ) : undefined}
+            statusChip={!isSelected && supplier.max_credit_limit > 0
+              ? { label: `${supplier.credit_days}d`, color: "info" }
+              : undefined
             }
           />
         );

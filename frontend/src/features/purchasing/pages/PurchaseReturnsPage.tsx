@@ -2,7 +2,7 @@
  * PurchaseReturnsPage - Using Tijaero-style reusable components
  */
 
-import { useMemo, useCallback, useState } from "react";
+import { useMemo, useCallback, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -20,6 +20,7 @@ import {
   Stepper,
   Step,
   StepLabel,
+  Chip,
 } from "@mui/material";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import AddIcon from "@mui/icons-material/Add";
@@ -212,6 +213,13 @@ export default function PurchaseReturnsPage() {
     return filtered;
   }, [returns, searchQuery, sortField, filterBranch]);
 
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredReturns.length > 0 && !selectedReturn && !isCreating) {
+      handleSelectReturnWithItems(filteredReturns[0]);
+    }
+  }, [filteredReturns, selectedReturn, isCreating]);
+
   const createMutation = useMutation({
     mutationFn: purchaseReturnsApi.create,
     onSuccess: (newReturn) => {
@@ -363,11 +371,61 @@ export default function PurchaseReturnsPage() {
           id={ret.id}
           isSelected={isSelected}
           onClick={() => handleSelectReturnWithItems(ret)}
-          primaryText={ret.purchasing_return_no || `RET-${ret.id}`}
-          secondaryText={`GRN: ${getGRNNumber(ret.goodreceivednote_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}`}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Return Number */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{ret.purchasing_return_no || `RET-${ret.id}`}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Return No)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {getGRNNumber(ret.goodreceivednote_id)}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (GRN)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {getBranchDisplay(ret.branch_code)}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Branch)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {new Date(ret.added_date || "").toLocaleDateString()}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Date)
+                    </Typography>
+                  </Box>
+                  {/* Status Chips - shown below all fields when selected */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label="Returned"
+                      size="small"
+                      color="warning"
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? `GRN: ${getGRNNumber(ret.goodreceivednote_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
           isFavorite={favorites.includes(ret.id)}
           onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
-          statusChip={{ label: "Returned", color: "warning" }}
+          statusChip={!isSelected ? { label: "Returned", color: "warning" } : undefined}
         />
       )}
     />
@@ -406,7 +464,7 @@ export default function PurchaseReturnsPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedReturn && !isCreating ? (
           <EmptyState message="Select a purchase return from the list or create a new one" />
         ) : (

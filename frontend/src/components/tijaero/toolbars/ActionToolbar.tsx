@@ -63,9 +63,10 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
   return (
     <Box
       sx={{
-        p: 1,
+        px: 1,
+        py: 0.5,
         display: "flex",
-        gap: 1,
+        gap: 0.5,
         borderBottom: 1,
         borderColor: "divider",
         flexWrap: "wrap",

@@ -40,14 +40,14 @@ export const FormSection: React.FC<FormSectionProps> = ({
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, mb: isLast ? 0 : 2, ...sx }}>
+    <Paper variant="outlined" sx={{ p: 1.5, mb: isLast ? 0 : 1.5, ...sx }}>
       {/* Section Header */}
       <Box
         sx={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          mb: collapsible && isCollapsed ? 0 : 2,
+          mb: collapsible && isCollapsed ? 0 : 1.5,
           cursor: collapsible ? "pointer" : "default",
         }}
         onClick={() => collapsible && setIsCollapsed(!isCollapsed)}
@@ -71,7 +71,7 @@ export const FormSection: React.FC<FormSectionProps> = ({
           sx={{
             display: "grid",
             gridTemplateColumns: gridTemplateColumns[columns],
-            gap: 2,
+            gap: 1.5,
           }}
         >
           {children}

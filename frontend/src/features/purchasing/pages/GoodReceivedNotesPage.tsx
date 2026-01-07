@@ -2,7 +2,7 @@
  * GoodReceivedNotesPage - Using Tijaero-style reusable components
  */
 
-import { useMemo, useCallback, useState } from "react";
+import { useMemo, useCallback, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -22,6 +22,7 @@ import {
   Stepper,
   Step,
   StepLabel,
+  Chip,
 } from "@mui/material";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AddIcon from "@mui/icons-material/Add";
@@ -217,6 +218,13 @@ export default function GoodReceivedNotesPage() {
     return filtered;
   }, [grns, searchQuery, sortField, filterBranch]);
 
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredGRNs.length > 0 && !selectedGRN && !isCreating) {
+      handleSelectGRNWithItems(filteredGRNs[0]);
+    }
+  }, [filteredGRNs, selectedGRN, isCreating]);
+
   const createMutation = useMutation({
     mutationFn: goodReceivedNotesApi.create,
     onSuccess: (newGRN) => {
@@ -367,11 +375,61 @@ export default function GoodReceivedNotesPage() {
           id={grn.id}
           isSelected={isSelected}
           onClick={() => handleSelectGRNWithItems(grn)}
-          primaryText={grn.good_received_no || `GRN-${grn.id}`}
-          secondaryText={`PO: ${getOrderNumber(grn.purchasingorders_id)} • ${getLocationName(grn.good_received_locations_id)} • ${new Date(grn.good_received_date || "").toLocaleDateString()}`}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* GRN Number */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{grn.good_received_no || `GRN-${grn.id}`}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (GRN No)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {getOrderNumber(grn.purchasingorders_id)}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (PO)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {getLocationName(grn.good_received_locations_id)}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Location)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {new Date(grn.good_received_date || "").toLocaleDateString()}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Date)
+                    </Typography>
+                  </Box>
+                  {/* Status Chips - shown below all fields when selected */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label="Received"
+                      size="small"
+                      color="success"
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? `PO: ${getOrderNumber(grn.purchasingorders_id)} • ${getLocationName(grn.good_received_locations_id)} • ${new Date(grn.good_received_date || "").toLocaleDateString()}` : undefined}
           isFavorite={favorites.includes(grn.id)}
           onToggleFavorite={(e) => toggleFavorite(grn.id, e)}
-          statusChip={{ label: "Received", color: "success" }}
+          statusChip={!isSelected ? { label: "Received", color: "success" } : undefined}
         />
       )}
     />
@@ -408,7 +466,7 @@ export default function GoodReceivedNotesPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedGRN && !isCreating ? (
           <EmptyState message="Select a GRN from the list or create a new one" />
         ) : (

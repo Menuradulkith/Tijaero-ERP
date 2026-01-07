@@ -2,7 +2,7 @@
  * CustomersPage - Refactored to use Tijaero-style reusable components
  */
 
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -10,6 +10,8 @@ import {
   MenuItem,
   FormControlLabel,
   Switch,
+  Typography,
+  Chip,
 } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
 
@@ -152,6 +154,13 @@ export default function CustomersPage() {
     return filtered;
   }, [customers, searchQuery, sortField]);
 
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredCustomers.length > 0 && !selectedCustomer && !isCreating) {
+      handleSelectCustomer(filteredCustomers[0]);
+    }
+  }, [filteredCustomers, selectedCustomer, isCreating]);
+
   // Mutations
   const createMutation = useMutation({
     mutationFn: customersApi.create,
@@ -246,16 +255,68 @@ export default function CustomersPage() {
           id={customer.id}
           isSelected={isSelected}
           onClick={() => handleSelectCustomer(customer)}
-          primaryText={`${customer.title} ${customer.customer_name}`}
-          secondaryText={customer.company_name || customer.mobile_contact_number}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Customer Name */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{`${customer.title} ${customer.customer_name}`}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Name)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  {customer.company_name && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {customer.company_name}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Company)
+                      </Typography>
+                    </Box>
+                  )}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {customer.mobile_contact_number}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Mobile)
+                    </Typography>
+                  </Box>
+                  {/* Status Chips - shown below all fields when selected */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label={customer.active ? "Active" : "Inactive"}
+                      size="small"
+                      color={customer.active ? "success" : "default"}
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                    {customer.is_customer_agent && (
+                      <Chip
+                        label="Agent"
+                        size="small"
+                        color="info"
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                    )}
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? (customer.company_name || customer.mobile_contact_number) : undefined}
           isFavorite={favorites.includes(customer.id)}
           onToggleFavorite={(e) => toggleFavorite(customer.id, e)}
-          statusChip={
+          statusChip={!isSelected ? (
             customer.active
               ? { label: "Active", color: "success" }
               : { label: "Inactive", color: "default" }
-          }
-          chips={customer.is_customer_agent ? [{ label: "Agent", color: "info" }] : undefined}
+          ) : undefined}
+          chips={!isSelected && customer.is_customer_agent ? [{ label: "Agent", color: "info" }] : undefined}
         />
       )}
     />
@@ -301,7 +362,7 @@ export default function CustomersPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedCustomer && !isCreating ? (
           <EmptyState message="Select a customer from the list or create a new one" />
         ) : (

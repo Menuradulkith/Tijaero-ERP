@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -196,6 +196,13 @@ export default function SalesPage() {
 
     return filtered;
   }, [invoices, state.searchQuery, state.sortField]);
+
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredInvoices.length > 0 && !state.selectedItem && !state.isCreating) {
+      state.setSelectedItem(filteredInvoices[0]);
+    }
+  }, [filteredInvoices, state.selectedItem, state.isCreating]);
 
   // Mutations
   const deleteMutation = useMutation({
@@ -684,29 +691,93 @@ export default function SalesPage() {
           isLoading={isLoading}
           emptyMessage="No sales orders found"
         >
-          {filteredInvoices.map((invoice) => (
-            <SelectableListItem
-              key={invoice.id}
-              isSelected={state.selectedItem?.id === invoice.id}
-              onClick={() => handleSelectInvoice(invoice)}
-              primaryText={
-                <Box sx={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-                  <span>{invoice.invoice_no}</span>
-                  <Typography
-                    component="span"
-                    variant="caption"
-                    fontWeight={600}
-                    sx={{ color: state.selectedItem?.id === invoice.id ? "inherit" : "success.main" }}
-                  >
-                    ${calculateTotal(invoice).toFixed(2)}
-                  </Typography>
-                </Box>
-              }
-              secondaryText={`${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${invoice.branch_code}`}
-              isFavorite={state.favorites.includes(invoice.id)}
-              onToggleFavorite={() => state.toggleFavorite(invoice.id)}
-            />
-          ))}
+          {filteredInvoices.map((invoice) => {
+            const isSelected = state.selectedItem?.id === invoice.id;
+            return (
+              <SelectableListItem
+                key={invoice.id}
+                isSelected={isSelected}
+                onClick={() => handleSelectInvoice(invoice)}
+                primaryText={
+                  <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                    {/* Invoice No */}
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>{invoice.invoice_no}</span>
+                      {isSelected && (
+                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                          (Invoice No)
+                        </Typography>
+                      )}
+                    </Box>
+                    {/* Total */}
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        fontWeight={600}
+                        sx={{ color: isSelected ? "inherit" : "success.main" }}
+                      >
+                        ${calculateTotal(invoice).toFixed(2)}
+                      </Typography>
+                      {isSelected && (
+                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                          (Total)
+                        </Typography>
+                      )}
+                    </Box>
+                    {/* Date & Branch - only when selected */}
+                    {isSelected && (
+                      <>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Typography component="span" variant="caption">
+                            {format(new Date(invoice.created_date), "MMM dd, yyyy")}
+                          </Typography>
+                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            (Date)
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Typography component="span" variant="caption">
+                            {invoice.branch_code}
+                          </Typography>
+                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            (Branch)
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Typography component="span" variant="caption" sx={{ textTransform: "capitalize" }}>
+                            {invoice.payment_method?.replace(/_/g, " ")}
+                          </Typography>
+                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            (Payment)
+                          </Typography>
+                        </Box>
+                        {/* Status Chips - shown below all fields when selected */}
+                        <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                          <Chip
+                            label={invoice.status ? "Active" : "Inactive"}
+                            size="small"
+                            color={invoice.status ? "success" : "default"}
+                            sx={{ height: 18, fontSize: "0.65rem" }}
+                          />
+                          <Chip
+                            label={invoice.approval ? "Approved" : "Pending"}
+                            size="small"
+                            color={invoice.approval ? "info" : "warning"}
+                            variant="outlined"
+                            sx={{ height: 18, fontSize: "0.65rem" }}
+                          />
+                        </Box>
+                      </>
+                    )}
+                  </Box>
+                }
+                secondaryText={!isSelected ? `${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${invoice.branch_code}` : undefined}
+                isFavorite={state.favorites.includes(invoice.id)}
+                onToggleFavorite={() => state.toggleFavorite(invoice.id)}
+              />
+            );
+          })}
         </SearchableList>
 
         {/* Detail Panel */}
@@ -747,7 +818,7 @@ export default function SalesPage() {
             customActions={customActions}
           />
 
-          <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+          <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
             {!state.selectedItem && !state.isCreating ? (
               <EmptyState message="Select a sales order from the list or create a new one" />
             ) : state.isCreating ? (

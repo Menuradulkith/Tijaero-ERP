@@ -165,21 +165,22 @@ export default function DashboardPage() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          mb: 3,
+          mb: 2,
           flexWrap: "wrap",
-          gap: 2,
+          gap: 1,
         }}
       >
         <Typography
-          variant="h4"
+          variant="h5"
+          fontWeight={600}
           sx={{
-            fontSize: { xs: "1.5rem", sm: "2rem", md: "2.125rem" },
+            fontSize: { xs: "1.25rem", sm: "1.5rem" },
           }}
         >
           Dashboard
         </Typography>
 
-        <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
           {/* Time Period Filter */}
           <ToggleButtonGroup
             value={timePeriod}
@@ -190,16 +191,16 @@ export default function DashboardPage() {
             size="small"
             aria-label="time period"
           >
-            <ToggleButton value="today" aria-label="today">
+            <ToggleButton value="today" aria-label="today" sx={{ px: 1.5, py: 0.5 }}>
               Today
             </ToggleButton>
-            <ToggleButton value="week" aria-label="week">
+            <ToggleButton value="week" aria-label="week" sx={{ px: 1.5, py: 0.5 }}>
               Week
             </ToggleButton>
-            <ToggleButton value="month" aria-label="month">
+            <ToggleButton value="month" aria-label="month" sx={{ px: 1.5, py: 0.5 }}>
               Month
             </ToggleButton>
-            <ToggleButton value="year" aria-label="year">
+            <ToggleButton value="year" aria-label="year" sx={{ px: 1.5, py: 0.5 }}>
               Year
             </ToggleButton>
           </ToggleButtonGroup>
@@ -211,6 +212,7 @@ export default function DashboardPage() {
               disabled={isRefreshing || loading}
               color="primary"
               aria-label="refresh dashboard"
+              size="small"
             >
               {isRefreshing ? <CircularProgress size={24} /> : <RefreshIcon />}
             </IconButton>
@@ -218,7 +220,7 @@ export default function DashboardPage() {
         </Box>
       </Box>
 
-      <Grid container spacing={3}>
+      <Grid container spacing={2}>
         {/* Stat Cards */}
         <Grid item xs={12} sm={6} lg={3}>
           <TStatCard

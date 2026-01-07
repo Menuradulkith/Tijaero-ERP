@@ -56,23 +56,25 @@ export default function Header({ onMenuClick, drawerWidth }: HeaderProps) {
         color: "text.primary",
       }}
     >
-      <Toolbar>
+      <Toolbar sx={{ minHeight: { xs: 48, sm: 56 }, py: 0 }}>
         <IconButton
           color="inherit"
           edge="start"
           onClick={onMenuClick}
-          sx={{ mr: 2, display: { md: "none" } }}
+          sx={{ mr: 1, display: { md: "none" } }}
+          size="small"
         >
           <MenuIcon />
         </IconButton>
 
         <Typography
-          variant="h6"
+          variant="subtitle1"
           noWrap
           component="div"
           sx={{
             flexGrow: 1,
-            fontSize: { xs: "1rem", sm: "1.25rem" },
+            fontWeight: 600,
+            fontSize: { xs: "0.9rem", sm: "1rem" },
           }}
         >
           ERP System

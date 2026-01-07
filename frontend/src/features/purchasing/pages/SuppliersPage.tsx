@@ -2,7 +2,7 @@
  * SuppliersPage - Using Tijaero-style reusable components
  */
 
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -10,6 +10,8 @@ import {
   MenuItem,
   Switch,
   FormControlLabel,
+  Typography,
+  Chip,
 } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
 import toast from "react-hot-toast";
@@ -148,6 +150,13 @@ export default function SuppliersPage() {
     return filtered;
   }, [suppliers, searchQuery, sortField]);
 
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredSuppliers.length > 0 && !selectedSupplier && !isCreating) {
+      handleSelectSupplier(filteredSuppliers[0]);
+    }
+  }, [filteredSuppliers, selectedSupplier, isCreating]);
+
   const createMutation = useMutation({
     mutationFn: suppliersApi.create,
     onSuccess: (newSupplier) => {
@@ -256,15 +265,61 @@ export default function SuppliersPage() {
           id={supplier.id}
           isSelected={isSelected}
           onClick={() => handleSelectSupplier(supplier)}
-          primaryText={`${supplier.title} ${supplier.full_name}`}
-          secondaryText={supplier.company_name || supplier.email || "No company"}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Supplier Name */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{`${supplier.title} ${supplier.full_name}`}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Name)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  {supplier.company_name && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {supplier.company_name}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Company)
+                      </Typography>
+                    </Box>
+                  )}
+                  {supplier.email && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {supplier.email}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Email)
+                      </Typography>
+                    </Box>
+                  )}
+                  {/* Status Chips - shown below all fields when selected */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label={supplier.active ? "Active" : "Inactive"}
+                      size="small"
+                      color={supplier.active ? "success" : "default"}
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? (supplier.company_name || supplier.email || "No company") : undefined}
           isFavorite={favorites.includes(supplier.id)}
           onToggleFavorite={(e) => toggleFavorite(supplier.id, e)}
-          statusChip={
+          statusChip={!isSelected ? (
             supplier.active
               ? { label: "Active", color: "success" }
               : { label: "Inactive", color: "default" }
-          }
+          ) : undefined}
         />
       )}
     />
@@ -307,7 +362,7 @@ export default function SuppliersPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedSupplier && !isCreating ? (
           <EmptyState message="Select a supplier from the list or create a new one" />
         ) : (

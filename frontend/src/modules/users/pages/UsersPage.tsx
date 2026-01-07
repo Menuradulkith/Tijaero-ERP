@@ -13,6 +13,7 @@ import {
   Chip,
   Autocomplete,
   FormControlLabel,
+  Typography,
 } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
 
@@ -206,6 +207,13 @@ export default function UsersPage() {
     return filtered;
   }, [users, searchQuery, sortField, filterBranchId, filterRoleId]);
 
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredUsers.length > 0 && !selectedUser && !isCreating) {
+      handleSelectUser(filteredUsers[0]);
+    }
+  }, [filteredUsers, selectedUser, isCreating]);
+
   // Handlers
   const handleSelectUser = useCallback((user: UserList) => {
     setPasswordError(null);
@@ -358,16 +366,68 @@ export default function UsersPage() {
           id={user.id}
           isSelected={isSelected}
           onClick={() => handleSelectUser(user)}
-          primaryText={user.username}
-          secondaryText={`${user.first_name} ${user.last_name}`}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Username */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{user.username}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Username)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {user.first_name} {user.last_name}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Name)
+                    </Typography>
+                  </Box>
+                  {user.email && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {user.email}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Email)
+                      </Typography>
+                    </Box>
+                  )}
+                  {/* Status Chips - shown below all fields when selected */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label={user.is_active ? "Active" : "Inactive"}
+                      size="small"
+                      color={user.is_active ? "success" : "default"}
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                    {user.is_staff && (
+                      <Chip
+                        label="Staff"
+                        size="small"
+                        color="warning"
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                    )}
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? `${user.first_name} ${user.last_name}` : undefined}
           isFavorite={favorites.includes(user.id)}
           onToggleFavorite={(e) => toggleFavorite(user.id, e)}
-          statusChip={
+          statusChip={!isSelected ? (
             user.is_active
               ? { label: "Active", color: "success" }
               : { label: "Inactive", color: "default" }
-          }
-          chips={user.is_staff ? [{ label: "Staff", color: "warning" }] : []}
+          ) : undefined}
+          chips={!isSelected && user.is_staff ? [{ label: "Staff", color: "warning" }] : []}
         />
       )}
     />
@@ -413,7 +473,7 @@ export default function UsersPage() {
         onEdit={handleEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedUser && !isCreating ? (
           <EmptyState message="Select a user from the list or create a new one" />
         ) : (

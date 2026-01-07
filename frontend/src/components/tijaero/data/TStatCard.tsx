@@ -155,7 +155,7 @@ export const TStatCard: React.FC<TStatCardProps> = ({
   );
 
   const content = (
-    <CardContent>
+    <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
       <Box
         sx={{
           display: "flex",
@@ -166,12 +166,12 @@ export const TStatCard: React.FC<TStatCardProps> = ({
         <Box sx={{ flex: 1, minWidth: 0 }}>
           {/* Title */}
           {loading ? (
-            <Skeleton variant="text" width="60%" height={20} sx={{ mb: 1 }} />
+            <Skeleton variant="text" width="60%" height={18} sx={{ mb: 0.5 }} />
           ) : (
             <Typography
-              variant="body2"
+              variant="caption"
               color="text.secondary"
-              sx={{ mb: 0.5, fontWeight: 500 }}
+              sx={{ mb: 0.25, fontWeight: 500, display: "block" }}
               noWrap
             >
               {title}
@@ -180,12 +180,12 @@ export const TStatCard: React.FC<TStatCardProps> = ({
 
           {/* Value */}
           {loading ? (
-            <Skeleton variant="text" width="40%" height={40} sx={{ mb: 1 }} />
+            <Skeleton variant="text" width="40%" height={32} sx={{ mb: 0.5 }} />
           ) : (
             <Typography
-              variant="h4"
+              variant="h5"
               fontWeight="bold"
-              sx={{ mb: 0.5, color: colors.main }}
+              sx={{ mb: 0.25, color: colors.main }}
             >
               {formattedValue}
             </Typography>
@@ -224,8 +224,8 @@ export const TStatCard: React.FC<TStatCardProps> = ({
         {icon && !loading && (
           <Box
             sx={{
-              p: 1.5,
-              borderRadius: 2,
+              p: 1,
+              borderRadius: 1.5,
               bgcolor: colors.light,
               color: colors.main,
               display: "flex",
@@ -239,9 +239,9 @@ export const TStatCard: React.FC<TStatCardProps> = ({
         {loading && (
           <Skeleton
             variant="rounded"
-            width={56}
-            height={56}
-            sx={{ borderRadius: 2 }}
+            width={44}
+            height={44}
+            sx={{ borderRadius: 1.5 }}
           />
         )}
       </Box>

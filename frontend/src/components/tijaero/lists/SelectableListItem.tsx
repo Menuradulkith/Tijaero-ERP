@@ -46,6 +46,8 @@ export const SelectableListItem: React.FC<SelectableListItemProps> = ({
       selected={isSelected}
       onClick={onClick}
       sx={{
+        py: 0.75,
+        px: 1.5,
         borderBottom: 1,
         borderColor: "divider",
         "&.Mui-selected": {
