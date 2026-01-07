@@ -13,7 +13,7 @@ import {
 } from "@mui/material";
 import { categoriesApi } from "../api";
 import { CategoryCreate } from "../types";
-import { toast } from "react-hot-toast";
+import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
 interface CategoryDialogProps {
   open: boolean;
@@ -37,12 +37,12 @@ export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
     mutationFn: categoriesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast.success("Category created successfully");
+      showSuccessToast("Category created successfully");
       reset();
       onClose();
     },
     onError: () => {
-      toast.error("Failed to create category");
+      showErrorToast("Failed to create category");
     },
   });
 

@@ -7,20 +7,18 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
-  Card,
-  CardContent,
   Grid,
   Typography,
   List,
   ListItemButton,
   ListItemText,
   ListItemIcon,
-  Chip,
   Skeleton,
   Paper,
   Divider,
   Autocomplete,
   TextField,
+  Card,
 } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
@@ -30,69 +28,17 @@ import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import { suppliersApi, purchaseOrdersApi, goodReceivedNotesApi, purchaseReturnsApi } from "@/modules/purchasing/api";
 import { branchApi } from "@/modules/branches/api";
 import type { Branch } from "@/api/types";
-
-interface StatCardProps {
-  title: string;
-  value: number | string;
-  icon: React.ReactNode;
-  color?: string;
-  onClick?: () => void;
-  isLoading?: boolean;
-}
-
-function StatCard({ title, value, icon, color = "primary.main", onClick, isLoading }: StatCardProps) {
-  return (
-    <Card 
-      sx={{ 
-        cursor: onClick ? "pointer" : "default",
-        transition: "transform 0.2s, box-shadow 0.2s",
-        "&:hover": onClick ? {
-          transform: "translateY(-2px)",
-          boxShadow: 4,
-        } : {},
-      }}
-      onClick={onClick}
-    >
-      <CardContent>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Box>
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              {title}
-            </Typography>
-            {isLoading ? (
-              <Skeleton width={60} height={40} />
-            ) : (
-              <Typography variant="h4" fontWeight="bold">
-                {value}
-              </Typography>
-            )}
-          </Box>
-          <Box
-            sx={{
-              p: 1.5,
-              borderRadius: 2,
-              bgcolor: `${color}15`,
-              color: color,
-            }}
-          >
-            {icon}
-          </Box>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-}
+import { TStatCard, TStatusChip, TPageHeader, TChip } from "@/components/tijaero";
 
 interface RecentItemProps {
   primary: string;
   secondary: string;
   status: string;
-  statusColor: "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning";
   icon: React.ReactNode;
   onClick: () => void;
 }
 
-function RecentItem({ primary, secondary, status, statusColor, icon, onClick }: RecentItemProps) {
+function RecentItem({ primary, secondary, status, icon, onClick }: RecentItemProps) {
   return (
     <ListItemButton onClick={onClick} sx={{ borderRadius: 1 }}>
       <ListItemIcon sx={{ minWidth: 40 }}>{icon}</ListItemIcon>
@@ -102,11 +48,10 @@ function RecentItem({ primary, secondary, status, statusColor, icon, onClick }: 
         primaryTypographyProps={{ variant: "body2", fontWeight: 500 }}
         secondaryTypographyProps={{ variant: "caption" }}
       />
-      <Chip 
-        label={status} 
-        size="small" 
-        color={statusColor}
-        sx={{ minWidth: 80 }}
+      <TStatusChip 
+        status={status} 
+        statusMap="purchaseOrder"
+        size="small"
       />
     </ListItemButton>
   );
@@ -184,20 +129,6 @@ export default function PurchasingDashboard() {
       .slice(0, 5);
   }, [filteredGRNs]);
 
-  const getStatusColor = (status: string): "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" => {
-    const colorMap: Record<string, "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning"> = {
-      draft: "default",
-      pending: "warning",
-      approved: "info",
-      completed: "success",
-      cancelled: "error",
-      inspected: "info",
-      accepted: "success",
-      rejected: "error",
-    };
-    return colorMap[status] || "default";
-  };
-
   const getSupplierName = (supplierId: number) => {
     const supplier = suppliers?.find((s) => s.id === supplierId);
     return supplier?.full_name || "Unknown";
@@ -205,76 +136,68 @@ export default function PurchasingDashboard() {
 
   return (
     <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
-      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 2, mb: 3 }}>
-        <Box>
-          <Typography variant="h4" fontWeight="bold" gutterBottom>
-            Purchasing Dashboard
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Overview of purchasing activities and pending items
-            {filterBranch && (
-              <Chip
-                label={branches.find((b) => b.branch_code === filterBranch)?.branch_name || filterBranch}
-                size="small"
-                onDelete={() => setFilterBranch(null)}
-                sx={{ ml: 1 }}
-              />
+      <TPageHeader
+        title="Purchasing Dashboard"
+        subtitle={
+          filterBranch
+            ? `Overview of purchasing activities - ${branches.find((b) => b.branch_code === filterBranch)?.branch_name || filterBranch}`
+            : "Overview of purchasing activities and pending items"
+        }
+        actions={
+          <Autocomplete
+            size="small"
+            options={branches}
+            getOptionLabel={(option: Branch) => `${option.branch_code} - ${option.branch_name}`}
+            value={branches.find((b) => b.branch_code === filterBranch) || null}
+            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
+            renderInput={(params) => (
+              <TextField {...params} label="Filter by Branch" placeholder="All Branches" />
             )}
-          </Typography>
-        </Box>
-        <Autocomplete
-          size="small"
-          options={branches}
-          getOptionLabel={(option: Branch) => `${option.branch_code} - ${option.branch_name}`}
-          value={branches.find((b) => b.branch_code === filterBranch) || null}
-          onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
-          renderInput={(params) => (
-            <TextField {...params} label="Filter by Branch" placeholder="All Branches" />
-          )}
-          sx={{ minWidth: 250 }}
-        />
-      </Box>
+            sx={{ minWidth: 250 }}
+          />
+        }
+      />
 
       {/* Stats Row */}
       <Grid container spacing={3} mb={4}>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <TStatCard
             title="Active Suppliers"
             value={stats.activeSuppliers}
-            icon={<BusinessIcon fontSize="large" />}
-            color="primary.main"
+            icon={<BusinessIcon />}
+            color="primary"
             onClick={() => navigate("/purchasing/suppliers")}
-            isLoading={suppliersLoading}
+            loading={suppliersLoading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <TStatCard
             title="Pending Orders"
             value={stats.pendingOrders}
-            icon={<ShoppingCartIcon fontSize="large" />}
-            color="warning.main"
+            icon={<ShoppingCartIcon />}
+            color="warning"
             onClick={() => navigate("/purchasing/orders")}
-            isLoading={ordersLoading}
+            loading={ordersLoading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <TStatCard
             title="Total GRNs"
             value={stats.totalGRNs}
-            icon={<ReceiptLongIcon fontSize="large" />}
-            color="info.main"
+            icon={<ReceiptLongIcon />}
+            color="info"
             onClick={() => navigate("/purchasing/grn")}
-            isLoading={grnsLoading}
+            loading={grnsLoading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <TStatCard
             title="Total Returns"
             value={stats.totalReturns}
-            icon={<AssignmentReturnIcon fontSize="large" />}
-            color="error.main"
+            icon={<AssignmentReturnIcon />}
+            color="error"
             onClick={() => navigate("/purchasing/returns")}
-            isLoading={returnsLoading}
+            loading={returnsLoading}
           />
         </Grid>
       </Grid>
@@ -287,7 +210,7 @@ export default function PurchasingDashboard() {
               <Typography variant="h6" fontWeight="bold">
                 Recent Purchase Orders
               </Typography>
-              <Chip
+              <TChip
                 label={`${filteredOrders.length} total`}
                 size="small"
                 color="primary"
@@ -314,7 +237,6 @@ export default function PurchasingDashboard() {
                     primary={order.purchasing_order_no || `PO-${order.id}`}
                     secondary={`${getSupplierName(order.first_suppliers_id)} • ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`}
                     status={order.status}
-                    statusColor={getStatusColor(order.status)}
                     icon={<ShoppingCartIcon fontSize="small" color="action" />}
                     onClick={() => navigate("/purchasing/orders")}
                   />
@@ -330,7 +252,7 @@ export default function PurchasingDashboard() {
               <Typography variant="h6" fontWeight="bold">
                 Recent Good Received Notes
               </Typography>
-              <Chip
+              <TChip
                 label={`${filteredGRNs.length} total`}
                 size="small"
                 color="info"
@@ -356,8 +278,7 @@ export default function PurchasingDashboard() {
                     key={grn.id}
                     primary={grn.good_received_no || `GRN-${grn.id}`}
                     secondary={`PO: ${grn.purchasingorders_id} • ${new Date(grn.good_received_date || "").toLocaleDateString()}`}
-                    status="Received"
-                    statusColor="success"
+                    status="received"
                     icon={<ReceiptLongIcon fontSize="small" color="action" />}
                     onClick={() => navigate("/purchasing/grn")}
                   />

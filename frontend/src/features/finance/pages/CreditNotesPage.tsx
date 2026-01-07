@@ -1,22 +1,16 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Paper,
-  Typography,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  MenuItem,
-} from "@mui/material";
+import { Box, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem } from "@mui/material";
 import { Add as AddIcon } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
+import {
+  TPageHeader,
+  TButton,
+  TCurrency,
+  showSuccessToast,
+  showErrorToast,
+} from "@/components/tijaero";
 import { creditNotesApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
 import { CustomerCreditNoteCreate } from "@/modules/finance/types";
@@ -53,12 +47,12 @@ export default function CreditNotesPage() {
     mutationFn: creditNotesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["credit-notes"] });
-      toast.success("Credit note created successfully");
+      showSuccessToast("Credit note created successfully");
       setOpenDialog(false);
       reset();
     },
     onError: () => {
-      toast.error("Failed to create credit note");
+      showErrorToast("Failed to create credit note");
     },
   });
 
@@ -68,7 +62,7 @@ export default function CreditNotesPage() {
       field: "amount",
       headerName: "Amount",
       width: 130,
-      valueFormatter: (value) => `$${Number(value).toFixed(2)}`,
+      renderCell: (params) => <TCurrency value={params.value} />,
     },
     { field: "invoice_no", headerName: "Invoice No", width: 130 },
     {
@@ -84,34 +78,38 @@ export default function CreditNotesPage() {
     createMutation.mutate(data);
   };
 
+  const handleAdd = () => {
+    reset({
+      customer_id: 0,
+      amount: 0,
+      remark: "",
+      invoice_no: "",
+    });
+    setOpenDialog(true);
+  };
+
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 3 }}>
-        <Typography variant="h4" fontWeight="bold">
-          Customer Credit Notes
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setOpenDialog(true)}
-        >
-          Issue Credit Note
-        </Button>
-      </Box>
+      <TPageHeader
+        title="Customer Credit Notes"
+        actions={
+          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+            Issue Credit Note
+          </TButton>
+        }
+      />
 
       <Paper sx={{ mb: 2, p: 2 }}>
         <TextField
-          label="Select Customer"
           select
-          value={selectedCustomer || ""}
-          onChange={(e) => setSelectedCustomer(Number(e.target.value))}
+          label="Select Customer"
+          value={selectedCustomer ?? ""}
+          onChange={(e) => setSelectedCustomer(e.target.value ? Number(e.target.value) : null)}
           sx={{ width: 300 }}
         >
           <MenuItem value="">All Customers</MenuItem>
-          {customers?.map((customer) => (
-            <MenuItem key={customer.id} value={customer.id}>
-              {customer.customer_name}
-            </MenuItem>
+          {customers?.map((c) => (
+            <MenuItem key={c.id} value={c.id}>{c.customer_name}</MenuItem>
           ))}
         </TextField>
       </Paper>
@@ -121,67 +119,51 @@ export default function CreditNotesPage() {
           rows={creditNotes || []}
           columns={columns}
           loading={isLoading}
-          pageSizeOptions={[10, 25, 50, 100]}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 25 } },
-          }}
         />
       </Paper>
 
-      <Dialog
-        open={openDialog}
-        onClose={() => setOpenDialog(false)}
-        maxWidth="sm"
-        fullWidth
-      >
+      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogTitle>Issue Credit Note</DialogTitle>
           <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
-                <Controller
-                  name="customer_id"
-                  control={control}
-                  rules={{ required: "Customer is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Customer"
-                      select
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    >
-                      {customers?.map((customer) => (
-                        <MenuItem key={customer.id} value={customer.id}>
-                          {customer.customer_name}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+              <Controller
+                name="customer_id"
+                control={control}
+                rules={{ required: "Customer is required" }}
+                render={({ field, fieldState }) => (
+                  <TextField
+                    {...field}
+                    select
+                    label="Customer"
+                    required
+                    error={!!fieldState.error}
+                    helperText={fieldState.error?.message}
+                    fullWidth
+                  >
+                    {customers?.map((c) => (
+                      <MenuItem key={c.id} value={c.id}>{c.customer_name}</MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
                 <Controller
                   name="amount"
                   control={control}
-                  rules={{ required: "Amount is required", min: 0.01 }}
+                  rules={{ required: "Amount is required", min: { value: 0.01, message: "Must be at least 0.01" } }}
                   render={({ field, fieldState }) => (
                     <TextField
                       {...field}
-                      label="Amount"
                       type="number"
-                      fullWidth
+                      label="Amount"
                       required
                       error={!!fieldState.error}
                       helperText={fieldState.error?.message}
-                      inputProps={{ step: "0.01" }}
+                      fullWidth
                     />
                   )}
                 />
-              </Grid>
-              <Grid item xs={12} sm={6}>
                 <Controller
                   name="invoice_no"
                   control={control}
@@ -189,36 +171,30 @@ export default function CreditNotesPage() {
                     <TextField {...field} label="Invoice Number" fullWidth />
                   )}
                 />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="remark"
-                  control={control}
-                  rules={{ required: "Remark is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Remark"
-                      fullWidth
-                      required
-                      multiline
-                      rows={4}
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-            </Grid>
+              </Box>
+              <Controller
+                name="remark"
+                control={control}
+                rules={{ required: "Remark is required" }}
+                render={({ field, fieldState }) => (
+                  <TextField
+                    {...field}
+                    label="Remark"
+                    required
+                    multiline
+                    rows={4}
+                    error={!!fieldState.error}
+                    helperText={fieldState.error?.message}
+                    fullWidth
+                  />
+                )}
+              />
+            </Box>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={createMutation.isPending}
-            >
-              Issue
+            <Button type="submit" variant="contained" disabled={createMutation.isPending}>
+              {createMutation.isPending ? "Saving..." : "Issue"}
             </Button>
           </DialogActions>
         </form>

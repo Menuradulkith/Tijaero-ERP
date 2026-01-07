@@ -11,7 +11,7 @@ import {
 } from "@mui/material";
 import { brandsApi } from "../api";
 import { BrandCreate } from "../types";
-import { toast } from "react-hot-toast";
+import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
 interface BrandDialogProps {
   open: boolean;
@@ -33,12 +33,12 @@ export default function BrandDialog({ open, onClose }: BrandDialogProps) {
     mutationFn: brandsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["brands"] });
-      toast.success("Brand created successfully");
+      showSuccessToast("Brand created successfully");
       reset();
       onClose();
     },
     onError: () => {
-      toast.error("Failed to create brand");
+      showErrorToast("Failed to create brand");
     },
   });
 

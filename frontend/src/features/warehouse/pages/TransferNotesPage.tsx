@@ -1,28 +1,25 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Paper,
-  Typography,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  IconButton,
-} from "@mui/material";
+import { Box, Paper } from "@mui/material";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Visibility as ViewIcon,
 } from "@mui/icons-material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { useForm } from "react-hook-form";
+import {
+  TPageHeader,
+  TButton,
+  TIconButton,
+  TFormDialog,
+  TFormField,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
+} from "@/components/tijaero";
 import { transferNotesApi } from "@/modules/warehouse/api";
 import { ItemTransferNoteCreate } from "@/modules/warehouse/types";
 
@@ -30,8 +27,7 @@ export default function TransferNotesPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const deleteDialog = useConfirmDialog();
-  const [_pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const { dialogProps, confirm } = useTConfirmDialog();
 
   const { data: transferNotes, isLoading } = useQuery({
     queryKey: ["transfer-notes"],
@@ -53,12 +49,12 @@ export default function TransferNotesPage() {
     mutationFn: transferNotesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
-      toast.success("Transfer note created successfully");
+      showSuccessToast("Transfer note created successfully");
       setOpenDialog(false);
       reset();
     },
     onError: () => {
-      toast.error("Failed to create transfer note");
+      showErrorToast("Failed to create transfer note");
     },
   });
 
@@ -67,13 +63,13 @@ export default function TransferNotesPage() {
       transferNotesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
-      toast.success("Transfer note updated successfully");
+      showSuccessToast("Transfer note updated successfully");
       setOpenDialog(false);
       setEditingId(null);
       reset();
     },
     onError: () => {
-      toast.error("Failed to update transfer note");
+      showErrorToast("Failed to update transfer note");
     },
   });
 
@@ -81,12 +77,24 @@ export default function TransferNotesPage() {
     mutationFn: transferNotesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
-      toast.success("Transfer note deleted successfully");
+      showSuccessToast("Transfer note deleted successfully");
     },
     onError: () => {
-      toast.error("Failed to delete transfer note");
+      showErrorToast("Failed to delete transfer note");
     },
   });
+
+  const handleDelete = async (id: number) => {
+    const confirmed = await confirm({
+      title: "Delete Transfer Note",
+      message: "Are you sure you want to delete this transfer note?",
+      confirmText: "Delete",
+      danger: true,
+    });
+    if (confirmed) {
+      deleteMutation.mutate(id);
+    }
+  };
 
   const columns: GridColDef[] = [
     { field: "id", headerName: "ID", width: 70 },
@@ -107,13 +115,14 @@ export default function TransferNotesPage() {
       width: 150,
       sortable: false,
       renderCell: (params) => (
-        <Box>
-          <IconButton size="small" color="primary">
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          <TIconButton size="small" color="primary" tooltip="View">
             <ViewIcon />
-          </IconButton>
-          <IconButton
+          </TIconButton>
+          <TIconButton
             size="small"
             color="primary"
+            tooltip="Edit"
             onClick={() => {
               setEditingId(params.row.id);
               reset(params.row);
@@ -121,24 +130,15 @@ export default function TransferNotesPage() {
             }}
           >
             <EditIcon />
-          </IconButton>
-          <IconButton
+          </TIconButton>
+          <TIconButton
             size="small"
-            color="error"
-            onClick={() => {
-              setPendingDeleteId(params.row.id);
-              deleteDialog.open(
-                "Delete Transfer Note",
-                "Are you sure you want to delete this transfer note?",
-                () => {
-                  deleteMutation.mutate(params.row.id);
-                  setPendingDeleteId(null);
-                }
-              );
-            }}
+            color="danger"
+            tooltip="Delete"
+            onClick={() => handleDelete(params.row.id)}
           >
             <DeleteIcon />
-          </IconButton>
+          </TIconButton>
         </Box>
       ),
     },
@@ -152,31 +152,34 @@ export default function TransferNotesPage() {
     }
   };
 
+  const handleClose = () => {
+    setOpenDialog(false);
+    setEditingId(null);
+  };
+
+  const handleAdd = () => {
+    setEditingId(null);
+    reset({
+      item_transfer_note: "",
+      remark: "",
+      created_date: new Date().toISOString().split("T")[0],
+      from_location_id: 0,
+      to_location_id: 0,
+      branch_code: "",
+    });
+    setOpenDialog(true);
+  };
+
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 3 }}>
-        <Typography variant="h4" fontWeight="bold">
-          Item Transfer Notes
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setEditingId(null);
-            reset({
-              item_transfer_note: "",
-              remark: "",
-              created_date: new Date().toISOString().split("T")[0],
-              from_location_id: 0,
-              to_location_id: 0,
-              branch_code: "",
-            });
-            setOpenDialog(true);
-          }}
-        >
-          New Transfer Note
-        </Button>
-      </Box>
+      <TPageHeader
+        title="Item Transfer Notes"
+        actions={
+          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+            New Transfer Note
+          </TButton>
+        }
+      />
 
       <Paper sx={{ height: 600 }}>
         <DataGrid
@@ -185,152 +188,74 @@ export default function TransferNotesPage() {
           loading={isLoading}
           pageSizeOptions={[10, 25, 50, 100]}
           initialState={{
-            pagination: { paginationModel: { pageSize: 25 } },
+            pagination: { paginationModel: { pageSize: 10 } },
           }}
         />
       </Paper>
 
-      <Dialog
+      <TFormDialog
         open={openDialog}
-        onClose={() => {
-          setOpenDialog(false);
-          setEditingId(null);
-        }}
+        onClose={handleClose}
+        title={editingId ? "Edit Transfer Note" : "New Transfer Note"}
+        onSubmit={handleSubmit(onSubmit)}
+        submitText={editingId ? "Update" : "Create"}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
         maxWidth="md"
-        fullWidth
       >
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogTitle>
-            {editingId ? "Edit Transfer Note" : "New Transfer Note"}
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="item_transfer_note"
-                  control={control}
-                  rules={{ required: "Transfer note number is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Transfer Note #"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="branch_code"
-                  control={control}
-                  rules={{ required: "Branch code is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Branch Code"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="from_location_id"
-                  control={control}
-                  rules={{ required: "From location is required", min: 1 }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="From Location ID"
-                      type="number"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="to_location_id"
-                  control={control}
-                  rules={{ required: "To location is required", min: 1 }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="To Location ID"
-                      type="number"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="created_date"
-                  control={control}
-                  rules={{ required: "Date is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Date"
-                      type="date"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                      InputLabelProps={{ shrink: true }}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="remark"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Remark"
-                      fullWidth
-                      multiline
-                      rows={3}
-                    />
-                  )}
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => {
-                setOpenDialog(false);
-                setEditingId(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {editingId ? "Update" : "Create"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
-      <ConfirmDialog {...deleteDialog.dialogProps} />
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
+          <TFormField
+            name="item_transfer_note"
+            control={control}
+            label="Transfer Note #"
+            required
+            rules={{ required: "Transfer note number is required" }}
+          />
+          <TFormField
+            name="branch_code"
+            control={control}
+            label="Branch Code"
+            required
+            rules={{ required: "Branch code is required" }}
+          />
+          <TFormField
+            name="from_location_id"
+            control={control}
+            label="From Location ID"
+            fieldType="number"
+            required
+            rules={{ required: "From location is required", min: { value: 1, message: "Must be at least 1" } }}
+          />
+          <TFormField
+            name="to_location_id"
+            control={control}
+            label="To Location ID"
+            fieldType="number"
+            required
+            rules={{ required: "To location is required", min: { value: 1, message: "Must be at least 1" } }}
+          />
+          <Box sx={{ gridColumn: "span 2" }}>
+            <TFormField
+              name="created_date"
+              control={control}
+              label="Date"
+              fieldType="date"
+              required
+              rules={{ required: "Date is required" }}
+            />
+          </Box>
+          <Box sx={{ gridColumn: "span 2" }}>
+            <TFormField
+              name="remark"
+              control={control}
+              label="Remark"
+              fieldType="textarea"
+              rows={3}
+            />
+          </Box>
+        </Box>
+      </TFormDialog>
+
+      <TConfirmDialog {...dialogProps} />
     </Box>
   );
 }

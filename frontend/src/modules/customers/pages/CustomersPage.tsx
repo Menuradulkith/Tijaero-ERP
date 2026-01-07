@@ -12,8 +12,6 @@ import {
   Switch,
 } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
-import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero Components
 import {
@@ -26,6 +24,10 @@ import {
   EmptyState,
   useMasterDetailState,
   SortOption,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
 } from "@/components/tijaero";
 
 import { customersApi } from "../api";
@@ -155,13 +157,13 @@ export default function CustomersPage() {
     mutationFn: customersApi.create,
     onSuccess: (newCustomer) => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
-      toast.success("Customer created successfully");
+      showSuccessToast("Customer created successfully");
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
       setIsEditing(false);
       setTimeout(() => handleSelectCustomer(newCustomer), 0);
     },
-    onError: () => toast.error("Failed to create customer"),
+    onError: () => showErrorToast("Failed to create customer"),
   });
 
   const updateMutation = useMutation({
@@ -169,23 +171,23 @@ export default function CustomersPage() {
       customersApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
-      toast.success("Customer updated successfully");
+      showSuccessToast("Customer updated successfully");
       setIsEditing(false);
     },
-    onError: () => toast.error("Failed to update customer"),
+    onError: () => showErrorToast("Failed to update customer"),
   });
 
   const deleteMutation = useMutation({
     mutationFn: customersApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
-      toast.success("Customer deleted successfully");
+      showSuccessToast("Customer deleted successfully");
       baseHandleCancel(filteredCustomers);
     },
-    onError: () => toast.error("Failed to delete customer"),
+    onError: () => showErrorToast("Failed to delete customer"),
   });
 
-  const confirmDialog = useConfirmDialog();
+  const confirmDialog = useTConfirmDialog();
 
   // Handlers
   const handleSave = useCallback(() => {
@@ -517,7 +519,7 @@ export default function CustomersPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

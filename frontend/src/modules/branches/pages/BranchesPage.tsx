@@ -37,8 +37,6 @@ import LocationOnIcon from "@mui/icons-material/LocationOn";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
-import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero Components - Import everything from one place
 import {
@@ -51,6 +49,10 @@ import {
   EmptyState,
   useMasterDetailState,
   SortOption,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
 } from "@/components/tijaero";
 
 import { branchApi } from "../api";
@@ -153,7 +155,7 @@ export default function BranchesPage() {
     onSuccess: (newBranch) => {
       console.log("[BranchesPage] Create success:", newBranch);
       queryClient.invalidateQueries({ queryKey: ["branches"] });
-      toast.success("Branch created successfully");
+      showSuccessToast("Branch created successfully");
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
       setIsEditing(false);
@@ -163,7 +165,7 @@ export default function BranchesPage() {
     onError: (error: any) => {
       console.error("[BranchesPage] Create error:", error);
       console.error("[BranchesPage] Error response:", error.response);
-      toast.error(error.response?.data?.detail || "Failed to create branch");
+      showErrorToast(error.response?.data?.detail || "Failed to create branch");
     },
   });
 
@@ -173,13 +175,13 @@ export default function BranchesPage() {
     onSuccess: () => {
       console.log("[BranchesPage] Update success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
-      toast.success("Branch updated successfully");
+      showSuccessToast("Branch updated successfully");
       setIsEditing(false);
     },
     onError: (error: any) => {
       console.error("[BranchesPage] Update error:", error);
       console.error("[BranchesPage] Error response:", error.response);
-      toast.error(error.response?.data?.detail || "Failed to update branch");
+      showErrorToast(error.response?.data?.detail || "Failed to update branch");
     },
   });
 
@@ -188,13 +190,13 @@ export default function BranchesPage() {
     onSuccess: () => {
       console.log("[BranchesPage] Delete success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
-      toast.success("Branch deleted successfully");
+      showSuccessToast("Branch deleted successfully");
       handleCancel(filteredBranches);
     },
     onError: (error: any) => {
       console.error("[BranchesPage] Delete error:", error);
       console.error("[BranchesPage] Error response:", error.response);
-      toast.error(error.response?.data?.detail || "Failed to delete branch");
+      showErrorToast(error.response?.data?.detail || "Failed to delete branch");
     },
   });
 
@@ -203,11 +205,11 @@ export default function BranchesPage() {
     mutationFn: locationsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
-      toast.success("Location created successfully");
+      showSuccessToast("Location created successfully");
       handleCloseLocationDialog();
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to create location");
+      showErrorToast(error.response?.data?.detail || "Failed to create location");
     },
   });
 
@@ -216,11 +218,11 @@ export default function BranchesPage() {
       locationsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
-      toast.success("Location updated successfully");
+      showSuccessToast("Location updated successfully");
       handleCloseLocationDialog();
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to update location");
+      showErrorToast(error.response?.data?.detail || "Failed to update location");
     },
   });
 
@@ -228,10 +230,10 @@ export default function BranchesPage() {
     mutationFn: locationsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
-      toast.success("Location deleted successfully");
+      showSuccessToast("Location deleted successfully");
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to delete location");
+      showErrorToast(error.response?.data?.detail || "Failed to delete location");
     },
   });
 
@@ -249,7 +251,7 @@ export default function BranchesPage() {
     }
   }, [isCreating, isEditing, selectedBranch, formData, createMutation, updateMutation]);
 
-  const confirmDialog = useConfirmDialog();
+  const confirmDialog = useTConfirmDialog();
 
   const handleDelete = useCallback(async () => {
     if (selectedBranch) {
@@ -296,7 +298,7 @@ export default function BranchesPage() {
 
   const handleSaveLocation = useCallback(() => {
     if (!locationName.trim()) {
-      toast.error("Location name is required");
+      showErrorToast("Location name is required");
       return;
     }
     if (editingLocation) {
@@ -517,7 +519,7 @@ export default function BranchesPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
       
       {/* Location Dialog */}
       <Dialog 

@@ -15,8 +15,6 @@ import {
   FormControlLabel,
 } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
-import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero Components
 import {
@@ -29,6 +27,10 @@ import {
   EmptyState,
   useMasterDetailState,
   SortOption,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
 } from "@/components/tijaero";
 
 import { usersApi, UserList, UserCreate, UserUpdate } from "../api";
@@ -227,7 +229,7 @@ export default function UsersPage() {
         const exists = await usersApi.checkUsernameExists(formData.username);
         if (exists) {
           setUsernameError("Username already exists");
-          toast.error("Username already exists");
+          showErrorToast("Username already exists");
           setSaving(false);
           return;
         }
@@ -243,7 +245,7 @@ export default function UsersPage() {
         console.log("[UsersPage] Creating new user:", cleanedData);
         await usersApi.createUser(cleanedData as UserCreate);
         console.log("[UsersPage] Create success");
-        toast.success("User created successfully");
+        showSuccessToast("User created successfully");
         setIsCreating(false);
         setIsEditing(false);
         loadData();
@@ -251,7 +253,7 @@ export default function UsersPage() {
         console.log("[UsersPage] Updating user:", selectedUser.id, cleanedData);
         await usersApi.updateUser(selectedUser.id, cleanedData as UserUpdate);
         console.log("[UsersPage] Update success");
-        toast.success("User updated successfully");
+        showSuccessToast("User updated successfully");
         setIsEditing(false);
         // Refresh with selected user ID to update the view
         loadData(selectedUser.id);
@@ -263,7 +265,7 @@ export default function UsersPage() {
       console.error("[UsersPage] Save error:", err);
       console.error("[UsersPage] Error response:", err.response);
       setError(err.response?.data?.detail || "Failed to save user");
-      toast.error(err.response?.data?.detail || "Failed to save user");
+      showErrorToast(err.response?.data?.detail || "Failed to save user");
     } finally {
       setSaving(false);
     }
@@ -274,7 +276,7 @@ export default function UsersPage() {
     baseHandleCancel(filteredUsers);
   }, [baseHandleCancel, filteredUsers]);
 
-  const confirmDialog = useConfirmDialog();
+  const confirmDialog = useTConfirmDialog();
 
   const handleDelete = useCallback(async () => {
     if (selectedUser) {
@@ -287,11 +289,11 @@ export default function UsersPage() {
       if (confirmed) {
         try {
           await usersApi.deleteUser(selectedUser.id);
-          toast.success("User deleted successfully");
+          showSuccessToast("User deleted successfully");
           setSelectedUser(null);
           loadData();
         } catch (err: any) {
-          toast.error(err.response?.data?.detail || "Failed to delete user");
+          showErrorToast(err.response?.data?.detail || "Failed to delete user");
         }
       }
     }
@@ -644,7 +646,7 @@ export default function UsersPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

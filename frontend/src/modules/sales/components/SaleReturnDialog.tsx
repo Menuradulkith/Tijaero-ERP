@@ -24,7 +24,7 @@ import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { saleReturnsApi, salesApi } from "../api";
 import { Invoice, SaleReturnCreate } from "../types";
 import { branchApi } from "@/modules/branches/api";
-import { toast } from "react-hot-toast";
+import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 import { format } from "date-fns";
 
 interface SaleReturnDialogProps {
@@ -95,18 +95,18 @@ export default function SaleReturnDialog({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
       queryClient.invalidateQueries({ queryKey: ["sales"] });
-      toast.success("Sale return created successfully");
+      showSuccessToast("Sale return created successfully");
       reset();
       onClose();
     },
     onError: () => {
-      toast.error("Failed to create sale return");
+      showErrorToast("Failed to create sale return");
     },
   });
 
   const onSubmit = (data: SaleReturnCreate) => {
     if (data.items.length === 0) {
-      toast.error("Please add at least one return item");
+      showErrorToast("Please add at least one return item");
       return;
     }
     createMutation.mutate(data);

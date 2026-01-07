@@ -17,12 +17,10 @@ import {
   CardContent,
   Typography,
   Box,
-  Paper,
   LinearProgress,
   Skeleton,
+  Paper,
 } from "@mui/material";
-import TrendingUpIcon from "@mui/icons-material/TrendingUp";
-import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import PeopleIcon from "@mui/icons-material/People";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import InventoryIcon from "@mui/icons-material/Inventory";
@@ -30,12 +28,9 @@ import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import IconButton from "@mui/material/IconButton";
 import CircularProgress from "@mui/material/CircularProgress";
-import WarningIcon from "@mui/icons-material/Warning";
-import Badge from "@mui/material/Badge";
 import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import {
   formatCurrency,
-  formatNumber,
   formatRelativeTime,
 } from "@/utils/formatters";
 import { calculatePercentageChange } from "@/utils/calculations";
@@ -44,98 +39,8 @@ import {
   getPreviousMetrics,
   shouldUpdateStoredMetrics,
 } from "@/utils/trendStorage";
-import StatCardSkeleton from "@/components/StatCardSkeleton";
+import { TStatCard } from "@/components/tijaero";
 import ErrorDisplay from "@/components/ErrorDisplay";
-
-interface StatCardProps {
-  title: string;
-  value: string;
-  change: number;
-  icon: React.ReactNode;
-  color: string;
-  onClick?: () => void;
-}
-
-function StatCard({
-  title,
-  value,
-  change,
-  icon,
-  color,
-  onClick,
-}: StatCardProps) {
-  const isPositive = change >= 0;
-
-  return (
-    <Card
-      sx={{
-        cursor: onClick ? "pointer" : "default",
-        transition: "transform 0.2s, box-shadow 0.2s",
-        "&:hover": onClick
-          ? {
-              transform: "translateY(-4px)",
-              boxShadow: 4,
-            }
-          : {},
-      }}
-      onClick={onClick}
-    >
-      <CardContent>
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-          }}
-        >
-          <Box>
-            <Typography color="text.secondary" variant="body2" gutterBottom>
-              {title}
-            </Typography>
-            <Typography
-              variant="h4"
-              component="div"
-              sx={{
-                mb: 1,
-                fontSize: { xs: "1.5rem", sm: "1.75rem", md: "2.125rem" },
-              }}
-            >
-              {value}
-            </Typography>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              {isPositive ? (
-                <TrendingUpIcon sx={{ fontSize: 16, color: "success.main" }} />
-              ) : (
-                <TrendingDownIcon sx={{ fontSize: 16, color: "error.main" }} />
-              )}
-              <Typography
-                variant="body2"
-                sx={{ color: isPositive ? "success.main" : "error.main" }}
-              >
-                {Math.abs(change)}%
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                vs last month
-              </Typography>
-            </Box>
-          </Box>
-          <Box
-            sx={{
-              bgcolor: color,
-              borderRadius: 2,
-              p: 1.5,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {icon}
-          </Box>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-}
 
 interface ActivityItem {
   title: string;
@@ -316,96 +221,55 @@ export default function DashboardPage() {
       <Grid container spacing={3}>
         {/* Stat Cards */}
         <Grid item xs={12} sm={6} lg={3}>
-          {loading ? (
-            <StatCardSkeleton />
-          ) : (
-            <Tooltip title="Click to view all customers" arrow>
-              <Box>
-                <StatCard
-                  title="Total Customers"
-                  value={formatNumber(metrics?.total_customers || 0)}
-                  change={trends.customers}
-                  icon={<PeopleIcon sx={{ color: "white", fontSize: 32 }} />}
-                  color="primary.main"
-                  onClick={() => navigate("/customers")}
-                />
-              </Box>
-            </Tooltip>
-          )}
+          <TStatCard
+            title="Total Customers"
+            value={metrics?.total_customers || 0}
+            trend={trends.customers}
+            icon={<PeopleIcon />}
+            color="primary"
+            loading={loading}
+            onClick={() => navigate("/customers")}
+            tooltip="Click to view all customers"
+          />
         </Grid>
         <Grid item xs={12} sm={6} lg={3}>
-          {loading ? (
-            <StatCardSkeleton />
-          ) : (
-            <Tooltip title="Click to view sales" arrow>
-              <Box>
-                <StatCard
-                  title="Sales This Month"
-                  value={formatCurrency(metrics?.total_sales_month || 0)}
-                  change={trends.sales}
-                  icon={
-                    <ShoppingCartIcon sx={{ color: "white", fontSize: 32 }} />
-                  }
-                  color="success.main"
-                  onClick={() => navigate("/sales")}
-                />
-              </Box>
-            </Tooltip>
-          )}
+          <TStatCard
+            title="Sales This Month"
+            value={metrics?.total_sales_month || 0}
+            format="currency"
+            trend={trends.sales}
+            icon={<ShoppingCartIcon />}
+            color="success"
+            loading={loading}
+            onClick={() => navigate("/sales")}
+            tooltip="Click to view sales"
+          />
         </Grid>
         <Grid item xs={12} sm={6} lg={3}>
-          {loading ? (
-            <StatCardSkeleton />
-          ) : (
-            <Tooltip title="Click to view inventory" arrow>
-              <Box sx={{ position: "relative" }}>
-                {metrics && metrics.low_stock_items > 0 && (
-                  <Badge
-                    badgeContent={metrics.low_stock_items}
-                    color="error"
-                    sx={{
-                      position: "absolute",
-                      top: 16,
-                      right: 16,
-                      zIndex: 1,
-                    }}
-                  >
-                    <WarningIcon color="error" />
-                  </Badge>
-                )}
-                <StatCard
-                  title="Inventory Items"
-                  value={formatNumber(metrics?.total_products || 0)}
-                  change={trends.inventory}
-                  icon={<InventoryIcon sx={{ color: "white", fontSize: 32 }} />}
-                  color="warning.main"
-                  onClick={() => navigate("/inventory")}
-                />
-              </Box>
-            </Tooltip>
-          )}
+          <TStatCard
+            title="Inventory Items"
+            value={metrics?.total_products || 0}
+            trend={trends.inventory}
+            icon={<InventoryIcon />}
+            color="warning"
+            loading={loading}
+            onClick={() => navigate("/inventory")}
+            tooltip="Click to view inventory"
+            badge={metrics && metrics.low_stock_items > 0 ? metrics.low_stock_items : undefined}
+          />
         </Grid>
         <Grid item xs={12} sm={6} lg={3}>
-          {loading ? (
-            <StatCardSkeleton />
-          ) : (
-            <Tooltip title="Click to view finance" arrow>
-              <Box>
-                <StatCard
-                  title="Revenue"
-                  value={formatCurrency(metrics?.total_sales_month || 0)}
-                  change={trends.revenue}
-                  icon={
-                    <AccountBalanceWalletIcon
-                      sx={{ color: "white", fontSize: 32 }}
-                    />
-                  }
-                  color="info.main"
-                  onClick={() => navigate("/finance")}
-                />
-              </Box>
-            </Tooltip>
-          )}
+          <TStatCard
+            title="Revenue"
+            value={metrics?.total_sales_month || 0}
+            format="currency"
+            trend={trends.revenue}
+            icon={<AccountBalanceWalletIcon />}
+            color="info"
+            loading={loading}
+            onClick={() => navigate("/finance")}
+            tooltip="Click to view finance"
+          />
         </Grid>
 
         {/* Sales Trend Chart */}

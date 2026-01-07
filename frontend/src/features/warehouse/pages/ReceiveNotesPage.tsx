@@ -1,27 +1,22 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Paper,
-  Typography,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  IconButton,
-  Chip,
-} from "@mui/material";
+import { Box, Paper, Chip } from "@mui/material";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Visibility as ViewIcon,
 } from "@mui/icons-material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
+import { useForm } from "react-hook-form";
+import {
+  TPageHeader,
+  TButton,
+  TIconButton,
+  TFormDialog,
+  TFormField,
+  showSuccessToast,
+  showErrorToast,
+} from "@/components/tijaero";
 import { receiveNotesApi } from "@/modules/warehouse/api";
 import { ItemReceiveNoteCreate } from "@/modules/warehouse/types";
 
@@ -48,12 +43,12 @@ export default function ReceiveNotesPage() {
     mutationFn: receiveNotesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["receive-notes"] });
-      toast.success("Receive note created successfully");
+      showSuccessToast("Receive note created successfully");
       setOpenDialog(false);
       reset();
     },
     onError: () => {
-      toast.error("Failed to create receive note");
+      showErrorToast("Failed to create receive note");
     },
   });
 
@@ -62,41 +57,26 @@ export default function ReceiveNotesPage() {
       receiveNotesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["receive-notes"] });
-      toast.success("Receive note updated successfully");
+      showSuccessToast("Receive note updated successfully");
       setOpenDialog(false);
       setEditingId(null);
       reset();
     },
     onError: () => {
-      toast.error("Failed to update receive note");
+      showErrorToast("Failed to update receive note");
     },
   });
 
-  const getStatusLabel = (status: number) => {
+  const getStatusConfig = (status: number): { label: string; status: "pending" | "success" | "error" | "default" } => {
     switch (status) {
       case 0:
-        return "Pending";
+        return { label: "Pending", status: "pending" };
       case 1:
-        return "Approved";
+        return { label: "Approved", status: "success" };
       case 2:
-        return "Rejected";
+        return { label: "Rejected", status: "error" };
       default:
-        return "Unknown";
-    }
-  };
-
-  const getStatusColor = (
-    status: number
-  ): "warning" | "success" | "error" | "default" => {
-    switch (status) {
-      case 0:
-        return "warning";
-      case 1:
-        return "success";
-      case 2:
-        return "error";
-      default:
-        return "default";
+        return { label: "Unknown", status: "default" };
     }
   };
 
@@ -111,13 +91,10 @@ export default function ReceiveNotesPage() {
       field: "received_approval_status",
       headerName: "Status",
       width: 120,
-      renderCell: (params) => (
-        <Chip
-          label={getStatusLabel(params.value)}
-          color={getStatusColor(params.value)}
-          size="small"
-        />
-      ),
+      renderCell: (params) => {
+        const config = getStatusConfig(params.value);
+        return <Chip label={config.label} color={config.status === "success" ? "success" : config.status === "error" ? "error" : "default"} size="small" />;
+      },
     },
     { field: "received_note", headerName: "Note", width: 250 },
     { field: "recieved_user", headerName: "Received By", width: 120 },
@@ -134,13 +111,14 @@ export default function ReceiveNotesPage() {
       width: 120,
       sortable: false,
       renderCell: (params) => (
-        <Box>
-          <IconButton size="small" color="primary">
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          <TIconButton size="small" color="primary" tooltip="View">
             <ViewIcon />
-          </IconButton>
-          <IconButton
+          </TIconButton>
+          <TIconButton
             size="small"
             color="primary"
+            tooltip="Edit"
             onClick={() => {
               setEditingId(params.row.id);
               reset(params.row);
@@ -148,7 +126,7 @@ export default function ReceiveNotesPage() {
             }}
           >
             <EditIcon />
-          </IconButton>
+          </TIconButton>
         </Box>
       ),
     },
@@ -162,28 +140,31 @@ export default function ReceiveNotesPage() {
     }
   };
 
+  const handleClose = () => {
+    setOpenDialog(false);
+    setEditingId(null);
+  };
+
+  const handleAdd = () => {
+    setEditingId(null);
+    reset({
+      item_transfer_note_id: 0,
+      received_approval_status: 0,
+      received_note: "",
+    });
+    setOpenDialog(true);
+  };
+
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 3 }}>
-        <Typography variant="h4" fontWeight="bold">
-          Item Receive Notes
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setEditingId(null);
-            reset({
-              item_transfer_note_id: 0,
-              received_approval_status: 0,
-              received_note: "",
-            });
-            setOpenDialog(true);
-          }}
-        >
-          New Receive Note
-        </Button>
-      </Box>
+      <TPageHeader
+        title="Item Receive Notes"
+        actions={
+          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+            New Receive Note
+          </TButton>
+        }
+      />
 
       <Paper sx={{ height: 600 }}>
         <DataGrid
@@ -192,116 +173,53 @@ export default function ReceiveNotesPage() {
           loading={isLoading}
           pageSizeOptions={[10, 25, 50, 100]}
           initialState={{
-            pagination: { paginationModel: { pageSize: 25 } },
+            pagination: { paginationModel: { pageSize: 10 } },
           }}
         />
       </Paper>
 
-      <Dialog
+      <TFormDialog
         open={openDialog}
-        onClose={() => {
-          setOpenDialog(false);
-          setEditingId(null);
-        }}
+        onClose={handleClose}
+        title={editingId ? "Edit Receive Note" : "New Receive Note"}
+        onSubmit={handleSubmit(onSubmit)}
+        submitText={editingId ? "Update" : "Create"}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
         maxWidth="sm"
-        fullWidth
       >
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogTitle>
-            {editingId ? "Edit Receive Note" : "New Receive Note"}
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
-                <Controller
-                  name="item_transfer_note_id"
-                  control={control}
-                  rules={{ required: "Transfer note ID is required", min: 1 }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Transfer Note ID"
-                      type="number"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="received_approval_status"
-                  control={control}
-                  rules={{ required: "Status is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Approval Status"
-                      type="number"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={
-                        fieldState.error?.message ||
-                        "0=Pending, 1=Approved, 2=Rejected"
-                      }
-                      inputProps={{ min: 0, max: 2 }}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="received_note"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Receive Note"
-                      fullWidth
-                      multiline
-                      rows={3}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="recieved_user"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Received By (User ID)"
-                      type="number"
-                      fullWidth
-                    />
-                  )}
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => {
-                setOpenDialog(false);
-                setEditingId(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {editingId ? "Update" : "Create"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <TFormField
+            name="item_transfer_note_id"
+            control={control}
+            label="Transfer Note ID"
+            fieldType="number"
+            required
+            rules={{ required: "Transfer note ID is required", min: { value: 1, message: "Must be at least 1" } }}
+          />
+          <TFormField
+            name="received_approval_status"
+            control={control}
+            label="Approval Status"
+            fieldType="number"
+            required
+            helperText="0=Pending, 1=Approved, 2=Rejected"
+            rules={{ required: "Status is required" }}
+          />
+          <TFormField
+            name="received_note"
+            control={control}
+            label="Receive Note"
+            fieldType="textarea"
+            rows={3}
+          />
+          <TFormField
+            name="recieved_user"
+            control={control}
+            label="Received By (User ID)"
+            fieldType="number"
+          />
+        </Box>
+      </TFormDialog>
     </Box>
   );
 }
