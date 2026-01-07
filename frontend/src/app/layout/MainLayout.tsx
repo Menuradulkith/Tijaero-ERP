@@ -4,7 +4,7 @@ import { Box, useMediaQuery, useTheme } from "@mui/material";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 
-const DRAWER_WIDTH = 260;
+const DRAWER_WIDTH = 220;
 
 export default function MainLayout() {
   const theme = useTheme();
@@ -28,12 +28,12 @@ export default function MainLayout() {
         component="main"
         sx={{
           flexGrow: 1,
-          p: { xs: 1, sm: 1.5, md: 2 },
+          p: { xs: 1, sm: 1, md: 1.5, lg: 2 },
           width: "100%",
           maxWidth: { xs: "100vw", md: `calc(100vw - ${DRAWER_WIDTH}px)` },
-          mt: "64px",
+          mt: "56px",
           bgcolor: "background.default",
-          minHeight: "calc(100vh - 64px)",
+          minHeight: "calc(100vh - 56px)",
           overflow: "auto",
           overflowX: "hidden",
         }}

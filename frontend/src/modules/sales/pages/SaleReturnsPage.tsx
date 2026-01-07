@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Box,
@@ -73,6 +73,13 @@ export default function SaleReturnsPage() {
 
     return filtered;
   }, [saleReturns, state.searchQuery, state.sortField]);
+
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredReturns.length > 0 && !state.selectedItem && !state.isCreating) {
+      state.setSelectedItem(filteredReturns[0]);
+    }
+  }, [filteredReturns, state.selectedItem, state.isCreating]);
 
   // Get invoice for a return
   const getInvoiceNo = (invoiceId: number) => {
@@ -175,27 +182,70 @@ export default function SaleReturnsPage() {
             isLoading={isLoading}
             emptyMessage="No sale returns found"
           >
-            {filteredReturns.map((returnItem) => (
-              <SelectableListItem
-                key={returnItem.id}
-                isSelected={state.selectedItem?.id === returnItem.id}
-                onClick={() => handleSelectReturn(returnItem)}
-                primaryText={
-                  <Box sx={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-                    <span>{returnItem.sale_return_no}</span>
-                    <Chip
-                      label={returnItem.payment_method}
-                      size="small"
-                      variant="outlined"
-                      sx={{ ml: 1 }}
-                    />
-                  </Box>
-                }
-                secondaryText={`${format(new Date(returnItem.added_date), "MMM dd, yyyy")} • Invoice: ${getInvoiceNo(returnItem.invoice_id)}`}
-                isFavorite={state.favorites.includes(returnItem.id)}
-                onToggleFavorite={() => state.toggleFavorite(returnItem.id)}
-              />
-            ))}
+            {filteredReturns.map((returnItem) => {
+              const isSelected = state.selectedItem?.id === returnItem.id;
+              return (
+                <SelectableListItem
+                  key={returnItem.id}
+                  isSelected={isSelected}
+                  onClick={() => handleSelectReturn(returnItem)}
+                  primaryText={
+                    <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                      {/* Return No */}
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span>{returnItem.sale_return_no}</span>
+                        {isSelected && (
+                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            (Return No)
+                          </Typography>
+                        )}
+                      </Box>
+                      {/* Additional fields when selected */}
+                      {isSelected && (
+                        <>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Typography component="span" variant="caption">
+                              {format(new Date(returnItem.added_date), "MMM dd, yyyy")}
+                            </Typography>
+                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                              (Date)
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Typography component="span" variant="caption">
+                              {getInvoiceNo(returnItem.invoice_id)}
+                            </Typography>
+                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                              (Invoice)
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Typography component="span" variant="caption" sx={{ textTransform: "capitalize" }}>
+                              {returnItem.payment_method}
+                            </Typography>
+                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                              (Payment)
+                            </Typography>
+                          </Box>
+                          {/* Status Chips - shown below all fields when selected */}
+                          <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                            <Chip
+                              label={returnItem.approval_id ? "Approved" : "Pending"}
+                              size="small"
+                              color={returnItem.approval_id ? "success" : "warning"}
+                              sx={{ height: 18, fontSize: "0.65rem" }}
+                            />
+                          </Box>
+                        </>
+                      )}
+                    </Box>
+                  }
+                  secondaryText={!isSelected ? `${format(new Date(returnItem.added_date), "MMM dd, yyyy")} • Invoice: ${getInvoiceNo(returnItem.invoice_id)}` : undefined}
+                  isFavorite={state.favorites.includes(returnItem.id)}
+                  onToggleFavorite={() => state.toggleFavorite(returnItem.id)}
+                />
+              );
+            })}
           </SearchableList>
 
           {/* Detail Panel */}
@@ -231,7 +281,7 @@ export default function SaleReturnsPage() {
               saveDisabled={true}
             />
 
-            <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+            <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
               {!state.selectedItem ? (
                 <EmptyState message="Select a sale return from the list or create a new one" />
               ) : (

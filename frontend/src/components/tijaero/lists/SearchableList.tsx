@@ -81,18 +81,19 @@ export function SearchableList<T extends BaseEntity>({
       elevation={0}
       sx={{
         width: isMobile ? "100%" : width,
-        minWidth: isMobile ? "100%" : width,
+        minWidth: isMobile ? "100%" : 240,
+        maxWidth: isMobile ? "100%" : 300,
         borderRight: 1,
         borderColor: "divider",
         display: "flex",
         flexDirection: "column",
-        height: isMobile ? "auto" : "calc(100vh - 140px)",
-        maxHeight: isMobile ? 400 : "none",
+        height: isMobile ? "auto" : "calc(100vh - 120px)",
+        maxHeight: isMobile ? 350 : "none",
         ...sx,
       }}
     >
       {/* Search Input */}
-      <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider" }}>
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
         <TextField
           size="small"
           placeholder={currentPlaceholder}

@@ -47,7 +47,8 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
   return (
     <Box
       sx={{
-        p: 2,
+        px: 1.5,
+        py: 1,
         borderBottom: 1,
         borderColor: "divider",
         bgcolor: "grey.50",
@@ -55,7 +56,7 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
       }}
     >
       {/* Breadcrumbs */}
-      <Breadcrumbs sx={{ mb: 1 }}>
+      <Breadcrumbs sx={{ mb: 0.5 }}>
         {breadcrumbs.map((crumb, index) => {
           const isLast = index === breadcrumbs.length - 1;
           return isLast || !crumb.href ? (

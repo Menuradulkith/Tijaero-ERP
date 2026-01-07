@@ -13,7 +13,7 @@
  * - Locations management section
  */
 
-import { useMemo, useCallback, useState } from "react";
+import { useMemo, useCallback, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   Box, 
@@ -148,6 +148,13 @@ export default function BranchesPage() {
 
     return filtered;
   }, [data?.items, searchQuery, sortField]);
+
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredBranches.length > 0 && !selectedBranch && !isCreating) {
+      handleSelectBranch(filteredBranches[0]);
+    }
+  }, [filteredBranches, selectedBranch, isCreating]);
 
   // Mutations
   const createMutation = useMutation({
@@ -343,8 +350,33 @@ export default function BranchesPage() {
           id={branch.id}
           isSelected={isSelected}
           onClick={() => handleSelectBranch(branch)}
-          primaryText={branch.branch_code}
-          secondaryText={`Name: ${branch.branch_name}`}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Branch Code */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{branch.branch_code}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Code)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {branch.branch_name}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Name)
+                    </Typography>
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? `Name: ${branch.branch_name}` : undefined}
           isFavorite={favorites.includes(branch.id)}
           onToggleFavorite={(e) => toggleFavorite(branch.id, e)}
         />
@@ -392,7 +424,7 @@ export default function BranchesPage() {
       />
 
       {/* Content */}
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedBranch && !isCreating ? (
           <EmptyState message="Select a branch from the list or create a new one" />
         ) : (

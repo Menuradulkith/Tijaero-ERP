@@ -529,6 +529,25 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     brandState.setIsCreating(false);
   };
 
+  // Auto-select first item when data loads for each tab
+  useEffect(() => {
+    if (activeTab === 0 && filteredProducts.length > 0 && !productState.selectedItem && !productState.isCreating) {
+      selectProductInternal(filteredProducts[0]);
+    }
+  }, [filteredProducts, productState.selectedItem, productState.isCreating, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 1 && filteredCategories.length > 0 && !categoryState.selectedItem && !categoryState.isCreating) {
+      selectCategoryInternal(filteredCategories[0]);
+    }
+  }, [filteredCategories, categoryState.selectedItem, categoryState.isCreating, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 2 && filteredBrands.length > 0 && !brandState.selectedItem && !brandState.isCreating) {
+      selectBrandInternal(filteredBrands[0]);
+    }
+  }, [filteredBrands, brandState.selectedItem, brandState.isCreating, activeTab]);
+
   const handleNewBrand = () => {
     brandState.setSelectedItem(null);
     brandState.setFormData(emptyBrandForm);
@@ -593,21 +612,76 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
         isLoading={productsLoading}
         emptyMessage="No products found"
       >
-        {filteredProducts.map((product) => (
-          <SelectableListItem
-            key={product.id}
-            isSelected={productState.selectedItem?.id === product.id}
-            onClick={() => handleSelectProduct(product)}
-            primaryText={product.item_code}
-            secondaryText={product.name}
-            isFavorite={productState.favorites.includes(product.id)}
-            onToggleFavorite={() => productState.toggleFavorite(product.id)}
-            chips={[
-              ...(product.active ? [{ label: "Active", color: "success" as const }] : []),
-              ...(product.website_active ? [{ label: "Web", color: "info" as const }] : []),
-            ]}
-          />
-        ))}
+        {filteredProducts.map((product) => {
+          const isSelected = productState.selectedItem?.id === product.id;
+          return (
+            <SelectableListItem
+              key={product.id}
+              isSelected={isSelected}
+              onClick={() => handleSelectProduct(product)}
+              primaryText={
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                  {/* Item Code */}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>{product.item_code}</span>
+                    {isSelected && (
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Item Code)
+                      </Typography>
+                    )}
+                  </Box>
+                  {/* Additional fields when selected */}
+                  {isSelected && (
+                    <>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Typography component="span" variant="caption">
+                          {product.name}
+                        </Typography>
+                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                          (Name)
+                        </Typography>
+                      </Box>
+                      {product.selling_price && (
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Typography component="span" variant="caption" fontWeight={600} sx={{ color: "inherit" }}>
+                            ${product.selling_price.toFixed(2)}
+                          </Typography>
+                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            (Price)
+                          </Typography>
+                        </Box>
+                      )}
+                      {/* Status Chips - shown below all fields when selected */}
+                      <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                        <Chip
+                          label={product.active ? "Active" : "Inactive"}
+                          size="small"
+                          color={product.active ? "success" : "default"}
+                          sx={{ height: 18, fontSize: "0.65rem" }}
+                        />
+                        {product.website_active && (
+                          <Chip
+                            label="Web"
+                            size="small"
+                            color="info"
+                            sx={{ height: 18, fontSize: "0.65rem" }}
+                          />
+                        )}
+                      </Box>
+                    </>
+                  )}
+                </Box>
+              }
+              secondaryText={!isSelected ? product.name : undefined}
+              isFavorite={productState.favorites.includes(product.id)}
+              onToggleFavorite={() => productState.toggleFavorite(product.id)}
+              chips={!isSelected ? [
+                ...(product.active ? [{ label: "Active", color: "success" as const }] : []),
+                ...(product.website_active ? [{ label: "Web", color: "info" as const }] : []),
+              ] : undefined}
+            />
+          );
+        })}
       </SearchableList>
 
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -648,7 +722,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           saveDisabled={!productState.formData.name || !productState.formData.item_code}
         />
 
-        <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+        <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
           {!productState.selectedItem && !productState.isCreating ? (
             <EmptyState message="Select a product from the list or create a new one" />
           ) : (
@@ -842,18 +916,55 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
         isLoading={categoriesLoading}
         emptyMessage="No categories found"
       >
-        {filteredCategories.map((category) => (
-          <SelectableListItem
-            key={category.id}
-            isSelected={categoryState.selectedItem?.id === category.id}
-            onClick={() => handleSelectCategory(category)}
-            primaryText={category.name}
-            secondaryText={category.category_code}
-            isFavorite={categoryState.favorites.includes(category.id)}
-            onToggleFavorite={() => categoryState.toggleFavorite(category.id)}
-            chips={[{ label: category.active ? "Active" : "Inactive", color: category.active ? "success" : "default" }]}
-          />
-        ))}
+        {filteredCategories.map((category) => {
+          const isSelected = categoryState.selectedItem?.id === category.id;
+          return (
+            <SelectableListItem
+              key={category.id}
+              isSelected={isSelected}
+              onClick={() => handleSelectCategory(category)}
+              primaryText={
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                  {/* Category Name */}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>{category.name}</span>
+                    {isSelected && (
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Name)
+                      </Typography>
+                    )}
+                  </Box>
+                  {/* Additional fields when selected */}
+                  {isSelected && (
+                    <>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Typography component="span" variant="caption">
+                          {category.category_code}
+                        </Typography>
+                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                          (Code)
+                        </Typography>
+                      </Box>
+                      {/* Status Chips - shown below all fields when selected */}
+                      <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                        <Chip
+                          label={category.active ? "Active" : "Inactive"}
+                          size="small"
+                          color={category.active ? "success" : "default"}
+                          sx={{ height: 18, fontSize: "0.65rem" }}
+                        />
+                      </Box>
+                    </>
+                  )}
+                </Box>
+              }
+              secondaryText={!isSelected ? category.category_code : undefined}
+              isFavorite={categoryState.favorites.includes(category.id)}
+              onToggleFavorite={() => categoryState.toggleFavorite(category.id)}
+              chips={!isSelected ? [{ label: category.active ? "Active" : "Inactive", color: category.active ? "success" : "default" }] : undefined}
+            />
+          );
+        })}
       </SearchableList>
 
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -890,7 +1001,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           saveDisabled={!categoryState.formData.name || !categoryState.formData.category_code}
         />
 
-        <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+        <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
           {!categoryState.selectedItem && !categoryState.isCreating ? (
             <EmptyState message="Select a category from the list or create a new one" />
           ) : (
@@ -959,17 +1070,45 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
         isLoading={brandsLoading}
         emptyMessage="No brands found"
       >
-        {filteredBrands.map((brand) => (
-          <SelectableListItem
-            key={brand.id}
-            isSelected={brandState.selectedItem?.id === brand.id}
-            onClick={() => handleSelectBrand(brand)}
-            primaryText={brand.brand_name}
-            secondaryText={brand.brand_code}
-            isFavorite={brandState.favorites.includes(brand.id)}
-            onToggleFavorite={() => brandState.toggleFavorite(brand.id)}
-          />
-        ))}
+        {filteredBrands.map((brand) => {
+          const isSelected = brandState.selectedItem?.id === brand.id;
+          return (
+            <SelectableListItem
+              key={brand.id}
+              isSelected={isSelected}
+              onClick={() => handleSelectBrand(brand)}
+              primaryText={
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                  {/* Brand Name */}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>{brand.brand_name}</span>
+                    {isSelected && (
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Name)
+                      </Typography>
+                    )}
+                  </Box>
+                  {/* Additional fields when selected */}
+                  {isSelected && (
+                    <>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Typography component="span" variant="caption">
+                          {brand.brand_code}
+                        </Typography>
+                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                          (Code)
+                        </Typography>
+                      </Box>
+                    </>
+                  )}
+                </Box>
+              }
+              secondaryText={!isSelected ? brand.brand_code : undefined}
+              isFavorite={brandState.favorites.includes(brand.id)}
+              onToggleFavorite={() => brandState.toggleFavorite(brand.id)}
+            />
+          );
+        })}
       </SearchableList>
 
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -1001,7 +1140,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           saveDisabled={!brandState.formData.brand_name || !brandState.formData.brand_code}
         />
 
-        <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+        <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
           {!brandState.selectedItem && !brandState.isCreating ? (
             <EmptyState message="Select a brand from the list or create a new one" />
           ) : (

@@ -130,6 +130,13 @@ export default function GroupsPage() {
     return filtered;
   }, [groups, searchQuery, sortField]);
 
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredGroups.length > 0 && !selectedGroup && !isCreating) {
+      handleSelectGroup(filteredGroups[0]);
+    }
+  }, [filteredGroups, selectedGroup, isCreating]);
+
   // Group permissions by resource
   const groupedPermissions = useMemo(() => {
     return permissions.reduce((acc, perm) => {
@@ -248,8 +255,33 @@ export default function GroupsPage() {
           id={group.id}
           isSelected={isSelected}
           onClick={() => handleSelectGroup(group)}
-          primaryText={group.name}
-          secondaryText={`${group.permissions.length} permissions`}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Group Name */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{group.name}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Name)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {group.permissions.length} permissions
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Permissions)
+                    </Typography>
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? `${group.permissions.length} permissions` : undefined}
           isFavorite={favorites.includes(group.id)}
           onToggleFavorite={(e) => toggleFavorite(group.id, e)}
         />
@@ -289,7 +321,7 @@ export default function GroupsPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedGroup && !isCreating ? (
           <EmptyState message="Select a role from the list or create a new one" />
         ) : (
