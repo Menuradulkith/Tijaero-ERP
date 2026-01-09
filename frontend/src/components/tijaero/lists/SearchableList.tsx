@@ -87,8 +87,9 @@ export function SearchableList<T extends BaseEntity>({
         borderColor: "divider",
         display: "flex",
         flexDirection: "column",
-        height: isMobile ? "auto" : "calc(100vh - 120px)",
-        maxHeight: isMobile ? 350 : "none",
+        height: "100%",
+        maxHeight: isMobile ? 350 : "100%",
+        overflow: "hidden",
         ...sx,
       }}
     >

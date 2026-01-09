@@ -55,7 +55,7 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
   };
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* Page Header */}
       <Box
         sx={{
@@ -66,6 +66,7 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          flexShrink: 0,
         }}
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -87,7 +88,7 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
 
       {/* Optional Tabs */}
       {tabs && tabs.length > 0 && (
-        <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+        <Box sx={{ borderBottom: 1, borderColor: "divider", flexShrink: 0 }}>
           <Tabs
             value={getTabValue()}
             onChange={handleTabChange}

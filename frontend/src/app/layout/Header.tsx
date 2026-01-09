@@ -25,9 +25,10 @@ import { useThemeStore } from "@/state/themeStore";
 interface HeaderProps {
   onMenuClick: () => void;
   drawerWidth: number;
+  iconNavWidth?: number;
 }
 
-export default function Header({ onMenuClick, drawerWidth }: HeaderProps) {
+export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: HeaderProps) {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const { mode, toggleTheme } = useThemeStore();
@@ -46,12 +47,14 @@ export default function Header({ onMenuClick, drawerWidth }: HeaderProps) {
     navigate("/login");
   };
 
+  const totalLeftOffset = iconNavWidth + drawerWidth;
+
   return (
     <AppBar
       position="fixed"
       sx={{
-        width: { md: `calc(100% - ${drawerWidth}px)` },
-        ml: { md: `${drawerWidth}px` },
+        width: { md: `calc(100% - ${totalLeftOffset}px)` },
+        ml: { md: `${totalLeftOffset}px` },
         bgcolor: "background.paper",
         color: "text.primary",
       }}
