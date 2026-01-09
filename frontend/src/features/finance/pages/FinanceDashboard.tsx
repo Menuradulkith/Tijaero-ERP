@@ -159,7 +159,7 @@ export default function FinanceDashboard() {
                 <Typography color="text.secondary" gutterBottom>
                   Bank Deposits
                 </Typography>
-                <Typography variant="h4">$0.00</Typography>
+                <Typography variant="h4">Rs. 0.00</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -169,7 +169,7 @@ export default function FinanceDashboard() {
                 <Typography color="text.secondary" gutterBottom>
                   Card Payments
                 </Typography>
-                <Typography variant="h4">$0.00</Typography>
+                <Typography variant="h4">Rs. 0.00</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -179,7 +179,7 @@ export default function FinanceDashboard() {
                 <Typography color="text.secondary" gutterBottom>
                   Cheque Payments
                 </Typography>
-                <Typography variant="h4">$0.00</Typography>
+                <Typography variant="h4">Rs. 0.00</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -189,7 +189,7 @@ export default function FinanceDashboard() {
                 <Typography color="text.secondary" gutterBottom>
                   Total Expenses
                 </Typography>
-                <Typography variant="h4">$0.00</Typography>
+                <Typography variant="h4">Rs. 0.00</Typography>
               </CardContent>
             </Card>
           </Grid>

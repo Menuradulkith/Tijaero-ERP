@@ -367,7 +367,7 @@ export default function SaleReturnDialog({
 
           <Box sx={{ mt: 2, textAlign: "right" }}>
             <Typography variant="h6" color="error.main">
-              Total Refund: ${calculateTotal().toFixed(2)}
+              Total Refund: Rs. {calculateTotal().toFixed(2)}
             </Typography>
           </Box>
         </DialogContent>

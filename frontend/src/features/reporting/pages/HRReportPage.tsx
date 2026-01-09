@@ -98,7 +98,7 @@ export default function HRReportPage() {
                   Total Payroll
                 </Typography>
                 <Typography variant="h4" fontWeight="bold">
-                  ${report.total_payroll.toFixed(2)}
+                  Rs. {report.total_payroll.toFixed(2)}
                 </Typography>
               </CardContent>
             </Card>
@@ -110,7 +110,7 @@ export default function HRReportPage() {
                   Reimbursements
                 </Typography>
                 <Typography variant="h4" fontWeight="bold">
-                  ${report.total_reimbursements.toFixed(2)}
+                  Rs. {report.total_reimbursements.toFixed(2)}
                 </Typography>
               </CardContent>
             </Card>
@@ -122,7 +122,7 @@ export default function HRReportPage() {
                   Deductions
                 </Typography>
                 <Typography variant="h4" fontWeight="bold">
-                  ${report.total_deductions.toFixed(2)}
+                  Rs. {report.total_deductions.toFixed(2)}
                 </Typography>
               </CardContent>
             </Card>

@@ -105,10 +105,10 @@ const formatCurrency = (value: unknown): string => {
   if (value === null || value === undefined) return "-";
   const num = Number(value);
   if (isNaN(num)) return "-";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(num);
+  return `Rs. ${new Intl.NumberFormat("en-LK", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num)}`;
 };
 
 export function TLineItemsTable<T = Record<string, unknown>>({

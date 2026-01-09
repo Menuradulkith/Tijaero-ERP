@@ -640,7 +640,7 @@ export default function PurchaseReturnsPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              Number(item.purchasing_price).toFixed(2)
+                              `Rs. ${Number(item.purchasing_price).toFixed(2)}`
                             )}
                           </TableCell>
                           <TableCell align="right">
@@ -654,7 +654,7 @@ export default function PurchaseReturnsPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              Number(item.return_price).toFixed(2)
+                              `Rs. ${Number(item.return_price).toFixed(2)}`
                             )}
                           </TableCell>
                           {(isEditing || isCreating) && (
@@ -672,7 +672,7 @@ export default function PurchaseReturnsPage() {
                         <Typography fontWeight="bold">Total Return:</Typography>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography fontWeight="bold">{calculateTotal().toFixed(2)}</Typography>
+                        <Typography fontWeight="bold">Rs. {calculateTotal().toFixed(2)}</Typography>
                       </TableCell>
                       {(isEditing || isCreating) && <TableCell />}
                     </TableRow>

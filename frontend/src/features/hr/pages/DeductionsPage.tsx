@@ -92,7 +92,7 @@ export default function DeductionsPage() {
       field: "amount",
       headerName: "Amount",
       width: 130,
-      valueFormatter: (value) => `$${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
     },
     { field: "approval_id", headerName: "Approval ID", width: 110 },
     {

@@ -458,43 +458,43 @@ export default function SalesPage() {
           {state.selectedItem && state.selectedItem.cash_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Cash</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.cash_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cash_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.card_visa_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Visa</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.card_visa_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_visa_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.card_mastercard_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Mastercard</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.card_mastercard_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_mastercard_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.card_amex_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Amex</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.card_amex_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_amex_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.cheque_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Cheque</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.cheque_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cheque_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.bank_transfer_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Bank Transfer</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.bank_transfer_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.bank_transfer_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.credit_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Credit</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.credit_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_amount.toFixed(2)}</Typography>
             </Box>
           )}
         </Box>
@@ -503,7 +503,7 @@ export default function SalesPage() {
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="subtitle2" fontWeight={600}>Total Amount</Typography>
             <Typography variant="h6" fontWeight={700} color="success.main">
-              ${state.selectedItem && calculateTotal(state.selectedItem).toFixed(2)}
+              Rs. {state.selectedItem && calculateTotal(state.selectedItem).toFixed(2)}
             </Typography>
           </Box>
         </Box>
@@ -516,19 +516,19 @@ export default function SalesPage() {
           {state.selectedItem.payment_adjustments !== 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Payment Adjustments</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem.cupon_amount !== 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Coupon Amount</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.cupon_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cupon_amount.toFixed(2)}</Typography>
             </Box>
           )}
           {state.selectedItem.credit_note_amount !== 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Credit Note</Typography>
-              <Typography variant="body2" fontWeight={500}>${state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
             </Box>
           )}
         </FormSection>
@@ -650,11 +650,11 @@ export default function SalesPage() {
                       value={item.selling_price}
                       onChange={(e) => updateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)}
                       sx={{ width: 100 }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Typography fontWeight={500}>${(item.quantity * item.selling_price).toFixed(2)}</Typography>
+                    <Typography fontWeight={500}>Rs. {(item.quantity * item.selling_price).toFixed(2)}</Typography>
                   </TableCell>
                   <TableCell align="center">
                     <IconButton size="small" color="error" onClick={() => removeLineItem(index)}>
@@ -669,7 +669,7 @@ export default function SalesPage() {
         <Divider sx={{ my: 2 }} />
         <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
           <Typography variant="h6" fontWeight={700} color="success.main">
-            Total: ${calculateLineItemsTotal().toFixed(2)}
+            Total: Rs. {calculateLineItemsTotal().toFixed(2)}
           </Typography>
         </Box>
       </Paper>
@@ -717,7 +717,7 @@ export default function SalesPage() {
                         fontWeight={600}
                         sx={{ color: isSelected ? "inherit" : "success.main" }}
                       >
-                        ${calculateTotal(invoice).toFixed(2)}
+                        Rs. {calculateTotal(invoice).toFixed(2)}
                       </Typography>
                       {isSelected && (
                         <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>

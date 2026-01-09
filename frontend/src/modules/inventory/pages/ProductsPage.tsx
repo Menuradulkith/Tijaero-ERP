@@ -641,10 +641,10 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                           (Name)
                         </Typography>
                       </Box>
-                      {product.selling_price && (
+                      {product.website_price && (
                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <Typography component="span" variant="caption" fontWeight={600} sx={{ color: "inherit" }}>
-                            ${product.selling_price.toFixed(2)}
+                            Rs. {product.website_price.toFixed(2)}
                           </Typography>
                           <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                             (Price)
@@ -811,7 +811,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   value={productState.formData.cost_price}
                   onChange={(e) => productState.setFormData({ ...productState.formData, cost_price: parseFloat(e.target.value) || 0 })}
                   disabled={!productState.isEditing && !productState.isCreating}
-                  InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                 />
                 <TextField
                   label="Website Price"
@@ -820,7 +820,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   value={productState.formData.website_price}
                   onChange={(e) => productState.setFormData({ ...productState.formData, website_price: parseFloat(e.target.value) || 0 })}
                   disabled={!productState.isEditing && !productState.isCreating}
-                  InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                 />
                 {/* Minimum Price */}
                 {productState.isCreating ? (
@@ -838,7 +838,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                       const parsed = Number(raw);
                       setCreateMinPrice(Number.isFinite(parsed) ? Math.max(0, parsed) : "");
                     }}
-                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                    InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                   />
                 ) : (
                   productState.selectedItem && (
@@ -848,7 +848,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                     </Typography>
                     {currentMinPrice ? (
                       <Chip
-                        label={`$${currentMinPrice.minimum_price.toFixed(2)}`}
+                        label={`Rs. ${currentMinPrice.minimum_price.toFixed(2)}`}
                         color="primary"
                         size="small"
                       />
@@ -1214,7 +1214,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
             value={newMinPrice}
             onChange={(e) => setNewMinPrice(parseFloat(e.target.value) || 0)}
             InputProps={{
-              startAdornment: <InputAdornment position="start">$</InputAdornment>,
+              startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
             }}
             sx={{ mt: 2 }}
           />

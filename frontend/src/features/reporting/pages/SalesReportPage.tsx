@@ -110,7 +110,7 @@ export default function SalesReportPage() {
                     Total Sales
                   </Typography>
                   <Typography variant="h4" fontWeight="bold">
-                    ${report.total_sales.toFixed(2)}
+                    Rs. {report.total_sales.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -146,7 +146,7 @@ export default function SalesReportPage() {
                     Avg Order Value
                   </Typography>
                   <Typography variant="h4" fontWeight="bold">
-                    ${report.average_order_value.toFixed(2)}
+                    Rs. {report.average_order_value.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -174,7 +174,7 @@ export default function SalesReportPage() {
                         {product.quantity_sold}
                       </TableCell>
                       <TableCell align="right">
-                        ${product.revenue.toFixed(2)}
+                        Rs. {product.revenue.toFixed(2)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -202,7 +202,7 @@ export default function SalesReportPage() {
                       <TableCell>{branch.branch_code}</TableCell>
                       <TableCell align="right">{branch.orders}</TableCell>
                       <TableCell align="right">
-                        ${branch.revenue.toFixed(2)}
+                        Rs. {branch.revenue.toFixed(2)}
                       </TableCell>
                     </TableRow>
                   ))}

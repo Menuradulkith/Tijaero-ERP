@@ -58,7 +58,7 @@ export default function InventoryReportPage() {
                   Total Stock Value
                 </Typography>
                 <Typography variant="h4" fontWeight="bold">
-                  ${report.total_stock_value.toFixed(2)}
+                  Rs. {report.total_stock_value.toFixed(2)}
                 </Typography>
               </CardContent>
             </Card>

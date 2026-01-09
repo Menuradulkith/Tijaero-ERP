@@ -83,7 +83,7 @@ export default function BankDepositsPage() {
       field: "deposits_amount",
       headerName: "Amount",
       width: 130,
-      valueFormatter: (value) => `$${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
     },
     { field: "branch_code", headerName: "Branch", width: 120 },
     { field: "bank_name", headerName: "Bank", width: 150 },
