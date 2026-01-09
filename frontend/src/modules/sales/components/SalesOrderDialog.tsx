@@ -400,7 +400,7 @@ export default function SalesOrderDialog({
 
           <Box sx={{ mt: 2, textAlign: "right" }}>
             <Typography variant="h6">
-              Total: ${calculateTotal().toFixed(2)}
+              Total: Rs. {calculateTotal().toFixed(2)}
             </Typography>
           </Box>
         </DialogContent>

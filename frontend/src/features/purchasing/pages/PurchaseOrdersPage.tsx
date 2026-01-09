@@ -889,7 +889,7 @@ export default function PurchaseOrdersPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              Number(item.unit_price).toFixed(2)
+                              `Rs. ${Number(item.unit_price).toFixed(2)}`
                             )}
                           </TableCell>
                           <TableCell>
@@ -932,7 +932,7 @@ export default function PurchaseOrdersPage() {
                             </Box>
                           </TableCell>
                           <TableCell align="right">
-                            {(item.quantity * item.unit_price).toFixed(2)}
+                            Rs. {(item.quantity * item.unit_price).toFixed(2)}
                           </TableCell>
                           {(isEditing || isCreating) && (
                             <TableCell>
@@ -949,7 +949,7 @@ export default function PurchaseOrdersPage() {
                         <Typography fontWeight="bold">Total:</Typography>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography fontWeight="bold">{calculateTotal().toFixed(2)}</Typography>
+                        <Typography fontWeight="bold">Rs. {calculateTotal().toFixed(2)}</Typography>
                       </TableCell>
                       {(isEditing || isCreating) && <TableCell />}
                     </TableRow>

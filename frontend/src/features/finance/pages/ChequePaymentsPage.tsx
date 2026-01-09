@@ -65,7 +65,7 @@ export default function ChequePaymentsPage() {
       field: "amount",
       headerName: "Amount",
       width: 130,
-      valueFormatter: (value) => `$${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
     },
     {
       field: "cheque_date",

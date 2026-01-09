@@ -93,7 +93,7 @@ export default function ReimbursementsPage() {
       field: "reimbursement_amount",
       headerName: "Amount",
       width: 130,
-      valueFormatter: (value) => `$${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
     },
     {
       field: "bill_date",

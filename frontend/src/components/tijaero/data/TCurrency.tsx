@@ -36,8 +36,8 @@ export interface TCurrencyProps extends Omit<TypographyProps, "children"> {
 
 export const TCurrency: React.FC<TCurrencyProps> = ({
   value,
-  currency = "USD",
-  locale = "en-US",
+  currency = "LKR",
+  locale = "en-LK",
   colorCode = false,
   showSign = false,
   minDecimals = 2,

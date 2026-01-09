@@ -3,17 +3,22 @@
  */
 
 /**
- * Format a number as currency with dollar sign and two decimal places
+ * Default currency for the ERP system
+ */
+export const ERP_CURRENCY = "LKR";
+export const ERP_CURRENCY_SYMBOL = "Rs.";
+export const ERP_LOCALE = "en-LK";
+
+/**
+ * Format a number as currency with LKR and two decimal places
  * @param value - The numeric value to format
- * @returns Formatted currency string (e.g., "$12,345.60")
+ * @returns Formatted currency string (e.g., "Rs. 12,345.60")
  */
 export function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+  return `${ERP_CURRENCY_SYMBOL} ${new Intl.NumberFormat(ERP_LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(value)}`;
 }
 
 /**

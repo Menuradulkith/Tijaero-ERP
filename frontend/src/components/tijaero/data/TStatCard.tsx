@@ -79,12 +79,10 @@ const formatNumber = (value: string | number, isCurrency = false): string => {
   if (isNaN(num)) return String(value);
 
   if (isCurrency) {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
+    return `Rs. ${new Intl.NumberFormat("en-LK", {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(num);
+    }).format(num)}`;
   }
 
   // Format with K, M, B suffixes for large numbers

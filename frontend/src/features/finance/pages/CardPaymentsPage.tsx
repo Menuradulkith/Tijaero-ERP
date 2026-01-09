@@ -78,7 +78,7 @@ export default function CardPaymentsPage() {
       field: "amount",
       headerName: "Amount",
       width: 130,
-      valueFormatter: (value) => `$${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
     },
     { field: "ref_number", headerName: "Reference", width: 150 },
     { field: "invoice_no", headerName: "Invoice No", width: 130 },

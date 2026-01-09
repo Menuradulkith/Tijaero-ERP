@@ -98,7 +98,7 @@ export default function FinanceReportPage() {
                     fontWeight="bold"
                     color="success.main"
                   >
-                    ${report.total_income.toFixed(2)}
+                    Rs. {report.total_income.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -110,7 +110,7 @@ export default function FinanceReportPage() {
                     Total Expenses
                   </Typography>
                   <Typography variant="h4" fontWeight="bold" color="error.main">
-                    ${report.total_expenses.toFixed(2)}
+                    Rs. {report.total_expenses.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -128,7 +128,7 @@ export default function FinanceReportPage() {
                       report.net_profit >= 0 ? "success.main" : "error.main"
                     }
                   >
-                    ${report.net_profit.toFixed(2)}
+                    Rs. {report.net_profit.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -140,7 +140,7 @@ export default function FinanceReportPage() {
                     Bank Deposits
                   </Typography>
                   <Typography variant="h4" fontWeight="bold">
-                    ${report.bank_deposits.toFixed(2)}
+                    Rs. {report.bank_deposits.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -164,7 +164,7 @@ export default function FinanceReportPage() {
                     <TableRow key={index}>
                       <TableCell>{expense.category}</TableCell>
                       <TableCell align="right">
-                        ${expense.amount.toFixed(2)}
+                        Rs. {expense.amount.toFixed(2)}
                       </TableCell>
                     </TableRow>
                   ))}

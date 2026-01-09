@@ -156,8 +156,8 @@ export default function SalesDashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Total Revenue"
-            value={`$${stats.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            subtitle={`This month: $${stats.currentMonthRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            value={`Rs. ${stats.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            subtitle={`This month: Rs. ${stats.currentMonthRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             icon={<MoneyIcon />}
             color="success"
             trend={stats.revenueTrend}
@@ -210,7 +210,7 @@ export default function SalesDashboard() {
                       {method.replace(/([A-Z])/g, ' $1').trim()}
                     </Typography>
                     <Typography variant="body2" fontWeight={500}>
-                      ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({percentage.toFixed(1)}%)
+                      Rs. {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({percentage.toFixed(1)}%)
                     </Typography>
                   </Box>
                   <LinearProgress
@@ -271,7 +271,7 @@ export default function SalesDashboard() {
                         {invoice.invoice_no}
                       </Typography>
                       <Typography variant="h6" color="success.main" fontWeight={700}>
-                        ${stats.calculateTotal(invoice).toFixed(2)}
+                        Rs. {stats.calculateTotal(invoice).toFixed(2)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {format(new Date(invoice.created_date), "MMM dd")}

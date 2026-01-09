@@ -12,7 +12,7 @@
  * <TTextField label="Name" value={name} onChange={handleChange} required />
  * <TTextField label="Email" type="email" error="Invalid email" />
  * <TTextField label="Description" multiline rows={4} />
- * <TTextField label="Price" type="number" startAdornment="$" />
+ * <TTextField label="Price" type="number" startAdornment="Rs." />
  * ```
  */
 
