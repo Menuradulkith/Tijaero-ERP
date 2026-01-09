@@ -22,12 +22,18 @@ import {
   Stepper,
   Step,
   StepLabel,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Tooltip,
 } from "@mui/material";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import toast from "react-hot-toast";
 
 import {
@@ -126,12 +132,32 @@ export default function PurchaseOrdersPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
 
+  // Item remarks modal state
+  const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
+  const [selectedItemForRemark, setSelectedItemForRemark] = useState<OrderLineItem | null>(null);
+  const [tempItemRemark, setTempItemRemark] = useState("");
+
+  const handleOpenItemRemarkModal = (item: OrderLineItem) => {
+    setSelectedItemForRemark(item);
+    setTempItemRemark(item.remark || "");
+    setItemRemarkModalOpen(true);
+  };
+
+  const handleSaveItemRemark = () => {
+    if (selectedItemForRemark) {
+      handleUpdateLineItem(selectedItemForRemark._id, "remark", tempItemRemark);
+    }
+    setItemRemarkModalOpen(false);
+    setSelectedItemForRemark(null);
+  };
+
   const {
     searchQuery,
     setSearchQuery,
     sortField,
     setSortField,
     selectedItem: selectedOrder,
+    setSelectedItem: setSelectedOrder,
     isEditing,
     setIsEditing,
     isCreating,
@@ -299,6 +325,34 @@ export default function PurchaseOrdersPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => purchaseOrdersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+      toast.success("Purchase order deleted successfully");
+      setSelectedOrder(null);
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || "Failed to delete purchase order");
+    },
+  });
+
+  const handleDelete = useCallback(() => {
+    if (selectedOrder && selectedOrder.status?.toLowerCase() !== "approved") {
+      if (window.confirm("Are you sure you want to delete this purchase order?")) {
+        deleteMutation.mutate(selectedOrder.id);
+      }
+    } else {
+      toast.error("Cannot delete an approved purchase order");
+    }
+  }, [selectedOrder, deleteMutation]);
+
+  // Check if order can be deleted (not approved)
+  const canDelete = !!(selectedOrder && selectedOrder.status?.toLowerCase() !== "approved");
+
+  // Check if order can be edited (any status, but approved orders will need re-approval)
+  const canEdit = !!selectedOrder;
+
   const handleAddLineItem = () => {
     const newItem: OrderLineItem = {
       _id: `new-${Date.now()}`,
@@ -330,6 +384,9 @@ export default function PurchaseOrdersPage() {
     if (isCreating) {
       createMutation.mutate(dataToSave);
     } else if (selectedOrder) {
+      // If order was approved, reset status to pending for re-approval
+      const wasApproved = selectedOrder.status?.toLowerCase() === "approved";
+      
       // Send full update data
       const updateData: any = {
         purchasing_invoice_no: formData.purchasing_invoice_no,
@@ -341,8 +398,14 @@ export default function PurchaseOrdersPage() {
         credit_date: formData.credit_date,
         first_suppliers_id: formData.first_suppliers_id,
         second_suppliers_id: formData.second_suppliers_id,
-        status: formData.status || selectedOrder.status,
       };
+      
+      // Reset to pending if was approved
+      if (wasApproved) {
+        updateData.status = "pending";
+        toast("Order was previously approved. It will need re-approval after this edit.", { icon: "⚠️" });
+      }
+      
       updateMutation.mutate({ 
         id: selectedOrder.id, 
         data: updateData 
@@ -530,7 +593,9 @@ export default function PurchaseOrdersPage() {
         onDuplicate={handleDuplicate}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredOrders)}
-        onEdit={handleStartEdit}
+        onEdit={canEdit ? handleStartEdit : undefined}
+        onDelete={canDelete ? handleDelete : undefined}
+        canDelete={canDelete}
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -671,30 +736,14 @@ export default function PurchaseOrdersPage() {
                 {selectedOrder && !isCreating && (
                   <>
                     <FormSection title="Order Status" columns={4}>
-                      {isEditing ? (
-                        <TextField
-                          select
-                          label="Status"
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Typography variant="body2" color="text.secondary">Status:</Typography>
+                        <Chip
+                          label={selectedOrder.status}
+                          color={getStatusColor(selectedOrder.status)}
                           size="small"
-                          value={formData.status || selectedOrder.status}
-                          onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                        >
-                          {STATUS_OPTIONS.map((option) => (
-                            <MenuItem key={option.value} value={option.value}>
-                              {option.label}
-                            </MenuItem>
-                          ))}
-                        </TextField>
-                      ) : (
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                          <Typography variant="body2" color="text.secondary">Status:</Typography>
-                          <Chip 
-                            label={selectedOrder.status} 
-                            color={getStatusColor(selectedOrder.status)} 
-                            size="small" 
-                          />
-                        </Box>
-                      )}
+                        />
+                      </Box>
                     </FormSection>
                     <FormSection title="Tracking" columns={2}>
                       <TextField
@@ -857,17 +906,30 @@ export default function PurchaseOrdersPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {(isEditing || isCreating) ? (
-                              <TextField
-                                size="small"
-                                value={item.remark || ""}
-                                onChange={(e) => handleUpdateLineItem(item._id, "remark", e.target.value)}
-                                sx={{ width: 130 }}
-                                placeholder="Remark"
-                              />
-                            ) : (
-                              item.remark || "-"
-                            )}
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                              {(isEditing || isCreating) ? (
+                                <TextField
+                                  size="small"
+                                  value={item.remark || ""}
+                                  onChange={(e) => handleUpdateLineItem(item._id, "remark", e.target.value)}
+                                  sx={{ width: 100 }}
+                                  placeholder="Remark"
+                                />
+                              ) : (
+                                <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {item.remark || "-"}
+                                </Typography>
+                              )}
+                              <Tooltip title="View/Edit Remark">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleOpenItemRemarkModal(item)}
+                                  sx={{ ml: 0.5 }}
+                                >
+                                  <MenuBookIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
                           </TableCell>
                           <TableCell align="right">
                             {(item.quantity * item.unit_price).toFixed(2)}
@@ -912,6 +974,42 @@ export default function PurchaseOrdersPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
+
+      {/* Item Remark Modal */}
+      <Dialog
+        open={itemRemarkModalOpen}
+        onClose={() => setItemRemarkModalOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <MenuBookIcon />
+          Item Remark
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            label="Remark"
+            value={tempItemRemark}
+            onChange={(e) => setTempItemRemark(e.target.value)}
+            disabled={!isEditing && !isCreating}
+            sx={{ mt: 1 }}
+            placeholder="Enter remark for this item..."
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setItemRemarkModalOpen(false)}>
+            {isEditing || isCreating ? "Cancel" : "Close"}
+          </Button>
+          {(isEditing || isCreating) && (
+            <Button variant="contained" onClick={handleSaveItemRemark}>
+              Save
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

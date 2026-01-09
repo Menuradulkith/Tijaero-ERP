@@ -35,6 +35,7 @@ import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
 import CategoryIcon from "@mui/icons-material/Category";
 import SellIcon from "@mui/icons-material/Sell";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/state/authStore";
 import { hasPermission, PERMISSIONS } from "@/auth/permissions";
@@ -44,6 +45,8 @@ interface SidebarProps {
   mobileOpen: boolean;
   onDrawerToggle: () => void;
   isMobile: boolean;
+  iconNavWidth?: number;
+  collapsed?: boolean;
 }
 
 interface SubMenuItem {
@@ -88,6 +91,7 @@ const menuItems: MenuItem[] = [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/purchasing" },
       { text: "Suppliers", icon: <StoreIcon />, path: "/purchasing/suppliers" },
       { text: "Purchase Orders", icon: <ReceiptLongIcon />, path: "/purchasing/orders" },
+      { text: "PO Approvals", icon: <FactCheckIcon />, path: "/purchasing/approvals" },
       { text: "Good Received Notes", icon: <LocalShippingOutlinedIcon />, path: "/purchasing/grn" },
       { text: "Purchase Returns", icon: <AssignmentReturnIcon />, path: "/purchasing/returns" },
       { text: "Credit Settlements", icon: <CreditScoreIcon />, path: "/purchasing/settlements" },
@@ -161,6 +165,8 @@ export default function Sidebar({
   mobileOpen,
   onDrawerToggle,
   isMobile,
+  iconNavWidth = 0,
+  collapsed = false,
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -362,10 +368,23 @@ export default function Sidebar({
     </Box>
   );
 
+  // Don't render on desktop when collapsed
+  if (!isMobile && collapsed) {
+    return null;
+  }
+
   return (
     <Box
       component="nav"
-      sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
+      sx={{
+        width: { md: drawerWidth },
+        flexShrink: { md: 0 },
+        position: "fixed",
+        left: iconNavWidth,
+        top: 0,
+        height: "100vh",
+        zIndex: 1200,
+      }}
     >
       {isMobile ? (
         <Drawer
@@ -377,6 +396,7 @@ export default function Sidebar({
             "& .MuiDrawer-paper": {
               boxSizing: "border-box",
               width: drawerWidth,
+              left: iconNavWidth,
             },
           }}
         >
@@ -389,6 +409,7 @@ export default function Sidebar({
             "& .MuiDrawer-paper": {
               boxSizing: "border-box",
               width: drawerWidth,
+              left: iconNavWidth,
             },
           }}
           open

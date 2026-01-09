@@ -5,6 +5,7 @@ import PurchaseReturnsPage from "./pages/PurchaseReturnsPage.tsx";
 import GoodReceivedNotesPage from "./pages/GoodReceivedNotesPage.tsx";
 import PurchasingDashboard from "./pages/PurchasingDashboard.tsx";
 import CreditSettlementPage from "./pages/CreditSettlementPage.tsx";
+import POApprovalsPage from "./pages/POApprovalsPage.tsx";
 
 export default function PurchasingRoutes() {
   return (
@@ -12,6 +13,7 @@ export default function PurchasingRoutes() {
       <Route index element={<PurchasingDashboard />} />
       <Route path="suppliers" element={<SuppliersPage />} />
       <Route path="orders" element={<PurchaseOrdersPage />} />
+      <Route path="approvals" element={<POApprovalsPage />} />
       <Route path="grn" element={<GoodReceivedNotesPage />} />
       <Route path="returns" element={<PurchaseReturnsPage />} />
       <Route path="settlements" element={<CreditSettlementPage />} />
