@@ -327,7 +327,8 @@ export default function CustomersPage() {
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Customers", href: "#" },
+          { label: "Sales", href: "/sales" },
+          { label: "Customers", href: "/sales/customers" },
           ...(selectedCustomer || isCreating
             ? [{ label: isCreating ? "New Customer" : selectedCustomer?.customer_name || "" }]
             : []),

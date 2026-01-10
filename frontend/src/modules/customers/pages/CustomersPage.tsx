@@ -2,39 +2,39 @@
  * CustomersPage - Refactored to use Tijaero-style reusable components
  */
 
-import { useMemo, useCallback, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  TextField,
-  MenuItem,
-  FormControlLabel,
-  Switch,
-  Typography,
-  Chip,
-} from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
+import {
+    Box,
+    Chip,
+    FormControlLabel,
+    MenuItem,
+    Switch,
+    TextField,
+    Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo } from "react";
 
 // Tijaero Components
 import {
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
-  SortOption,
-  TConfirmDialog,
-  useTConfirmDialog,
-  showSuccessToast,
-  showErrorToast,
+    ActionToolbar,
+    DetailPanelHeader,
+    EmptyState,
+    FormSection,
+    MasterDetailLayout,
+    SearchableList,
+    SelectableListItem,
+    showErrorToast,
+    showSuccessToast,
+    SortOption,
+    TConfirmDialog,
+    useMasterDetailState,
+    useTConfirmDialog,
 } from "@/components/tijaero";
 
+import { usePermission } from "@/auth/permissions";
 import { customersApi } from "../api";
 import { Customer, CustomerCreate } from "../types";
-import { usePermission } from "@/auth/permissions";
 
 // Configuration
 const SORT_OPTIONS: SortOption[] = [
@@ -327,7 +327,8 @@ export default function CustomersPage() {
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Customers", href: "#" },
+          { label: "Sales", href: "/sales" },
+          { label: "Customers", href: "/sales/customers" },
           ...(selectedCustomer || isCreating
             ? [{ label: isCreating ? "New Customer" : selectedCustomer?.customer_name || "" }]
             : []),
