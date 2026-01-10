@@ -24,9 +24,12 @@ class GoodReceivedNote(Base):
     purchasing_order = relationship("PurchasingOrder", back_populates="good_received_notes")
     purchasing_returns = relationship("PurchasingReturn", back_populates="good_received_note")
     credit_settle_transactions = relationship("SupplierCreditsSettleTransaction", back_populates="good_received_note")
+    sales_stock_items = relationship("SalesStock", back_populates="good_received_note")
+    company_asset_items = relationship("CompanyAssets", back_populates="good_received_note")
 
 
 class GoodReceivedItems(Base):
+    """Good Received Items - Basket/staging table where all scanned items first go before distribution"""
     __tablename__ = "good_received_items"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -125,6 +128,8 @@ class PurchasingOrderItems(Base):
     product = relationship("Product", back_populates="purchasing_order_items")
     purchasing_order = relationship("PurchasingOrder", back_populates="items")
     good_received_items = relationship("GoodReceivedItems", back_populates="purchasing_order_item")
+    sales_stock_items = relationship("SalesStock", back_populates="purchasing_order_item")
+    company_asset_items = relationship("CompanyAssets", back_populates="purchasing_order_item")
 
 class PurchasingReturn(Base):
     __tablename__ = "purchasing_return"

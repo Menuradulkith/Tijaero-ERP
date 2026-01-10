@@ -11,6 +11,10 @@ import {
   BrandUpdate,
   MinimumPrice,
   MinimumPriceCreate,
+  SalesStock,
+  SalesStockCreate,
+  CompanyAsset,
+  CompanyAssetCreate,
 } from "./types";
 
 export const productsApi = {
@@ -146,5 +150,101 @@ export const minimumPriceApi = {
 
   delete: async (priceId: number) => {
     await apiClient.delete(`/inventory/minimum-prices/${priceId}`);
+  },
+};
+
+// Sales Stock API - items available for sale from GRN
+export const salesStockApi = {
+  create: async (data: SalesStockCreate) => {
+    const response = await apiClient.post<SalesStock>(
+      "/inventory/sales-stock",
+      data
+    );
+    return response.data;
+  },
+
+  checkBarcodeExists: async (barcode: string): Promise<{ exists: boolean; barcode: string }> => {
+    const response = await apiClient.get<{ exists: boolean; barcode: string }>(
+      `/inventory/sales-stock/check-barcode/${barcode}`
+    );
+    return response.data;
+  },
+
+  getByGRN: async (grnId: number) => {
+    const response = await apiClient.get<SalesStock[]>(
+      `/inventory/sales-stock/grn/${grnId}`
+    );
+    return response.data;
+  },
+
+  getAvailableByBranch: async (branchCode: string) => {
+    const response = await apiClient.get<SalesStock[]>(
+      `/inventory/sales-stock/branch/${branchCode}`
+    );
+    return response.data;
+  },
+
+  getByBarcode: async (barcode: string) => {
+    const response = await apiClient.get<SalesStock>(
+      `/inventory/sales-stock/barcode/${barcode}`
+    );
+    return response.data;
+  },
+
+  updateStatus: async (id: number, status: string) => {
+    const response = await apiClient.patch<SalesStock>(
+      `/inventory/sales-stock/${id}/status`,
+      null,
+      { params: { status } }
+    );
+    return response.data;
+  },
+};
+
+// Company Assets API - Real table for company-owned items
+export const companyAssetsApi = {
+  create: async (data: CompanyAssetCreate) => {
+    const response = await apiClient.post<CompanyAsset>(
+      "/inventory/company-assets",
+      data
+    );
+    return response.data;
+  },
+
+  checkBarcodeExists: async (barcode: string): Promise<{ exists: boolean; barcode: string }> => {
+    const response = await apiClient.get<{ exists: boolean; barcode: string }>(
+      `/inventory/company-assets/check-barcode/${barcode}`
+    );
+    return response.data;
+  },
+
+  getByGRN: async (grnId: number) => {
+    const response = await apiClient.get<CompanyAsset[]>(
+      `/inventory/company-assets/grn/${grnId}`
+    );
+    return response.data;
+  },
+
+  getByBranch: async (branchCode: string) => {
+    const response = await apiClient.get<CompanyAsset[]>(
+      `/inventory/company-assets/branch/${branchCode}`
+    );
+    return response.data;
+  },
+
+  getByBarcode: async (barcode: string) => {
+    const response = await apiClient.get<CompanyAsset>(
+      `/inventory/company-assets/barcode/${barcode}`
+    );
+    return response.data;
+  },
+
+  updateStatus: async (id: number, status: string) => {
+    const response = await apiClient.patch<CompanyAsset>(
+      `/inventory/company-assets/${id}/status`,
+      null,
+      { params: { status } }
+    );
+    return response.data;
   },
 };
