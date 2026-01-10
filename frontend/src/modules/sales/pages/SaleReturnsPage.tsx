@@ -1,29 +1,33 @@
-import { useState, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { usePermission } from "@/auth/permissions";
 import {
-  Box,
-  Typography,
-  Chip,
-} from "@mui/material";
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  SortOption,
+  useMasterDetailState,
+} from "@/components/tijaero";
+import { branchApi } from "@/modules/branches/api";
+import { customersApi } from "@/modules/customers/api";
 import {
   AssignmentReturn as ReturnIcon,
 } from "@mui/icons-material";
 import {
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
-  SortOption,
-} from "@/components/tijaero";
-import { saleReturnsApi, salesApi } from "../api";
-import { SaleReturn } from "../types";
-import { usePermission } from "@/auth/permissions";
+  Autocomplete,
+  Box,
+  Chip,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { useEffect, useMemo, useState } from "react";
+import { saleReturnsApi, salesApi } from "../api";
 import SaleReturnDialog from "../components/SaleReturnDialog";
+import { SaleReturn } from "../types";
 
 // Sort options
 const sortOptions: SortOption[] = [
@@ -33,6 +37,8 @@ const sortOptions: SortOption[] = [
 
 export default function SaleReturnsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterCustomer, setFilterCustomer] = useState<number | null>(null);
 
   // Permissions
   const canCreate = usePermission("sales", "create");
@@ -54,6 +60,17 @@ export default function SaleReturnsPage() {
     queryFn: () => salesApi.getAll(),
   });
 
+  const { data: branchesData } = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => branchApi.getAll(1, 100),
+  });
+  const branches = branchesData?.items || [];
+
+  const { data: customers } = useQuery({
+    queryKey: ["customers"],
+    queryFn: () => customersApi.getAll(),
+  });
+
   // Filter and sort
   const filteredReturns = useMemo(() => {
     if (!saleReturns) return [];
@@ -64,6 +81,19 @@ export default function SaleReturnsPage() {
         ret.branch_code.toLowerCase().includes(state.searchQuery.toLowerCase())
     );
 
+    // Apply branch filter
+    if (filterBranch) {
+      filtered = filtered.filter((ret) => ret.branch_code === filterBranch);
+    }
+
+    // Apply customer filter (via invoice)
+    if (filterCustomer && invoices) {
+      const customerInvoiceIds = invoices
+        .filter((inv) => inv.customer_id === filterCustomer)
+        .map((inv) => inv.id);
+      filtered = filtered.filter((ret) => customerInvoiceIds.includes(ret.invoice_id));
+    }
+
     filtered.sort((a, b) => {
       if (state.sortField === "sale_return_no") {
         return a.sale_return_no.localeCompare(b.sale_return_no);
@@ -72,7 +102,7 @@ export default function SaleReturnsPage() {
     });
 
     return filtered;
-  }, [saleReturns, state.searchQuery, state.sortField]);
+  }, [saleReturns, state.searchQuery, state.sortField, filterBranch, filterCustomer, invoices]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -181,6 +211,31 @@ export default function SaleReturnsPage() {
             onSortChange={state.setSortField}
             isLoading={isLoading}
             emptyMessage="No sale returns found"
+            listHeader={
+              <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
+                <Autocomplete
+                  size="small"
+                  options={branches}
+                  getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+                  value={branches.find(b => b.branch_code === filterBranch) || null}
+                  onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
+                  renderInput={(params) => (
+                    <TextField {...params} placeholder="Filter by Branch" size="small" />
+                  )}
+                  sx={{ mb: 1 }}
+                />
+                <Autocomplete
+                  size="small"
+                  options={customers || []}
+                  getOptionLabel={(option) => option.customer_name}
+                  value={customers?.find((c) => c.id === filterCustomer) || null}
+                  onChange={(_, newValue) => setFilterCustomer(newValue?.id || null)}
+                  renderInput={(params) => (
+                    <TextField {...params} placeholder="Filter by Customer" size="small" />
+                  )}
+                />
+              </Box>
+            }
           >
             {filteredReturns.map((returnItem) => {
               const isSelected = state.selectedItem?.id === returnItem.id;

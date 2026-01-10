@@ -1,23 +1,24 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useMutation } from "@tanstack/react-query";
-import {
-  Box,
-  Card,
-  TextField,
-  Button,
-  Typography,
-  InputAdornment,
-  IconButton,
-} from "@mui/material";
+import { useAuthStore } from "@/state/authStore";
+import { formatErrorMessage } from "@/utils/errorHandling";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
-import PersonIcon from "@mui/icons-material/Person";
 import LockIcon from "@mui/icons-material/Lock";
+import PersonIcon from "@mui/icons-material/Person";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
-import { useAuthStore } from "@/state/authStore";
-import { authApi } from "../api";
+import {
+  Box,
+  Button,
+  Card,
+  IconButton,
+  InputAdornment,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { useMutation } from "@tanstack/react-query";
+import { useState } from "react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
+import { authApi } from "../api";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -43,7 +44,7 @@ export default function LoginPage() {
       }
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Login failed");
+      toast.error(formatErrorMessage(error) || "Login failed");
     },
   });
 

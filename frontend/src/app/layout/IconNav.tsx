@@ -1,22 +1,22 @@
-import { useState, useRef, useMemo } from "react";
-import {
-  Box,
-  IconButton,
-  Tooltip,
-  Popper,
-  Paper,
-  TextField,
-  List,
-  ListItemButton,
-  ListItemText,
-  ClickAwayListener,
-  InputAdornment,
-  Typography,
-} from "@mui/material";
 import HomeIcon from "@mui/icons-material/Home";
 import MenuIcon from "@mui/icons-material/Menu";
 import MenuOpenIcon from "@mui/icons-material/MenuOpen";
 import SearchIcon from "@mui/icons-material/Search";
+import {
+    Box,
+    ClickAwayListener,
+    IconButton,
+    InputAdornment,
+    List,
+    ListItemButton,
+    ListItemText,
+    Paper,
+    Popper,
+    TextField,
+    Tooltip,
+    Typography,
+} from "@mui/material";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 interface IconNavProps {
@@ -28,7 +28,7 @@ interface IconNavProps {
 // All searchable pages in the app
 const allPages = [
   { text: "Dashboard", path: "/dashboard", keywords: ["home", "main", "overview"] },
-  { text: "Customers", path: "/customers", keywords: ["clients", "people"] },
+  { text: "Customers", path: "/sales/customers", keywords: ["clients", "people"] },
   { text: "Sales Dashboard", path: "/sales/dashboard", keywords: ["revenue", "orders"] },
   { text: "Sales Orders", path: "/sales/orders", keywords: ["invoices", "transactions"] },
   { text: "Sales Returns", path: "/sales/returns", keywords: ["refunds"] },

@@ -1,8 +1,6 @@
-import { Routes, Route, Navigate } from "react-router-dom";
 import { Box } from "@mui/material";
+import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "./app/layout/MainLayout";
-import LoginPage from "./auth/pages/LoginPage";
-import ProtectedRoute from "./auth/components/ProtectedRoute";
 import DashboardPage from "./app/pages/DashboardPage";
 import CustomersRoutes from "./modules/customers/routes";
 import SalesRoutes from "./modules/sales/routes";
@@ -13,9 +11,19 @@ import HRRoutes from "./modules/hr/routes";
 import WarehouseRoutes from "./modules/warehouse/routes";
 import SupportRoutes from "./modules/support/routes";
 import ReportingRoutes from "./modules/reporting/routes";
+import ProtectedRoute from "./auth/components/ProtectedRoute";
+import LoginPage from "./auth/pages/LoginPage";
 import BranchesRoutes from "./modules/branches/routes";
-import UsersPage from "./modules/users/pages/UsersPage";
+import FinanceRoutes from "./modules/finance/routes";
 import GroupsPage from "./modules/groups/pages/GroupsPage";
+import HRRoutes from "./modules/hr/routes";
+import InventoryRoutes from "./modules/inventory/routes";
+import PurchasingRoutes from "./modules/purchasing/routes";
+import ReportingRoutes from "./modules/reporting/routes";
+import SalesRoutes from "./modules/sales/routes";
+import SupportRoutes from "./modules/support/routes";
+import UsersPage from "./modules/users/pages/UsersPage";
+import WarehouseRoutes from "./modules/warehouse/routes";
 
 function App() {
   return (
@@ -40,7 +48,6 @@ function App() {
         >
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/customers/*" element={<CustomersRoutes />} />
           <Route path="/sales/*" element={<SalesRoutes />} />
           <Route path="/inventory/*" element={<InventoryRoutes />} />
           <Route path="/purchasing/*" element={<PurchasingRoutes />} />

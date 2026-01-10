@@ -4,37 +4,37 @@
 
 import PersonIcon from "@mui/icons-material/Person";
 import {
-    Box,
-    Chip,
-    FormControlLabel,
-    MenuItem,
-    Switch,
-    TextField,
-    Typography,
+  Box,
+  Chip,
+  FormControlLabel,
+  MenuItem,
+  Switch,
+  TextField,
+  Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo } from "react";
 
 // Tijaero Components
 import {
-    ActionToolbar,
-    DetailPanelHeader,
-    EmptyState,
-    FormSection,
-    MasterDetailLayout,
-    SearchableList,
-    SelectableListItem,
-    showErrorToast,
-    showSuccessToast,
-    SortOption,
-    TConfirmDialog,
-    useMasterDetailState,
-    useTConfirmDialog,
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  showErrorToast,
+  showSuccessToast,
+  SortOption,
+  TConfirmDialog,
+  useMasterDetailState,
+  useTConfirmDialog,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
-import { customersApi } from "../api";
-import { Customer, CustomerCreate } from "../types";
+import { customersApi } from "@/modules/customers/api";
+import { Customer, CustomerCreate } from "@/modules/customers/types";
 
 // Configuration
 const SORT_OPTIONS: SortOption[] = [
@@ -134,7 +134,7 @@ export default function CustomersPage() {
   const filteredCustomers = useMemo(() => {
     if (!customers) return [];
 
-    let filtered = customers.filter(
+    const filtered = customers.filter(
       (customer) =>
         customer.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         customer.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||

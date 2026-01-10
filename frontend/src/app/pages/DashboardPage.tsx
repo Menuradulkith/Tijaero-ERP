@@ -1,46 +1,42 @@
-import { useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { ToggleButtonGroup, ToggleButton, Tooltip } from "@mui/material";
+import ErrorDisplay from "@/components/ErrorDisplay";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
-import {
-  Grid,
-  Card,
-  CardContent,
-  Typography,
-  Box,
-  LinearProgress,
-  Skeleton,
-  Paper,
-} from "@mui/material";
-import PeopleIcon from "@mui/icons-material/People";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
-import InventoryIcon from "@mui/icons-material/Inventory";
-import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import IconButton from "@mui/material/IconButton";
-import CircularProgress from "@mui/material/CircularProgress";
+    TEmptyState,
+    TIconButton,
+    TLoading,
+    TLoadingSkeleton,
+    TPageHeader,
+    TSection,
+    TStatCard,
+} from "@/components/tijaero";
 import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
-import {
-  formatCurrency,
-  formatRelativeTime,
-} from "@/utils/formatters";
 import { calculatePercentageChange } from "@/utils/calculations";
 import {
-  storePreviousMetrics,
-  getPreviousMetrics,
-  shouldUpdateStoredMetrics,
+    formatCurrency,
+    formatRelativeTime,
+} from "@/utils/formatters";
+import {
+    getPreviousMetrics,
+    shouldUpdateStoredMetrics,
+    storePreviousMetrics,
 } from "@/utils/trendStorage";
-import { TStatCard } from "@/components/tijaero";
-import ErrorDisplay from "@/components/ErrorDisplay";
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
+import InventoryIcon from "@mui/icons-material/Inventory";
+import PeopleIcon from "@mui/icons-material/People";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import { Box, Card, Grid, LinearProgress, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+    CartesianGrid,
+    Legend,
+    Line,
+    LineChart,
+    Tooltip as RechartsTooltip,
+    ResponsiveContainer,
+    XAxis,
+    YAxis,
+} from "recharts";
 
 interface ActivityItem {
   title: string;
@@ -142,87 +138,64 @@ export default function DashboardPage() {
   // Show error state
   if (error && !loading) {
     return (
-      <Box>
-        <Typography
-          variant="h4"
-          gutterBottom
-          sx={{
-            mb: 3,
-            fontSize: { xs: "1.5rem", sm: "2rem", md: "2.125rem" },
-          }}
-        >
-          Dashboard
-        </Typography>
+      <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
+        <TPageHeader
+          title="Dashboard"
+          subtitle="Overview of your business performance and metrics"
+        />
         <ErrorDisplay error={error} onRetry={refresh} />
       </Box>
     );
   }
 
   return (
-    <Box>
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          mb: 2,
-          flexWrap: "wrap",
-          gap: 1,
-        }}
-      >
-        <Typography
-          variant="h5"
-          fontWeight={600}
-          sx={{
-            fontSize: { xs: "1.25rem", sm: "1.5rem" },
-          }}
-        >
-          Dashboard
-        </Typography>
+    <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
+      <TPageHeader
+        title="Dashboard"
+        subtitle="Overview of your business performance and metrics"
+        actions={
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+            {/* Time Period Filter */}
+            <ToggleButtonGroup
+              value={timePeriod}
+              exclusive
+              onChange={(_, newValue) => {
+                if (newValue) setTimePeriod(newValue);
+              }}
+              size="small"
+              aria-label="time period"
+            >
+              <ToggleButton value="today" aria-label="today" sx={{ px: 1.5, py: 0.5 }}>
+                Today
+              </ToggleButton>
+              <ToggleButton value="week" aria-label="week" sx={{ px: 1.5, py: 0.5 }}>
+                Week
+              </ToggleButton>
+              <ToggleButton value="month" aria-label="month" sx={{ px: 1.5, py: 0.5 }}>
+                Month
+              </ToggleButton>
+              <ToggleButton value="year" aria-label="year" sx={{ px: 1.5, py: 0.5 }}>
+                Year
+              </ToggleButton>
+            </ToggleButtonGroup>
 
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-          {/* Time Period Filter */}
-          <ToggleButtonGroup
-            value={timePeriod}
-            exclusive
-            onChange={(_, newValue) => {
-              if (newValue) setTimePeriod(newValue);
-            }}
-            size="small"
-            aria-label="time period"
-          >
-            <ToggleButton value="today" aria-label="today" sx={{ px: 1.5, py: 0.5 }}>
-              Today
-            </ToggleButton>
-            <ToggleButton value="week" aria-label="week" sx={{ px: 1.5, py: 0.5 }}>
-              Week
-            </ToggleButton>
-            <ToggleButton value="month" aria-label="month" sx={{ px: 1.5, py: 0.5 }}>
-              Month
-            </ToggleButton>
-            <ToggleButton value="year" aria-label="year" sx={{ px: 1.5, py: 0.5 }}>
-              Year
-            </ToggleButton>
-          </ToggleButtonGroup>
-
-          {/* Refresh Button */}
-          <Tooltip title="Refresh dashboard">
-            <IconButton
+            {/* Refresh Button */}
+            <TIconButton
               onClick={handleRefresh}
               disabled={isRefreshing || loading}
               color="primary"
-              aria-label="refresh dashboard"
+              tooltip="Refresh dashboard"
               size="small"
             >
-              {isRefreshing ? <CircularProgress size={24} /> : <RefreshIcon />}
-            </IconButton>
-          </Tooltip>
-        </Box>
-      </Box>
+              {isRefreshing ? <TLoading size="small" /> : <RefreshIcon />}
+            </TIconButton>
+          </Box>
+        }
+      />
 
-      <Grid container spacing={2}>
-        {/* Stat Cards */}
-        <Grid item xs={12} sm={6} lg={3}>
+      {/* Stats Row */}
+      <Grid container spacing={3} mb={4}>
+        <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Total Customers"
             value={metrics?.total_customers || 0}
@@ -230,11 +203,11 @@ export default function DashboardPage() {
             icon={<PeopleIcon />}
             color="primary"
             loading={loading}
-            onClick={() => navigate("/customers")}
+            onClick={() => navigate("/sales/customers")}
             tooltip="Click to view all customers"
           />
         </Grid>
-        <Grid item xs={12} sm={6} lg={3}>
+        <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Sales This Month"
             value={metrics?.total_sales_month || 0}
@@ -247,7 +220,7 @@ export default function DashboardPage() {
             tooltip="Click to view sales"
           />
         </Grid>
-        <Grid item xs={12} sm={6} lg={3}>
+        <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Inventory Items"
             value={metrics?.total_products || 0}
@@ -260,7 +233,7 @@ export default function DashboardPage() {
             badge={metrics && metrics.low_stock_items > 0 ? metrics.low_stock_items : undefined}
           />
         </Grid>
-        <Grid item xs={12} sm={6} lg={3}>
+        <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Revenue"
             value={metrics?.total_sales_month || 0}
@@ -273,32 +246,29 @@ export default function DashboardPage() {
             tooltip="Click to view finance"
           />
         </Grid>
+      </Grid>
 
+      {/* Charts Row */}
+      <Grid container spacing={3}>
         {/* Sales Trend Chart */}
         <Grid item xs={12} lg={8}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Sales Trend
-              </Typography>
-              {loading ? (
-                <Box sx={{ mt: 3 }}>
-                  <Skeleton variant="rectangular" height={300} />
-                </Box>
-              ) : (
-                <Box sx={{ mt: 3, height: 300 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={[
-                        {
-                          name: "Week 1",
-                          sales: metrics?.total_sales_month
-                            ? metrics.total_sales_month * 0.2
-                            : 0,
-                          orders: metrics?.total_orders_month
-                            ? Math.floor(metrics.total_orders_month * 0.2)
-                            : 0,
-                        },
+          <TSection title="Sales Trend" paper>
+            {loading ? (
+              <TLoadingSkeleton type="card" />
+            ) : (
+              <Box sx={{ height: 300 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={[
+                      {
+                        name: "Week 1",
+                        sales: metrics?.total_sales_month
+                          ? metrics.total_sales_month * 0.2
+                          : 0,
+                        orders: metrics?.total_orders_month
+                          ? Math.floor(metrics.total_orders_month * 0.2)
+                          : 0,
+                      },
                         {
                           name: "Week 2",
                           sales: metrics?.total_sales_month
@@ -362,306 +332,272 @@ export default function DashboardPage() {
                   </ResponsiveContainer>
                 </Box>
               )}
-            </CardContent>
-          </Card>
+          </TSection>
         </Grid>
 
         {/* Performance Metrics */}
         <Grid item xs={12} lg={4}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Performance Metrics
-              </Typography>
-              {loading ? (
-                <Box sx={{ mt: 3 }}>
-                  <Skeleton variant="rectangular" height={60} sx={{ mb: 3 }} />
-                  <Skeleton variant="rectangular" height={60} sx={{ mb: 3 }} />
-                  <Skeleton variant="rectangular" height={60} />
-                </Box>
-              ) : (
-                <Box sx={{ mt: 3 }}>
-                  {/* Sales Today */}
-                  <Box sx={{ mb: 3 }}>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        mb: 1,
-                      }}
-                    >
-                      <Typography variant="body2">Today's Sales</Typography>
-                      <Typography variant="body2" fontWeight={600}>
-                        {formatCurrency(metrics?.total_sales_today || 0)}
-                      </Typography>
-                    </Box>
-                    <LinearProgress
-                      variant="determinate"
-                      value={
-                        metrics?.total_sales_month
-                          ? Math.min(
-                              (metrics.total_sales_today /
-                                metrics.total_sales_month) *
-                                100,
-                              100
-                            )
-                          : 0
-                      }
-                      sx={{ height: 8, borderRadius: 1 }}
-                    />
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ mt: 0.5, display: "block" }}
-                    >
-                      {metrics?.total_sales_month
-                        ? `${(
+          <TSection title="Performance Metrics" paper>
+            {loading ? (
+              <TLoadingSkeleton type="list" count={3} />
+            ) : (
+              <Box>
+                {/* Sales Today */}
+                <Box sx={{ mb: 3 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      mb: 1,
+                    }}
+                  >
+                    <Typography variant="body2">Today's Sales</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {formatCurrency(metrics?.total_sales_today || 0)}
+                    </Typography>
+                  </Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={
+                      metrics?.total_sales_month
+                        ? Math.min(
                             (metrics.total_sales_today /
                               metrics.total_sales_month) *
+                              100,
                             100
-                          ).toFixed(1)}% of monthly sales`
-                        : "No data"}
+                          )
+                        : 0
+                    }
+                    sx={{ height: 8, borderRadius: 1 }}
+                  />
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: 0.5, display: "block" }}
+                  >
+                    {metrics?.total_sales_month
+                      ? `${(
+                          (metrics.total_sales_today /
+                            metrics.total_sales_month) *
+                          100
+                        ).toFixed(1)}% of monthly sales`
+                      : "No data"}
+                  </Typography>
+                </Box>
+
+                {/* Orders Today */}
+                <Box sx={{ mb: 3 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      mb: 1,
+                    }}
+                  >
+                    <Typography variant="body2">Orders Today</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {metrics?.total_orders_today || 0}
                     </Typography>
                   </Box>
-
-                  {/* Orders Today */}
-                  <Box sx={{ mb: 3 }}>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        mb: 1,
-                      }}
-                    >
-                      <Typography variant="body2">Orders Today</Typography>
-                      <Typography variant="body2" fontWeight={600}>
-                        {metrics?.total_orders_today || 0}
-                      </Typography>
-                    </Box>
-                    <LinearProgress
-                      variant="determinate"
-                      value={
-                        metrics?.total_orders_month
-                          ? Math.min(
-                              (metrics.total_orders_today /
-                                metrics.total_orders_month) *
-                                100,
-                              100
-                            )
-                          : 0
-                      }
-                      sx={{ height: 8, borderRadius: 1 }}
-                      color="success"
-                    />
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ mt: 0.5, display: "block" }}
-                    >
-                      {metrics?.total_orders_month
-                        ? `${(
+                  <LinearProgress
+                    variant="determinate"
+                    value={
+                      metrics?.total_orders_month
+                        ? Math.min(
                             (metrics.total_orders_today /
                               metrics.total_orders_month) *
+                              100,
                             100
-                          ).toFixed(1)}% of monthly orders`
-                        : "No data"}
-                    </Typography>
-                  </Box>
-
-                  {/* Support Tickets */}
-                  <Box>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        mb: 1,
-                      }}
-                    >
-                      <Typography variant="body2">
-                        Open Support Tickets
-                      </Typography>
-                      <Typography variant="body2" fontWeight={600}>
-                        {metrics?.open_support_tickets || 0}
-                      </Typography>
-                    </Box>
-                    <LinearProgress
-                      variant="determinate"
-                      value={
-                        metrics?.open_support_tickets
-                          ? Math.min(metrics.open_support_tickets * 10, 100)
-                          : 0
-                      }
-                      sx={{ height: 8, borderRadius: 1 }}
-                      color={
-                        (metrics?.open_support_tickets || 0) > 5
-                          ? "warning"
-                          : "info"
-                      }
-                    />
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ mt: 0.5, display: "block" }}
-                    >
-                      {(metrics?.open_support_tickets || 0) > 5
-                        ? "High ticket volume"
-                        : "Normal ticket volume"}
-                    </Typography>
-                  </Box>
+                          )
+                        : 0
+                    }
+                    sx={{ height: 8, borderRadius: 1 }}
+                    color="success"
+                  />
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: 0.5, display: "block" }}
+                  >
+                    {metrics?.total_orders_month
+                      ? `${(
+                          (metrics.total_orders_today /
+                            metrics.total_orders_month) *
+                          100
+                        ).toFixed(1)}% of monthly orders`
+                      : "No data"}
+                  </Typography>
                 </Box>
-              )}
-            </CardContent>
-          </Card>
+
+                {/* Support Tickets */}
+                <Box>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      mb: 1,
+                    }}
+                  >
+                    <Typography variant="body2">
+                      Open Support Tickets
+                    </Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {metrics?.open_support_tickets || 0}
+                    </Typography>
+                  </Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={
+                      metrics?.open_support_tickets
+                        ? Math.min(metrics.open_support_tickets * 10, 100)
+                        : 0
+                    }
+                    sx={{ height: 8, borderRadius: 1 }}
+                    color={
+                      (metrics?.open_support_tickets || 0) > 5
+                        ? "warning"
+                        : "info"
+                    }
+                  />
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: 0.5, display: "block" }}
+                  >
+                    {(metrics?.open_support_tickets || 0) > 5
+                      ? "High ticket volume"
+                      : "Normal ticket volume"}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+          </TSection>
         </Grid>
 
         {/* Recent Activities */}
         <Grid item xs={12} lg={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Recent Activities
-              </Typography>
-              <Box sx={{ mt: 2 }}>
-                {loading ? (
-                  <Box>
-                    <Skeleton variant="text" width="100%" height={40} />
-                    <Skeleton variant="text" width="100%" height={40} />
-                    <Skeleton variant="text" width="100%" height={40} />
-                  </Box>
-                ) : metrics?.recent_activities &&
-                  metrics.recent_activities.length > 0 ? (
-                  metrics.recent_activities
-                    .slice(0, 5)
-                    .map((activity, index) => (
-                      <Box
-                        key={index}
-                        sx={{
-                          py: 1.5,
-                          borderBottom:
-                            index <
-                            Math.min(metrics.recent_activities.length, 5) - 1
-                              ? 1
-                              : 0,
-                          borderColor: "divider",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1,
-                        }}
-                      >
-                        <Box sx={{ color: "text.secondary" }}>
-                          {getActivityIcon(activity.type)}
-                        </Box>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="body2" fontWeight={500}>
-                            {activity.title}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {formatRelativeTime(activity.time)}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    ))
-                ) : (
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    textAlign="center"
+          <TSection title="Recent Activities" paper>
+            {loading ? (
+              <TLoadingSkeleton type="list" count={3} />
+            ) : metrics?.recent_activities &&
+              metrics.recent_activities.length > 0 ? (
+              metrics.recent_activities
+                .slice(0, 5)
+                .map((activity, index) => (
+                  <Box
+                    key={index}
+                    sx={{
+                      py: 1.5,
+                      borderBottom:
+                        index <
+                        Math.min(metrics.recent_activities.length, 5) - 1
+                          ? 1
+                          : 0,
+                      borderColor: "divider",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                    }}
                   >
-                    No recent activities
-                  </Typography>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Quick Actions */}
-        <Grid item xs={12}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Quick Actions
-            </Typography>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12} sm={6} md={3}>
-                <Box
-                  onClick={() => navigate("/customers?action=new")}
-                  sx={{
-                    p: 2,
-                    border: 1,
-                    borderColor: "divider",
-                    borderRadius: 1,
-                    textAlign: "center",
-                    cursor: "pointer",
-                    "&:hover": { bgcolor: "action.hover" },
-                  }}
-                >
-                  <PeopleIcon
-                    sx={{ fontSize: 40, color: "primary.main", mb: 1 }}
-                  />
-                  <Typography variant="body2">Add Customer</Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Box
-                  onClick={() => navigate("/sales?action=new")}
-                  sx={{
-                    p: 2,
-                    border: 1,
-                    borderColor: "divider",
-                    borderRadius: 1,
-                    textAlign: "center",
-                    cursor: "pointer",
-                    "&:hover": { bgcolor: "action.hover" },
-                  }}
-                >
-                  <ShoppingCartIcon
-                    sx={{ fontSize: 40, color: "success.main", mb: 1 }}
-                  />
-                  <Typography variant="body2">Create Sale Order</Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Box
-                  onClick={() => navigate("/inventory?action=new")}
-                  sx={{
-                    p: 2,
-                    border: 1,
-                    borderColor: "divider",
-                    borderRadius: 1,
-                    textAlign: "center",
-                    cursor: "pointer",
-                    "&:hover": { bgcolor: "action.hover" },
-                  }}
-                >
-                  <InventoryIcon
-                    sx={{ fontSize: 40, color: "warning.main", mb: 1 }}
-                  />
-                  <Typography variant="body2">Add Product</Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Box
-                  onClick={() => navigate("/finance")}
-                  sx={{
-                    p: 2,
-                    border: 1,
-                    borderColor: "divider",
-                    borderRadius: 1,
-                    textAlign: "center",
-                    cursor: "pointer",
-                    "&:hover": { bgcolor: "action.hover" },
-                  }}
-                >
-                  <AccountBalanceWalletIcon
-                    sx={{ fontSize: 40, color: "info.main", mb: 1 }}
-                  />
-                  <Typography variant="body2">Record Payment</Typography>
-                </Box>
-              </Grid>
-            </Grid>
-          </Paper>
+                    <Box sx={{ color: "text.secondary" }}>
+                      {getActivityIcon(activity.type)}
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body2" fontWeight={500}>
+                        {activity.title}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatRelativeTime(activity.time)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))
+            ) : (
+              <TEmptyState
+                title="No recent activities"
+                message="Activities will appear here as you use the system"
+                size="small"
+              />
+            )}
+          </TSection>
         </Grid>
       </Grid>
+
+      {/* Quick Actions */}
+      <Box mt={4}>
+        <TSection title="Quick Actions" marginBottom={0}>
+          <Grid container spacing={2}>
+            <Grid item xs={6} sm={3}>
+              <Card
+                sx={{
+                  cursor: "pointer",
+                  textAlign: "center",
+                  p: 2,
+                  transition: "all 0.2s",
+                  "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+                }}
+                onClick={() => navigate("/sales/customers?action=new")}
+              >
+                <PeopleIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
+                <Typography variant="body2" fontWeight="500">
+                  Add Customer
+                </Typography>
+              </Card>
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <Card
+                sx={{
+                  cursor: "pointer",
+                  textAlign: "center",
+                  p: 2,
+                  transition: "all 0.2s",
+                  "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+                }}
+                onClick={() => navigate("/sales?action=new")}
+              >
+                <ShoppingCartIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
+                <Typography variant="body2" fontWeight="500">
+                  Create Sale Order
+                </Typography>
+              </Card>
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <Card
+                sx={{
+                  cursor: "pointer",
+                  textAlign: "center",
+                  p: 2,
+                  transition: "all 0.2s",
+                  "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+                }}
+                onClick={() => navigate("/inventory?action=new")}
+              >
+                <InventoryIcon color="warning" sx={{ fontSize: 40, mb: 1 }} />
+                <Typography variant="body2" fontWeight="500">
+                  Add Product
+                </Typography>
+              </Card>
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <Card
+                sx={{
+                  cursor: "pointer",
+                  textAlign: "center",
+                  p: 2,
+                  transition: "all 0.2s",
+                  "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+                }}
+                onClick={() => navigate("/finance")}
+              >
+                <AccountBalanceWalletIcon color="info" sx={{ fontSize: 40, mb: 1 }} />
+                <Typography variant="body2" fontWeight="500">
+                  Record Payment
+                </Typography>
+              </Card>
+            </Grid>
+          </Grid>
+        </TSection>
+      </Box>
     </Box>
   );
 }

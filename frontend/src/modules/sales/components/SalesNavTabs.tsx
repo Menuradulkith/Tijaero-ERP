@@ -1,10 +1,11 @@
-import { Box, Tabs, Tab } from "@mui/material";
 import {
-  Receipt as OrdersIcon,
-  AssignmentReturn as ReturnsIcon,
-  Dashboard as DashboardIcon,
+    People as CustomersIcon,
+    Dashboard as DashboardIcon,
+    Receipt as OrdersIcon,
+    AssignmentReturn as ReturnsIcon,
 } from "@mui/icons-material";
-import { useNavigate, useLocation } from "react-router-dom";
+import { Box, Tab, Tabs } from "@mui/material";
+import { useLocation, useNavigate } from "react-router-dom";
 
 interface SalesNavTabsProps {
   value?: string;
@@ -13,6 +14,7 @@ interface SalesNavTabsProps {
 const salesTabs = [
   { value: "/sales", label: "Orders", icon: <OrdersIcon />, path: "/sales" },
   { value: "/sales/returns", label: "Returns", icon: <ReturnsIcon />, path: "/sales/returns" },
+  { value: "/sales/customers", label: "Customers", icon: <CustomersIcon />, path: "/sales/customers" },
   { value: "/sales/dashboard", label: "Dashboard", icon: <DashboardIcon />, path: "/sales/dashboard" },
 ];
 

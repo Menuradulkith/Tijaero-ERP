@@ -2,44 +2,42 @@
  * UsersPage - Refactored to use Tijaero-style reusable components
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import {
-  Box,
-  TextField,
-  Switch,
-  Checkbox,
-  Alert,
-  CircularProgress,
-  Chip,
-  Autocomplete,
-  FormControlLabel,
-  Typography,
-} from "@mui/material";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { formatErrorMessage } from "@/utils/errorHandling";
 import PersonIcon from "@mui/icons-material/Person";
+import {
+    Alert,
+    Autocomplete,
+    Box,
+    Checkbox,
+    Chip,
+    CircularProgress,
+    FormControlLabel,
+    Switch,
+    TextField,
+} from "@mui/material";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
 
 // Tijaero Components
 import {
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
-  SortOption,
-  TConfirmDialog,
-  useTConfirmDialog,
-  showSuccessToast,
-  showErrorToast,
+    ActionToolbar,
+    DetailPanelHeader,
+    EmptyState,
+    FormSection,
+    MasterDetailLayout,
+    SearchableList,
+    SelectableListItem,
+    SortOption,
+    useMasterDetailState,
 } from "@/components/tijaero";
 
-import { usersApi, UserList, UserCreate, UserUpdate } from "../api";
-import { groupsApi, Group } from "../../groups/api";
-import { branchApi } from "../../branches/api";
-import type { Branch } from "../../../api/types";
 import { usePermission } from "@/auth/components/PermissionGuard";
 import { PERMISSIONS } from "@/auth/permissions";
+import type { Branch } from "../../../api/types";
+import { branchApi } from "../../branches/api";
+import { Group, groupsApi } from "../../groups/api";
+import { UserCreate, UserList, usersApi, UserUpdate } from "../api";
 
 // Configuration
 const SORT_OPTIONS: SortOption[] = [
@@ -163,7 +161,9 @@ export default function UsersPage() {
         }
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to load data");
+      const errorMsg = formatErrorMessage(err) || "Failed to load data";
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -207,13 +207,6 @@ export default function UsersPage() {
     return filtered;
   }, [users, searchQuery, sortField, filterBranchId, filterRoleId]);
 
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredUsers.length > 0 && !selectedUser && !isCreating) {
-      handleSelectUser(filteredUsers[0]);
-    }
-  }, [filteredUsers, selectedUser, isCreating]);
-
   // Handlers
   const handleSelectUser = useCallback((user: UserList) => {
     setPasswordError(null);
@@ -237,7 +230,7 @@ export default function UsersPage() {
         const exists = await usersApi.checkUsernameExists(formData.username);
         if (exists) {
           setUsernameError("Username already exists");
-          showErrorToast("Username already exists");
+          toast.error("Username already exists");
           setSaving(false);
           return;
         }
@@ -253,7 +246,7 @@ export default function UsersPage() {
         console.log("[UsersPage] Creating new user:", cleanedData);
         await usersApi.createUser(cleanedData as UserCreate);
         console.log("[UsersPage] Create success");
-        showSuccessToast("User created successfully");
+        toast.success("User created successfully");
         setIsCreating(false);
         setIsEditing(false);
         loadData();
@@ -261,7 +254,7 @@ export default function UsersPage() {
         console.log("[UsersPage] Updating user:", selectedUser.id, cleanedData);
         await usersApi.updateUser(selectedUser.id, cleanedData as UserUpdate);
         console.log("[UsersPage] Update success");
-        showSuccessToast("User updated successfully");
+        toast.success("User updated successfully");
         setIsEditing(false);
         // Refresh with selected user ID to update the view
         loadData(selectedUser.id);
@@ -272,8 +265,9 @@ export default function UsersPage() {
     } catch (err: any) {
       console.error("[UsersPage] Save error:", err);
       console.error("[UsersPage] Error response:", err.response);
-      setError(err.response?.data?.detail || "Failed to save user");
-      showErrorToast(err.response?.data?.detail || "Failed to save user");
+      const errorMsg = formatErrorMessage(err) || "Failed to save user";
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setSaving(false);
     }
@@ -284,7 +278,7 @@ export default function UsersPage() {
     baseHandleCancel(filteredUsers);
   }, [baseHandleCancel, filteredUsers]);
 
-  const confirmDialog = useTConfirmDialog();
+  const confirmDialog = useConfirmDialog();
 
   const handleDelete = useCallback(async () => {
     if (selectedUser) {
@@ -297,11 +291,11 @@ export default function UsersPage() {
       if (confirmed) {
         try {
           await usersApi.deleteUser(selectedUser.id);
-          showSuccessToast("User deleted successfully");
+          toast.success("User deleted successfully");
           setSelectedUser(null);
           loadData();
         } catch (err: any) {
-          showErrorToast(err.response?.data?.detail || "Failed to delete user");
+          toast.error(formatErrorMessage(err) || "Failed to delete user");
         }
       }
     }
@@ -366,68 +360,16 @@ export default function UsersPage() {
           id={user.id}
           isSelected={isSelected}
           onClick={() => handleSelectUser(user)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Username */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{user.username}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Username)
-                  </Typography>
-                )}
-              </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {user.first_name} {user.last_name}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Name)
-                    </Typography>
-                  </Box>
-                  {user.email && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {user.email}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Email)
-                      </Typography>
-                    </Box>
-                  )}
-                  {/* Status Chips - shown below all fields when selected */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label={user.is_active ? "Active" : "Inactive"}
-                      size="small"
-                      color={user.is_active ? "success" : "default"}
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
-                    {user.is_staff && (
-                      <Chip
-                        label="Staff"
-                        size="small"
-                        color="warning"
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    )}
-                  </Box>
-                </>
-              )}
-            </Box>
-          }
-          secondaryText={!isSelected ? `${user.first_name} ${user.last_name}` : undefined}
+          primaryText={user.username}
+          secondaryText={`${user.first_name} ${user.last_name}`}
           isFavorite={favorites.includes(user.id)}
           onToggleFavorite={(e) => toggleFavorite(user.id, e)}
-          statusChip={!isSelected ? (
+          statusChip={
             user.is_active
               ? { label: "Active", color: "success" }
               : { label: "Inactive", color: "default" }
-          ) : undefined}
-          chips={!isSelected && user.is_staff ? [{ label: "Staff", color: "warning" }] : []}
+          }
+          chips={user.is_staff ? [{ label: "Staff", color: "warning" }] : []}
         />
       )}
     />
@@ -473,7 +415,7 @@ export default function UsersPage() {
         onEdit={handleEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         {!selectedUser && !isCreating ? (
           <EmptyState message="Select a user from the list or create a new one" />
         ) : (
@@ -706,7 +648,7 @@ export default function UsersPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <TConfirmDialog {...confirmDialog.dialogProps} />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }
