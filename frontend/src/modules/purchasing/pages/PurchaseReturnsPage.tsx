@@ -24,8 +24,6 @@ import {
   Chip,
   CircularProgress,
   InputAdornment,
-  Switch,
-  FormControlLabel,
 } from "@mui/material";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import AddIcon from "@mui/icons-material/Add";
@@ -78,6 +76,9 @@ const INITIAL_FORM_DATA: PurchasingReturnCreate = {
 
 interface ReturnLineItem extends PurchasingReturnItemCreate {
   _id: string;
+  branch_code?: string;
+  added_date?: string;
+  product_name?: string;
 }
 
 const resetFormFromReturn = (ret: PurchasingReturn | PurchasingReturnWithItems): PurchasingReturnCreate => ({
@@ -114,13 +115,13 @@ export default function PurchaseReturnsPage() {
   
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
   // Barcode scanning states
   const [barcodeInput, setBarcodeInput] = useState("");
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validatedItems, setValidatedItems] = useState<ValidatedItem[]>([]);
-  const [requireApproval, setRequireApproval] = useState(true);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -159,7 +160,6 @@ export default function PurchaseReturnsPage() {
     setBarcodeInput("");
     setValidationError(null);
     setValidatedItems([]);
-    setRequireApproval(true);
   }, [handleNewReturnBase, setFormData]);
 
   const handleStartEdit = useCallback(() => {
@@ -205,6 +205,9 @@ export default function PurchaseReturnsPage() {
           return_price: item.return_price,
           barcode: item.barcode,
           sales_stock_id: item.sales_stock_id,
+          branch_code: item.branch_code,
+          added_date: item.added_date,
+          product_name: item.product_name,
         })));
       } else {
         setLineItems([]);
@@ -244,6 +247,11 @@ export default function PurchaseReturnsPage() {
       filtered = filtered.filter(ret => ret.branch_code === filterBranch);
     }
 
+    // Apply status filter
+    if (filterStatus) {
+      filtered = filtered.filter(ret => ret.status === filterStatus);
+    }
+
     filtered.sort((a, b) => {
       if (sortField === "added_date") {
         return new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
@@ -254,7 +262,7 @@ export default function PurchaseReturnsPage() {
     });
 
     return filtered;
-  }, [returns, searchQuery, sortField, filterBranch]);
+  }, [returns, searchQuery, sortField, filterBranch, filterStatus]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -282,6 +290,17 @@ export default function PurchaseReturnsPage() {
     const grn = grns?.find((g: GoodReceivedNote) => g.id === grnId);
     return grn ? grn.good_received_no : "Unknown";
   }, [grns]);
+
+  // Get status display color
+  const getStatusColor = useCallback((status: string): "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" => {
+    switch (status?.toLowerCase()) {
+      case "pending": return "warning";
+      case "approved": return "success";
+      case "rejected": return "error";
+      case "draft": return "default";
+      default: return "default";
+    }
+  }, []);
 
   // Barcode validation handler
   const handleValidateBarcode = useCallback(async (barcode: string) => {
@@ -396,15 +415,18 @@ export default function PurchaseReturnsPage() {
   const handleSave = useCallback(() => {
     const dataToSave: PurchasingReturnCreate = {
       ...formData,
-      items: lineItems.map(({ _id, ...item }) => item),
-      require_approval: requireApproval,
+      items: lineItems.map(({ _id, branch_code, added_date, product_name, ...item }) => item),
+      require_approval: true, // Approval is always required for purchase returns
     };
 
     if (isCreating) {
       createMutation.mutate(dataToSave);
     }
     // Note: Update not supported by current API
-  }, [isCreating, formData, lineItems, createMutation, requireApproval]);
+  }, [isCreating, formData, lineItems, createMutation]);
+
+  // Completely prevent deletion of approved returns - delete button won't show
+  const canDelete = selectedReturn?.status !== "approved";
 
   const confirmDialog = useConfirmDialog();
 
@@ -445,7 +467,7 @@ export default function PurchaseReturnsPage() {
   }, [selectedReturn, setFormData, handleNewReturnBase]);
 
   const calculateTotal = () => {
-    return lineItems.reduce((sum, item) => sum + item.return_price, 0);
+    return lineItems.reduce((sum, item) => sum + (Number(item.return_price) || 0), 0);
   };
 
   const getBranchDisplay = (branchCode: string) => {
@@ -486,7 +508,33 @@ export default function PurchaseReturnsPage() {
       onSelectItem={handleSelectReturnWithItems}
       emptyMessage="No purchase returns found"
       listHeader={
-        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider", display: "flex", flexDirection: "column", gap: 1 }}>
+          {/* Status Filter Dropdown */}
+          <Autocomplete
+            size="small"
+            options={[
+              { value: null, label: "All Statuses" },
+              { value: "pending", label: "Pending" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+            ]}
+            getOptionLabel={(option) => option.label}
+            value={
+              filterStatus === null
+                ? { value: null, label: "All Statuses" }
+                : filterStatus === "pending"
+                ? { value: "pending", label: "Pending" }
+                : filterStatus === "approved"
+                ? { value: "approved", label: "Approved" }
+                : { value: "rejected", label: "Rejected" }
+            }
+            onChange={(_, newValue) => setFilterStatus(newValue?.value || null)}
+            isOptionEqualToValue={(option, value) => option.value === value.value}
+            renderInput={(params) => (
+              <TextField {...params} label="Filter by Status" placeholder="All Statuses" />
+            )}
+          />
+          {/* Branch Filter Dropdown */}
           <Autocomplete
             size="small"
             options={branches}
@@ -546,10 +594,10 @@ export default function PurchaseReturnsPage() {
                   {/* Status Chips - shown below all fields when selected */}
                   <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
                     <Chip
-                      label="Returned"
+                      label={ret.status || "pending"}
                       size="small"
-                      color="warning"
-                      sx={{ height: 18, fontSize: "0.65rem" }}
+                      color={getStatusColor(ret.status || "pending")}
+                      sx={{ height: 18, fontSize: "0.65rem", textTransform: "capitalize" }}
                     />
                   </Box>
                 </>
@@ -559,7 +607,7 @@ export default function PurchaseReturnsPage() {
           secondaryText={!isSelected ? `GRN: ${getGRNNumber(ret.goodreceivednote_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
           isFavorite={favorites.includes(ret.id)}
           onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
-          statusChip={!isSelected ? { label: "Returned", color: "warning" } : undefined}
+          statusChip={!isSelected ? { label: ret.status || "pending", color: getStatusColor(ret.status || "pending") } : undefined}
         />
       )}
     />
@@ -590,6 +638,7 @@ export default function PurchaseReturnsPage() {
         isEditing={isEditing}
         isSaving={isSaving}
         isFormValid={!!isFormValid}
+        canDelete={canDelete}
         onNew={handleNewReturn}
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
@@ -760,30 +809,17 @@ export default function PurchaseReturnsPage() {
                       </Button>
                     </Box>
 
-                    {/* Approval Workflow Option */}
+                    {/* Note: Approval is always required for purchase returns */}
                     <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={requireApproval}
-                            onChange={(e) => setRequireApproval(e.target.checked)}
-                            color="primary"
-                          />
-                        }
-                        label={
-                          <Typography variant="body2">
-                            Require approval before processing return
-                            {requireApproval && (
-                              <Chip 
-                                label="Pending Approval" 
-                                size="small" 
-                                color="warning" 
-                                sx={{ ml: 1 }} 
-                              />
-                            )}
-                          </Typography>
-                        }
-                      />
+                      <Typography variant="body2" color="text.secondary">
+                        <Chip 
+                          label="Requires Approval" 
+                          size="small" 
+                          color="warning" 
+                          sx={{ mr: 1 }} 
+                        />
+                        All purchase returns require approval before processing
+                      </Typography>
                     </Box>
 
                     {/* Scanned Items Summary */}
@@ -825,6 +861,8 @@ export default function PurchaseReturnsPage() {
                     <TableRow sx={{ bgcolor: "action.hover" }}>
                       <TableCell>Barcode</TableCell>
                       <TableCell>Product</TableCell>
+                      <TableCell>Branch Code</TableCell>
+                      <TableCell>Added Date</TableCell>
                       <TableCell align="right" sx={{ width: 120 }}>Purchase Price</TableCell>
                       <TableCell align="right" sx={{ width: 120 }}>Return Price</TableCell>
                       {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
@@ -833,7 +871,7 @@ export default function PurchaseReturnsPage() {
                   <TableBody>
                     {lineItems.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={isEditing || isCreating ? 5 : 4} align="center">
+                        <TableCell colSpan={isEditing || isCreating ? 7 : 6} align="center">
                           <Typography variant="body2" color="text.secondary" py={2}>
                             {(isEditing || isCreating) 
                               ? "Scan barcodes above to add items" 
@@ -867,6 +905,8 @@ export default function PurchaseReturnsPage() {
                           <TableCell>
                             {validatedItem ? (
                               <Typography variant="body2">{validatedItem.product_name}</Typography>
+                            ) : item.product_name ? (
+                              <Typography variant="body2">{item.product_name}</Typography>
                             ) : (isEditing || isCreating) ? (
                               <TextField
                                 size="small"
@@ -880,6 +920,12 @@ export default function PurchaseReturnsPage() {
                               `#${item.product_id}`
                             )}
                           </TableCell>
+                          <TableCell>
+                            {validatedItem?.branch_code || item.branch_code || formData.branch_code || "-"}
+                          </TableCell>
+                          <TableCell>
+                            {item.added_date ? new Date(item.added_date).toLocaleDateString() : (isCreating ? "New" : "-")}
+                          </TableCell>
                           <TableCell align="right">
                             {(isEditing || isCreating) ? (
                               <TextField
@@ -891,7 +937,7 @@ export default function PurchaseReturnsPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              `Rs. ${Number(item.purchasing_price).toFixed(2)}`
+                              `Rs. ${(Number(item.purchasing_price) || 0).toFixed(2)}`
                             )}
                           </TableCell>
                           <TableCell align="right">
@@ -899,13 +945,13 @@ export default function PurchaseReturnsPage() {
                               <TextField
                                 size="small"
                                 type="number"
-                                value={item.return_price}
+                                value={item.return_price ?? 0}
                                 onChange={(e) => handleUpdateLineItem(item._id, "return_price", parseFloat(e.target.value) || 0)}
                                 sx={{ width: 100 }}
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              `Rs. ${Number(item.return_price).toFixed(2)}`
+                              `Rs. ${(Number(item.return_price) || 0).toFixed(2)}`
                             )}
                           </TableCell>
                           {(isEditing || isCreating) && (
@@ -919,11 +965,11 @@ export default function PurchaseReturnsPage() {
                       );})
                     )}
                     <TableRow sx={{ bgcolor: "action.hover" }}>
-                      <TableCell colSpan={isEditing || isCreating ? 3 : 3} align="right">
+                      <TableCell colSpan={isEditing || isCreating ? 5 : 5} align="right">
                         <Typography fontWeight="bold">Total Return:</Typography>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography fontWeight="bold">Rs. {calculateTotal().toFixed(2)}</Typography>
+                        <Typography fontWeight="bold">Rs. {(calculateTotal() || 0).toFixed(2)}</Typography>
                       </TableCell>
                       {(isEditing || isCreating) && <TableCell />}
                     </TableRow>

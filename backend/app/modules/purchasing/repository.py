@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from datetime import date, datetime
@@ -168,7 +168,9 @@ class PurchasingReturnRepository:
         return db_return
     
     def get_by_id(self, return_id: int) -> Optional[models.PurchasingReturn]:
-        return self.db.query(models.PurchasingReturn).filter(
+        return self.db.query(models.PurchasingReturn).options(
+            joinedload(models.PurchasingReturn.items).joinedload(models.PurchasingReturnItems.product)
+        ).filter(
             models.PurchasingReturn.id == return_id
         ).first()
     

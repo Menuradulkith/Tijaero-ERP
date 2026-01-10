@@ -187,9 +187,39 @@ def approve_purchase_return(
 
 @router.get("/returns/{return_id}", response_model=schemas.PurchasingReturnWithItems)
 def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
-    """Get purchase return by ID"""
+    """Get purchase return by ID with product names"""
     return_service = service.PurchasingReturnService(db)
-    return return_service.get_return(return_id)
+    return_record = return_service.get_return(return_id)
+    
+    # Build response with product names
+    items_with_names = []
+    for item in return_record.items:
+        item_dict = {
+            'id': item.id,
+            'product_id': item.product_id,
+            'purchasing_price': item.purchasing_price,
+            'return_price': item.return_price,
+            'barcode': item.barcode,
+            'purchasingreturn_id': item.purchasingreturn_id,
+            'branch_code': item.branch_code,
+            'added_date': item.added_date,
+            'sales_stock_id': item.sales_stock_id,
+            'product_name': item.product.name if item.product else None,
+        }
+        items_with_names.append(item_dict)
+    
+    return {
+        'id': return_record.id,
+        'purchasing_return_no': return_record.purchasing_return_no,
+        'branch_code': return_record.branch_code,
+        'remark': return_record.remark,
+        'goodreceivednote_id': return_record.goodreceivednote_id,
+        'added_date': return_record.added_date,
+        'status': return_record.status,
+        'approved_date': return_record.approved_date,
+        'approval_id': return_record.approval_id,
+        'items': items_with_names,
+    }
 
 @router.get("/returns", response_model=List[schemas.PurchasingReturn])
 def list_purchase_returns(
