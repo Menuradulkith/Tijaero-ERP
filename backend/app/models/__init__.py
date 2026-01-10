@@ -1,4 +1,15 @@
-# All models import
+"""
+Centralized Model Imports for TijaeroERP Backend
+
+This module consolidates all SQLAlchemy models from across the application
+for easier imports. Import models from here instead of individual modules:
+
+    from app.models import User, Invoice, Product
+
+This also ensures all models are registered with SQLAlchemy's metadata
+for proper migration generation with Alembic.
+"""
+
 from app.auth.models import User, Group, Permission, Branch
 from app.modules.common.models import Country, Approvals, Locations
 from app.modules.customers.models import (
