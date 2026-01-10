@@ -168,8 +168,36 @@ class GoodReceivedNoteService:
                 detail=f"Purchase order {grn.purchasingorders_id} not found"
             )
         
-        # Create the GRN
-        created_grn = self.repo.create(grn)
+        import uuid
+        from sqlalchemy.exc import IntegrityError
+
+        def _new_grn_no() -> str:
+            return f"GRN-{uuid.uuid4().hex[:8].upper()}"
+
+        # Ensure GRN number is present and unique (avoid 500 on collisions)
+        working_grn = grn
+        if not getattr(working_grn, "good_received_no", None):
+            working_grn = working_grn.model_copy(update={"good_received_no": _new_grn_no()})
+
+        created_grn = None
+        for _ in range(5):
+            try:
+                created_grn = self.repo.create(working_grn)
+                break
+            except IntegrityError:
+                self.db.rollback()
+                # likely UNIQUE constraint on good_received_no
+                working_grn = working_grn.model_copy(update={"good_received_no": _new_grn_no()})
+
+        if created_grn is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="GRN number conflict. Please retry."
+            )
+
+        # Mark PO as completed after successful GRN creation
+        po.status = "completed"
+        self.db.commit()
         
         # Update supplier credit balance
         credit_service = SupplierCreditService()
@@ -200,6 +228,58 @@ class GoodReceivedNoteService:
     
     def get_items(self, grn_id: int) -> List[models.GoodReceivedItems]:
         return self.repo.get_items(grn_id)
+    
+    def get_items_with_details(self, grn_id: int) -> List[dict]:
+        """Get GRN items with product names and saved-to info"""
+        from app.modules.inventory.models import SalesStock, CompanyAssets
+        from app.modules.products.models import Product
+        
+        items = self.repo.get_items(grn_id)
+        grn = self.repo.get_by_id(grn_id)
+        if not grn:
+            return []
+        
+        result = []
+        for item in items:
+            # Get product info from PO item
+            po_item = self.db.query(models.PurchasingOrderItems).filter(
+                models.PurchasingOrderItems.id == item.purchasing_order_items_id
+            ).first()
+            
+            product_id = po_item.product_id if po_item else None
+            product_name = None
+            if product_id:
+                product = self.db.query(Product).filter(Product.id == product_id).first()
+                product_name = product.name if product else None
+            
+            # Check if saved to sales_stock
+            saved_to_sales_stock = self.db.query(SalesStock).filter(
+                SalesStock.good_received_note_id == grn_id,
+                SalesStock.barcode == item.barcode
+            ).first() is not None
+            
+            # Check if saved to company_assets
+            saved_to_company_assets = self.db.query(CompanyAssets).filter(
+                CompanyAssets.good_received_note_id == grn_id,
+                CompanyAssets.barcode == item.barcode
+            ).first() is not None
+            
+            result.append({
+                "id": item.id,
+                "good_received_note": item.good_received_note,
+                "barcode": item.barcode,
+                "branch_code": item.branch_code,
+                "active": item.active,
+                "created_date": item.created_date,
+                "purchasing_order_items_id": item.purchasing_order_items_id,
+                "added_date": item.added_date,
+                "product_id": product_id,
+                "product_name": product_name,
+                "saved_to_sales_stock": saved_to_sales_stock,
+                "saved_to_company_assets": saved_to_company_assets,
+            })
+        
+        return result
     
     def create_item(self, item: schemas.GoodReceivedItemCreate) -> models.GoodReceivedItems:
         return self.repo.create_item(item)

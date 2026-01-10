@@ -215,11 +215,11 @@ def update_grn(
     return grn_service.update(grn_id, grn)
 
 # Good Received Items Endpoints
-@router.get("/grn/{grn_id}/items", response_model=List[schemas.GoodReceivedItem])
+@router.get("/grn/{grn_id}/items", response_model=List[schemas.GoodReceivedItemWithDetails])
 def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
-    """Get all items for a GRN"""
+    """Get all items for a GRN with product details and saved-to info"""
     grn_service = service.GoodReceivedNoteService(db)
-    return grn_service.get_items(grn_id)
+    return grn_service.get_items_with_details(grn_id)
 
 @router.post("/grn-items", response_model=schemas.GoodReceivedItem, status_code=status.HTTP_201_CREATED)
 def create_grn_item(

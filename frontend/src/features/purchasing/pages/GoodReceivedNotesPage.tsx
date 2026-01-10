@@ -204,6 +204,9 @@ export default function GoodReceivedNotesPage() {
       setLineItems(items.map((item: GoodReceivedItem) => ({
         ...item,
         _id: `existing-${item.id}`,
+        // Map API response to local state
+        saveToSalesStock: item.saved_to_sales_stock || false,
+        saveToCompanyAssets: item.saved_to_company_assets || false,
       })));
     } catch (error) {
       console.error("Failed to load GRN items:", error);
@@ -212,6 +215,28 @@ export default function GoodReceivedNotesPage() {
       setLoadingItems(false);
     }
   }, []);
+
+  // Group items by product for view mode display
+  const groupedViewItems = useMemo(() => {
+    if (!lineItems.length || isCreating) return [];
+    
+    const groups: { [key: string]: { product_name: string; product_id?: number; items: typeof lineItems } } = {};
+    
+    lineItems.forEach(item => {
+      const key = item.product_name || `PO Item #${item.purchasing_order_items_id}`;
+      if (!groups[key]) {
+        groups[key] = {
+          product_name: key,
+          product_id: item.product_id,
+          items: [],
+        };
+      }
+      groups[key].items.push(item);
+    });
+    
+    // Sort by product name
+    return Object.values(groups).sort((a, b) => a.product_name.localeCompare(b.product_name));
+  }, [lineItems, isCreating]);
 
   const handleStartEdit = useCallback(() => {
     handleStartEditBase();
@@ -881,28 +906,26 @@ export default function GoodReceivedNotesPage() {
                     disabled={!isEditing && !isCreating}
                     required
                   />
-                  <TextField
-                    select
-                    label="Purchase Order (Approved Only)"
+                  <Autocomplete
                     size="small"
-                value={formData.purchasingorders_id}
-                onChange={(e) => handlePOChange(parseInt(e.target.value))}
-                disabled={!isEditing && !isCreating}
-                required
-              >
-                <MenuItem value={0}>Select Order</MenuItem>
-                {purchaseOrders
-                  ?.filter((order: PurchasingOrder) => {
-                    if (order.status !== "approved") return false;
-                    const isCurrent = order.id === formData.purchasingorders_id;
-                    return isCurrent || !poIdsWithGrn.has(order.id);
-                  })
-                  .map((order: PurchasingOrder) => (
-                    <MenuItem key={order.id} value={order.id}>
-                      {order.purchasing_order_no}
-                    </MenuItem>
-                  ))}
-              </TextField>
+                    options={purchaseOrders?.filter((order: PurchasingOrder) => {
+                      if (order.status !== "approved") return false;
+                      const isCurrent = order.id === formData.purchasingorders_id;
+                      return isCurrent || !poIdsWithGrn.has(order.id);
+                    }) || []}
+                    getOptionLabel={(option: PurchasingOrder) => option.purchasing_order_no || ""}
+                    value={purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id) || null}
+                    onChange={(_, newValue) => handlePOChange(newValue?.id || 0)}
+                    disabled={!isEditing && !isCreating}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Purchase Order (Approved Only)"
+                        required
+                      />
+                    )}
+                    isOptionEqualToValue={(option, value) => option.id === value?.id}
+                  />
               <TextField
                 label="GRN Date"
                 size="small"
@@ -946,6 +969,8 @@ export default function GoodReceivedNotesPage() {
                 value={formData.supplier_invoice_no}
                 onChange={(e) => setFormData({ ...formData, supplier_invoice_no: e.target.value })}
                 disabled={!isEditing && !isCreating}
+                required
+
               />
               <TextField
                 label="Supplier Invoice Date"
@@ -1360,21 +1385,18 @@ export default function GoodReceivedNotesPage() {
                                 </Typography>
                               </TableCell>
                             </TableRow>
-                          ) : (
+                          ) : isEditing ? (
+                            // Edit mode - flat list
                             lineItems.map((item) => (
                               <TableRow key={item._id}>
                                 <TableCell>
-                                  {(isEditing) ? (
-                                    <TextField
-                                      size="small"
-                                      fullWidth
-                                      value={item.barcode}
-                                      onChange={(e) => handleUpdateLineItem(item._id, "barcode", e.target.value)}
-                                      placeholder="Barcode"
-                                    />
-                                  ) : (
-                                    item.barcode
-                                  )}
+                                  <TextField
+                                    size="small"
+                                    fullWidth
+                                    value={item.barcode}
+                                    onChange={(e) => handleUpdateLineItem(item._id, "barcode", e.target.value)}
+                                    placeholder="Barcode"
+                                  />
                                 </TableCell>
                                 <TableCell>
                                   {item.product_name || `PO Item #${item.purchasing_order_items_id}`}
@@ -1382,41 +1404,69 @@ export default function GoodReceivedNotesPage() {
                                 <TableCell>
                                   <Box sx={{ display: "flex", gap: 0.5 }}>
                                     {item.saveToSalesStock && (
-                                      <Chip 
-                                        size="small" 
-                                        label="Sales Stock"
-                                        color="success"
-                                        icon={<InventoryIcon />}
-                                      />
+                                      <Chip size="small" label="Sales Stock" color="success" icon={<InventoryIcon />} />
                                     )}
                                     {item.saveToCompanyAssets && (
-                                      <Chip 
-                                        size="small" 
-                                        label="Company Asset"
-                                        color="info"
-                                        icon={<BusinessIcon />}
-                                      />
+                                      <Chip size="small" label="Company Asset" color="info" icon={<BusinessIcon />} />
                                     )}
                                   </Box>
                                 </TableCell>
-                                <TableCell>
-                                  {item.branch_code}
-                                </TableCell>
+                                <TableCell>{item.branch_code}</TableCell>
                                 <TableCell align="center">
-                                  <Chip 
-                                    size="small" 
-                                    label={item.active ? "Yes" : "No"}
-                                    color={item.active ? "success" : "default"}
-                                  />
+                                  <Chip size="small" label={item.active ? "Yes" : "No"} color={item.active ? "success" : "default"} />
                                 </TableCell>
-                                {(isEditing) && (
-                                  <TableCell>
-                                    <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
-                                      <DeleteIcon fontSize="small" />
-                                    </IconButton>
-                                  </TableCell>
-                                )}
+                                <TableCell>
+                                  <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </TableCell>
                               </TableRow>
+                            ))
+                          ) : (
+                            // View mode - grouped by product
+                            groupedViewItems.map((group) => (
+                              <>
+                                {/* Product group header */}
+                                <TableRow key={`group-${group.product_name}`} sx={{ bgcolor: "action.hover" }}>
+                                  <TableCell colSpan={5}>
+                                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                      <InventoryIcon fontSize="small" color="primary" />
+                                      <Typography variant="subtitle2" fontWeight="bold">
+                                        {group.product_name}
+                                      </Typography>
+                                      <Chip size="small" label={`${group.items.length} items`} />
+                                    </Box>
+                                  </TableCell>
+                                </TableRow>
+                                {/* Items in this group */}
+                                {group.items.map((item) => (
+                                  <TableRow key={item._id} sx={{ "&:last-child td": { borderBottom: 0 } }}>
+                                    <TableCell sx={{ pl: 4 }}>{item.barcode}</TableCell>
+                                    <TableCell>
+                                      <Typography variant="body2" color="text.secondary">
+                                        {item.product_name}
+                                      </Typography>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Box sx={{ display: "flex", gap: 0.5 }}>
+                                        {item.saveToSalesStock && (
+                                          <Chip size="small" label="Sales Stock" color="success" icon={<InventoryIcon />} />
+                                        )}
+                                        {item.saveToCompanyAssets && (
+                                          <Chip size="small" label="Company Asset" color="info" icon={<BusinessIcon />} />
+                                        )}
+                                        {!item.saveToSalesStock && !item.saveToCompanyAssets && (
+                                          <Typography variant="body2" color="text.secondary">—</Typography>
+                                        )}
+                                      </Box>
+                                    </TableCell>
+                                    <TableCell>{item.branch_code}</TableCell>
+                                    <TableCell align="center">
+                                      <Chip size="small" label={item.active ? "Yes" : "No"} color={item.active ? "success" : "default"} />
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </>
                             ))
                           )}
                         </TableBody>
