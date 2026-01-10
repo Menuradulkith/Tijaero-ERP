@@ -3,6 +3,7 @@ from app.auth.api import router as auth_router
 from app.api.v1 import users, groups, permissions, health
 from app.modules.customers.api import router as customers_router
 from app.modules.products.api import router as products_router
+from app.modules.inventory.api import router as inventory_router
 from app.modules.employees.api import router as employees_router
 from app.modules.branches.api import router as branches_router
 from app.modules.sales.api import router as sales_router
@@ -22,6 +23,7 @@ api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(groups.router, prefix="/groups", tags=["groups"])
 api_router.include_router(permissions.router, prefix="/permissions", tags=["permissions"])
 api_router.include_router(customers_router, prefix="/customers", tags=["customers"])
+api_router.include_router(inventory_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(products_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(sales_router, prefix="/sales", tags=["sales"])
 api_router.include_router(purchasing_router)  # Has its own prefix

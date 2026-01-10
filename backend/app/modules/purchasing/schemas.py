@@ -235,6 +235,17 @@ class GoodReceivedItem(GoodReceivedItemBase):
     class Config:
         from_attributes = True
 
+
+class GoodReceivedItemWithDetails(GoodReceivedItem):
+    """Enhanced GRN item with product name and saved-to info"""
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    saved_to_sales_stock: bool = False
+    saved_to_company_assets: bool = False
+    
+    class Config:
+        from_attributes = True
+
 class GoodReceivedNoteListFilter(BaseModel):
     branch_code: Optional[str] = None
     date_from: Optional[date] = None

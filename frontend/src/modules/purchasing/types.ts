@@ -236,6 +236,11 @@ export interface GoodReceivedItem {
   created_date: string;
   purchasing_order_items_id: number;
   added_date: string;
+  // Enhanced fields
+  product_id?: number;
+  product_name?: string;
+  saved_to_sales_stock?: boolean;
+  saved_to_company_assets?: boolean;
 }
 
 export interface GoodReceivedItemCreate {

@@ -55,7 +55,7 @@ const SORT_OPTIONS: SortOption[] = [
 
 const STATUS_OPTIONS = [
   { value: "pending", label: "Pending", color: "warning" as const },
-  { value: "approved", label: "Approved", color: "success" as const },
+  { value: "approved", label: "Approved", color: "info" as const },
   { value: "completed", label: "Completed", color: "success" as const },
   { value: "cancelled", label: "Cancelled", color: "error" as const },
   { value: "draft", label: "Draft", color: "default" as const },
@@ -375,7 +375,7 @@ export default function POApprovalsPage() {
         >
           <Button
             variant="contained"
-            color="success"
+            color="primary"
             startIcon={<CheckCircleIcon />}
             onClick={handleApprove}
             disabled={approveMutation.isPending}

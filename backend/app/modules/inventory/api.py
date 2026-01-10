@@ -6,11 +6,6 @@ from app.modules.inventory import schemas, service
 
 router = APIRouter()
 
-@router.get("/{product_id}", response_model=schemas.Product)
-def get_product(product_id: int, db: Session = Depends(get_db)):
-    return service.inventory_service.get_product(db, product_id)
-
-
 # Sales Stock Endpoints
 @router.post("/sales-stock", response_model=schemas.SalesStock, status_code=status.HTTP_201_CREATED)
 def create_sales_stock(
