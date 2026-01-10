@@ -4,17 +4,17 @@ import MainLayout from "./app/layout/MainLayout";
 import DashboardPage from "./app/pages/DashboardPage";
 import ProtectedRoute from "./auth/components/ProtectedRoute";
 import LoginPage from "./auth/pages/LoginPage";
-import FinanceRoutes from "./features/finance/routes";
-import HRRoutes from "./features/hr/routes";
-import InventoryRoutes from "./features/inventory/routes";
-import PurchasingRoutes from "./features/purchasing/routes";
-import ReportingRoutes from "./features/reporting/routes";
-import SalesRoutes from "./features/sales/routes";
-import SupportRoutes from "./features/support/routes";
-import WarehouseRoutes from "./features/warehouse/routes";
 import BranchesRoutes from "./modules/branches/routes";
+import FinanceRoutes from "./modules/finance/routes";
 import GroupsPage from "./modules/groups/pages/GroupsPage";
+import HRRoutes from "./modules/hr/routes";
+import InventoryRoutes from "./modules/inventory/routes";
+import PurchasingRoutes from "./modules/purchasing/routes";
+import ReportingRoutes from "./modules/reporting/routes";
+import SalesRoutes from "./modules/sales/routes";
+import SupportRoutes from "./modules/support/routes";
 import UsersPage from "./modules/users/pages/UsersPage";
+import WarehouseRoutes from "./modules/warehouse/routes";
 
 function App() {
   return (
