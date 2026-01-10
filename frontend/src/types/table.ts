@@ -3,7 +3,7 @@
  */
 
 import type { ReactNode } from 'react';
-import type { ID, SortDirection, FilterOperator } from './common';
+import type { FilterOperator, ID, SortDirection } from './common';
 
 // Column definition
 export interface ColumnDef<T = unknown> {

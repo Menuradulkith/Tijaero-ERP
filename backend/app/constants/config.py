@@ -15,18 +15,32 @@ FILE_UPLOAD_CONFIG = {
     "MAX_FILE_SIZE_MB": 10,
     "MAX_FILE_SIZE_BYTES": 10 * 1024 * 1024,  # 10MB
     "ALLOWED_IMAGE_TYPES": ["image/jpeg", "image/png", "image/gif", "image/webp"],
-    "ALLOWED_DOCUMENT_TYPES": ["application/pdf", "application/msword", 
-                               "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                               "application/vnd.ms-excel",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
-    "ALLOWED_EXTENSIONS": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf", ".doc", ".docx", ".xls", ".xlsx"],
+    "ALLOWED_DOCUMENT_TYPES": [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ],
+    "ALLOWED_EXTENSIONS": [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+    ],
 }
 
 # Cache Configuration
 CACHE_CONFIG = {
     "DEFAULT_TTL_SECONDS": 300,  # 5 minutes
-    "SHORT_TTL_SECONDS": 60,     # 1 minute
-    "LONG_TTL_SECONDS": 3600,    # 1 hour
+    "SHORT_TTL_SECONDS": 60,  # 1 minute
+    "LONG_TTL_SECONDS": 3600,  # 1 hour
 }
 
 # Date/Time Formats
@@ -42,8 +56,14 @@ DATE_FORMATS = {
 REPORTING_CONFIG = {
     "MAX_EXPORT_ROWS": 10000,
     "DEFAULT_CHART_COLORS": [
-        "#3B82F6", "#10B981", "#F59E0B", "#EF4444", 
-        "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16"
+        "#3B82F6",
+        "#10B981",
+        "#F59E0B",
+        "#EF4444",
+        "#8B5CF6",
+        "#EC4899",
+        "#06B6D4",
+        "#84CC16",
     ],
 }
 
