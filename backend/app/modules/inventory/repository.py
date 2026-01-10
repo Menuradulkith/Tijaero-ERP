@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.modules.inventory.models import Product
+from app.modules.products.models import Product
 
 class InventoryRepository:
     def get_by_id(self, db: Session, product_id: int):

@@ -1,6 +1,6 @@
 /**
- * POApprovalsPage - Purchase Order Approvals
- * Shows purchase orders for approval/rejection with filters
+ * PurchaseReturnApprovalsPage - Purchase Return Approvals
+ * Shows purchase returns for approval/rejection with filters
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
@@ -29,6 +29,7 @@ import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 
 import {
   MasterDetailLayout,
@@ -42,22 +43,21 @@ import {
   showErrorToast,
 } from "@/components/tijaero";
 
-import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
 import { productsApi } from "@/modules/inventory/api";
 import { branchApi } from "@/modules/branches/api";
-import { PurchasingOrder, PurchasingOrderWithItems, Supplier } from "@/modules/purchasing/types";
+import { PurchasingReturn, PurchasingReturnWithItems, GoodReceivedNote } from "@/modules/purchasing/types";
 import { Product } from "@/modules/inventory/types";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "added_date", label: "Date" },
-  { value: "purchasing_order_no", label: "Order Number" },
+  { value: "purchasing_return_no", label: "Return Number" },
 ];
 
 const STATUS_OPTIONS = [
   { value: "pending", label: "Pending", color: "warning" as const },
   { value: "approved", label: "Approved", color: "info" as const },
-  { value: "completed", label: "Completed", color: "success" as const },
-  { value: "cancelled", label: "Cancelled", color: "error" as const },
+  { value: "rejected", label: "Rejected", color: "error" as const },
   { value: "draft", label: "Draft", color: "default" as const },
 ];
 
@@ -68,14 +68,14 @@ const getStatusChip = (
   return opt ? { label: opt.label, color: opt.color } : { label: status || "Unknown", color: "default" };
 };
 
-export default function POApprovalsPage() {
+export default function PurchaseReturnApprovalsPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("added_date");
-  const [selectedOrder, setSelectedOrder] = useState<PurchasingOrderWithItems | null>(null);
+  const [selectedReturn, setSelectedReturn] = useState<PurchasingReturnWithItems | null>(null);
 
   // Filter states
-  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>("pending");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // Dialogs
@@ -83,25 +83,16 @@ export default function POApprovalsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
 
-  // Item remark modal
-  const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
-  const [selectedItemRemark, setSelectedItemRemark] = useState("");
-
-  const handleOpenItemRemarkModal = (remark: string) => {
-    setSelectedItemRemark(remark || "");
-    setItemRemarkModalOpen(true);
-  };
-
-  // Fetch orders
-  const { data: orders = [], isLoading, refetch } = useQuery({
-    queryKey: ["purchase-orders"],
-    queryFn: () => purchaseOrdersApi.getAll(),
+  // Fetch returns
+  const { data: returns = [], isLoading, refetch } = useQuery({
+    queryKey: ["purchase-returns"],
+    queryFn: () => purchaseReturnsApi.getAll(),
   });
 
-  // Fetch suppliers
-  const { data: suppliers = [] } = useQuery({
-    queryKey: ["suppliers"],
-    queryFn: () => suppliersApi.getAll(),
+  // Fetch GRNs
+  const { data: grns = [] } = useQuery({
+    queryKey: ["good-received-notes"],
+    queryFn: () => goodReceivedNotesApi.getAll(),
   });
 
   // Fetch products
@@ -118,11 +109,11 @@ export default function POApprovalsPage() {
   const branches = branchesData?.items || [];
 
   // Create lookup maps
-  const supplierMap = useMemo(() => {
-    const map = new Map<number, Supplier>();
-    suppliers.forEach((s) => map.set(s.id, s));
+  const grnMap = useMemo(() => {
+    const map = new Map<number, GoodReceivedNote>();
+    grns.forEach((g) => map.set(g.id, g));
     return map;
-  }, [suppliers]);
+  }, [grns]);
 
   const productMap = useMemo(() => {
     const map = new Map<number, Product>();
@@ -130,119 +121,125 @@ export default function POApprovalsPage() {
     return map;
   }, [products]);
 
-  // Filter and sort orders
-  const filteredOrders = useMemo(() => {
-    let filtered = orders.filter((order) => {
+  // Filter and sort returns
+  const filteredReturns = useMemo(() => {
+    let filtered = returns.filter((ret) => {
       // Status filter
-      if (filterStatus && order.status?.toLowerCase() !== filterStatus.toLowerCase()) {
+      if (filterStatus && ret.status?.toLowerCase() !== filterStatus.toLowerCase()) {
         return false;
       }
       // Branch filter
-      if (filterBranch && order.branch_code !== filterBranch) {
+      if (filterBranch && ret.branch_code !== filterBranch) {
         return false;
       }
       // Search filter
-      const supplier = supplierMap.get(order.first_suppliers_id);
+      const grn = grnMap.get(ret.goodreceivednote_id);
       return (
-        order.purchasing_order_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        supplier?.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        supplier?.company_name?.toLowerCase().includes(searchQuery.toLowerCase())
+        ret.purchasing_return_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        grn?.good_received_no?.toLowerCase().includes(searchQuery.toLowerCase())
       );
     });
 
     filtered.sort((a, b) => {
-      if (sortField === "purchasing_order_no") {
-        return a.purchasing_order_no.localeCompare(b.purchasing_order_no);
+      if (sortField === "purchasing_return_no") {
+        return (a.purchasing_return_no || "").localeCompare(b.purchasing_return_no || "");
       }
       return new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
     });
 
     return filtered;
-  }, [orders, searchQuery, sortField, supplierMap, filterStatus, filterBranch]);
+  }, [returns, searchQuery, sortField, grnMap, filterStatus, filterBranch]);
 
   // Handle selection
-  const handleSelectOrder = useCallback(async (order: PurchasingOrder) => {
+  const handleSelectReturn = useCallback(async (ret: PurchasingReturn) => {
     try {
-      const fullOrder = await purchaseOrdersApi.getById(order.id);
-      setSelectedOrder(fullOrder);
+      const fullReturn = await purchaseReturnsApi.getById(ret.id);
+      setSelectedReturn(fullReturn);
     } catch {
-      showErrorToast("Failed to load order details");
+      showErrorToast("Failed to load return details");
     }
   }, []);
 
-  // Auto-select first order
+  // Auto-select first return
   useEffect(() => {
-    if (filteredOrders.length > 0 && !selectedOrder) {
-      handleSelectOrder(filteredOrders[0]);
+    if (filteredReturns.length > 0 && !selectedReturn) {
+      handleSelectReturn(filteredReturns[0]);
     }
-  }, [filteredOrders, selectedOrder, handleSelectOrder]);
+  }, [filteredReturns, selectedReturn, handleSelectReturn]);
 
   // Approve mutation
   const approveMutation = useMutation({
-    mutationFn: (id: number) => purchaseOrdersApi.update(id, { status: "approved" }),
+    mutationFn: (id: number) => purchaseReturnsApi.approve(id, { approve: true }),
     onSuccess: (_data, id) => {
-      queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
-        (prev || []).map((o) => (o.id === id ? { ...o, status: "approved" } : o))
+      queryClient.setQueryData<PurchasingReturn[]>(["purchase-returns"], (prev) =>
+        (prev || []).map((r) => (r.id === id ? { ...r, status: "approved" as const } : r))
       );
-      setSelectedOrder((prev) => (prev && prev.id === id ? { ...prev, status: "approved" } : prev));
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      showSuccessToast("Purchase order approved successfully");
+      setSelectedReturn((prev) => (prev && prev.id === id ? { ...prev, status: "approved" as const } : prev));
+      queryClient.invalidateQueries({ queryKey: ["purchaseReturns"] });
+      queryClient.invalidateQueries({ queryKey: ["sales-stock"] });
+      showSuccessToast("Purchase return approved successfully");
     },
-    onError: () => showErrorToast("Failed to approve order"),
+    onError: (error: any) => showErrorToast(error.response?.data?.detail || "Failed to approve return"),
   });
 
   // Reject mutation
   const rejectMutation = useMutation({
     mutationFn: ({ id, remarks }: { id: number; remarks: string }) =>
-      purchaseOrdersApi.update(id, { status: "cancelled", remarks }),
+      purchaseReturnsApi.approve(id, { approve: false, remarks }),
     onSuccess: (_data, variables) => {
-      queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
-        (prev || []).map((o) => (o.id === variables.id ? { ...o, status: "cancelled" } : o))
+      queryClient.setQueryData<PurchasingReturn[]>(["purchase-returns"], (prev) =>
+        (prev || []).map((r) => (r.id === variables.id ? { ...r, status: "rejected" as const } : r))
       );
-      setSelectedOrder((prev) =>
-        prev && prev.id === variables.id ? { ...prev, status: "cancelled", remarks: variables.remarks } : prev
+      setSelectedReturn((prev) =>
+        prev && prev.id === variables.id ? { ...prev, status: "rejected" as const } : prev
       );
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      showSuccessToast("Purchase order rejected");
+      queryClient.invalidateQueries({ queryKey: ["purchaseReturns"] });
+      queryClient.invalidateQueries({ queryKey: ["sales-stock"] });
+      showSuccessToast("Purchase return rejected");
       setRejectDialogOpen(false);
       setRejectReason("");
     },
-    onError: () => showErrorToast("Failed to reject order"),
+    onError: (error: any) => showErrorToast(error.response?.data?.detail || "Failed to reject return"),
   });
 
   const handleApprove = () => {
-    if (selectedOrder) {
-      approveMutation.mutate(selectedOrder.id);
+    if (selectedReturn) {
+      approveMutation.mutate(selectedReturn.id);
     }
   };
 
   const handleReject = () => {
-    if (selectedOrder && rejectReason.trim()) {
-      rejectMutation.mutate({ id: selectedOrder.id, remarks: rejectReason });
+    if (selectedReturn && rejectReason.trim()) {
+      rejectMutation.mutate({ id: selectedReturn.id, remarks: rejectReason });
     }
   };
 
-  const supplier = selectedOrder ? supplierMap.get(selectedOrder.first_suppliers_id) : null;
-  const selectedIsPending = (selectedOrder?.status || "").toLowerCase() === "pending";
+  const grn = selectedReturn ? grnMap.get(selectedReturn.goodreceivednote_id) : null;
+  const selectedIsPending = (selectedReturn?.status || "").toLowerCase() === "pending";
 
-  const getSupplierName = (supplierId: number) => {
-    const s = supplierMap.get(supplierId);
-    return s ? s.full_name || s.company_name || "Unknown" : "Unknown";
+  const getGRNNumber = (grnId: number) => {
+    const g = grnMap.get(grnId);
+    return g ? g.good_received_no : `GRN-${grnId}`;
+  };
+
+  const getBranchDisplay = (branchCode: string) => {
+    const branch = branches.find((b) => b.branch_code === branchCode);
+    return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
   };
 
   // Master Panel
   const masterPanel = (
     <SearchableList
-      items={filteredOrders}
+      items={filteredReturns}
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search orders..."
+      placeholder="Search returns..."
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
-      selectedItem={selectedOrder}
-      emptyMessage="No orders found"
+      selectedItem={selectedReturn}
+      emptyMessage="No returns found"
       listHeader={
         <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
           <Autocomplete
@@ -268,22 +265,22 @@ export default function POApprovalsPage() {
           />
         </Box>
       }
-      renderItem={(order, isSelected) => {
-        const orderSupplier = supplierMap.get(order.first_suppliers_id);
-        const statusChip = getStatusChip(order.status);
+      renderItem={(ret, isSelected) => {
+        const returnGrn = grnMap.get(ret.goodreceivednote_id);
+        const statusChip = getStatusChip(ret.status);
         return (
           <SelectableListItem
-            key={order.id}
-            id={order.id}
+            key={ret.id}
+            id={ret.id}
             isSelected={isSelected}
-            onClick={() => handleSelectOrder(order)}
+            onClick={() => handleSelectReturn(ret)}
             primaryText={
               <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{order.purchasing_order_no}</span>
+                  <span>{ret.purchasing_return_no || `PR-${ret.id}`}</span>
                   {isSelected && (
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (PO No)
+                      (Return No)
                     </Typography>
                   )}
                 </Box>
@@ -291,15 +288,15 @@ export default function POApprovalsPage() {
                   <>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        {orderSupplier?.full_name || orderSupplier?.company_name || "Unknown Supplier"}
+                        {returnGrn?.good_received_no || "Unknown GRN"}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Supplier)
+                        (GRN)
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        {new Date(order.purchasing_order_date).toLocaleDateString()}
+                        {new Date(ret.added_date).toLocaleDateString()}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Date)
@@ -307,9 +304,7 @@ export default function POApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        Rs. {isSelected && selectedOrder?.items 
-                          ? selectedOrder.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0).toLocaleString()
-                          : (order.total_amount?.toLocaleString() || "0")}
+                        Rs. {selectedReturn?.items?.reduce((sum, item) => sum + Number(item.return_price), 0).toLocaleString() || "0"}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Amount)
@@ -329,7 +324,7 @@ export default function POApprovalsPage() {
             }
             secondaryText={
               !isSelected
-                ? `${getSupplierName(order.first_suppliers_id)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`
+                ? `${getGRNNumber(ret.goodreceivednote_id)} - ${new Date(ret.added_date || "").toLocaleDateString()}`
                 : undefined
             }
             statusChip={!isSelected ? statusChip : undefined}
@@ -345,16 +340,16 @@ export default function POApprovalsPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Purchasing" },
-          { label: "PO Approvals", href: "/purchasing/approvals" },
-          ...(selectedOrder ? [{ label: selectedOrder.purchasing_order_no }] : []),
+          { label: "Return Approvals", href: "/purchasing/return-approvals" },
+          ...(selectedReturn ? [{ label: selectedReturn.purchasing_return_no || `PR-${selectedReturn.id}` }] : []),
         ]}
-        title={selectedOrder?.purchasing_order_no || ""}
-        titleIcon={<FactCheckIcon color="primary" />}
-        noSelectionTitle="Select an Order to Review"
+        title={selectedReturn?.purchasing_return_no || ""}
+        titleIcon={<AssignmentReturnIcon color="primary" />}
+        noSelectionTitle="Select a Return to Review"
         chips={
-          selectedOrder
+          selectedReturn
             ? (() => {
-                const s = getStatusChip(selectedOrder.status);
+                const s = getStatusChip(selectedReturn.status);
                 return [{ label: s.label, color: s.color }];
               })()
             : []
@@ -362,7 +357,7 @@ export default function POApprovalsPage() {
       />
 
       {/* Approval Actions */}
-      {selectedOrder && selectedIsPending && (
+      {selectedReturn && selectedIsPending && (
         <Box
           sx={{
             display: "flex",
@@ -395,76 +390,79 @@ export default function POApprovalsPage() {
       )}
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
-        {!selectedOrder ? (
-          <EmptyState message="Select a purchase order from the list to review" />
+        {!selectedReturn ? (
+          <EmptyState message="Select a purchase return from the list to review" />
         ) : (
           <>
-            {/* Order Information */}
-            <FormSection title="Order Information" columns={3}>
-              <TextField label="PO Number" size="small" value={selectedOrder.purchasing_order_no} disabled />
-              <TextField label="Invoice Number" size="small" value={selectedOrder.purchasing_invoice_no} disabled />
+            {/* Return Information */}
+            <FormSection title="Return Information" columns={3}>
+              <TextField label="Return Number" size="small" value={selectedReturn.purchasing_return_no || ""} disabled />
+              <TextField label="GRN Number" size="small" value={grn?.good_received_no || ""} disabled />
               <TextField
-                label="Order Date"
+                label="Return Date"
                 size="small"
-                value={new Date(selectedOrder.purchasing_order_date).toLocaleDateString()}
+                value={new Date(selectedReturn.added_date).toLocaleDateString()}
                 disabled
               />
-              <TextField label="Branch" size="small" value={selectedOrder.branch_code} disabled />
-              <TextField label="Payment Method" size="small" value={selectedOrder.payment_method} disabled />
-              <TextField label="Status" size="small" value={selectedOrder.status} disabled />
+              <TextField label="Branch" size="small" value={getBranchDisplay(selectedReturn.branch_code)} disabled />
+              <TextField label="Status" size="small" value={selectedReturn.status} disabled />
+              {selectedReturn.approved_date && (
+                <TextField
+                  label="Approved/Rejected Date"
+                  size="small"
+                  value={new Date(selectedReturn.approved_date).toLocaleDateString()}
+                  disabled
+                />
+              )}
             </FormSection>
 
-            {/* Supplier Information */}
-            <FormSection title="Supplier Information" columns={2}>
-              <TextField label="Supplier Name" size="small" value={supplier?.full_name || ""} disabled />
-              <TextField label="Company" size="small" value={supplier?.company_name || "N/A"} disabled />
-              <TextField label="Contact" size="small" value={supplier?.mobile_contact_number || ""} disabled />
-              <TextField label="Email" size="small" value={supplier?.email || "N/A"} disabled />
-            </FormSection>
+            {/* GRN Information */}
+            {grn && (
+              <FormSection title="GRN Information" columns={2}>
+                <TextField label="GRN Number" size="small" value={grn.good_received_no} disabled />
+                <TextField label="Supplier Invoice" size="small" value={grn.supplier_invoice_no || "N/A"} disabled />
+                <TextField
+                  label="GRN Date"
+                  size="small"
+                  value={new Date(grn.good_received_date).toLocaleDateString()}
+                  disabled
+                />
+                <TextField label="Branch" size="small" value={getBranchDisplay(grn.branch_code)} disabled />
+              </FormSection>
+            )}
 
-            {/* Order Items */}
-            <FormSection title="Order Items" columns={1}>
+            {/* Return Items */}
+            <FormSection title="Return Items" columns={1}>
               <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%" }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={{ bgcolor: "grey.100" }}>
+                      <TableCell>Barcode</TableCell>
                       <TableCell>Product</TableCell>
-                      <TableCell align="right">Quantity</TableCell>
-                      <TableCell align="right">Unit Price</TableCell>
-                      <TableCell>Remark</TableCell>
-                      <TableCell align="right">Total</TableCell>
+                      <TableCell align="right">Purchase Price</TableCell>
+                      <TableCell align="right">Return Price</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {selectedOrder.items?.map((item, index) => {
+                    {selectedReturn.items?.map((item, index) => {
                       const product = productMap.get(item.product_id);
                       return (
                         <TableRow key={index}>
+                          <TableCell>{item.barcode}</TableCell>
                           <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
-                          <TableCell align="right">{item.quantity}</TableCell>
-                          <TableCell align="right">Rs. {item.unit_price.toLocaleString()}</TableCell>
-                          <TableCell>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                              <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {item.remark || "-"}
-                              </Typography>
-                              <Tooltip title="View Remark">
-                                <IconButton size="small" onClick={() => handleOpenItemRemarkModal(item.remark || "")}>
-                                  <MenuBookIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                          </TableCell>
-                          <TableCell align="right">Rs. {(item.quantity * item.unit_price).toLocaleString()}</TableCell>
+                          <TableCell align="right">Rs. {Number(item.purchasing_price).toLocaleString()}</TableCell>
+                          <TableCell align="right">Rs. {Number(item.return_price).toLocaleString()}</TableCell>
                         </TableRow>
                       );
                     })}
                     <TableRow sx={{ bgcolor: "grey.50" }}>
-                      <TableCell colSpan={4} align="right">
-                        <strong>Total Amount:</strong>
+                      <TableCell colSpan={3} align="right">
+                        <strong>Total Return Amount:</strong>
                       </TableCell>
                       <TableCell align="right">
-                        <strong>Rs. {selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0).toLocaleString() || "0"}</strong>
+                        <strong>
+                          Rs. {selectedReturn.items?.reduce((sum, item) => sum + Number(item.return_price), 0).toLocaleString() || "0"}
+                        </strong>
                       </TableCell>
                     </TableRow>
                   </TableBody>
@@ -472,18 +470,18 @@ export default function POApprovalsPage() {
               </Paper>
             </FormSection>
 
-            {/* Remarks Section with Book Icon */}
+            {/* Remarks Section */}
             <FormSection title="Remarks" columns={1}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
                 <TextField
                   multiline
                   rows={2}
                   fullWidth
-                  value={selectedOrder.remarks || "No remarks"}
+                  value={selectedReturn.remark || "No remarks"}
                   disabled
                   size="small"
                 />
-                <Tooltip title="View / Add Remarks">
+                <Tooltip title="View Remarks">
                   <IconButton size="small" onClick={() => setRemarksDialogOpen(true)}>
                     <MenuBookIcon fontSize="small" />
                   </IconButton>
@@ -496,10 +494,10 @@ export default function POApprovalsPage() {
 
       {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Reject Purchase Order</DialogTitle>
+        <DialogTitle>Reject Purchase Return</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Please provide a reason for rejecting this purchase order.
+            Please provide a reason for rejecting this purchase return.
           </Typography>
           <TextField
             autoFocus
@@ -519,7 +517,7 @@ export default function POApprovalsPage() {
             onClick={handleReject}
             disabled={!rejectReason.trim() || rejectMutation.isPending}
           >
-            Reject Order
+            Reject Return
           </Button>
         </DialogActions>
       </Dialog>
@@ -533,58 +531,26 @@ export default function POApprovalsPage() {
             rows={8}
             fullWidth
             placeholder="No remarks..."
-            value={selectedOrder?.remarks || ""}
+            value={selectedReturn?.remark || ""}
             InputProps={{ readOnly: true }}
             sx={{ mt: 1 }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
-          <Button onClick={() => setRemarksDialogOpen(false)} variant="outlined">
-            Cancel
-          </Button>
+          <Button onClick={() => setRemarksDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>
   );
 
   return (
-    <>
-      <MasterDetailLayout
-        title="PO Approvals"
-        icon={<FactCheckIcon color="primary" />}
-        onRefresh={() => refetch()}
-        isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
-      />
-
-      {/* Item Remark Modal */}
-      <Dialog
-        open={itemRemarkModalOpen}
-        onClose={() => setItemRemarkModalOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <MenuBookIcon />
-          Item Remark
-        </DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            multiline
-            rows={4}
-            label="Remark"
-            value={selectedItemRemark}
-            disabled
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setItemRemarkModalOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
-    </>
+    <MasterDetailLayout
+      title="Purchase Return Approvals"
+      icon={<FactCheckIcon color="primary" />}
+      onRefresh={() => refetch()}
+      isLoading={isLoading}
+      masterPanel={masterPanel}
+      detailPanel={detailPanel}
+    />
   );
 }

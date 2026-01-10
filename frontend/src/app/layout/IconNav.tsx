@@ -43,7 +43,7 @@ const allPages = [
   { text: "Brands", path: "/inventory/brands", keywords: ["manufacturers"] },
   { text: "Finance", path: "/finance", keywords: ["accounting", "money"] },
   { text: "HR", path: "/hr", keywords: ["employees", "human resources", "staff"] },
-  { text: "Warehouse", path: "/warehouse", keywords: ["storage", "logistics"] },
+  { text: "Sales Stock", path: "/warehouse", keywords: ["warehouse", "storage", "logistics", "sales stock"] },
   { text: "Support", path: "/support", keywords: ["help", "tickets"] },
   { text: "Reporting", path: "/reporting", keywords: ["reports", "analytics"] },
   { text: "Branches", path: "/branches", keywords: ["locations", "offices"] },

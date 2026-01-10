@@ -206,7 +206,7 @@ class GoodReceivedNoteRepository:
         if filters.date_to:
             query = query.filter(models.GoodReceivedNote.good_received_date <= filters.date_to)
         
-        return query.order_by(models.GoodReceivedNote.good_received_date.desc()).offset(filters.skip).limit(filters.limit).all()
+        return query.order_by(models.GoodReceivedNote.added_date.desc()).offset(filters.skip).limit(filters.limit).all()
     
     def update(self, grn_id: int, grn: schemas.GoodReceivedNoteCreate) -> Optional[models.GoodReceivedNote]:
         db_grn = self.get_by_id(grn_id)

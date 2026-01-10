@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, TIMESTAMP
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, TIMESTAMP, Boolean
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
@@ -39,10 +39,14 @@ class SalesStock(Base):
     good_received_note_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False)
     purchasing_order_items_id = Column(Integer, ForeignKey("purchasing_order_items.id"), nullable=False)
     warranty_month = Column(String(30), nullable=True)  # Warranty period from PO or entered in GRN
-    status = Column(String(50), nullable=False, default="available")  # available, sold, reserved, returned
+    status = Column(String(50), nullable=False, default="available")  # available, sold, reserved, returned_to_supplier, return_pending, transferred, damaged
+    is_active = Column(Boolean, nullable=False, default=True)  # Soft delete flag
+    returned_date = Column(TIMESTAMP, nullable=True)  # When item was returned
+    purchase_return_id = Column(Integer, ForeignKey("purchasing_return.id"), nullable=True)  # Link to return record
     added_date = Column(TIMESTAMP, nullable=False)
     
     # Relationships
     product = relationship("Product", back_populates="sales_stock")
     good_received_note = relationship("GoodReceivedNote", back_populates="sales_stock_items")
     purchasing_order_item = relationship("PurchasingOrderItems", back_populates="sales_stock_items")
+    purchase_return = relationship("PurchasingReturn", back_populates="returned_stock_items")

@@ -143,6 +143,7 @@ class PurchasingReturnItemBase(BaseModel):
     purchasing_price: Decimal
     return_price: Decimal
     barcode: str
+    sales_stock_id: Optional[int] = None  # Link to the stock item being returned
 
 class PurchasingReturnItemCreate(PurchasingReturnItemBase):
     pass
@@ -157,17 +158,20 @@ class PurchasingReturnItem(PurchasingReturnItemBase):
         from_attributes = True
 
 class PurchasingReturnBase(BaseModel):
-    purchasing_return_no: str
+    purchasing_return_no: Optional[str] = None  # Auto-generated if not provided
     branch_code: str
     remark: Optional[str] = None
     goodreceivednote_id: int
 
 class PurchasingReturnCreate(PurchasingReturnBase):
     items: List[PurchasingReturnItemCreate]
+    require_approval: bool = False  # Whether to submit for approval or approve immediately
 
 class PurchasingReturn(PurchasingReturnBase):
     id: int
     added_date: date
+    status: str = "draft"  # draft, pending, approved, rejected
+    approved_date: Optional[datetime] = None
     approval_id: Optional[int] = None
     
     class Config:
@@ -175,6 +179,29 @@ class PurchasingReturn(PurchasingReturnBase):
 
 class PurchasingReturnWithItems(PurchasingReturn):
     items: List[PurchasingReturnItem] = []
+
+
+# Barcode Validation Schemas for Purchase Return
+class BarcodeValidationRequest(BaseModel):
+    barcode: str
+    grn_id: int
+    branch_code: str
+
+class BarcodeValidationResponse(BaseModel):
+    valid: bool
+    barcode: str
+    message: str
+    sales_stock_id: Optional[int] = None
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    purchasing_price: Optional[Decimal] = None
+    status: Optional[str] = None  # Current stock status
+
+
+class PurchaseReturnApprovalRequest(BaseModel):
+    return_id: int
+    approve: bool  # True to approve, False to reject
+    remarks: Optional[str] = None
 
 # List and Filter Schemas
 class SupplierListFilter(BaseModel):
@@ -231,6 +258,17 @@ class GoodReceivedItem(GoodReceivedItemBase):
     id: int
     created_date: date
     added_date: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class GoodReceivedItemWithDetails(GoodReceivedItem):
+    """Enhanced GRN item with product name and saved-to info"""
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    saved_to_sales_stock: bool = False
+    saved_to_company_assets: bool = False
     
     class Config:
         from_attributes = True

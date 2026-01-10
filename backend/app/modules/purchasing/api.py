@@ -138,14 +138,52 @@ def get_supplier_orders(
     return order_service.list_orders(filters)
 
 # Purchase Return Endpoints
+@router.post("/returns/validate-barcode", response_model=schemas.BarcodeValidationResponse)
+def validate_barcode_for_return(
+    request: schemas.BarcodeValidationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Validate a barcode before adding to purchase return.
+    Checks:
+    - Barcode exists in sales stock
+    - Item is available (not sold/returned/transferred)
+    - Item belongs to the specified GRN and branch
+    """
+    return_service = service.PurchasingReturnService(db)
+    return return_service.validate_barcode_for_return(
+        request.barcode,
+        request.grn_id,
+        request.branch_code
+    )
+
 @router.post("/returns", response_model=schemas.PurchasingReturnWithItems, status_code=status.HTTP_201_CREATED)
 def create_purchase_return(
     return_data: schemas.PurchasingReturnCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a purchase return"""
+    """
+    Create a purchase return.
+    - Validates all barcodes
+    - If require_approval=True: saves as 'pending', marks stock as 'return_pending'
+    - If require_approval=False: saves as 'approved', marks stock as 'returned_to_supplier'
+    """
     return_service = service.PurchasingReturnService(db)
     return return_service.create_return(return_data)
+
+@router.post("/returns/{return_id}/approve", response_model=schemas.PurchasingReturnWithItems)
+def approve_purchase_return(
+    return_id: int,
+    request: schemas.PurchaseReturnApprovalRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Approve or reject a pending purchase return.
+    - If approve=True: finalizes stock updates, updates supplier credit
+    - If approve=False: reverts stock status to 'available'
+    """
+    return_service = service.PurchasingReturnService(db)
+    return return_service.approve_return(return_id, request.approve, request.remarks)
 
 @router.get("/returns/{return_id}", response_model=schemas.PurchasingReturnWithItems)
 def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
@@ -155,16 +193,16 @@ def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
 
 @router.get("/returns", response_model=List[schemas.PurchasingReturn])
 def list_purchase_returns(
+    status_filter: Optional[str] = Query(None, description="Filter by status: draft, pending, approved, rejected"),
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
-    """List all purchase returns"""
-    from datetime import date as date_type
+    """List all purchase returns with optional status filter"""
     return_service = service.PurchasingReturnService(db)
-    return return_service.list_returns(skip, limit)
+    return return_service.list_returns(skip, limit, status_filter)
 
 # Good Received Note Endpoints
 @router.post("/grn", response_model=schemas.GoodReceivedNote, status_code=status.HTTP_201_CREATED)
@@ -215,11 +253,11 @@ def update_grn(
     return grn_service.update(grn_id, grn)
 
 # Good Received Items Endpoints
-@router.get("/grn/{grn_id}/items", response_model=List[schemas.GoodReceivedItem])
+@router.get("/grn/{grn_id}/items", response_model=List[schemas.GoodReceivedItemWithDetails])
 def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
-    """Get all items for a GRN"""
+    """Get all items for a GRN with product details and saved-to info"""
     grn_service = service.GoodReceivedNoteService(db)
-    return grn_service.get_items(grn_id)
+    return grn_service.get_items_with_details(grn_id)
 
 @router.post("/grn-items", response_model=schemas.GoodReceivedItem, status_code=status.HTTP_201_CREATED)
 def create_grn_item(

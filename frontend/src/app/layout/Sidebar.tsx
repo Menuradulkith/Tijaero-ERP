@@ -89,6 +89,7 @@ const menuItems: MenuItem[] = [
       { text: "PO Approvals", icon: <FactCheckIcon />, path: "/purchasing/approvals" },
       { text: "Good Received Notes", icon: <LocalShippingOutlinedIcon />, path: "/purchasing/grn" },
       { text: "Purchase Returns", icon: <AssignmentReturnIcon />, path: "/purchasing/returns" },
+      { text: "Return Approvals", icon: <FactCheckIcon />, path: "/purchasing/return-approvals" },
       { text: "Credit Settlements", icon: <CreditScoreIcon />, path: "/purchasing/settlements" },
     ],
   },
@@ -116,10 +117,15 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.HR_VIEW,
   },
   {
-    text: "Warehouse",
+    text: "Sales Stock",
     icon: <WarehouseIcon />,
     path: "/warehouse",
     permission: PERMISSIONS.WAREHOUSE_VIEW,
+    subItems: [
+      { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse" },
+      { text: "Sales Track", icon: <ReceiptLongIcon />, path: "/warehouse/sales-track" },
+      { text: "Transfer Notes", icon: <LocalShippingOutlinedIcon />, path: "/warehouse/transfer-notes" },
+    ],
   },
   {
     text: "Support",

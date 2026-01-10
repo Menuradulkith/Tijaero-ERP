@@ -160,6 +160,8 @@ export interface PurchasingOrderUpdate {
 }
 
 // Purchase Return Types
+export type PurchaseReturnStatus = "draft" | "pending" | "approved" | "rejected";
+
 export interface PurchasingReturnItem {
   id: number;
   product_id: number;
@@ -169,6 +171,7 @@ export interface PurchasingReturnItem {
   purchasingreturn_id: number;
   branch_code: string;
   added_date: string;
+  sales_stock_id?: number;
 }
 
 export interface PurchasingReturnItemCreate {
@@ -176,6 +179,7 @@ export interface PurchasingReturnItemCreate {
   purchasing_price: number;
   return_price: number;
   barcode: string;
+  sales_stock_id?: number;
 }
 
 export interface PurchasingReturn {
@@ -185,6 +189,8 @@ export interface PurchasingReturn {
   remark?: string;
   goodreceivednote_id: number;
   added_date: string;
+  status: PurchaseReturnStatus;
+  approved_date?: string;
   approval_id?: number;
 }
 
@@ -193,11 +199,51 @@ export interface PurchasingReturnWithItems extends PurchasingReturn {
 }
 
 export interface PurchasingReturnCreate {
-  purchasing_return_no: string;
+  purchasing_return_no?: string;  // Auto-generated if not provided
   branch_code: string;
   remark?: string;
   goodreceivednote_id: number;
   items: PurchasingReturnItemCreate[];
+  require_approval?: boolean;  // Whether to submit for approval or approve immediately
+}
+
+// Barcode Validation Types for Purchase Return
+export interface BarcodeValidationRequest {
+  barcode: string;
+  grn_id: number;
+  branch_code: string;
+}
+
+export interface BarcodeValidationStockInfo {
+  id: number;
+  barcode: string;
+  product_id: number;
+  product_name?: string;
+  purchasing_price: number;
+  branch_code: string;
+  status: string;
+  grn_id?: number;
+  grn_no?: string;
+  supplier_id?: number;
+  supplier_name?: string;
+}
+
+export interface BarcodeValidationResponse {
+  valid: boolean;
+  barcode: string;
+  message: string;
+  sales_stock_id?: number;
+  product_id?: number;
+  product_name?: string;
+  purchasing_price?: number;
+  status?: string;
+  sales_stock?: BarcodeValidationStockInfo;
+}
+
+export interface PurchaseReturnApprovalRequest {
+  return_id: number;
+  approve: boolean;
+  remarks?: string;
 }
 
 // Good Received Note Types
@@ -236,6 +282,11 @@ export interface GoodReceivedItem {
   created_date: string;
   purchasing_order_items_id: number;
   added_date: string;
+  // Enhanced fields
+  product_id?: number;
+  product_name?: string;
+  saved_to_sales_stock?: boolean;
+  saved_to_company_assets?: boolean;
 }
 
 export interface GoodReceivedItemCreate {
