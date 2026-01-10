@@ -155,6 +155,11 @@ export const minimumPriceApi = {
 
 // Sales Stock API - items available for sale from GRN
 export const salesStockApi = {
+  getAll: async (params?: { branch_code?: string; product_id?: number; status?: string }) => {
+    const response = await apiClient.get<SalesStock[]>("/inventory/sales-stock", { params });
+    return response.data;
+  },
+
   create: async (data: SalesStockCreate) => {
     const response = await apiClient.post<SalesStock>(
       "/inventory/sales-stock",

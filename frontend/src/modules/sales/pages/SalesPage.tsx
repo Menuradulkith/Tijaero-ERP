@@ -133,10 +133,10 @@ export default function SalesPage() {
     queryFn: () => productsApi.getAll(),
   });
 
-  const { data: _employees } = useQuery({
-    queryKey: ["employees"],
-    queryFn: () => employeesApi.getAll(),
-  });
+  // const { data: _employees } = useQuery({
+  //   queryKey: ["employees"],
+  //   queryFn: () => employeesApi.getAll(),
+  // });
 
   const { data: branchesData } = useQuery({
     queryKey: ["branches"],

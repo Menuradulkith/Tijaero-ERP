@@ -1,12 +1,24 @@
 from fastapi import APIRouter, Depends, status, Query, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.db.session import get_db
 from app.modules.inventory import schemas, service
 
 router = APIRouter()
 
 # Sales Stock Endpoints
+@router.get("/sales-stock", response_model=List[schemas.SalesStock])
+def get_all_sales_stock(
+    branch_code: Optional[str] = None,
+    product_id: Optional[int] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get all sales stock items with optional filters"""
+    sales_stock_service = service.SalesStockService(db)
+    return sales_stock_service.get_all(branch_code=branch_code, product_id=product_id, status=status)
+
+
 @router.post("/sales-stock", response_model=schemas.SalesStock, status_code=status.HTTP_201_CREATED)
 def create_sales_stock(
     item: schemas.SalesStockCreate,

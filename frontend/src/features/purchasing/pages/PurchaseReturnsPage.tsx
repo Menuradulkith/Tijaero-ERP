@@ -1,8 +1,9 @@
 /**
  * PurchaseReturnsPage - Using Tijaero-style reusable components
+ * With barcode scanning/validation for purchase returns
  */
 
-import { useMemo, useCallback, useState, useEffect } from "react";
+import { useMemo, useCallback, useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -21,12 +22,18 @@ import {
   Step,
   StepLabel,
   Chip,
+  CircularProgress,
+  InputAdornment,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import toast from "react-hot-toast";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -83,8 +90,22 @@ const resetFormFromReturn = (ret: PurchasingReturn | PurchasingReturnWithItems):
     purchasing_price: item.purchasing_price,
     return_price: item.return_price,
     barcode: item.barcode,
+    sales_stock_id: item.sales_stock_id,
   })) : [],
+  require_approval: true,
 });
+
+interface ValidatedItem {
+  barcode: string;
+  sales_stock_id: number;
+  product_id: number;
+  product_name: string;
+  purchasing_price: number;
+  grn_id: number;
+  grn_no: string;
+  supplier_name: string;
+  branch_code: string;
+}
 
 export default function PurchaseReturnsPage() {
   const queryClient = useQueryClient();
@@ -93,6 +114,14 @@ export default function PurchaseReturnsPage() {
   
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Barcode scanning states
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [validatedItems, setValidatedItems] = useState<ValidatedItem[]>([]);
+  const [requireApproval, setRequireApproval] = useState(true);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   const {
     searchQuery,
@@ -127,11 +156,17 @@ export default function PurchaseReturnsPage() {
     }));
     setLineItems([]);
     setFormStep(0);
+    setBarcodeInput("");
+    setValidationError(null);
+    setValidatedItems([]);
+    setRequireApproval(true);
   }, [handleNewReturnBase, setFormData]);
 
   const handleStartEdit = useCallback(() => {
     handleStartEditBase();
     setFormStep(0);
+    setBarcodeInput("");
+    setValidationError(null);
     // @ts-ignore
     if (selectedReturn?.items) {
       // @ts-ignore
@@ -141,6 +176,7 @@ export default function PurchaseReturnsPage() {
         purchasing_price: item.purchasing_price,
         return_price: item.return_price,
         barcode: item.barcode,
+        sales_stock_id: item.sales_stock_id,
       })));
     }
   }, [handleStartEditBase, selectedReturn]);
@@ -149,10 +185,16 @@ export default function PurchaseReturnsPage() {
     handleCancelBase(items);
     setLineItems([]);
     setFormStep(0);
+    setBarcodeInput("");
+    setValidationError(null);
+    setValidatedItems([]);
   }, [handleCancelBase]);
 
   const handleSelectReturnWithItems = useCallback((ret: PurchasingReturn) => {
     handleSelectReturn(ret);
+    setBarcodeInput("");
+    setValidationError(null);
+    setValidatedItems([]);
     // Fetch detailed return with items
     purchaseReturnsApi.getById(ret.id).then((detailedReturn) => {
       if (detailedReturn.items) {
@@ -162,6 +204,7 @@ export default function PurchaseReturnsPage() {
           purchasing_price: item.purchasing_price,
           return_price: item.return_price,
           barcode: item.barcode,
+          sales_stock_id: item.sales_stock_id,
         })));
       } else {
         setLineItems([]);
@@ -234,6 +277,96 @@ export default function PurchaseReturnsPage() {
     },
   });
 
+  // Helper functions (moved up for use in callbacks)
+  const getGRNNumber = useCallback((grnId: number) => {
+    const grn = grns?.find((g: GoodReceivedNote) => g.id === grnId);
+    return grn ? grn.good_received_no : "Unknown";
+  }, [grns]);
+
+  // Barcode validation handler
+  const handleValidateBarcode = useCallback(async (barcode: string) => {
+    if (!barcode.trim()) {
+      setValidationError("Please enter a barcode");
+      return;
+    }
+
+    // Check if barcode already added
+    if (lineItems.some(item => item.barcode === barcode.trim())) {
+      setValidationError("This barcode has already been added to the return");
+      return;
+    }
+
+    // Get the selected GRN info for validation
+    const selectedGrn = grns?.find((g: GoodReceivedNote) => g.id === formData.goodreceivednote_id);
+    
+    if (!selectedGrn) {
+      setValidationError("Please select a GRN first");
+      return;
+    }
+
+    setIsValidating(true);
+    setValidationError(null);
+
+    try {
+      const response = await purchaseReturnsApi.validateBarcode({
+        barcode: barcode.trim(),
+        grn_id: formData.goodreceivednote_id,
+        branch_code: formData.branch_code,
+      });
+
+      if (response.valid && response.sales_stock_id) {
+        // Add to validated items list
+        const validatedItem: ValidatedItem = {
+          barcode: barcode.trim(),
+          sales_stock_id: response.sales_stock_id,
+          product_id: response.product_id || 0,
+          product_name: response.product_name || "Unknown Product",
+          purchasing_price: response.purchasing_price || 0,
+          grn_id: formData.goodreceivednote_id,
+          grn_no: getGRNNumber(formData.goodreceivednote_id),
+          supplier_name: "",
+          branch_code: formData.branch_code,
+        };
+        setValidatedItems(prev => [...prev, validatedItem]);
+
+        // Add to line items
+        const newLineItem: ReturnLineItem = {
+          _id: `validated-${Date.now()}`,
+          product_id: response.product_id || 0,
+          purchasing_price: response.purchasing_price || 0,
+          return_price: response.purchasing_price || 0, // Default to purchase price
+          barcode: barcode.trim(),
+          sales_stock_id: response.sales_stock_id,
+        };
+        setLineItems(prev => [...prev, newLineItem]);
+
+        // Clear input and focus for next scan
+        setBarcodeInput("");
+        toast.success(`Added: ${response.product_name || barcode}`);
+        barcodeInputRef.current?.focus();
+      } else {
+        setValidationError(response.message || "Barcode validation failed");
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || error.message || "Failed to validate barcode";
+      setValidationError(errorMessage);
+    } finally {
+      setIsValidating(false);
+    }
+  }, [formData.goodreceivednote_id, formData.branch_code, grns, lineItems, getGRNNumber]);
+
+  const handleBarcodeKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleValidateBarcode(barcodeInput);
+    }
+  }, [barcodeInput, handleValidateBarcode]);
+
+  const handleRemoveValidatedItem = useCallback((barcode: string) => {
+    setValidatedItems(prev => prev.filter(item => item.barcode !== barcode));
+    setLineItems(prev => prev.filter(item => item.barcode !== barcode));
+  }, []);
+
   const handleAddLineItem = () => {
     const newItem: ReturnLineItem = {
       _id: `new-${Date.now()}`,
@@ -246,7 +379,12 @@ export default function PurchaseReturnsPage() {
   };
 
   const handleRemoveLineItem = (id: string) => {
-    setLineItems(lineItems.filter(item => item._id !== id));
+    setLineItems(prev => prev.filter(item => item._id !== id));
+    // Also remove from validated items if exists
+    const removedItem = lineItems.find(item => item._id === id);
+    if (removedItem?.barcode) {
+      setValidatedItems(prev => prev.filter(item => item.barcode !== removedItem.barcode));
+    }
   };
 
   const handleUpdateLineItem = (id: string, field: keyof ReturnLineItem, value: any) => {
@@ -259,13 +397,14 @@ export default function PurchaseReturnsPage() {
     const dataToSave: PurchasingReturnCreate = {
       ...formData,
       items: lineItems.map(({ _id, ...item }) => item),
+      require_approval: requireApproval,
     };
 
     if (isCreating) {
       createMutation.mutate(dataToSave);
     }
     // Note: Update not supported by current API
-  }, [isCreating, formData, lineItems, createMutation]);
+  }, [isCreating, formData, lineItems, createMutation, requireApproval]);
 
   const confirmDialog = useConfirmDialog();
 
@@ -304,11 +443,6 @@ export default function PurchaseReturnsPage() {
       handleNewReturnBase();
     }
   }, [selectedReturn, setFormData, handleNewReturnBase]);
-
-  const getGRNNumber = (grnId: number) => {
-    const grn = grns?.find((g: GoodReceivedNote) => g.id === grnId);
-    return grn ? grn.good_received_no : "Unknown";
-  };
 
   const calculateTotal = () => {
     return lineItems.reduce((sum, item) => sum + item.return_price, 0);
@@ -571,10 +705,115 @@ export default function PurchaseReturnsPage() {
                   </Button>
                 )}
 
+                {/* Barcode Scanner Section */}
+                {(isEditing || isCreating) && (
+                  <Paper 
+                    variant="outlined" 
+                    sx={{ 
+                      p: 2, 
+                      mb: 2, 
+                      bgcolor: "primary.50",
+                      borderColor: "primary.main",
+                      borderWidth: 2,
+                    }}
+                  >
+                    <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                      <QrCodeScannerIcon color="primary" />
+                      Scan Barcode to Add Return Items
+                    </Typography>
+                    <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+                      <TextField
+                        inputRef={barcodeInputRef}
+                        size="small"
+                        fullWidth
+                        placeholder="Scan or type barcode and press Enter..."
+                        value={barcodeInput}
+                        onChange={(e) => {
+                          setBarcodeInput(e.target.value);
+                          if (validationError) setValidationError(null);
+                        }}
+                        onKeyDown={handleBarcodeKeyDown}
+                        disabled={isValidating || formData.goodreceivednote_id === 0}
+                        error={!!validationError}
+                        helperText={validationError || (formData.goodreceivednote_id === 0 ? "Please select a GRN first" : "Press Enter to validate and add item")}
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <QrCodeScannerIcon fontSize="small" color={isValidating ? "disabled" : "action"} />
+                            </InputAdornment>
+                          ),
+                          endAdornment: isValidating ? (
+                            <InputAdornment position="end">
+                              <CircularProgress size={20} />
+                            </InputAdornment>
+                          ) : null,
+                        }}
+                        autoFocus
+                      />
+                      <Button
+                        variant="contained"
+                        onClick={() => handleValidateBarcode(barcodeInput)}
+                        disabled={isValidating || !barcodeInput.trim() || formData.goodreceivednote_id === 0}
+                        sx={{ minWidth: 100 }}
+                      >
+                        {isValidating ? <CircularProgress size={20} /> : "Add"}
+                      </Button>
+                    </Box>
+
+                    {/* Approval Workflow Option */}
+                    <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={requireApproval}
+                            onChange={(e) => setRequireApproval(e.target.checked)}
+                            color="primary"
+                          />
+                        }
+                        label={
+                          <Typography variant="body2">
+                            Require approval before processing return
+                            {requireApproval && (
+                              <Chip 
+                                label="Pending Approval" 
+                                size="small" 
+                                color="warning" 
+                                sx={{ ml: 1 }} 
+                              />
+                            )}
+                          </Typography>
+                        }
+                      />
+                    </Box>
+
+                    {/* Scanned Items Summary */}
+                    {validatedItems.length > 0 && (
+                      <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Scanned Items: {validatedItems.length}
+                        </Typography>
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 1 }}>
+                          {validatedItems.map((item, idx) => (
+                            <Chip
+                              key={idx}
+                              size="small"
+                              icon={<CheckCircleIcon fontSize="small" />}
+                              label={item.barcode}
+                              onDelete={() => handleRemoveValidatedItem(item.barcode)}
+                              color="success"
+                              variant="outlined"
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                  </Paper>
+                )}
+
                 <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: isCreating ? 0 : 2 }}>
                   <Typography variant="subtitle1" fontWeight="bold">Return Items</Typography>
                   {(isEditing || isCreating) && (
-                    <IconButton size="small" onClick={handleAddLineItem} color="primary">
+                    <IconButton size="small" onClick={handleAddLineItem} color="primary" title="Add manual item">
                       <AddIcon />
                     </IconButton>
                   )}
@@ -585,7 +824,7 @@ export default function PurchaseReturnsPage() {
                   <TableHead>
                     <TableRow sx={{ bgcolor: "action.hover" }}>
                       <TableCell>Barcode</TableCell>
-                      <TableCell>Product ID</TableCell>
+                      <TableCell>Product</TableCell>
                       <TableCell align="right" sx={{ width: 120 }}>Purchase Price</TableCell>
                       <TableCell align="right" sx={{ width: 120 }}>Return Price</TableCell>
                       {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
@@ -596,15 +835,23 @@ export default function PurchaseReturnsPage() {
                       <TableRow>
                         <TableCell colSpan={isEditing || isCreating ? 5 : 4} align="center">
                           <Typography variant="body2" color="text.secondary" py={2}>
-                            No items added yet
+                            {(isEditing || isCreating) 
+                              ? "Scan barcodes above to add items" 
+                              : "No items added yet"}
                           </Typography>
                         </TableCell>
                       </TableRow>
                     ) : (
-                      lineItems.map((item) => (
+                      lineItems.map((item) => {
+                        const validatedItem = validatedItems.find(v => v.barcode === item.barcode);
+                        return (
                         <TableRow key={item._id}>
                           <TableCell>
-                            {(isEditing || isCreating) ? (
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                              {validatedItem && (
+                                <CheckCircleIcon fontSize="small" color="success" />
+                              )}
+                            {(isEditing || isCreating) && !validatedItem ? (
                               <TextField
                                 size="small"
                                 fullWidth
@@ -613,20 +860,24 @@ export default function PurchaseReturnsPage() {
                                 placeholder="Barcode"
                               />
                             ) : (
-                              item.barcode
+                              <Typography variant="body2">{item.barcode}</Typography>
                             )}
+                            </Box>
                           </TableCell>
                           <TableCell>
-                            {(isEditing || isCreating) ? (
+                            {validatedItem ? (
+                              <Typography variant="body2">{validatedItem.product_name}</Typography>
+                            ) : (isEditing || isCreating) ? (
                               <TextField
                                 size="small"
                                 type="number"
                                 value={item.product_id}
                                 onChange={(e) => handleUpdateLineItem(item._id, "product_id", parseInt(e.target.value) || 0)}
                                 sx={{ width: 100 }}
+                                placeholder="Product ID"
                               />
                             ) : (
-                              item.product_id
+                              `#${item.product_id}`
                             )}
                           </TableCell>
                           <TableCell align="right">
@@ -665,7 +916,7 @@ export default function PurchaseReturnsPage() {
                             </TableCell>
                           )}
                         </TableRow>
-                      ))
+                      );})
                     )}
                     <TableRow sx={{ bgcolor: "action.hover" }}>
                       <TableCell colSpan={isEditing || isCreating ? 3 : 3} align="right">

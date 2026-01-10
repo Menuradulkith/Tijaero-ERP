@@ -125,6 +125,15 @@ export interface MinimumPriceCreate {
 }
 
 // Sales Stock Types - items available for sale
+export type SalesStockStatus = 
+  | "available" 
+  | "sold" 
+  | "reserved" 
+  | "returned_to_supplier" 
+  | "return_pending" 
+  | "transferred" 
+  | "damaged";
+
 export interface SalesStock {
   id: number;
   product_id: number;
@@ -133,7 +142,10 @@ export interface SalesStock {
   good_received_note_id: number;
   purchasing_order_items_id: number;
   warranty_month?: string;  // Warranty period from PO or entered in GRN
-  status: "available" | "sold" | "reserved" | "returned";
+  status: SalesStockStatus;
+  is_active: boolean;  // Soft delete flag
+  returned_date?: string;  // When item was returned
+  purchase_return_id?: number;  // Link to return record
   added_date: string;
 }
 
