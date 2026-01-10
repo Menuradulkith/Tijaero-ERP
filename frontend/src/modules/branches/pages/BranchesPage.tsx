@@ -13,51 +13,50 @@
  * - Locations management section
  */
 
-import { useMemo, useCallback, useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { 
-  Box, 
-  TextField, 
-  Typography,
-  IconButton,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  Paper,
-  Divider,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-} from "@mui/material";
-import BusinessIcon from "@mui/icons-material/Business";
-import LocationOnIcon from "@mui/icons-material/LocationOn";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { formatErrorMessage } from "@/utils/errorHandling";
 import AddIcon from "@mui/icons-material/Add";
-import EditIcon from "@mui/icons-material/Edit";
+import BusinessIcon from "@mui/icons-material/Business";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
+import LocationOnIcon from "@mui/icons-material/LocationOn";
+import {
+    Box,
+    Button,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    Divider,
+    IconButton,
+    List,
+    ListItem,
+    ListItemSecondaryAction,
+    ListItemText,
+    Paper,
+    TextField,
+    Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
+import toast from "react-hot-toast";
 
 // Tijaero Components - Import everything from one place
 import {
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
-  SortOption,
-  TConfirmDialog,
-  useTConfirmDialog,
-  showSuccessToast,
-  showErrorToast,
+    ActionToolbar,
+    DetailPanelHeader,
+    EmptyState,
+    FormSection,
+    MasterDetailLayout,
+    SearchableList,
+    SelectableListItem,
+    SortOption,
+    useMasterDetailState,
 } from "@/components/tijaero";
 
-import { branchApi } from "../api";
-import { locationsApi, Location, LocationCreate } from "@/modules/common/api";
 import type { Branch, BranchCreate } from "@/api/types";
+import { Location, LocationCreate, locationsApi } from "@/modules/common/api";
+import { branchApi } from "../api";
 
 // Configuration - Define once, use everywhere
 const SORT_OPTIONS: SortOption[] = [
@@ -149,20 +148,13 @@ export default function BranchesPage() {
     return filtered;
   }, [data?.items, searchQuery, sortField]);
 
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredBranches.length > 0 && !selectedBranch && !isCreating) {
-      handleSelectBranch(filteredBranches[0]);
-    }
-  }, [filteredBranches, selectedBranch, isCreating]);
-
   // Mutations
   const createMutation = useMutation({
     mutationFn: branchApi.create,
     onSuccess: (newBranch) => {
       console.log("[BranchesPage] Create success:", newBranch);
       queryClient.invalidateQueries({ queryKey: ["branches"] });
-      showSuccessToast("Branch created successfully");
+      toast.success("Branch created successfully");
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
       setIsEditing(false);
@@ -172,7 +164,7 @@ export default function BranchesPage() {
     onError: (error: any) => {
       console.error("[BranchesPage] Create error:", error);
       console.error("[BranchesPage] Error response:", error.response);
-      showErrorToast(error.response?.data?.detail || "Failed to create branch");
+      toast.error(formatErrorMessage(error) || "Failed to create branch");
     },
   });
 
@@ -182,13 +174,13 @@ export default function BranchesPage() {
     onSuccess: () => {
       console.log("[BranchesPage] Update success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
-      showSuccessToast("Branch updated successfully");
+      toast.success("Branch updated successfully");
       setIsEditing(false);
     },
     onError: (error: any) => {
       console.error("[BranchesPage] Update error:", error);
       console.error("[BranchesPage] Error response:", error.response);
-      showErrorToast(error.response?.data?.detail || "Failed to update branch");
+      toast.error(formatErrorMessage(error) || "Failed to update branch");
     },
   });
 
@@ -197,13 +189,13 @@ export default function BranchesPage() {
     onSuccess: () => {
       console.log("[BranchesPage] Delete success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
-      showSuccessToast("Branch deleted successfully");
+      toast.success("Branch deleted successfully");
       handleCancel(filteredBranches);
     },
     onError: (error: any) => {
       console.error("[BranchesPage] Delete error:", error);
       console.error("[BranchesPage] Error response:", error.response);
-      showErrorToast(error.response?.data?.detail || "Failed to delete branch");
+      toast.error(formatErrorMessage(error) || "Failed to delete branch");
     },
   });
 
@@ -212,11 +204,11 @@ export default function BranchesPage() {
     mutationFn: locationsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
-      showSuccessToast("Location created successfully");
+      toast.success("Location created successfully");
       handleCloseLocationDialog();
     },
     onError: (error: any) => {
-      showErrorToast(error.response?.data?.detail || "Failed to create location");
+      toast.error(formatErrorMessage(error) || "Failed to create location");
     },
   });
 
@@ -225,11 +217,11 @@ export default function BranchesPage() {
       locationsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
-      showSuccessToast("Location updated successfully");
+      toast.success("Location updated successfully");
       handleCloseLocationDialog();
     },
     onError: (error: any) => {
-      showErrorToast(error.response?.data?.detail || "Failed to update location");
+      toast.error(formatErrorMessage(error) || "Failed to update location");
     },
   });
 
@@ -237,10 +229,10 @@ export default function BranchesPage() {
     mutationFn: locationsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
-      showSuccessToast("Location deleted successfully");
+      toast.success("Location deleted successfully");
     },
     onError: (error: any) => {
-      showErrorToast(error.response?.data?.detail || "Failed to delete location");
+      toast.error(formatErrorMessage(error) || "Failed to delete location");
     },
   });
 
@@ -258,7 +250,7 @@ export default function BranchesPage() {
     }
   }, [isCreating, isEditing, selectedBranch, formData, createMutation, updateMutation]);
 
-  const confirmDialog = useTConfirmDialog();
+  const confirmDialog = useConfirmDialog();
 
   const handleDelete = useCallback(async () => {
     if (selectedBranch) {
@@ -305,7 +297,7 @@ export default function BranchesPage() {
 
   const handleSaveLocation = useCallback(() => {
     if (!locationName.trim()) {
-      showErrorToast("Location name is required");
+      toast.error("Location name is required");
       return;
     }
     if (editingLocation) {
@@ -350,33 +342,8 @@ export default function BranchesPage() {
           id={branch.id}
           isSelected={isSelected}
           onClick={() => handleSelectBranch(branch)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Branch Code */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{branch.branch_code}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Code)
-                  </Typography>
-                )}
-              </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {branch.branch_name}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Name)
-                    </Typography>
-                  </Box>
-                </>
-              )}
-            </Box>
-          }
-          secondaryText={!isSelected ? `Name: ${branch.branch_name}` : undefined}
+          primaryText={branch.branch_code}
+          secondaryText={`Name: ${branch.branch_name}`}
           isFavorite={favorites.includes(branch.id)}
           onToggleFavorite={(e) => toggleFavorite(branch.id, e)}
         />
@@ -424,7 +391,7 @@ export default function BranchesPage() {
       />
 
       {/* Content */}
-      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         {!selectedBranch && !isCreating ? (
           <EmptyState message="Select a branch from the list or create a new one" />
         ) : (
@@ -551,7 +518,7 @@ export default function BranchesPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <TConfirmDialog {...confirmDialog.dialogProps} />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
       
       {/* Location Dialog */}
       <Dialog 

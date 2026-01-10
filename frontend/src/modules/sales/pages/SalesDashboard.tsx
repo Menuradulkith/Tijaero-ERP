@@ -1,37 +1,42 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
-  Box,
-  Grid,
-  Paper,
-  Typography,
-  Card,
-  CardContent,
-  LinearProgress,
-  Divider,
-  List,
-  ListItem,
-  ListItemText,
-  Chip,
-} from "@mui/material";
+  TCurrency,
+  TLoading,
+  TPageHeader,
+  TStatCard,
+  TStatusChip,
+} from "@/components/tijaero";
+import { branchApi } from "@/modules/branches/api";
 import {
-  Receipt as ReceiptIcon,
   AttachMoney as MoneyIcon,
   People as PeopleIcon,
+  Receipt as ReceiptIcon,
   AssignmentReturn as ReturnIcon,
 } from "@mui/icons-material";
 import {
-  TStatCard,
-  TPageHeader,
-  TStatusChip,
-  TLoading,
-  TCurrency,
-} from "@/components/tijaero";
-import { salesApi, saleReturnsApi } from "../api";
+  Autocomplete,
+  Box,
+  Card,
+  CardContent,
+  Chip,
+  Divider,
+  Grid,
+  LinearProgress,
+  List,
+  ListItem,
+  ListItemText,
+  Paper,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { useQuery } from "@tanstack/react-query";
+import { endOfMonth, format, isWithinInterval, startOfMonth, subMonths } from "date-fns";
+import { useMemo, useState } from "react";
+import { saleReturnsApi, salesApi } from "../api";
 import { Invoice } from "../types";
-import { format, startOfMonth, endOfMonth, isWithinInterval, subMonths } from "date-fns";
 
 export default function SalesDashboard() {
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
   const { data: invoices, isLoading: invoicesLoading } = useQuery({
     queryKey: ["sales"],
     queryFn: () => salesApi.getAll(),
@@ -42,30 +47,48 @@ export default function SalesDashboard() {
     queryFn: () => saleReturnsApi.getAll(),
   });
 
+  const { data: branchesData } = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => branchApi.getAll(1, 100),
+  });
+  const branches = branchesData?.items || [];
+
   const isLoading = invoicesLoading || returnsLoading;
+
+  // Filter invoices by branch
+  const filteredInvoices = useMemo(() => {
+    if (!invoices) return [];
+    if (!filterBranch) return invoices;
+    return invoices.filter((inv) => inv.branch_code === filterBranch);
+  }, [invoices, filterBranch]);
+
+  // Filter sale returns by branch
+  const filteredReturns = useMemo(() => {
+    if (!saleReturns) return [];
+    if (!filterBranch) return saleReturns;
+    return saleReturns.filter((ret) => ret.branch_code === filterBranch);
+  }, [saleReturns, filterBranch]);
+
+  // Calculate total for an invoice
+  const calculateTotal = (invoice: Invoice) =>
+    invoice.cash_amount +
+    invoice.card_visa_amount +
+    invoice.card_mastercard_amount +
+    invoice.card_amex_amount +
+    invoice.cheque_amount +
+    invoice.bank_transfer_amount +
+    invoice.credit_amount;
 
   // Calculate statistics
   const stats = useMemo(() => {
-    if (!invoices) return null;
-
     const now = new Date();
     const currentMonthStart = startOfMonth(now);
     const currentMonthEnd = endOfMonth(now);
     const lastMonthStart = startOfMonth(subMonths(now, 1));
     const lastMonthEnd = endOfMonth(subMonths(now, 1));
 
-    // Calculate total for an invoice
-    const calculateTotal = (invoice: Invoice) =>
-      invoice.cash_amount +
-      invoice.card_visa_amount +
-      invoice.card_mastercard_amount +
-      invoice.card_amex_amount +
-      invoice.cheque_amount +
-      invoice.bank_transfer_amount +
-      invoice.credit_amount;
-
     // Current month invoices
-    const currentMonthInvoices = invoices.filter((inv) =>
+    const currentMonthInvoices = filteredInvoices.filter((inv) =>
       isWithinInterval(new Date(inv.created_date), {
         start: currentMonthStart,
         end: currentMonthEnd,
@@ -73,7 +96,7 @@ export default function SalesDashboard() {
     );
 
     // Last month invoices
-    const lastMonthInvoices = invoices.filter((inv) =>
+    const lastMonthInvoices = filteredInvoices.filter((inv) =>
       isWithinInterval(new Date(inv.created_date), {
         start: lastMonthStart,
         end: lastMonthEnd,
@@ -82,7 +105,7 @@ export default function SalesDashboard() {
 
     const currentMonthRevenue = currentMonthInvoices.reduce((sum, inv) => sum + calculateTotal(inv), 0);
     const lastMonthRevenue = lastMonthInvoices.reduce((sum, inv) => sum + calculateTotal(inv), 0);
-    const totalRevenue = invoices.reduce((sum, inv) => sum + calculateTotal(inv), 0);
+    const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + calculateTotal(inv), 0);
 
     const revenueTrend = lastMonthRevenue > 0 
       ? ((currentMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
@@ -94,29 +117,29 @@ export default function SalesDashboard() {
 
     // Payment method breakdown
     const paymentBreakdown = {
-      cash: invoices.reduce((sum, inv) => sum + inv.cash_amount, 0),
-      card: invoices.reduce((sum, inv) => sum + inv.card_visa_amount + inv.card_mastercard_amount + inv.card_amex_amount, 0),
-      cheque: invoices.reduce((sum, inv) => sum + inv.cheque_amount, 0),
-      bankTransfer: invoices.reduce((sum, inv) => sum + inv.bank_transfer_amount, 0),
-      credit: invoices.reduce((sum, inv) => sum + inv.credit_amount, 0),
+      cash: filteredInvoices.reduce((sum, inv) => sum + inv.cash_amount, 0),
+      card: filteredInvoices.reduce((sum, inv) => sum + inv.card_visa_amount + inv.card_mastercard_amount + inv.card_amex_amount, 0),
+      cheque: filteredInvoices.reduce((sum, inv) => sum + inv.cheque_amount, 0),
+      bankTransfer: filteredInvoices.reduce((sum, inv) => sum + inv.bank_transfer_amount, 0),
+      credit: filteredInvoices.reduce((sum, inv) => sum + inv.credit_amount, 0),
     };
 
     // Top invoices
-    const topInvoices = [...invoices]
+    const topInvoices = [...filteredInvoices]
       .sort((a, b) => calculateTotal(b) - calculateTotal(a))
       .slice(0, 5);
 
     // Recent invoices
-    const recentInvoices = [...invoices]
+    const recentInvoices = [...filteredInvoices]
       .sort((a, b) => new Date(b.created_date).getTime() - new Date(a.created_date).getTime())
       .slice(0, 5);
 
     // Approval stats
-    const pendingApproval = invoices.filter((inv) => !inv.approval).length;
-    const approved = invoices.filter((inv) => inv.approval).length;
+    const pendingApproval = filteredInvoices.filter((inv) => !inv.approval).length;
+    const approved = filteredInvoices.filter((inv) => inv.approval).length;
 
     return {
-      totalOrders: invoices.length,
+      totalOrders: filteredInvoices.length,
       currentMonthOrders: currentMonthInvoices.length,
       totalRevenue,
       currentMonthRevenue,
@@ -127,28 +150,32 @@ export default function SalesDashboard() {
       recentInvoices,
       pendingApproval,
       approved,
-      saleReturnsCount: saleReturns?.length || 0,
-      calculateTotal,
+      saleReturnsCount: filteredReturns.length,
     };
-  }, [invoices, saleReturns]);
+  }, [filteredInvoices, filteredReturns]);
 
   if (isLoading) {
     return <TLoading message="Loading sales data..." />;
   }
 
-  if (!stats) {
-    return (
-      <Box sx={{ p: 3, textAlign: "center" }}>
-        <Typography>No sales data available</Typography>
-      </Box>
-    );
-  }
-
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
       <TPageHeader
         title="Sales Dashboard"
         subtitle="Overview of sales performance and statistics"
+        actions={
+          <Autocomplete
+            size="small"
+            options={branches}
+            getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+            value={branches.find(b => b.branch_code === filterBranch) || null}
+            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
+            renderInput={(params) => (
+              <TextField {...params} placeholder="Filter by Branch" size="small" />
+            )}
+            sx={{ minWidth: 250 }}
+          />
+        }
       />
 
       <Grid container spacing={3}>
@@ -240,7 +267,7 @@ export default function SalesDashboard() {
                   />
                   <Box sx={{ textAlign: "right" }}>
                     <Typography variant="body2" fontWeight={600} color="success.main">
-                      <TCurrency value={stats.calculateTotal(invoice)} />
+                      <TCurrency value={calculateTotal(invoice)} />
                     </Typography>
                     <TStatusChip
                       status={invoice.approval ? "approved" : "pending"}
@@ -271,7 +298,7 @@ export default function SalesDashboard() {
                         {invoice.invoice_no}
                       </Typography>
                       <Typography variant="h6" color="success.main" fontWeight={700}>
-                        Rs. {stats.calculateTotal(invoice).toFixed(2)}
+                        Rs. {calculateTotal(invoice).toFixed(2)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {format(new Date(invoice.created_date), "MMM dd")}

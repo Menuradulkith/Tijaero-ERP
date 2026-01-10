@@ -2,43 +2,42 @@
  * GroupsPage - Refactored to use Tijaero-style reusable components
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import {
-  Box,
-  TextField,
-  Checkbox,
-  Alert,
-  CircularProgress,
-  Card,
-  CardContent,
-  Typography,
-} from "@mui/material";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { formatErrorMessage } from "@/utils/errorHandling";
 import SecurityIcon from "@mui/icons-material/Security";
+import {
+    Alert,
+    Box,
+    Card,
+    CardContent,
+    Checkbox,
+    CircularProgress,
+    TextField,
+    Typography,
+} from "@mui/material";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
 
 // Tijaero Components
 import {
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
-  SortOption,
-  TConfirmDialog,
-  useTConfirmDialog,
-  showSuccessToast,
-  showErrorToast,
+    ActionToolbar,
+    DetailPanelHeader,
+    EmptyState,
+    FormSection,
+    MasterDetailLayout,
+    SearchableList,
+    SelectableListItem,
+    SortOption,
+    useMasterDetailState,
 } from "@/components/tijaero";
 
 import {
-  groupsApi,
-  permissionsApi,
-  Group,
-  GroupCreate,
-  GroupUpdate,
-  Permission,
+    Group,
+    GroupCreate,
+    groupsApi,
+    GroupUpdate,
+    Permission,
+    permissionsApi,
 } from "../api";
 
 // Configuration
@@ -106,7 +105,9 @@ export default function GroupsPage() {
       setGroups(groupsData);
       setPermissions(permissionsData);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to load data");
+      const errorMsg = formatErrorMessage(err) || "Failed to load data";
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -130,13 +131,6 @@ export default function GroupsPage() {
     return filtered;
   }, [groups, searchQuery, sortField]);
 
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredGroups.length > 0 && !selectedGroup && !isCreating) {
-      handleSelectGroup(filteredGroups[0]);
-    }
-  }, [filteredGroups, selectedGroup, isCreating]);
-
   // Group permissions by resource
   const groupedPermissions = useMemo(() => {
     return permissions.reduce((acc, perm) => {
@@ -154,7 +148,7 @@ export default function GroupsPage() {
       setError(null);
       if (isCreating) {
         const newGroup = await groupsApi.createGroup(formData);
-        showSuccessToast("Role created successfully");
+        toast.success("Role created successfully");
         // Reset state first
         setIsCreating(false);
         setIsEditing(false);
@@ -163,13 +157,14 @@ export default function GroupsPage() {
         setTimeout(() => setSelectedGroup(newGroup), 0);
       } else if (selectedGroup) {
         await groupsApi.updateGroup(selectedGroup.id, formData as GroupUpdate);
-        showSuccessToast("Role updated successfully");
+        toast.success("Role updated successfully");
         setIsEditing(false);
         await loadData();
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to save role");
-      showErrorToast(err.response?.data?.detail || "Failed to save role");
+      const errorMsg = formatErrorMessage(err) || "Failed to save role";
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
   }, [isCreating, selectedGroup, formData, setIsCreating, setIsEditing, setSelectedGroup]);
 
@@ -177,7 +172,7 @@ export default function GroupsPage() {
     baseHandleCancel(filteredGroups);
   }, [baseHandleCancel, filteredGroups]);
 
-  const confirmDialog = useTConfirmDialog();
+  const confirmDialog = useConfirmDialog();
 
   const handleDelete = useCallback(async () => {
     if (selectedGroup) {
@@ -190,12 +185,13 @@ export default function GroupsPage() {
       if (confirmed) {
         try {
           await groupsApi.deleteGroup(selectedGroup.id);
-          showSuccessToast("Role deleted successfully");
+          toast.success("Role deleted successfully");
           setSelectedGroup(null);
           await loadData();
         } catch (err: any) {
-          setError(err.response?.data?.detail || "Failed to delete role");
-          showErrorToast(err.response?.data?.detail || "Failed to delete role");
+          const errorMsg = formatErrorMessage(err) || "Failed to delete role";
+          setError(errorMsg);
+          toast.error(errorMsg);
         }
       }
     }
@@ -255,33 +251,8 @@ export default function GroupsPage() {
           id={group.id}
           isSelected={isSelected}
           onClick={() => handleSelectGroup(group)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Group Name */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{group.name}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Name)
-                  </Typography>
-                )}
-              </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {group.permissions.length} permissions
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Permissions)
-                    </Typography>
-                  </Box>
-                </>
-              )}
-            </Box>
-          }
-          secondaryText={!isSelected ? `${group.permissions.length} permissions` : undefined}
+          primaryText={group.name}
+          secondaryText={`${group.permissions.length} permissions`}
           isFavorite={favorites.includes(group.id)}
           onToggleFavorite={(e) => toggleFavorite(group.id, e)}
         />
@@ -321,7 +292,7 @@ export default function GroupsPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         {!selectedGroup && !isCreating ? (
           <EmptyState message="Select a role from the list or create a new one" />
         ) : (
@@ -405,7 +376,7 @@ export default function GroupsPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <TConfirmDialog {...confirmDialog.dialogProps} />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

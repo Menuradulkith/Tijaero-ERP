@@ -1,44 +1,44 @@
-import { useState, useEffect } from "react";
-import {
-  Drawer,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Toolbar,
-  Box,
-  Typography,
-  Divider,
-} from "@mui/material";
-import DashboardIcon from "@mui/icons-material/Dashboard";
-import PeopleIcon from "@mui/icons-material/People";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
-import LocalShippingIcon from "@mui/icons-material/LocalShipping";
-import InventoryIcon from "@mui/icons-material/Inventory";
+import { hasPermission, PERMISSIONS } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
-import GroupIcon from "@mui/icons-material/Group";
-import BusinessIcon from "@mui/icons-material/Business";
-import WarehouseIcon from "@mui/icons-material/Warehouse";
-import SupportAgentIcon from "@mui/icons-material/SupportAgent";
-import AssessmentIcon from "@mui/icons-material/Assessment";
-import PersonIcon from "@mui/icons-material/Person";
-import SecurityIcon from "@mui/icons-material/Security";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import AssessmentIcon from "@mui/icons-material/Assessment";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import BusinessIcon from "@mui/icons-material/Business";
+import CategoryIcon from "@mui/icons-material/Category";
+import CreditScoreIcon from "@mui/icons-material/CreditScore";
+import DashboardIcon from "@mui/icons-material/Dashboard";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
+import GroupIcon from "@mui/icons-material/Group";
+import InventoryIcon from "@mui/icons-material/Inventory";
+import Inventory2Icon from "@mui/icons-material/Inventory2";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
+import PeopleIcon from "@mui/icons-material/People";
+import PersonIcon from "@mui/icons-material/Person";
+import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import SecurityIcon from "@mui/icons-material/Security";
+import SellIcon from "@mui/icons-material/Sell";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import SpeedIcon from "@mui/icons-material/Speed";
 import StoreIcon from "@mui/icons-material/Store";
-import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
-import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
-import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
-import CreditScoreIcon from "@mui/icons-material/CreditScore";
-import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
-import Inventory2Icon from "@mui/icons-material/Inventory2";
-import CategoryIcon from "@mui/icons-material/Category";
-import SellIcon from "@mui/icons-material/Sell";
-import FactCheckIcon from "@mui/icons-material/FactCheck";
-import { useNavigate, useLocation } from "react-router-dom";
-import { useAuthStore } from "@/state/authStore";
-import { hasPermission, PERMISSIONS } from "@/auth/permissions";
+import SupportAgentIcon from "@mui/icons-material/SupportAgent";
+import WarehouseIcon from "@mui/icons-material/Warehouse";
+import {
+    Box,
+    Divider,
+    Drawer,
+    List,
+    ListItem,
+    ListItemButton,
+    ListItemIcon,
+    ListItemText,
+    Toolbar,
+    Typography,
+} from "@mui/material";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 interface SidebarProps {
   drawerWidth: number;
@@ -66,12 +66,6 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
   { text: "Dashboard", icon: <DashboardIcon />, path: "/dashboard" },
   {
-    text: "Customers",
-    icon: <PeopleIcon />,
-    path: "/customers",
-    permission: PERMISSIONS.CUSTOMER_VIEW,
-  },
-  {
     text: "Sales",
     icon: <ShoppingCartIcon />,
     path: "/sales",
@@ -80,6 +74,7 @@ const menuItems: MenuItem[] = [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/sales/dashboard" },
       { text: "Sales Orders", icon: <PointOfSaleIcon />, path: "/sales/orders" },
       { text: "Sales Returns", icon: <AssignmentReturnIcon />, path: "/sales/returns" },
+      { text: "Customers", icon: <PeopleIcon />, path: "/sales/customers" },
     ],
   },
   {

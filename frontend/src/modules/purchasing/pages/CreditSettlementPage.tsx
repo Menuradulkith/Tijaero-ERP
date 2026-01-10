@@ -7,52 +7,53 @@
  * 3. Click PO → Right panel shows PO details + payment form
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { formatErrorMessage } from "@/utils/errorHandling";
+import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import BusinessIcon from "@mui/icons-material/Business";
+import PaymentIcon from "@mui/icons-material/Payment";
+import ReceiptIcon from "@mui/icons-material/Receipt";
 import {
-  Box,
-  TextField,
-  MenuItem,
   Alert,
-  CircularProgress,
-  Chip,
-  List,
-  ListItemButton,
-  ListItemText,
-  ListItemIcon,
-  Typography,
-  LinearProgress,
-  Paper,
-  Divider,
+  Autocomplete,
+  Box,
   Button,
   Card,
   CardContent,
+  Chip,
+  CircularProgress,
+  Divider,
   Grid,
-  Autocomplete,
+  LinearProgress,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  MenuItem,
+  Paper,
+  TextField,
+  Typography,
 } from "@mui/material";
-import PaymentIcon from "@mui/icons-material/Payment";
-import BusinessIcon from "@mui/icons-material/Business";
-import ReceiptIcon from "@mui/icons-material/Receipt";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
+  DetailPanelHeader,
+  EmptyState,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
-  DetailPanelHeader,
-  EmptyState,
   SortOption,
 } from "@/components/tijaero";
 
-import {
-  suppliersApi,
-  supplierCreditsSettleApi,
-  supplierCreditApi,
-  SupplierCreditStatus,
-} from "@/modules/purchasing/api";
 import { branchApi } from "@/modules/branches/api";
+import {
+  supplierCreditApi,
+  supplierCreditsSettleApi,
+  SupplierCreditStatus,
+  suppliersApi,
+} from "@/modules/purchasing/api";
 import {
   Supplier,
   SupplierCreditsSettleCreate,
@@ -173,7 +174,7 @@ export default function CreditSettlementPage() {
       setSuppliers(data);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || "Failed to load suppliers");
+      setError(formatErrorMessage(error) || "Failed to load suppliers");
     } finally {
       setLoading(false);
     }
@@ -338,7 +339,7 @@ export default function CreditSettlementPage() {
       handleBackToSupplier();
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };
-      const msg = error.response?.data?.detail || "Failed to submit payment";
+      const msg = formatErrorMessage(error) || "Failed to submit payment";
       setError(msg);
       toast.error(msg);
     } finally {
