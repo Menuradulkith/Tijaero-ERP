@@ -51,10 +51,10 @@ export default function WarehouseDashboard() {
   return (
     <Box>
       <Typography variant="h4" fontWeight="bold" gutterBottom>
-        Warehouse Management
+        Sales Stock
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-        Manage inventory transfers, receipts, and warehouse operations
+        Manage inventory transfers, receipts, and sales stock operations
       </Typography>
 
       <Grid container spacing={3}>

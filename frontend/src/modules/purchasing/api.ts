@@ -7,8 +7,12 @@ import {
   PurchasingOrderWithItems,
   PurchasingOrderCreate,
   PurchasingOrderUpdate,
+  PurchasingReturn,
   PurchasingReturnWithItems,
   PurchasingReturnCreate,
+  BarcodeValidationRequest,
+  BarcodeValidationResponse,
+  PurchaseReturnApprovalRequest,
   GoodReceivedNote,
   GoodReceivedNoteCreate,
   GoodReceivedItem,
@@ -140,12 +144,13 @@ export const purchaseOrdersApi = {
 // Purchase Returns API
 export const purchaseReturnsApi = {
   getAll: async (params?: {
+    status_filter?: string;
     date_from?: string;
     date_to?: string;
     skip?: number;
     limit?: number;
   }) => {
-    const response = await apiClient.get<PurchasingReturnWithItems[]>(
+    const response = await apiClient.get<PurchasingReturn[]>(
       "/purchasing/returns",
       { params }
     );
@@ -163,6 +168,22 @@ export const purchaseReturnsApi = {
     const response = await apiClient.post<PurchasingReturnWithItems>(
       "/purchasing/returns",
       data
+    );
+    return response.data;
+  },
+
+  validateBarcode: async (data: BarcodeValidationRequest) => {
+    const response = await apiClient.post<BarcodeValidationResponse>(
+      "/purchasing/returns/validate-barcode",
+      data
+    );
+    return response.data;
+  },
+
+  approve: async (returnId: number, request: Omit<PurchaseReturnApprovalRequest, 'return_id'>) => {
+    const response = await apiClient.post<PurchasingReturnWithItems>(
+      `/purchasing/returns/${returnId}/approve`,
+      { return_id: returnId, ...request }
     );
     return response.data;
   },

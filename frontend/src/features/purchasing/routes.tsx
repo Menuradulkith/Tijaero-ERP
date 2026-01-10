@@ -1,11 +1,12 @@
 import { Routes, Route } from "react-router-dom";
-import SuppliersPage from "./pages/SuppliersPage.tsx";
-import PurchaseOrdersPage from "./pages/PurchaseOrdersPage.tsx";
-import PurchaseReturnsPage from "./pages/PurchaseReturnsPage.tsx";
-import GoodReceivedNotesPage from "./pages/GoodReceivedNotesPage.tsx";
-import PurchasingDashboard from "./pages/PurchasingDashboard.tsx";
-import CreditSettlementPage from "./pages/CreditSettlementPage.tsx";
-import POApprovalsPage from "./pages/POApprovalsPage.tsx";
+import SuppliersPage from "./pages/SuppliersPage";
+import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
+import PurchaseReturnsPage from "./pages/PurchaseReturnsPage";
+import GoodReceivedNotesPage from "./pages/GoodReceivedNotesPage";
+import PurchasingDashboard from "./pages/PurchasingDashboard";
+import CreditSettlementPage from "./pages/CreditSettlementPage";
+import POApprovalsPage from "./pages/POApprovalsPage";
+import PurchaseReturnApprovalsPage from "./pages/PurchaseReturnApprovalsPage";
 
 export default function PurchasingRoutes() {
   return (
@@ -16,6 +17,7 @@ export default function PurchasingRoutes() {
       <Route path="approvals" element={<POApprovalsPage />} />
       <Route path="grn" element={<GoodReceivedNotesPage />} />
       <Route path="returns" element={<PurchaseReturnsPage />} />
+      <Route path="return-approvals" element={<PurchaseReturnApprovalsPage />} />
       <Route path="settlements" element={<CreditSettlementPage />} />
     </Routes>
   );

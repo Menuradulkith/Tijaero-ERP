@@ -65,7 +65,7 @@ import { goodReceivedNotesApi, goodReceivedItemsApi, purchaseOrdersApi } from "@
 import { locationsApi, Location } from "@/modules/common/api";
 import { branchApi } from "@/modules/branches/api";
 import { productsApi, salesStockApi, companyAssetsApi } from "@/modules/inventory/api";
-import { Product, SalesStockCreate, CompanyAssetCreate } from "@/modules/inventory/types";
+import { Product } from "@/modules/inventory/types";
 import { formatCurrency } from "@/utils/formatters";
 import { 
   GoodReceivedNote, 
@@ -141,7 +141,7 @@ export default function GoodReceivedNotesPage() {
   const [defaultSaveToSalesStock, setDefaultSaveToSalesStock] = useState(true);
   const [defaultSaveToCompanyAssets, setDefaultSaveToCompanyAssets] = useState(false);
   const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [_products, setProducts] = useState<Product[]>([]);
   const [loadingPOItems, setLoadingPOItems] = useState(false);
   const [activeScanItem, setActiveScanItem] = useState<string | null>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);

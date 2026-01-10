@@ -13,6 +13,22 @@ class SalesStockService:
     def __init__(self, db: Session):
         self.db = db
     
+    def get_all(
+        self,
+        branch_code: Optional[str] = None,
+        product_id: Optional[int] = None,
+        status: Optional[str] = None
+    ) -> List[models.SalesStock]:
+        """Get all sales stock items with optional filters"""
+        query = self.db.query(models.SalesStock)
+        if branch_code:
+            query = query.filter(models.SalesStock.branch_code == branch_code)
+        if product_id:
+            query = query.filter(models.SalesStock.product_id == product_id)
+        if status:
+            query = query.filter(models.SalesStock.status == status)
+        return query.order_by(models.SalesStock.added_date.desc()).all()
+    
     def create(self, item: schemas.SalesStockCreate) -> models.SalesStock:
         # Check if barcode already exists (prevent duplicates)
         existing = self.get_by_barcode(item.barcode)

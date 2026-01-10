@@ -135,10 +135,12 @@ class PurchasingReturn(Base):
     __tablename__ = "purchasing_return"
     
     id = Column(Integer, primary_key=True, index=True)
-    purchasing_return_no = Column(String(200), nullable=False)
+    purchasing_return_no = Column(String(200), nullable=False, unique=True)
     branch_code = Column(String(200), nullable=False)
     remark = Column(Text)
+    status = Column(String(30), nullable=False, default="draft")  # draft, pending, approved, rejected
     added_date = Column(Date, nullable=False)
+    approved_date = Column(TIMESTAMP, nullable=True)  # When return was approved
     goodreceivednote_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"))
     
@@ -146,6 +148,7 @@ class PurchasingReturn(Base):
     good_received_note = relationship("GoodReceivedNote", back_populates="purchasing_returns")
     approval = relationship("Approvals", back_populates="purchasing_returns")
     items = relationship("PurchasingReturnItems", back_populates="purchasing_return")
+    returned_stock_items = relationship("SalesStock", back_populates="purchase_return")
 
 class PurchasingReturnItems(Base):
     __tablename__ = "purchasing_return_items"
@@ -158,10 +161,12 @@ class PurchasingReturnItems(Base):
     added_date = Column(TIMESTAMP, nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     purchasingreturn_id = Column(Integer, ForeignKey("purchasing_return.id"), nullable=False)
+    sales_stock_id = Column(Integer, ForeignKey("sales_stock.id"), nullable=True)  # Link to the stock item being returned
     
     # Relationships
     product = relationship("Product", back_populates="purchasing_return_items")
     purchasing_return = relationship("PurchasingReturn", back_populates="items")
+    sales_stock = relationship("SalesStock")
 
 
 class SupplierCreditsSettle(Base):
