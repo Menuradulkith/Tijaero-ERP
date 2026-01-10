@@ -1,46 +1,46 @@
 import { usePermission } from "@/auth/permissions";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import {
-    ActionToolbar,
-    DetailPanelHeader,
-    EmptyState,
-    FormSection,
-    MasterDetailLayout,
-    SearchableList,
-    SelectableListItem,
-    SortOption,
-    useMasterDetailState,
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  SortOption,
+  useMasterDetailState,
 } from "@/components/tijaero";
 import { branchApi } from "@/modules/branches/api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
 import {
-    Add as AddIcon,
-    CheckCircle as ApproveIcon,
-    Delete as DeleteIcon,
-    Print as PrintIcon,
-    Receipt as ReceiptIcon,
-    AssignmentReturn as ReturnIcon,
-    Visibility as ViewIcon,
+  Add as AddIcon,
+  CheckCircle as ApproveIcon,
+  Delete as DeleteIcon,
+  Print as PrintIcon,
+  Receipt as ReceiptIcon,
+  AssignmentReturn as ReturnIcon,
+  Visibility as ViewIcon,
 } from "@mui/icons-material";
 import {
-    Autocomplete,
-    Box,
-    Button,
-    Chip,
-    Divider,
-    IconButton,
-    InputAdornment,
-    MenuItem,
-    Paper,
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableRow,
-    TextField,
-    Tooltip,
-    Typography,
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
+  Divider,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -97,6 +97,10 @@ export default function SalesPage() {
   const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState(false);
   const [saleReturnOpen, setSaleReturnOpen] = useState(false);
   const [selectedInvoiceForView, setSelectedInvoiceForView] = useState<Invoice | null>(null);
+
+  // Filter states
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterCustomer, setFilterCustomer] = useState<number | null>(null);
 
   // Permissions
   const canCreate = usePermission("sales", "create");
@@ -175,6 +179,16 @@ export default function SalesPage() {
         invoice.branch_code.toLowerCase().includes(state.searchQuery.toLowerCase())
     );
 
+    // Apply branch filter
+    if (filterBranch) {
+      filtered = filtered.filter(invoice => invoice.branch_code === filterBranch);
+    }
+
+    // Apply customer filter
+    if (filterCustomer) {
+      filtered = filtered.filter(invoice => invoice.customer_id === filterCustomer);
+    }
+
     filtered.sort((a, b) => {
       if (state.sortField === "invoice_no") {
         return a.invoice_no.localeCompare(b.invoice_no);
@@ -187,7 +201,7 @@ export default function SalesPage() {
     });
 
     return filtered;
-  }, [invoices, state.searchQuery, state.sortField]);
+  }, [invoices, state.searchQuery, state.sortField, filterBranch, filterCustomer]);
 
   // Mutations
   const deleteMutation = useMutation({
@@ -675,6 +689,31 @@ export default function SalesPage() {
           onSortChange={state.setSortField}
           isLoading={isLoading}
           emptyMessage="No sales orders found"
+          listHeader={
+            <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
+              <Autocomplete
+                size="small"
+                options={branches}
+                getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+                value={branches.find(b => b.branch_code === filterBranch) || null}
+                onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
+                renderInput={(params) => (
+                  <TextField {...params} placeholder="Filter by Branch" size="small" />
+                )}
+                sx={{ mb: 1 }}
+              />
+              <Autocomplete
+                size="small"
+                options={customers || []}
+                getOptionLabel={(option) => option.customer_name || ""}
+                value={customers?.find(c => c.id === filterCustomer) || null}
+                onChange={(_, newValue) => setFilterCustomer(newValue?.id || null)}
+                renderInput={(params) => (
+                  <TextField {...params} placeholder="Filter by Customer" size="small" />
+                )}
+              />
+            </Box>
+          }
         >
           {filteredInvoices.map((invoice) => (
             <SelectableListItem
