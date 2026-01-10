@@ -123,3 +123,57 @@ export interface MinimumPrice {
 export interface MinimumPriceCreate {
   minimum_price: number;
 }
+
+// Sales Stock Types - items available for sale
+export interface SalesStock {
+  id: number;
+  product_id: number;
+  barcode: string;
+  branch_code: string;
+  good_received_note_id: number;
+  purchasing_order_items_id: number;
+  warranty_month?: string;  // Warranty period from PO or entered in GRN
+  status: "available" | "sold" | "reserved" | "returned";
+  added_date: string;
+}
+
+export interface SalesStockCreate {
+  product_id: number;
+  barcode: string;
+  branch_code: string;
+  good_received_note_id: number;
+  purchasing_order_items_id: number;
+  warranty_month?: string;  // From PO item or entered in GRN
+  status?: string;
+}
+
+// Company Assets Types - Real table for company-owned items
+export interface CompanyAsset {
+  id: number;
+  product_id?: number;
+  inventory_no: string;
+  item: string;
+  description?: string;
+  branch_code: string;
+  asigned_to?: number;
+  barcode?: string;
+  warranty_month?: string;
+  good_received_note_id?: number;
+  purchasing_order_items_id?: number;
+  status: "available" | "in_use" | "retired" | "disposed";
+  added_date?: string;
+}
+
+export interface CompanyAssetCreate {
+  product_id?: number;
+  inventory_no: string;
+  item: string;
+  description?: string;
+  branch_code: string;
+  asigned_to?: number;
+  barcode?: string;
+  warranty_month?: string;
+  good_received_note_id?: number;
+  purchasing_order_items_id?: number;
+  status?: string;
+}

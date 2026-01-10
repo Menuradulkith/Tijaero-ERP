@@ -58,6 +58,7 @@ class Product(Base, TimestampMixin):
     item_transfer_note_item_products = relationship("ItemTransferNoteItemProduct", back_populates="product")
     cupon_codes = relationship("CustomerCuponCodes", back_populates="product")
     company_assets = relationship("CompanyAssets", back_populates="product")
+    sales_stock = relationship("SalesStock", back_populates="product")
 
 class MinimumPrice(Base, TimestampMixin):
     __tablename__ = "minimum_price"
