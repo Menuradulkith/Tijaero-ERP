@@ -41,10 +41,13 @@ import { branchApi } from "@/modules/branches/api";
 import { Product } from "@/modules/inventory/types";
 
 const STATUS_COLORS: Record<string, "success" | "warning" | "error" | "info" | "default"> = {
-  available: "success",
-  sold: "default",
-  reserved: "warning",
-  returned: "error",
+  available: "success",        // Green - ready for sale
+  sold: "default",             // Grey - completed sale
+  reserved: "warning",         // Orange - on hold
+  return_pending: "info",      // Blue - awaiting return approval
+  returned_to_supplier: "error", // Red - returned to supplier
+  transferred: "info",         // Blue - moved to another branch
+  damaged: "error",            // Red - damaged items
 };
 
 interface StatCardProps {
@@ -104,6 +107,7 @@ function StatCard({ title, value, icon, color = "primary", subtitle }: StatCardP
 export default function SalesStockDashboard() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterProduct, setFilterProduct] = useState<number | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch all sales stock
@@ -136,16 +140,27 @@ export default function SalesStockDashboard() {
     return map;
   }, [products]);
 
-  // Filter by search query (barcode)
+  // Filter by search query (barcode) and status
   const filteredStock = useMemo(() => {
-    if (!searchQuery.trim()) return salesStock;
-    const q = searchQuery.toLowerCase();
-    return salesStock.filter(
-      (item) =>
-        item.barcode.toLowerCase().includes(q) ||
-        productMap.get(item.product_id)?.name.toLowerCase().includes(q)
-    );
-  }, [salesStock, searchQuery, productMap]);
+    let filtered = salesStock;
+    
+    // Apply status filter
+    if (filterStatus) {
+      filtered = filtered.filter((item) => item.status === filterStatus);
+    }
+    
+    // Apply search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (item) =>
+          item.barcode.toLowerCase().includes(q) ||
+          productMap.get(item.product_id)?.name.toLowerCase().includes(q)
+      );
+    }
+    
+    return filtered;
+  }, [salesStock, searchQuery, productMap, filterStatus]);
 
   // Summary stats
   const stats = useMemo(() => {
@@ -250,6 +265,45 @@ export default function SalesStockDashboard() {
           <Typography variant="subtitle2" fontWeight="bold" color="text.secondary">
             FILTERS
           </Typography>
+        </Box>
+        
+        {/* Status Filter Dropdown */}
+        <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
+          <Autocomplete
+            size="small"
+            options={[
+              { value: null, label: "All Statuses" },
+              { value: "available", label: "Available" },
+              { value: "sold", label: "Sold" },
+              { value: "reserved", label: "Reserved" },
+              { value: "return_pending", label: "Return Pending" },
+              { value: "returned_to_supplier", label: "Returned to Supplier" },
+              { value: "transferred", label: "Transferred" },
+              { value: "damaged", label: "Damaged" },
+            ]}
+            getOptionLabel={(option) => option.label}
+            value={
+              filterStatus === null
+                ? { value: null, label: "All Statuses" }
+                : { value: filterStatus, label: filterStatus.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) }
+            }
+            onChange={(_, newValue) => setFilterStatus(newValue?.value || null)}
+            isOptionEqualToValue={(option, value) => option.value === value.value}
+            sx={{ minWidth: 200 }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Filter by Status"
+                placeholder="All Statuses"
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    borderRadius: 2,
+                    bgcolor: "background.paper",
+                  },
+                }}
+              />
+            )}
+          />
         </Box>
         <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
           <TextField
@@ -415,7 +469,7 @@ export default function SalesStockDashboard() {
                         </TableCell>
                         <TableCell>
                           <Chip
-                            label={item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+                            label={item.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             size="small"
                             color={STATUS_COLORS[item.status] || "default"}
                             sx={{ borderRadius: 1.5, fontWeight: 500 }}

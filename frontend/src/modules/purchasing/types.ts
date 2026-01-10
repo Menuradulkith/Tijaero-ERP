@@ -172,6 +172,7 @@ export interface PurchasingReturnItem {
   branch_code: string;
   added_date: string;
   sales_stock_id?: number;
+  product_name?: string;  // Loaded from product relationship
 }
 
 export interface PurchasingReturnItemCreate {

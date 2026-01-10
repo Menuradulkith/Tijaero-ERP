@@ -153,6 +153,7 @@ class PurchasingReturnItem(PurchasingReturnItemBase):
     purchasingreturn_id: int
     branch_code: str
     added_date: datetime
+    product_name: Optional[str] = None  # Loaded from product relationship
     
     class Config:
         from_attributes = True
