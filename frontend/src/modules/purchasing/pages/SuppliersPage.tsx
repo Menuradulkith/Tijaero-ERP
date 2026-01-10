@@ -2,30 +2,31 @@
  * SuppliersPage - Using Tijaero-style reusable components
  */
 
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
-import { formatErrorMessage } from "@/utils/errorHandling";
-import BusinessIcon from "@mui/icons-material/Business";
+import { useMemo, useCallback, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
-  FormControlLabel,
+  TextField,
   MenuItem,
   Switch,
-  TextField,
+  FormControlLabel,
+  Typography,
+  Chip,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import BusinessIcon from "@mui/icons-material/Business";
 import toast from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
-  ActionToolbar,
-  DetailPanelHeader,
-  EmptyState,
-  FormSection,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
-  SortOption,
+  DetailPanelHeader,
+  ActionToolbar,
+  FormSection,
+  EmptyState,
   useMasterDetailState,
+  SortOption,
 } from "@/components/tijaero";
 
 import { suppliersApi } from "@/modules/purchasing/api";
@@ -133,7 +134,7 @@ export default function SuppliersPage() {
   const filteredSuppliers = useMemo(() => {
     if (!suppliers) return [];
 
-    const filtered = suppliers.filter(
+    let filtered = suppliers.filter(
       (supplier) =>
         supplier.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (supplier.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
@@ -149,6 +150,13 @@ export default function SuppliersPage() {
     return filtered;
   }, [suppliers, searchQuery, sortField]);
 
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredSuppliers.length > 0 && !selectedSupplier && !isCreating) {
+      handleSelectSupplier(filteredSuppliers[0]);
+    }
+  }, [filteredSuppliers, selectedSupplier, isCreating]);
+
   const createMutation = useMutation({
     mutationFn: suppliersApi.create,
     onSuccess: (newSupplier) => {
@@ -159,7 +167,7 @@ export default function SuppliersPage() {
       setTimeout(() => handleSelectSupplier(newSupplier), 0);
     },
     onError: (error: any) => {
-      toast.error(formatErrorMessage(error) || "Failed to create supplier");
+      toast.error(error.response?.data?.detail || "Failed to create supplier");
     },
   });
 
@@ -172,7 +180,7 @@ export default function SuppliersPage() {
       setIsEditing(false);
     },
     onError: (error: any) => {
-      toast.error(formatErrorMessage(error) || "Failed to update supplier");
+      toast.error(error.response?.data?.detail || "Failed to update supplier");
     },
   });
 
@@ -184,7 +192,7 @@ export default function SuppliersPage() {
       handleCancel(filteredSuppliers);
     },
     onError: (error: any) => {
-      toast.error(formatErrorMessage(error) || "Failed to delete supplier");
+      toast.error(error.response?.data?.detail || "Failed to delete supplier");
     },
   });
 
@@ -257,15 +265,61 @@ export default function SuppliersPage() {
           id={supplier.id}
           isSelected={isSelected}
           onClick={() => handleSelectSupplier(supplier)}
-          primaryText={`${supplier.title} ${supplier.full_name}`}
-          secondaryText={supplier.company_name || supplier.email || "No company"}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Supplier Name */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{`${supplier.title} ${supplier.full_name}`}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Name)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  {supplier.company_name && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {supplier.company_name}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Company)
+                      </Typography>
+                    </Box>
+                  )}
+                  {supplier.email && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {supplier.email}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Email)
+                      </Typography>
+                    </Box>
+                  )}
+                  {/* Status Chips - shown below all fields when selected */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label={supplier.active ? "Active" : "Inactive"}
+                      size="small"
+                      color={supplier.active ? "success" : "default"}
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? (supplier.company_name || supplier.email || "No company") : undefined}
           isFavorite={favorites.includes(supplier.id)}
           onToggleFavorite={(e) => toggleFavorite(supplier.id, e)}
-          statusChip={
+          statusChip={!isSelected ? (
             supplier.active
               ? { label: "Active", color: "success" }
               : { label: "Inactive", color: "default" }
-          }
+          ) : undefined}
         />
       )}
     />
@@ -308,7 +362,7 @@ export default function SuppliersPage() {
         onEdit={handleStartEdit}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedSupplier && !isCreating ? (
           <EmptyState message="Select a supplier from the list or create a new one" />
         ) : (

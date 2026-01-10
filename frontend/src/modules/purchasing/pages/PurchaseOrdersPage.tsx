@@ -2,56 +2,61 @@
  * PurchaseOrdersPage - Using Tijaero-style reusable components
  */
 
-import { formatErrorMessage } from "@/utils/errorHandling";
-import AddIcon from "@mui/icons-material/Add";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import DeleteIcon from "@mui/icons-material/Delete";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import { useMemo, useCallback, useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Autocomplete,
   Box,
-  Button,
-  Chip,
-  IconButton,
+  TextField,
   MenuItem,
+  Typography,
+  IconButton,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
   Paper,
+  Chip,
+  Autocomplete,
+  Button,
+  Stepper,
   Step,
   StepLabel,
-  Stepper,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Tooltip,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteIcon from "@mui/icons-material/Delete";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import toast from "react-hot-toast";
 
 import {
-  ActionToolbar,
-  DetailPanelHeader,
-  EmptyState,
-  FormSection,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
-  SortOption,
+  DetailPanelHeader,
+  ActionToolbar,
+  FormSection,
+  EmptyState,
   useMasterDetailState,
+  SortOption,
 } from "@/components/tijaero";
 
-import { branchApi } from "@/modules/branches/api";
-import { productsApi } from "@/modules/inventory/api";
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
-import {
-  PurchasingOrder,
-  PurchasingOrderCreate,
+import { productsApi } from "@/modules/inventory/api";
+import { branchApi } from "@/modules/branches/api";
+import { 
+  PurchasingOrder, 
+  PurchasingOrderCreate, 
   PurchasingOrderItemCreate,
   PurchasingOrderWithItems,
-  Supplier
+  Supplier 
 } from "@/modules/purchasing/types";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -127,12 +132,32 @@ export default function PurchaseOrdersPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
 
+  // Item remarks modal state
+  const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
+  const [selectedItemForRemark, setSelectedItemForRemark] = useState<OrderLineItem | null>(null);
+  const [tempItemRemark, setTempItemRemark] = useState("");
+
+  const handleOpenItemRemarkModal = (item: OrderLineItem) => {
+    setSelectedItemForRemark(item);
+    setTempItemRemark(item.remark || "");
+    setItemRemarkModalOpen(true);
+  };
+
+  const handleSaveItemRemark = () => {
+    if (selectedItemForRemark) {
+      handleUpdateLineItem(selectedItemForRemark._id, "remark", tempItemRemark);
+    }
+    setItemRemarkModalOpen(false);
+    setSelectedItemForRemark(null);
+  };
+
   const {
     searchQuery,
     setSearchQuery,
     sortField,
     setSortField,
     selectedItem: selectedOrder,
+    setSelectedItem: setSelectedOrder,
     isEditing,
     setIsEditing,
     isCreating,
@@ -266,6 +291,13 @@ export default function PurchaseOrdersPage() {
     return filtered;
   }, [orders, searchQuery, sortField, filterBranch, filterSupplier]);
 
+  // Auto-select first item when data loads
+  useEffect(() => {
+    if (filteredOrders.length > 0 && !selectedOrder && !isCreating) {
+      handleSelectOrderWithItems(filteredOrders[0]);
+    }
+  }, [filteredOrders, selectedOrder, isCreating]);
+
   const createMutation = useMutation({
     mutationFn: purchaseOrdersApi.create,
     onSuccess: (newOrder) => {
@@ -276,7 +308,7 @@ export default function PurchaseOrdersPage() {
       setTimeout(() => handleSelectOrderWithItems(newOrder), 0);
     },
     onError: (error: any) => {
-      toast.error(formatErrorMessage(error) || "Failed to create purchase order");
+      toast.error(error.response?.data?.detail || "Failed to create purchase order");
     },
   });
 
@@ -289,9 +321,37 @@ export default function PurchaseOrdersPage() {
       setIsEditing(false);
     },
     onError: (error: any) => {
-      toast.error(formatErrorMessage(error) || "Failed to update purchase order");
+      toast.error(error.response?.data?.detail || "Failed to update purchase order");
     },
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => purchaseOrdersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+      toast.success("Purchase order deleted successfully");
+      setSelectedOrder(null);
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || "Failed to delete purchase order");
+    },
+  });
+
+  const handleDelete = useCallback(() => {
+    if (selectedOrder && selectedOrder.status?.toLowerCase() !== "approved") {
+      if (window.confirm("Are you sure you want to delete this purchase order?")) {
+        deleteMutation.mutate(selectedOrder.id);
+      }
+    } else {
+      toast.error("Cannot delete an approved purchase order");
+    }
+  }, [selectedOrder, deleteMutation]);
+
+  // Check if order can be deleted (not approved)
+  const canDelete = !!(selectedOrder && selectedOrder.status?.toLowerCase() !== "approved");
+
+  // Check if order can be edited (any status, but approved orders will need re-approval)
+  const canEdit = !!selectedOrder;
 
   const handleAddLineItem = () => {
     const newItem: OrderLineItem = {
@@ -324,6 +384,9 @@ export default function PurchaseOrdersPage() {
     if (isCreating) {
       createMutation.mutate(dataToSave);
     } else if (selectedOrder) {
+      // If order was approved, reset status to pending for re-approval
+      const wasApproved = selectedOrder.status?.toLowerCase() === "approved";
+      
       // Send full update data
       const updateData: any = {
         purchasing_invoice_no: formData.purchasing_invoice_no,
@@ -335,8 +398,14 @@ export default function PurchaseOrdersPage() {
         credit_date: formData.credit_date,
         first_suppliers_id: formData.first_suppliers_id,
         second_suppliers_id: formData.second_suppliers_id,
-        status: formData.status || selectedOrder.status,
       };
+      
+      // Reset to pending if was approved
+      if (wasApproved) {
+        updateData.status = "pending";
+        toast("Order was previously approved. It will need re-approval after this edit.", { icon: "⚠️" });
+      }
+      
       updateMutation.mutate({ 
         id: selectedOrder.id, 
         data: updateData 
@@ -443,11 +512,53 @@ export default function PurchaseOrdersPage() {
           id={order.id}
           isSelected={isSelected}
           onClick={() => handleSelectOrderWithItems(order)}
-          primaryText={order.purchasing_order_no || `PO-${order.id}`}
-          secondaryText={`${getSupplierName(order.first_suppliers_id)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* PO Number */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{order.purchasing_order_no || `PO-${order.id}`}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (PO No)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {getSupplierName(order.first_suppliers_id)}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Supplier)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {new Date(order.purchasing_order_date || "").toLocaleDateString()}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Date)
+                    </Typography>
+                  </Box>
+                  {/* Status Chips - shown below all fields when selected */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label={order.status}
+                      size="small"
+                      color={getStatusColor(order.status)}
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? `${getSupplierName(order.first_suppliers_id)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}` : undefined}
           isFavorite={favorites.includes(order.id)}
           onToggleFavorite={(e) => toggleFavorite(order.id, e)}
-          statusChip={{ label: order.status, color: getStatusColor(order.status) }}
+          statusChip={!isSelected ? { label: order.status, color: getStatusColor(order.status) } : undefined}
         />
       )}
     />
@@ -482,10 +593,12 @@ export default function PurchaseOrdersPage() {
         onDuplicate={handleDuplicate}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredOrders)}
-        onEdit={handleStartEdit}
+        onEdit={canEdit ? handleStartEdit : undefined}
+        onDelete={canDelete ? handleDelete : undefined}
+        canDelete={canDelete}
       />
 
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedOrder && !isCreating ? (
           <EmptyState message="Select a purchase order from the list or create a new one" />
         ) : (
@@ -623,30 +736,14 @@ export default function PurchaseOrdersPage() {
                 {selectedOrder && !isCreating && (
                   <>
                     <FormSection title="Order Status" columns={4}>
-                      {isEditing ? (
-                        <TextField
-                          select
-                          label="Status"
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Typography variant="body2" color="text.secondary">Status:</Typography>
+                        <Chip
+                          label={selectedOrder.status}
+                          color={getStatusColor(selectedOrder.status)}
                           size="small"
-                          value={formData.status || selectedOrder.status}
-                          onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                        >
-                          {STATUS_OPTIONS.map((option) => (
-                            <MenuItem key={option.value} value={option.value}>
-                              {option.label}
-                            </MenuItem>
-                          ))}
-                        </TextField>
-                      ) : (
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                          <Typography variant="body2" color="text.secondary">Status:</Typography>
-                          <Chip 
-                            label={selectedOrder.status} 
-                            color={getStatusColor(selectedOrder.status)} 
-                            size="small" 
-                          />
-                        </Box>
-                      )}
+                        />
+                      </Box>
                     </FormSection>
                     <FormSection title="Tracking" columns={2}>
                       <TextField
@@ -792,7 +889,7 @@ export default function PurchaseOrdersPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              Number(item.unit_price).toFixed(2)
+                              `Rs. ${Number(item.unit_price).toFixed(2)}`
                             )}
                           </TableCell>
                           <TableCell>
@@ -809,20 +906,33 @@ export default function PurchaseOrdersPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {(isEditing || isCreating) ? (
-                              <TextField
-                                size="small"
-                                value={item.remark || ""}
-                                onChange={(e) => handleUpdateLineItem(item._id, "remark", e.target.value)}
-                                sx={{ width: 130 }}
-                                placeholder="Remark"
-                              />
-                            ) : (
-                              item.remark || "-"
-                            )}
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                              {(isEditing || isCreating) ? (
+                                <TextField
+                                  size="small"
+                                  value={item.remark || ""}
+                                  onChange={(e) => handleUpdateLineItem(item._id, "remark", e.target.value)}
+                                  sx={{ width: 100 }}
+                                  placeholder="Remark"
+                                />
+                              ) : (
+                                <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {item.remark || "-"}
+                                </Typography>
+                              )}
+                              <Tooltip title="View/Edit Remark">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleOpenItemRemarkModal(item)}
+                                  sx={{ ml: 0.5 }}
+                                >
+                                  <MenuBookIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
                           </TableCell>
                           <TableCell align="right">
-                            {(item.quantity * item.unit_price).toFixed(2)}
+                            Rs. {(item.quantity * item.unit_price).toFixed(2)}
                           </TableCell>
                           {(isEditing || isCreating) && (
                             <TableCell>
@@ -839,7 +949,7 @@ export default function PurchaseOrdersPage() {
                         <Typography fontWeight="bold">Total:</Typography>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography fontWeight="bold">{calculateTotal().toFixed(2)}</Typography>
+                        <Typography fontWeight="bold">Rs. {calculateTotal().toFixed(2)}</Typography>
                       </TableCell>
                       {(isEditing || isCreating) && <TableCell />}
                     </TableRow>
@@ -864,6 +974,42 @@ export default function PurchaseOrdersPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
+
+      {/* Item Remark Modal */}
+      <Dialog
+        open={itemRemarkModalOpen}
+        onClose={() => setItemRemarkModalOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <MenuBookIcon />
+          Item Remark
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            label="Remark"
+            value={tempItemRemark}
+            onChange={(e) => setTempItemRemark(e.target.value)}
+            disabled={!isEditing && !isCreating}
+            sx={{ mt: 1 }}
+            placeholder="Enter remark for this item..."
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setItemRemarkModalOpen(false)}>
+            {isEditing || isCreating ? "Cancel" : "Close"}
+          </Button>
+          {(isEditing || isCreating) && (
+            <Button variant="contained" onClick={handleSaveItemRemark}>
+              Save
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </>
   );
 }
