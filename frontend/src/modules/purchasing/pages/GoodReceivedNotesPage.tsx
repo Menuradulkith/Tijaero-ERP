@@ -1,5 +1,6 @@
 /**
  * GoodReceivedNotesPage - Using Tijaero-style reusable components
+ * Refactored to use common purchasing components for better code reuse
  */
 
 import { useMemo, useCallback, useState, useEffect, useRef } from "react";
@@ -50,7 +51,9 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import SaveIcon from "@mui/icons-material/Save";
 import PrintIcon from "@mui/icons-material/Print";
 import toast from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
+// Import tijaero components
 import {
   MasterDetailLayout,
   SearchableList,
@@ -59,8 +62,11 @@ import {
   ActionToolbar,
   FormSection,
   EmptyState,
+  TFilterPanel,
+  TBranchFilter,
   useMasterDetailState,
   SortOption,
+  modernTableStyles,
 } from "@/components/tijaero";
 
 import { goodReceivedNotesApi, goodReceivedItemsApi, purchaseOrdersApi } from "@/modules/purchasing/api";
@@ -148,6 +154,17 @@ export default function GoodReceivedNotesPage() {
   const [activeScanItem, setActiveScanItem] = useState<string | null>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   
+  // Confirm dialog for unsaved changes and delete actions
+  const confirmDialog = useConfirmDialog();
+  
+  // Validation state - track which fields have been touched/blurred
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  
+  // Mark field as touched when user leaves it
+  const handleBlur = (fieldName: string) => {
+    setTouched(prev => ({ ...prev, [fieldName]: true }));
+  };
+  
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
@@ -174,6 +191,13 @@ export default function GoodReceivedNotesPage() {
     resetFormFromItem: resetFormFromGRN,
     favoritesKey: "grn_favorites",
     defaultSortField: "good_received_date",
+    confirmUnsavedChanges: () => confirmDialog.confirm({
+      title: "Discard Changes",
+      message: "You have unsaved changes. Discard them?",
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      confirmColor: "warning",
+    }),
   });
 
   // Fetch locations
@@ -196,6 +220,7 @@ export default function GoodReceivedNotesPage() {
     }));
     setLineItems([]);
     setFormStep(0);
+    setTouched({}); // Reset validation state
   }, [handleNewGRNBase, setFormData]);
 
   // Load GRN items when selecting a GRN
@@ -249,10 +274,16 @@ export default function GoodReceivedNotesPage() {
     handleCancelBase(items);
     setLineItems([]);
     setFormStep(0);
+    setTouched({}); // Reset validation state
   }, [handleCancelBase]);
 
-  const handleSelectGRNWithItems = useCallback((grn: GoodReceivedNote) => {
-    handleSelectGRN(grn);
+  // Handler that wraps hook's handler (which already handles unsaved changes confirm)
+  const handleSelectGRNWithItems = useCallback(async (grn: GoodReceivedNote) => {
+    const selected = await handleSelectGRN(grn);
+    if (!selected) return; // User cancelled
+    
+    // Load detailed items after selection
+    setTouched({});
     loadGRNItems(grn.id);
   }, [handleSelectGRN, loadGRNItems]);
 
@@ -734,6 +765,41 @@ export default function GoodReceivedNotesPage() {
 
   const branches = branchesData?.items || [];
 
+  // Validation error messages
+  const getFieldError = (fieldName: string): string | undefined => {
+    if (!touched[fieldName] && !isCreating) return undefined;
+    
+    switch (fieldName) {
+      case 'good_received_no':
+        if (!formData.good_received_no) return 'GRN number is required';
+        break;
+      case 'purchasingorders_id':
+        if (!formData.purchasingorders_id || formData.purchasingorders_id === 0) return 'Purchase order is required';
+        break;
+      case 'supplier_invoice_no':
+        if (!formData.supplier_invoice_no) return 'Supplier invoice number is required';
+        break;
+      case 'supplier_invoice_date':
+        if (!formData.supplier_invoice_date) return 'Supplier invoice date is required';
+        break;
+      case 'good_received_date':
+        if (!formData.good_received_date) return 'GRN date is required';
+        break;
+      case 'good_received_locations_id':
+        if (!formData.good_received_locations_id || formData.good_received_locations_id === 0) return 'Location is required';
+        break;
+      case 'branch_code':
+        if (!formData.branch_code) return 'Branch is required';
+        break;
+    }
+    return undefined;
+  };
+
+  // Check if a field has an error (for styling)
+  const hasError = (fieldName: string): boolean => {
+    return !!getFieldError(fieldName);
+  };
+
   // Step 1 validation: GRN Information, Supplier Invoice, Remarks
   const isStep1Valid = formData.good_received_no && 
     formData.purchasingorders_id > 0 && 
@@ -770,18 +836,13 @@ export default function GoodReceivedNotesPage() {
       onSelectItem={handleSelectGRNWithItems}
       emptyMessage="No GRNs found"
       listHeader={
-        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
-          <Autocomplete
-            size="small"
-            options={branches}
-            getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-            value={branches.find(b => b.branch_code === filterBranch) || null}
-            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
-            renderInput={(params) => (
-              <TextField {...params} placeholder="Filter by Branch" size="small" />
-            )}
+        <TFilterPanel>
+          <TBranchFilter
+            branches={branches}
+            value={filterBranch}
+            onChange={setFilterBranch}
           />
-        </Box>
+        </TFilterPanel>
       }
       renderItem={(grn, isSelected) => (
         <SelectableListItem
@@ -921,8 +982,11 @@ export default function GoodReceivedNotesPage() {
                     size="small"
                     value={formData.good_received_no}
                     onChange={(e) => setFormData({ ...formData, good_received_no: e.target.value })}
+                    onBlur={() => handleBlur('good_received_no')}
                     disabled={!isEditing && !isCreating}
                     required
+                    error={hasError('good_received_no')}
+                    helperText={getFieldError('good_received_no')}
                   />
                   <Autocomplete
                     size="small"
@@ -933,13 +997,18 @@ export default function GoodReceivedNotesPage() {
                     }) || []}
                     getOptionLabel={(option: PurchasingOrder) => option.purchasing_order_no || ""}
                     value={purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id) || null}
-                    onChange={(_, newValue) => handlePOChange(newValue?.id || 0)}
+                    onChange={(_, newValue) => {
+                      handlePOChange(newValue?.id || 0);
+                      handleBlur('purchasingorders_id');
+                    }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
                       <TextField
                         {...params}
                         label="Purchase Order (Approved Only)"
                         required
+                        error={hasError('purchasingorders_id')}
+                        helperText={getFieldError('purchasingorders_id')}
                       />
                     )}
                     isOptionEqualToValue={(option, value) => option.id === value?.id}
@@ -950,8 +1019,12 @@ export default function GoodReceivedNotesPage() {
                 type="date"
                 value={formData.good_received_date}
                 onChange={(e) => setFormData({ ...formData, good_received_date: e.target.value })}
+                onBlur={() => handleBlur('good_received_date')}
                 disabled={!isEditing && !isCreating}
                 InputLabelProps={{ shrink: true }}
+                required
+                error={hasError('good_received_date')}
+                helperText={getFieldError('good_received_date')}
               />
               <TextField
                 label="Branch"
@@ -965,9 +1038,14 @@ export default function GoodReceivedNotesPage() {
                 label="Location"
                 size="small"
                 value={formData.good_received_locations_id}
-                onChange={(e) => setFormData({ ...formData, good_received_locations_id: parseInt(e.target.value) || 1 })}
+                onChange={(e) => {
+                  setFormData({ ...formData, good_received_locations_id: parseInt(e.target.value) || 1 });
+                  handleBlur('good_received_locations_id');
+                }}
                 disabled={!isEditing && !isCreating}
                 required
+                error={hasError('good_received_locations_id')}
+                helperText={getFieldError('good_received_locations_id')}
               >
                 {locations?.map((location: Location) => (
                   <MenuItem key={location.id} value={location.id}>
@@ -986,9 +1064,11 @@ export default function GoodReceivedNotesPage() {
                 size="small"
                 value={formData.supplier_invoice_no}
                 onChange={(e) => setFormData({ ...formData, supplier_invoice_no: e.target.value })}
+                onBlur={() => handleBlur('supplier_invoice_no')}
                 disabled={!isEditing && !isCreating}
                 required
-
+                error={hasError('supplier_invoice_no')}
+                helperText={getFieldError('supplier_invoice_no')}
               />
               <TextField
                 label="Supplier Invoice Date"
@@ -996,8 +1076,12 @@ export default function GoodReceivedNotesPage() {
                 type="date"
                 value={formData.supplier_invoice_date}
                 onChange={(e) => setFormData({ ...formData, supplier_invoice_date: e.target.value })}
+                onBlur={() => handleBlur('supplier_invoice_date')}
                 disabled={!isEditing && !isCreating}
                 InputLabelProps={{ shrink: true }}
+                required
+                error={hasError('supplier_invoice_date')}
+                helperText={getFieldError('supplier_invoice_date')}
               />
             </FormSection>
 
@@ -1374,10 +1458,10 @@ export default function GoodReceivedNotesPage() {
                 ) : (
                   /* View/Edit mode - Table layout */
                   <Box>
-                    <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+                    <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
                       <Table size="small">
                         <TableHead>
-                          <TableRow sx={{ bgcolor: "action.hover" }}>
+                          <TableRow sx={modernTableStyles.headerRow}>
                             <TableCell>Barcode</TableCell>
                             <TableCell>Product</TableCell>
                             <TableCell>Saved To</TableCell>
@@ -1395,18 +1479,19 @@ export default function GoodReceivedNotesPage() {
                             </TableRow>
                           ) : lineItems.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={isEditing || isCreating ? 6 : 5} align="center">
-                                <Typography variant="body2" color="text.secondary" py={2}>
-                                  {isCreating 
-                                    ? "Select a Purchase Order to load items" 
-                                    : "No items received yet"}
-                                </Typography>
+                              <TableCell colSpan={isEditing || isCreating ? 6 : 5} sx={modernTableStyles.emptyCell}>
+                                {isCreating 
+                                  ? "Select a Purchase Order to load items" 
+                                  : "No items received yet"}
                               </TableCell>
                             </TableRow>
                           ) : isEditing ? (
                             // Edit mode - flat list
-                            lineItems.map((item) => (
-                              <TableRow key={item._id}>
+                            lineItems.map((item, index) => (
+                              <TableRow key={item._id} sx={{ 
+                                ...modernTableStyles.bodyRow,
+                                ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                              }}>
                                 <TableCell>
                                   <TextField
                                     size="small"
@@ -1509,6 +1594,9 @@ export default function GoodReceivedNotesPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
+      
+      {/* Confirm Dialog */}
+      <ConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

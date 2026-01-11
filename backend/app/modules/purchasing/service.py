@@ -1,7 +1,11 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import date
 from . import models, schemas, repository
 from fastapi import HTTPException, status
+
+# Configuration - Daily PO limit per branch
+DAILY_PO_LIMIT_PER_BRANCH = 5
 
 class SupplierService:
     def __init__(self, db: Session):
@@ -44,7 +48,39 @@ class PurchasingOrderService:
         self.repo = repository.PurchasingOrderRepository(db)
         self.supplier_repo = repository.SupplierRepository(db)
     
+    def check_daily_limit(self, branch_code: str, target_date: date = None) -> schemas.DailyPOLimitCheck:
+        """Check if branch has reached daily PO limit"""
+        if target_date is None:
+            target_date = date.today()
+        
+        count = self.repo.count_daily_orders_by_branch(branch_code, target_date)
+        remaining = max(0, DAILY_PO_LIMIT_PER_BRANCH - count)
+        can_create = count < DAILY_PO_LIMIT_PER_BRANCH
+        
+        if can_create:
+            message = f"Branch {branch_code} has created {count} PO(s) today. {remaining} remaining."
+        else:
+            message = f"Daily limit of {DAILY_PO_LIMIT_PER_BRANCH} POs reached for branch {branch_code}. Cannot create more POs today."
+        
+        return schemas.DailyPOLimitCheck(
+            branch_code=branch_code,
+            date=target_date,
+            count=count,
+            limit=DAILY_PO_LIMIT_PER_BRANCH,
+            remaining=remaining,
+            can_create=can_create,
+            message=message
+        )
+    
     def create_order(self, order: schemas.PurchasingOrderCreate) -> models.PurchasingOrder:
+        # Check daily limit for the branch
+        limit_check = self.check_daily_limit(order.branch_code)
+        if not limit_check.can_create:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=limit_check.message
+            )
+        
         # Verify suppliers exist
         if not self.supplier_repo.get_by_id(order.first_suppliers_id):
             raise HTTPException(

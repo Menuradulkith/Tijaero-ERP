@@ -42,6 +42,7 @@ import {
   useTConfirmDialog,
   showSuccessToast,
   showErrorToast,
+  CUSTOMER_PAYMENT_METHOD,
 } from "@/components/tijaero";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
@@ -576,13 +577,9 @@ export default function SalesPage() {
           value={state.formData.payment_method}
           onChange={(e) => state.setFormData({ ...state.formData, payment_method: e.target.value })}
         >
-          <MenuItem value="cash">Cash</MenuItem>
-          <MenuItem value="card_visa">Visa</MenuItem>
-          <MenuItem value="card_mastercard">Mastercard</MenuItem>
-          <MenuItem value="card_amex">Amex</MenuItem>
-          <MenuItem value="cheque">Cheque</MenuItem>
-          <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-          <MenuItem value="credit">Credit</MenuItem>
+          {CUSTOMER_PAYMENT_METHOD.map((option) => (
+            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+          ))}
         </TextField>
         <TextField
           label="Remarks"

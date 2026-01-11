@@ -124,6 +124,65 @@ export const STATUS_MAPS = {
     completed: { label: "Completed", color: "success" as StatusColor },
     closed: { label: "Closed", color: "default" as StatusColor },
   },
+  
+  // Purchase return status
+  purchaseReturn: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    pending: { label: "Pending", color: "warning" as StatusColor },
+    approved: { label: "Approved", color: "success" as StatusColor },
+    rejected: { label: "Rejected", color: "error" as StatusColor },
+  },
+  
+  // GRN (Goods Received Note) status
+  grn: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    received: { label: "Received", color: "success" as StatusColor },
+    partial: { label: "Partial", color: "warning" as StatusColor },
+    complete: { label: "Complete", color: "info" as StatusColor },
+  },
+  
+  // Sales order status
+  salesOrder: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    pending: { label: "Pending", color: "warning" as StatusColor },
+    confirmed: { label: "Confirmed", color: "info" as StatusColor },
+    processing: { label: "Processing", color: "info" as StatusColor },
+    shipped: { label: "Shipped", color: "primary" as StatusColor },
+    delivered: { label: "Delivered", color: "success" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
+  },
+  
+  // Invoice status
+  invoice: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    pending: { label: "Pending", color: "warning" as StatusColor },
+    sent: { label: "Sent", color: "info" as StatusColor },
+    paid: { label: "Paid", color: "success" as StatusColor },
+    overdue: { label: "Overdue", color: "error" as StatusColor },
+    cancelled: { label: "Cancelled", color: "default" as StatusColor },
+  },
+  
+  // Service job status
+  serviceJob: {
+    accepted_by_technician: { label: "Accepted by Technician", color: "info" as StatusColor },
+    check_in_progress: { label: "Check in Progress", color: "info" as StatusColor },
+    repair_in_progress_: { label: "Repair in Progress", color: "primary" as StatusColor },
+    received_from_supplier: { label: "Received from Supplier", color: "info" as StatusColor },
+    parts_pending: { label: "Parts Pending", color: "warning" as StatusColor },
+    sent_to_supplier: { label: "Sent to Supplier", color: "info" as StatusColor },
+    supplier_pending: { label: "Supplier Pending", color: "warning" as StatusColor },
+    rejected_by_supplier: { label: "Rejected by Supplier", color: "error" as StatusColor },
+    replacement_accepted: { label: "Replacement Accepted", color: "success" as StatusColor },
+    warranty_rejected: { label: "Warranty Rejected", color: "error" as StatusColor },
+    cannot_repair: { label: "Cannot Repair", color: "error" as StatusColor },
+    ready_to_collect: { label: "Ready to Collect", color: "success" as StatusColor },
+    informed_to_customer: { label: "Informed to Customer", color: "info" as StatusColor },
+    rejected_by_customer: { label: "Rejected by Customer", color: "error" as StatusColor },
+    estimate_approval_pending_of_customer: { label: "Estimate Approval Pending", color: "warning" as StatusColor },
+    estimate_approved_by_customer: { label: "Estimate Approved", color: "success" as StatusColor },
+    estimate_pending_sales_division: { label: "Estimate Pending - Sales", color: "warning" as StatusColor },
+    closed: { label: "Closed", color: "default" as StatusColor },
+  },
 } as const;
 
 export type StatusMapName = keyof typeof STATUS_MAPS;
@@ -141,6 +200,31 @@ export interface TStatusChipProps extends Omit<ChipProps, "color" | "label"> {
   size?: "small" | "medium";
   /** Chip variant */
   variant?: "filled" | "outlined";
+}
+
+/**
+ * Get status props (label and color) from a status value and map
+ * Useful for passing to other components that need status display info
+ * 
+ * @example
+ * ```tsx
+ * const { label, color } = getStatusProps("approved", "purchaseOrder");
+ * // returns { label: "Approved", color: "success" }
+ * ```
+ */
+export function getStatusProps(
+  status: string | boolean | number,
+  statusMap: StatusMapName = "activeInactive",
+  fallbackLabel?: string
+): { label: string; color: StatusColor } {
+  const statusKey = String(status).toLowerCase().replace(/\s+/g, "_");
+  const map = STATUS_MAPS[statusMap] || STATUS_MAPS.activeInactive;
+  const entry = (map as Record<string, StatusMapEntry>)[statusKey];
+  
+  return {
+    label: entry?.label || fallbackLabel || String(status),
+    color: entry?.color || "default",
+  };
 }
 
 export const TStatusChip: React.FC<TStatusChipProps> = ({

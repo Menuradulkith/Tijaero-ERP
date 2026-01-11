@@ -2,7 +2,7 @@
  * SuppliersPage - Using Tijaero-style reusable components
  */
 
-import { useMemo, useCallback, useEffect } from "react";
+import { useMemo, useCallback, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -27,6 +27,9 @@ import {
   EmptyState,
   useMasterDetailState,
   SortOption,
+  TITLE_CHOICES,
+  GENDER_CHOICES,
+  CIVIL_CHOICES,
 } from "@/components/tijaero";
 
 import { suppliersApi } from "@/modules/purchasing/api";
@@ -38,12 +41,8 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "email", label: "Email" },
 ];
 
-const TITLES = ["Mr", "Mrs", "Ms", "Dr", "Prof"];
-const GENDERS = ["Male", "Female", "Other"];
-const CIVIL_STATUS = ["Single", "Married", "Divorced", "Widowed"];
-
 const INITIAL_FORM_DATA: SupplierCreate = {
-  title: "Mr",
+  title: "mr",
   full_name: "",
   name_in_cheque_card: "",
   occupation: "",
@@ -57,8 +56,8 @@ const INITIAL_FORM_DATA: SupplierCreate = {
   bank_details: "",
   birthdate: "",
   id_card_number: "",
-  gender: "Male",
-  civil_status: "Single",
+  gender: "m",
+  civil_status: "single",
   passport_no: "",
   no_of_kids: "0",
   email: "",
@@ -71,7 +70,7 @@ const INITIAL_FORM_DATA: SupplierCreate = {
 };
 
 const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
-  title: supplier.title || "Mr",
+  title: supplier.title || "mr",
   full_name: supplier.full_name,
   name_in_cheque_card: supplier.name_in_cheque_card || "",
   occupation: supplier.occupation || "",
@@ -85,8 +84,8 @@ const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
   bank_details: supplier.bank_details || "",
   birthdate: supplier.birthdate?.split("T")[0] || "",
   id_card_number: supplier.id_card_number || "",
-  gender: supplier.gender || "Male",
-  civil_status: supplier.civil_status || "Single",
+  gender: supplier.gender || "m",
+  civil_status: supplier.civil_status || "single",
   passport_no: supplier.passport_no || "",
   no_of_kids: supplier.no_of_kids || "0",
   email: supplier.email || "",
@@ -100,6 +99,17 @@ const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
 
 export default function SuppliersPage() {
   const queryClient = useQueryClient();
+
+  // Confirm dialog for unsaved changes and delete actions
+  const confirmDialog = useConfirmDialog();
+
+  // Validation state - track which fields have been touched/blurred
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  
+  // Mark field as touched when user leaves it
+  const handleBlur = (fieldName: string) => {
+    setTouched(prev => ({ ...prev, [fieldName]: true }));
+  };
 
   const {
     searchQuery,
@@ -124,6 +134,13 @@ export default function SuppliersPage() {
     resetFormFromItem: resetFormFromSupplier,
     favoritesKey: "suppliers_favorites",
     defaultSortField: "full_name",
+    confirmUnsavedChanges: () => confirmDialog.confirm({
+      title: "Discard Changes",
+      message: "You have unsaved changes. Discard them?",
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      confirmColor: "warning",
+    }),
   });
 
   const { data: suppliers, isLoading, refetch } = useQuery({
@@ -204,7 +221,11 @@ export default function SuppliersPage() {
     }
   }, [isCreating, selectedSupplier, formData, createMutation, updateMutation]);
 
-  const confirmDialog = useConfirmDialog();
+  // Internal selection handler - wraps hook's handler to reset validation state
+  const handleSelectSupplierWithCheck = useCallback(async (supplier: Supplier) => {
+    await handleSelectSupplier(supplier);
+    setTouched({}); // Reset validation state
+  }, [handleSelectSupplier]);
 
   const handleDelete = useCallback(async () => {
     if (selectedSupplier) {
@@ -227,8 +248,60 @@ export default function SuppliersPage() {
         full_name: `${selectedSupplier.full_name} (Copy)`,
       });
       handleNewSupplier();
+      setTouched({}); // Reset validation state
     }
   }, [selectedSupplier, formData, setFormData, handleNewSupplier]);
+
+  // Email validation regex
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // Phone validation regex (allows digits, spaces, dashes, parentheses, plus)
+  const phoneRegex = /^[\d\s\-\(\)\+]+$/;
+
+  // Validation error messages
+  const getFieldError = (fieldName: string): string | undefined => {
+    if (!touched[fieldName] && !isCreating) return undefined;
+    
+    switch (fieldName) {
+      case 'full_name':
+        if (!formData.full_name) return 'Full name is required';
+        if (formData.full_name.length < 2) return 'Name must be at least 2 characters';
+        break;
+      case 'email':
+        if (formData.email && !emailRegex.test(formData.email)) return 'Invalid email format';
+        break;
+      case 'mobile_contact_number':
+        if (!formData.mobile_contact_number) return 'Mobile number is required';
+        if (!phoneRegex.test(formData.mobile_contact_number)) return 'Invalid phone format';
+        break;
+      case 'home_contact_number':
+        if (formData.home_contact_number && !phoneRegex.test(formData.home_contact_number)) return 'Invalid phone format';
+        break;
+      case 'company_contact_number':
+        if (formData.company_contact_number && !phoneRegex.test(formData.company_contact_number)) return 'Invalid phone format';
+        break;
+      case 'postal_address':
+        if (!formData.postal_address) return 'Postal address is required';
+        break;
+      case 'permenent_address':
+        if (!formData.permenent_address) return 'Permanent address is required';
+        break;
+      case 'credit_days':
+        if (formData.credit_days === undefined || formData.credit_days < 0) return 'Credit days must be 0 or more';
+        break;
+      case 'max_credit_limit':
+        if (formData.max_credit_limit === undefined || formData.max_credit_limit < 0) return 'Credit limit must be 0 or more';
+        break;
+      case 'no_of_kids':
+        if (formData.no_of_kids && parseInt(formData.no_of_kids) < 0) return 'Cannot be negative';
+        break;
+    }
+    return undefined;
+  };
+
+  // Check if a field has an error (for styling)
+  const hasError = (fieldName: string): boolean => {
+    return !!getFieldError(fieldName);
+  };
 
   const isFormValid = formData.full_name && 
     formData.mobile_contact_number && 
@@ -236,7 +309,8 @@ export default function SuppliersPage() {
     formData.permenent_address && 
     formData.no_of_kids &&
     formData.credit_days !== undefined &&
-    formData.max_credit_limit !== undefined;
+    formData.max_credit_limit !== undefined &&
+    (!formData.email || emailRegex.test(formData.email));
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   // Style for required field labels (red asterisk)
@@ -257,14 +331,14 @@ export default function SuppliersPage() {
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedSupplier}
-      onSelectItem={handleSelectSupplier}
+      onSelectItem={handleSelectSupplierWithCheck}
       emptyMessage="No suppliers found"
       renderItem={(supplier, isSelected) => (
         <SelectableListItem
           key={supplier.id}
           id={supplier.id}
           isSelected={isSelected}
-          onClick={() => handleSelectSupplier(supplier)}
+          onClick={() => handleSelectSupplierWithCheck(supplier)}
           primaryText={
             <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
               {/* Supplier Name */}
@@ -376,8 +450,8 @@ export default function SuppliersPage() {
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 disabled={!isEditing && !isCreating}
               >
-                {TITLES.map((t) => (
-                  <MenuItem key={t} value={t}>{t}</MenuItem>
+                {TITLE_CHOICES.map((t) => (
+                  <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
                 ))}
               </TextField>
               <TextField
@@ -385,8 +459,11 @@ export default function SuppliersPage() {
                 size="small"
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                onBlur={() => handleBlur('full_name')}
                 disabled={!isEditing && !isCreating}
                 required
+                error={hasError('full_name')}
+                helperText={getFieldError('full_name')}
               />
               <TextField
                 label="Name in Cheque/Card"
@@ -410,8 +487,8 @@ export default function SuppliersPage() {
                 onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
                 disabled={!isEditing && !isCreating}
               >
-                {GENDERS.map((g) => (
-                  <MenuItem key={g} value={g}>{g}</MenuItem>
+                {GENDER_CHOICES.map((g) => (
+                  <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>
                 ))}
               </TextField>
               <TextField
@@ -422,8 +499,8 @@ export default function SuppliersPage() {
                 onChange={(e) => setFormData({ ...formData, civil_status: e.target.value })}
                 disabled={!isEditing && !isCreating}
               >
-                {CIVIL_STATUS.map((s) => (
-                  <MenuItem key={s} value={s}>{s}</MenuItem>
+                {CIVIL_CHOICES.map((s) => (
+                  <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
                 ))}
               </TextField>
               <TextField
@@ -454,9 +531,12 @@ export default function SuppliersPage() {
                 size="small"
                 value={formData.no_of_kids}
                 onChange={(e) => setFormData({ ...formData, no_of_kids: e.target.value })}
+                onBlur={() => handleBlur('no_of_kids')}
                 disabled={!isEditing && !isCreating}
                 required
                 sx={requiredFieldSx}
+                error={hasError('no_of_kids')}
+                helperText={getFieldError('no_of_kids')}
               />
               <FormControlLabel
                 control={
@@ -477,22 +557,31 @@ export default function SuppliersPage() {
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onBlur={() => handleBlur('email')}
                 disabled={!isEditing && !isCreating}
+                error={hasError('email')}
+                helperText={getFieldError('email')}
               />
               <TextField
                 label="Mobile Contact"
                 size="small"
                 value={formData.mobile_contact_number}
                 onChange={(e) => setFormData({ ...formData, mobile_contact_number: e.target.value })}
+                onBlur={() => handleBlur('mobile_contact_number')}
                 disabled={!isEditing && !isCreating}
                 required
+                error={hasError('mobile_contact_number')}
+                helperText={getFieldError('mobile_contact_number')}
               />
               <TextField
                 label="Home Contact"
                 size="small"
                 value={formData.home_contact_number}
                 onChange={(e) => setFormData({ ...formData, home_contact_number: e.target.value })}
+                onBlur={() => handleBlur('home_contact_number')}
                 disabled={!isEditing && !isCreating}
+                error={hasError('home_contact_number')}
+                helperText={getFieldError('home_contact_number')}
               />
             </FormSection>
 
@@ -523,7 +612,10 @@ export default function SuppliersPage() {
                 size="small"
                 value={formData.company_contact_number}
                 onChange={(e) => setFormData({ ...formData, company_contact_number: e.target.value })}
+                onBlur={() => handleBlur('company_contact_number')}
                 disabled={!isEditing && !isCreating}
+                error={hasError('company_contact_number')}
+                helperText={getFieldError('company_contact_number')}
               />
               <TextField
                 label="Company Postal Address"
@@ -541,22 +633,28 @@ export default function SuppliersPage() {
                 size="small"
                 value={formData.postal_address}
                 onChange={(e) => setFormData({ ...formData, postal_address: e.target.value })}
+                onBlur={() => handleBlur('postal_address')}
                 disabled={!isEditing && !isCreating}
                 multiline
                 rows={2}
                 required
                 sx={requiredFieldSx}
+                error={hasError('postal_address')}
+                helperText={getFieldError('postal_address')}
               />
               <TextField
                 label="Permanent Address"
                 size="small"
                 value={formData.permenent_address}
                 onChange={(e) => setFormData({ ...formData, permenent_address: e.target.value })}
+                onBlur={() => handleBlur('permenent_address')}
                 disabled={!isEditing && !isCreating}
                 multiline
                 rows={2}
                 required
                 sx={requiredFieldSx}
+                error={hasError('permenent_address')}
+                helperText={getFieldError('permenent_address')}
               />
             </FormSection>
 
@@ -567,9 +665,13 @@ export default function SuppliersPage() {
                 type="number"
                 value={formData.credit_days}
                 onChange={(e) => setFormData({ ...formData, credit_days: parseInt(e.target.value) || 0 })}
+                onBlur={() => handleBlur('credit_days')}
                 disabled={!isEditing && !isCreating}
                 required
                 sx={requiredFieldSx}
+                error={hasError('credit_days')}
+                helperText={getFieldError('credit_days')}
+                inputProps={{ min: 0 }}
               />
               <TextField
                 label="Max Credit Limit"
@@ -577,9 +679,13 @@ export default function SuppliersPage() {
                 type="number"
                 value={formData.max_credit_limit}
                 onChange={(e) => setFormData({ ...formData, max_credit_limit: parseInt(e.target.value) || 0 })}
+                onBlur={() => handleBlur('max_credit_limit')}
                 disabled={!isEditing && !isCreating}
                 required
                 sx={requiredFieldSx}
+                error={hasError('max_credit_limit')}
+                helperText={getFieldError('max_credit_limit')}
+                inputProps={{ min: 0 }}
               />
               {selectedSupplier && !isCreating && (
                 <>

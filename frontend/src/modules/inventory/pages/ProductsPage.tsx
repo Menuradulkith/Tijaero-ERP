@@ -35,6 +35,7 @@ import {
   useTConfirmDialog,
   showSuccessToast,
   showErrorToast,
+  PRODUCT_ITEM_TYPE,
 } from "@/components/tijaero";
 import { productsApi, categoriesApi, brandsApi, minimumPriceApi } from "../api";
 import { Product, ProductCreate, Category, CategoryCreate, CategoryUpdate, Brand, BrandCreate, BrandUpdate } from "../types";
@@ -62,7 +63,7 @@ const emptyProductForm: ProductCreate = {
   name: "",
   item_code: "",
   model: "",
-  item_type: "PRODUCT",
+  item_type: "inventory",
   description: "",
   website_active: false,
   website_price: 0,
@@ -760,9 +761,9 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   onChange={(e) => productState.setFormData({ ...productState.formData, item_type: e.target.value })}
                   disabled={!productState.isEditing && !productState.isCreating}
                 >
-                  <MenuItem value="PRODUCT">Product</MenuItem>
-                  <MenuItem value="SERVICE">Service</MenuItem>
-                  <MenuItem value="PART">Part</MenuItem>
+                  {PRODUCT_ITEM_TYPE.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                  ))}
                 </TextField>
                 <TextField
                   label="Description"

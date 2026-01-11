@@ -218,9 +218,18 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
   };
 
   return (
-    <Paper elevation={0} sx={{ width: "100%" }}>
+    <Paper 
+      elevation={0} 
+      sx={{ 
+        width: "100%",
+        borderRadius: 2,
+        overflow: "hidden",
+        border: "1px solid",
+        borderColor: "divider",
+      }}
+    >
       {toolbar && (
-        <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "grey.50" }}>
           {toolbar}
         </Box>
       )}
@@ -249,22 +258,60 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
                   alignItems: "center",
                   justifyContent: "center",
                   height: "100%",
+                  py: 4,
                 }}
               >
-                <Typography color="text.secondary">{emptyMessage}</Typography>
+                <Typography color="text.secondary" variant="body2">{emptyMessage}</Typography>
               </Box>
             ),
           }}
           sx={{
             border: "none",
+            "& .MuiDataGrid-columnHeaders": {
+              bgcolor: "grey.50",
+              borderBottom: "2px solid",
+              borderColor: "divider",
+            },
+            "& .MuiDataGrid-columnHeaderTitle": {
+              fontWeight: 600,
+              fontSize: "0.875rem",
+            },
+            "& .MuiDataGrid-cell": {
+              borderColor: "grey.100",
+              fontSize: "0.875rem",
+            },
             "& .MuiDataGrid-cell:focus": {
+              outline: "none",
+            },
+            "& .MuiDataGrid-cell:focus-within": {
               outline: "none",
             },
             "& .MuiDataGrid-row": {
               cursor: onRowClick ? "pointer" : "default",
+              transition: "background-color 0.15s ease",
+              "&:nth-of-type(even)": {
+                bgcolor: "grey.25",
+              },
             },
             "& .MuiDataGrid-row:hover": {
-              backgroundColor: onRowClick ? "action.hover" : undefined,
+              backgroundColor: "primary.50",
+            },
+            "& .MuiDataGrid-row.Mui-selected": {
+              backgroundColor: "primary.100",
+              "&:hover": {
+                backgroundColor: "primary.150",
+              },
+            },
+            "& .MuiDataGrid-footerContainer": {
+              borderTop: "1px solid",
+              borderColor: "divider",
+              bgcolor: "grey.50",
+            },
+            "& .MuiTablePagination-root": {
+              fontSize: "0.875rem",
+            },
+            "& .MuiDataGrid-virtualScroller": {
+              bgcolor: "background.paper",
             },
           }}
         />

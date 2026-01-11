@@ -62,6 +62,19 @@ def delete_supplier(supplier_id: int, db: Session = Depends(get_db)):
     return None
 
 # Purchase Order Endpoints
+@router.get("/orders/daily-limit/{branch_code}", response_model=schemas.DailyPOLimitCheck)
+def check_daily_po_limit(
+    branch_code: str,
+    check_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Check daily PO limit for a branch. Returns count, limit, and whether more POs can be created."""
+    from datetime import date as date_type
+    
+    order_service = service.PurchasingOrderService(db)
+    target_date = date_type.fromisoformat(check_date) if check_date else None
+    return order_service.check_daily_limit(branch_code, target_date)
+
 @router.post("/orders", response_model=schemas.PurchasingOrderWithItems, status_code=status.HTTP_201_CREATED)
 def create_purchase_order(
     order: schemas.PurchasingOrderCreate,

@@ -142,6 +142,15 @@ class PurchasingOrderRepository:
             self.db.commit()
             return True
         return False
+    
+    def count_daily_orders_by_branch(self, branch_code: str, target_date: date) -> int:
+        """Count the number of POs created for a branch on a specific date"""
+        return self.db.query(models.PurchasingOrder).filter(
+            and_(
+                models.PurchasingOrder.branch_code == branch_code,
+                func.date(models.PurchasingOrder.added_date) == target_date
+            )
+        ).count()
 
 class PurchasingReturnRepository:
     def __init__(self, db: Session):
