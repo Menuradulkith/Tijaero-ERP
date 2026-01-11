@@ -1,0 +1,629 @@
+from datetime import date, datetime
+from decimal import Decimal
+from typing import List, Optional, Tuple
+
+from app.modules.sales.models import Invoice, InvoiceItems
+from app.modules.sales.quotation_models import (DiscountType, QuoteStatus,
+                                                QuoteType, SalesQuote,
+                                                SalesQuoteItem)
+from app.modules.sales.quotation_repository import sales_quote_repository
+from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
+                                                 DiscountTypeEnum,
+                                                 QuoteStatusEnum,
+                                                 QuoteTypeEnum,
+                                                 SalesQuoteCreate,
+                                                 SalesQuoteFilter,
+                                                 SalesQuoteItemCreate,
+                                                 SalesQuoteStatusUpdate,
+                                                 SalesQuoteUpdate)
+from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
+
+
+class SalesQuoteService:
+    """Service layer for Sales Quote business logic"""
+    
+    def __init__(self):
+        self.repository = sales_quote_repository
+    
+    # ==================== CRUD Operations ====================
+    
+    def get_all_quotes(
+        self,
+        db: Session,
+        skip: int = 0,
+        limit: int = 100,
+        quote_type: Optional[str] = None
+    ) -> List[SalesQuote]:
+        """Get all quotes"""
+        return self.repository.get_all(db, skip, limit, quote_type)
+    
+    def get_quote_by_id(self, db: Session, quote_id: int) -> Optional[SalesQuote]:
+        """Get quote by ID"""
+        return self.repository.get_by_id_with_items(db, quote_id)
+    
+    def get_quote_by_no(self, db: Session, quote_no: str) -> Optional[SalesQuote]:
+        """Get quote by quote number"""
+        return self.repository.get_by_quote_no(db, quote_no)
+    
+    def get_filtered_quotes(
+        self,
+        db: Session,
+        filters: SalesQuoteFilter,
+        page: int = 1,
+        per_page: int = 20
+    ) -> Tuple[List[SalesQuote], int, int]:
+        """Get filtered quotes with pagination"""
+        skip = (page - 1) * per_page
+        quotes, total = self.repository.get_filtered(db, filters, skip, per_page)
+        pages = (total + per_page - 1) // per_page
+        return quotes, total, pages
+    
+    def create_quote(
+        self,
+        db: Session,
+        quote_data: SalesQuoteCreate,
+        created_by: Optional[int] = None
+    ) -> SalesQuote:
+        """Create a new quote (quotation or proforma)"""
+        
+        # Generate quote number
+        quote_no = self.repository.get_next_quote_number(
+            db, 
+            quote_data.quote_type.value,
+            quote_data.branch_code
+        )
+        
+        # Determine is_estimate based on quote_type
+        is_estimate = quote_data.quote_type == QuoteTypeEnum.QUOTATION
+        
+        # Create quote object
+        now = datetime.now()
+        quote = SalesQuote(
+            quote_no=quote_no,
+            quote_type=quote_data.quote_type.value,
+            branch_code=quote_data.branch_code,
+            customer_id=quote_data.customer_id,
+            sale_rep_id=quote_data.sale_rep_id,
+            customer_agent_id=quote_data.customer_agent_id,
+            created_date=now.date(),
+            created_date_time=now,
+            valid_until=quote_data.valid_until,
+            expected_delivery_date=quote_data.expected_delivery_date,
+            status=QuoteStatus.DRAFT.value,
+            approval=False,
+            is_estimate=is_estimate,
+            revision_number=1,
+            payment_terms=quote_data.payment_terms,
+            delivery_terms=quote_data.delivery_terms,
+            remarks=quote_data.remarks,
+            customer_notes=quote_data.customer_notes,
+            terms_conditions=quote_data.terms_conditions,
+            discount_type=quote_data.discount_type.value,
+            discount_value=quote_data.discount_value,
+            special=quote_data.special,
+            subtotal=0,
+            tax_amount=0,
+            total_amount=0
+        )
+        
+        # Add items
+        for item_data in quote_data.items:
+            item = self._create_quote_item(item_data, now)
+            quote.items.append(item)
+        
+        # Calculate totals
+        self._calculate_quote_totals(quote)
+        
+        # Save to database
+        return self.repository.create(db, quote)
+    
+    def update_quote(
+        self,
+        db: Session,
+        quote_id: int,
+        quote_data: SalesQuoteUpdate
+    ) -> SalesQuote:
+        """Update an existing quote"""
+        quote = self.repository.get_by_id(db, quote_id)
+        
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+        
+        # Check if quote can be edited
+        if quote.status not in [QuoteStatus.DRAFT.value, QuoteStatus.REJECTED.value]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot edit quote in '{quote.status}' status"
+            )
+        
+        # Update fields
+        update_data = quote_data.model_dump(exclude_unset=True, exclude={'items'})
+        for key, value in update_data.items():
+            if value is not None:
+                if key == 'discount_type':
+                    setattr(quote, key, value.value)
+                else:
+                    setattr(quote, key, value)
+        
+        # Update items if provided
+        if quote_data.items is not None:
+            # Delete existing items
+            self.repository.delete_items_by_quote_id(db, quote_id)
+            
+            # Add new items
+            now = datetime.now()
+            quote.items = []
+            for item_data in quote_data.items:
+                item = self._create_quote_item(item_data, now)
+                quote.items.append(item)
+        
+        # Recalculate totals
+        self._calculate_quote_totals(quote)
+        
+        return self.repository.update(db, quote)
+    
+    def delete_quote(self, db: Session, quote_id: int) -> bool:
+        """Delete a quote"""
+        quote = self.repository.get_by_id(db, quote_id)
+        
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+        
+        # Only allow deletion of draft quotes
+        if quote.status != QuoteStatus.DRAFT.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete quote in '{quote.status}' status. Only draft quotes can be deleted."
+            )
+        
+        return self.repository.delete(db, quote_id)
+    
+    # ==================== Status Management ====================
+    
+    def update_status(
+        self,
+        db: Session,
+        quote_id: int,
+        status_update: SalesQuoteStatusUpdate
+    ) -> SalesQuote:
+        """Update quote status"""
+        quote = self.repository.get_by_id(db, quote_id)
+        
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+        
+        new_status = status_update.status.value
+        
+        # Validate status transition
+        if not self._is_valid_status_transition(quote.status, new_status):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status transition from '{quote.status}' to '{new_status}'"
+            )
+        
+        quote.status = new_status
+        
+        if status_update.remarks:
+            quote.remarks = status_update.remarks
+        
+        # Set approval flag for approved status
+        if new_status == QuoteStatus.APPROVED.value:
+            quote.approval = True
+        
+        return self.repository.update(db, quote)
+    
+    def submit_for_approval(self, db: Session, quote_id: int) -> SalesQuote:
+        """Submit quote for approval"""
+        return self.update_status(
+            db, quote_id,
+            SalesQuoteStatusUpdate(status=QuoteStatusEnum.PENDING_APPROVAL)
+        )
+    
+    def approve_quote(self, db: Session, quote_id: int) -> SalesQuote:
+        """Approve a quote"""
+        return self.update_status(
+            db, quote_id,
+            SalesQuoteStatusUpdate(status=QuoteStatusEnum.APPROVED)
+        )
+    
+    def reject_quote(self, db: Session, quote_id: int, reason: Optional[str] = None) -> SalesQuote:
+        """Reject a quote"""
+        return self.update_status(
+            db, quote_id,
+            SalesQuoteStatusUpdate(status=QuoteStatusEnum.REJECTED, remarks=reason)
+        )
+    
+    def mark_as_sent(self, db: Session, quote_id: int) -> SalesQuote:
+        """Mark quote as sent to customer"""
+        return self.update_status(
+            db, quote_id,
+            SalesQuoteStatusUpdate(status=QuoteStatusEnum.SENT)
+        )
+    
+    def mark_as_accepted(self, db: Session, quote_id: int) -> SalesQuote:
+        """Mark quote as accepted by customer"""
+        return self.update_status(
+            db, quote_id,
+            SalesQuoteStatusUpdate(status=QuoteStatusEnum.ACCEPTED)
+        )
+    
+    def cancel_quote(self, db: Session, quote_id: int, reason: Optional[str] = None) -> SalesQuote:
+        """Cancel a quote"""
+        return self.update_status(
+            db, quote_id,
+            SalesQuoteStatusUpdate(status=QuoteStatusEnum.CANCELLED, remarks=reason)
+        )
+    
+    # ==================== Conversion to Invoice ====================
+    
+    def convert_to_invoice(
+        self,
+        db: Session,
+        quote_id: int,
+        conversion_data: ConvertToInvoiceRequest,
+        converted_by: Optional[int] = None
+    ) -> Invoice:
+        """Convert quote/proforma to invoice"""
+        quote = self.repository.get_by_id_with_items(db, quote_id)
+        
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+        
+        # Check if already converted
+        if quote.status == QuoteStatus.CONVERTED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Quote has already been converted to an invoice"
+            )
+        
+        # Check if quote can be converted (must be accepted or approved)
+        if quote.status not in [QuoteStatus.ACCEPTED.value, QuoteStatus.APPROVED.value, QuoteStatus.SENT.value]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Quote must be accepted/approved to convert. Current status: '{quote.status}'"
+            )
+        
+        # For quotations with estimates, verify all prices are exact
+        if quote.is_estimate:
+            for item in quote.items:
+                if item.is_price_estimate:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Item '{item.product_id}' has estimate pricing. Please set exact prices before converting."
+                    )
+        
+        # Generate invoice number
+        now = datetime.now()
+        year = now.year
+        
+        # Get next invoice number
+        last_invoice = db.query(Invoice).filter(
+            Invoice.invoice_no.like(f"INV-{year}-%")
+        ).order_by(Invoice.id.desc()).first()
+        
+        if last_invoice:
+            try:
+                last_seq = int(last_invoice.invoice_no.split('-')[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        
+        invoice_no = f"INV-{year}-{next_seq:05d}"
+        
+        # Create invoice
+        invoice = Invoice(
+            invoice_no=invoice_no,
+            branch_code=quote.branch_code,
+            customer_id=quote.customer_id,
+            sale_rep_id=quote.sale_rep_id,
+            customer_agent_id=quote.customer_agent_id,
+            payment_method=conversion_data.payment_method,
+            cash_amount=conversion_data.cash_amount,
+            card_visa_amount=conversion_data.card_visa_amount,
+            card_mastercard_amount=conversion_data.card_mastercard_amount,
+            card_amex_amount=conversion_data.card_amex_amount,
+            cheque_amount=conversion_data.cheque_amount,
+            cheque_date=conversion_data.cheque_date or now.date(),
+            bank_transfer_amount=conversion_data.bank_transfer_amount,
+            credit_amount=conversion_data.credit_amount,
+            payment_adjustments=conversion_data.payment_adjustments,
+            remarks=conversion_data.remarks or quote.remarks,
+            created_date=now.date(),
+            created_date_time=now,
+            special=quote.special,
+            status=True,
+            approval=True,
+            cupon_amount=0,
+            credit_note_amount=0,
+            source_quote_id=quote.id,
+            source_quote_type=quote.quote_type
+        )
+        
+        db.add(invoice)
+        db.flush()  # Get invoice ID
+        
+        # Create invoice items
+        for quote_item in quote.items:
+            invoice_item = InvoiceItems(
+                invoice_id=invoice.id,
+                product_id=quote_item.product_id,
+                quantity=quote_item.quantity,
+                selling_price=quote_item.selling_price,
+                minimum_selling_price=quote_item.minimum_selling_price,
+                warrenty_month=quote_item.warrenty_month,
+                created_date=now
+            )
+            db.add(invoice_item)
+        
+        # Update quote status
+        quote.status = QuoteStatus.CONVERTED.value
+        quote.converted_to_invoice_id = invoice.id
+        quote.converted_at = now
+        quote.converted_by = converted_by
+        
+        db.commit()
+        db.refresh(invoice)
+        
+        return invoice
+    
+    # ==================== Revision Management ====================
+    
+    def create_revision(
+        self,
+        db: Session,
+        quote_id: int,
+        reason: Optional[str] = None
+    ) -> SalesQuote:
+        """Create a new revision of a quotation"""
+        original_quote = self.repository.get_by_id_with_items(db, quote_id)
+        
+        if not original_quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+        
+        # Only quotations can have revisions
+        if original_quote.quote_type != QuoteType.QUOTATION.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only quotations can have revisions. For proforma, create a new document."
+            )
+        
+        # Get next revision number
+        parent_id = original_quote.parent_quote_id or original_quote.id
+        next_revision = self.repository.get_next_revision_number(db, parent_id)
+        
+        # Generate new quote number with revision
+        base_quote_no = original_quote.quote_no.split('-R')[0]  # Remove existing revision suffix
+        new_quote_no = f"{base_quote_no}-R{next_revision}"
+        
+        now = datetime.now()
+        
+        # Create new quote as revision
+        new_quote = SalesQuote(
+            quote_no=new_quote_no,
+            quote_type=original_quote.quote_type,
+            branch_code=original_quote.branch_code,
+            customer_id=original_quote.customer_id,
+            sale_rep_id=original_quote.sale_rep_id,
+            customer_agent_id=original_quote.customer_agent_id,
+            created_date=now.date(),
+            created_date_time=now,
+            valid_until=original_quote.valid_until,
+            expected_delivery_date=original_quote.expected_delivery_date,
+            status=QuoteStatus.DRAFT.value,
+            approval=False,
+            is_estimate=original_quote.is_estimate,
+            revision_number=next_revision,
+            parent_quote_id=parent_id,
+            payment_terms=original_quote.payment_terms,
+            delivery_terms=original_quote.delivery_terms,
+            remarks=reason or f"Revision of {original_quote.quote_no}",
+            customer_notes=original_quote.customer_notes,
+            terms_conditions=original_quote.terms_conditions,
+            discount_type=original_quote.discount_type,
+            discount_value=float(original_quote.discount_value),
+            special=original_quote.special,
+            subtotal=float(original_quote.subtotal),
+            tax_amount=float(original_quote.tax_amount),
+            total_amount=float(original_quote.total_amount)
+        )
+        
+        # Copy items
+        for orig_item in original_quote.items:
+            new_item = SalesQuoteItem(
+                product_id=orig_item.product_id,
+                quantity=orig_item.quantity,
+                selling_price=orig_item.selling_price,
+                minimum_selling_price=orig_item.minimum_selling_price,
+                warrenty_month=orig_item.warrenty_month,
+                created_date=now,
+                min_price=orig_item.min_price,
+                max_price=orig_item.max_price,
+                is_price_estimate=orig_item.is_price_estimate,
+                description=orig_item.description,
+                discount_percent=orig_item.discount_percent,
+                tax_rate=orig_item.tax_rate,
+                line_total=orig_item.line_total,
+                remark=orig_item.remark
+            )
+            new_quote.items.append(new_item)
+        
+        # Mark original as revised
+        original_quote.status = QuoteStatus.REVISED.value
+        
+        db.add(new_quote)
+        db.commit()
+        db.refresh(new_quote)
+        
+        return new_quote
+    
+    # ==================== Helper Methods ====================
+    
+    def _create_quote_item(self, item_data: SalesQuoteItemCreate, created_date: datetime) -> SalesQuoteItem:
+        """Create a quote item from schema"""
+        item = SalesQuoteItem(
+            product_id=item_data.product_id,
+            quantity=item_data.quantity,
+            selling_price=item_data.selling_price,
+            minimum_selling_price=item_data.minimum_selling_price,
+            warrenty_month=item_data.warrenty_month,
+            created_date=created_date,
+            min_price=item_data.min_price,
+            max_price=item_data.max_price,
+            is_price_estimate=item_data.is_price_estimate,
+            description=item_data.description,
+            discount_percent=item_data.discount_percent,
+            tax_rate=item_data.tax_rate,
+            remark=item_data.remark,
+            line_total=0
+        )
+        
+        # Calculate line total
+        self._calculate_item_total(item)
+        
+        return item
+    
+    def _calculate_item_total(self, item: SalesQuoteItem) -> None:
+        """Calculate line total for an item"""
+        base_total = Decimal(str(item.selling_price)) * item.quantity
+        
+        # Apply discount
+        if item.discount_percent > 0:
+            discount = base_total * (Decimal(str(item.discount_percent)) / 100)
+            base_total -= discount
+        
+        # Apply tax
+        if item.tax_rate > 0:
+            tax = base_total * (Decimal(str(item.tax_rate)) / 100)
+            base_total += tax
+        
+        item.line_total = float(base_total)
+    
+    def _calculate_quote_totals(self, quote: SalesQuote) -> None:
+        """Calculate quote totals from items"""
+        subtotal = Decimal('0')
+        tax_total = Decimal('0')
+        
+        for item in quote.items:
+            # Recalculate item total
+            self._calculate_item_total(item)
+            
+            item_base = Decimal(str(item.selling_price)) * item.quantity
+            
+            # Apply item discount
+            if item.discount_percent > 0:
+                item_base -= item_base * (Decimal(str(item.discount_percent)) / 100)
+            
+            subtotal += item_base
+            
+            # Calculate tax
+            if item.tax_rate > 0:
+                tax_total += item_base * (Decimal(str(item.tax_rate)) / 100)
+        
+        quote.subtotal = float(subtotal)
+        quote.tax_amount = float(tax_total)
+        
+        # Apply quote-level discount
+        total = subtotal
+        if quote.discount_type == DiscountType.PERCENTAGE.value and quote.discount_value > 0:
+            total -= subtotal * (Decimal(str(quote.discount_value)) / 100)
+        elif quote.discount_type == DiscountType.FIXED.value and quote.discount_value > 0:
+            total -= Decimal(str(quote.discount_value))
+        
+        # Add tax
+        total += tax_total
+        
+        quote.total_amount = float(total)
+    
+    def _is_valid_status_transition(self, current: str, new: str) -> bool:
+        """Check if status transition is valid"""
+        valid_transitions = {
+            QuoteStatus.DRAFT.value: [
+                QuoteStatus.PENDING_APPROVAL.value,
+                QuoteStatus.APPROVED.value,
+                QuoteStatus.SENT.value,
+                QuoteStatus.CANCELLED.value
+            ],
+            QuoteStatus.PENDING_APPROVAL.value: [
+                QuoteStatus.APPROVED.value,
+                QuoteStatus.REJECTED.value,
+                QuoteStatus.CANCELLED.value
+            ],
+            QuoteStatus.APPROVED.value: [
+                QuoteStatus.SENT.value,
+                QuoteStatus.ACCEPTED.value,
+                QuoteStatus.REJECTED.value,
+                QuoteStatus.CONVERTED.value,
+                QuoteStatus.CANCELLED.value
+            ],
+            QuoteStatus.SENT.value: [
+                QuoteStatus.ACCEPTED.value,
+                QuoteStatus.REJECTED.value,
+                QuoteStatus.EXPIRED.value,
+                QuoteStatus.CONVERTED.value,
+                QuoteStatus.REVISED.value
+            ],
+            QuoteStatus.ACCEPTED.value: [
+                QuoteStatus.CONVERTED.value,
+                QuoteStatus.CANCELLED.value
+            ],
+            QuoteStatus.REJECTED.value: [
+                QuoteStatus.DRAFT.value,  # Allow re-editing
+                QuoteStatus.REVISED.value
+            ],
+            QuoteStatus.EXPIRED.value: [
+                QuoteStatus.REVISED.value  # Can create revision of expired quote
+            ],
+            QuoteStatus.CONVERTED.value: [],  # Final state
+            QuoteStatus.CANCELLED.value: [],  # Final state
+            QuoteStatus.REVISED.value: []  # Final state
+        }
+        
+        return new in valid_transitions.get(current, [])
+    
+    # ==================== Expiry Management ====================
+    
+    def mark_expired_quotes(self, db: Session) -> int:
+        """Mark all expired quotes as expired"""
+        expired_quotes = self.repository.get_expired_quotes(db)
+        count = 0
+        
+        for quote in expired_quotes:
+            quote.status = QuoteStatus.EXPIRED.value
+            count += 1
+        
+        if count > 0:
+            db.commit()
+        
+        return count
+    
+    def get_expiring_soon(self, db: Session, days: int = 7) -> List[SalesQuote]:
+        """Get quotes expiring within given days"""
+        return self.repository.get_expiring_quotes(db, days)
+
+
+# Singleton instance
+sales_quote_service = SalesQuoteService()
+        """Get quotes expiring within given days"""
+        return self.repository.get_expiring_quotes(db, days)
+
+
+# Singleton instance
+sales_quote_service = SalesQuoteService()

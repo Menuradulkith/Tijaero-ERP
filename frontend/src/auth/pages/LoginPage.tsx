@@ -6,13 +6,13 @@ import PersonIcon from "@mui/icons-material/Person";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import {
-  Box,
-  Button,
-  Card,
-  IconButton,
-  InputAdornment,
-  TextField,
-  Typography,
+    Box,
+    Button,
+    Card,
+    IconButton,
+    InputAdornment,
+    TextField,
+    Typography,
 } from "@mui/material";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
@@ -82,7 +82,7 @@ export default function LoginPage() {
       >
         <AccountBalanceIcon sx={{ fontSize: 80, mb: 3 }} />
         <Typography variant="h3" gutterBottom fontWeight={600}>
-          ERP System
+          TijaeroERP
         </Typography>
         <Typography
           variant="h6"

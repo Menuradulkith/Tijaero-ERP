@@ -15,8 +15,8 @@
  * ```
  */
 
-import React from "react";
 import { Chip, ChipProps } from "@mui/material";
+import React from "react";
 
 // Status color type
 type StatusColor = "default" | "primary" | "secondary" | "success" | "error" | "warning" | "info";
@@ -123,6 +123,20 @@ export const STATUS_MAPS = {
     pending: { label: "Pending", color: "warning" as StatusColor },
     completed: { label: "Completed", color: "success" as StatusColor },
     closed: { label: "Closed", color: "default" as StatusColor },
+  },
+  
+  // Quote/Proforma status
+  quoteStatus: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    pending_approval: { label: "Pending Approval", color: "warning" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
+    sent: { label: "Sent", color: "secondary" as StatusColor },
+    accepted: { label: "Accepted", color: "success" as StatusColor },
+    rejected: { label: "Rejected", color: "error" as StatusColor },
+    expired: { label: "Expired", color: "warning" as StatusColor },
+    converted: { label: "Converted", color: "success" as StatusColor },
+    cancelled: { label: "Cancelled", color: "default" as StatusColor },
+    revised: { label: "Revised", color: "default" as StatusColor },
   },
 } as const;
 

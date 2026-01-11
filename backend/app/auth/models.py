@@ -1,8 +1,19 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Table, Text, Date, TIMESTAMP
-from sqlalchemy.orm import relationship
-from app.db.base import Base
-from app.common.base_models import TimestampMixin
 from typing import TYPE_CHECKING
+
+from app.common.base_models import TimestampMixin
+from app.db.base import Base
+from sqlalchemy import (
+    TIMESTAMP,
+    Boolean,
+    Column,
+    Date,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
+)
+from sqlalchemy.orm import relationship
 
 # Forward references to avoid circular imports
 if TYPE_CHECKING:
@@ -12,33 +23,42 @@ if TYPE_CHECKING:
     from app.modules.support.models import CustomerSupport
     from app.modules.warehouse.models import ItemTransferNoteApproved
 
-user_groups = Table('accounts_user_groups', Base.metadata,
-    Column('id', Integer, primary_key=True),
-    Column('user_id', Integer, ForeignKey('users.id')),
-    Column('group_id', Integer, ForeignKey('auth_group.id'))
+user_groups = Table(
+    "accounts_user_groups",
+    Base.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("accounts_user.id")),
+    Column("group_id", Integer, ForeignKey("auth_group.id")),
 )
 
-group_permissions = Table('auth_group_permissions', Base.metadata,
-    Column('id', Integer, primary_key=True),
-    Column('group_id', Integer, ForeignKey('auth_group.id')),
-    Column('permission_id', Integer, ForeignKey('auth_permission.id'))
+group_permissions = Table(
+    "auth_group_permissions",
+    Base.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("group_id", Integer, ForeignKey("auth_group.id")),
+    Column("permission_id", Integer, ForeignKey("auth_permission.id")),
 )
 
-user_permissions = Table('accounts_user_user_permissions', Base.metadata,
-    Column('id', Integer, primary_key=True),
-    Column('user_id', Integer, ForeignKey('users.id')),
-    Column('permission_id', Integer, ForeignKey('auth_permission.id'))
+user_permissions = Table(
+    "accounts_user_user_permissions",
+    Base.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("accounts_user.id")),
+    Column("permission_id", Integer, ForeignKey("auth_permission.id")),
 )
 
-user_branches = Table('accounts_user_branches', Base.metadata,
-    Column('id', Integer, primary_key=True),
-    Column('user_id', Integer, ForeignKey('users.id')),
-    Column('branches_id', Integer, ForeignKey('branches.id'))
+user_branches = Table(
+    "accounts_user_branches",
+    Base.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("accounts_user.id")),
+    Column("branches_id", Integer, ForeignKey("branches.id")),
 )
+
 
 class User(Base, TimestampMixin):
-    __tablename__ = "users"
-    
+    __tablename__ = "accounts_user"
+
     id = Column(Integer, primary_key=True, index=True)
     hashed_password = Column(String(128), nullable=False)
     last_login = Column(TIMESTAMP)
@@ -57,53 +77,79 @@ class User(Base, TimestampMixin):
     verify = Column(Boolean, nullable=False)
     blocked = Column(Boolean, nullable=False)
     occupation = Column(String(30), nullable=False)
-    country_id = Column(Integer, ForeignKey('country.id'))
+    country_id = Column(Integer, ForeignKey("country.id"))
     profile_picture_id = Column(Integer)
-    
+
     # Relationships - using string references to avoid circular imports
-    groups = relationship("Group", secondary=user_groups, back_populates="users", lazy='selectin')
-    permissions = relationship("Permission", secondary=user_permissions, back_populates="users", lazy='selectin')
-    branches = relationship("Branch", secondary=user_branches, back_populates="users", lazy='selectin')
-    country = relationship("Country", back_populates="users", lazy='select')
+    groups = relationship(
+        "Group", secondary=user_groups, back_populates="users", lazy="selectin"
+    )
+    permissions = relationship(
+        "Permission",
+        secondary=user_permissions,
+        back_populates="users",
+        lazy="selectin",
+    )
+    branches = relationship(
+        "Branch", secondary=user_branches, back_populates="users", lazy="selectin"
+    )
+    country = relationship("Country", back_populates="users", lazy="select")
+
 
 class Group(Base, TimestampMixin):
     __tablename__ = "auth_group"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(150), unique=True, nullable=False)
-    
+
     users = relationship("User", secondary=user_groups, back_populates="groups")
-    permissions = relationship("Permission", secondary=group_permissions, back_populates="groups", lazy='selectin')
+    permissions = relationship(
+        "Permission",
+        secondary=group_permissions,
+        back_populates="groups",
+        lazy="selectin",
+    )
+
 
 class Permission(Base, TimestampMixin):
     __tablename__ = "auth_permission"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, nullable=False)
     resource = Column(String, nullable=False)
     action = Column(String, nullable=False)
     description = Column(String)
-    
-    groups = relationship("Group", secondary=group_permissions, back_populates="permissions")
-    users = relationship("User", secondary=user_permissions, back_populates="permissions")
+
+    groups = relationship(
+        "Group", secondary=group_permissions, back_populates="permissions"
+    )
+    users = relationship(
+        "User", secondary=user_permissions, back_populates="permissions"
+    )
+
 
 class Branch(Base, TimestampMixin):
     __tablename__ = "branches"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     branch_name = Column(String(255), unique=True, nullable=False)
     address = Column(Text)
     email = Column(String(75))
     contact_number = Column(String(255))
     branch_code = Column(String(255), unique=True, nullable=False)
-    
+
     users = relationship("User", secondary=user_branches, back_populates="branches")
 
 
 class LoginShortcode(Base):
     """Login shortcodes for quick user authentication (e.g., barcode/PIN login)"""
+
     __tablename__ = "login_shortcodes"
-    
-    user_id = Column(Integer, ForeignKey('users.id'), primary_key=True, index=True)
+
+    user_id = Column(
+        Integer, ForeignKey("accounts_user.id"), primary_key=True, index=True
+    )
+    login_short_code = Column(Text, unique=True)
+    barcode = Column(Text)
     login_short_code = Column(Text, unique=True)
     barcode = Column(Text)

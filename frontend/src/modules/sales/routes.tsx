@@ -1,4 +1,5 @@
 import CustomersPage from "@/modules/sales/pages/CustomersPage";
+import QuotationsPage from "@/modules/sales/pages/QuotationsPage";
 import SaleReturnsPage from "@/modules/sales/pages/SaleReturnsPage";
 import SalesDashboard from "@/modules/sales/pages/SalesDashboard";
 import SalesPage from "@/modules/sales/pages/SalesPage";
@@ -9,6 +10,8 @@ export default function SalesRoutes() {
     <Routes>
       <Route index element={<SalesPage />} />
       <Route path="orders" element={<SalesPage />} />
+      <Route path="quotations" element={<QuotationsPage />} />
+      <Route path="proforma" element={<QuotationsPage />} />
       <Route path="returns" element={<SaleReturnsPage />} />
       <Route path="dashboard" element={<SalesDashboard />} />
       <Route path="customers" element={<CustomersPage />} />

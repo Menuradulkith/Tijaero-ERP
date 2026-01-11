@@ -13,6 +13,7 @@ from app.modules.products.api import router as products_router
 from app.modules.purchasing.api import router as purchasing_router
 from app.modules.reporting.api import router as reporting_router
 from app.modules.sales.api import router as sales_router
+from app.modules.sales.quotation_api import router as quotation_router
 from app.modules.settings.api import router as settings_router
 from app.modules.support.api import router as support_router
 from app.modules.users.api import router as users_router
@@ -34,6 +35,9 @@ api_router.include_router(customers_router, prefix="/customers", tags=["customer
 api_router.include_router(inventory_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(products_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(sales_router, prefix="/sales", tags=["sales"])
+api_router.include_router(
+    quotation_router, prefix="/sales/quotes", tags=["sales-quotes"]
+)
 api_router.include_router(purchasing_router)  # Has its own prefix
 api_router.include_router(finance_router)  # Has its own prefix
 api_router.include_router(hr_router)  # Has its own prefix
