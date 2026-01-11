@@ -110,9 +110,7 @@ const getEmptyQuoteForm = (quoteType: QuoteType): Partial<SalesQuoteCreate> => (
 export default function QuotationsPage() {
   const queryClient = useQueryClient();
 
-  // Tab state: 0 = Quotations, 1 = Proforma
-  const [activeTab, setActiveTab] = useState(0);
-  const currentQuoteType: QuoteType = activeTab === 0 ? "quotation" : "proforma";
+  // No tabs, show all types
 
   // Line items state
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
@@ -141,7 +139,7 @@ export default function QuotationsPage() {
     handleCancel: baseHandleCancel,
     handleStartEdit,
   } = useMasterDetailState<SalesQuote, Partial<SalesQuoteCreate>>({
-    initialFormData: getEmptyQuoteForm(currentQuoteType),
+    initialFormData: getEmptyQuoteForm("quotation"),
     resetFormFromItem: (quote) => quote,
     favoritesKey: "quotations_favorites",
     defaultSortField: "created_date",
@@ -152,8 +150,8 @@ export default function QuotationsPage() {
 
   // Data fetching
   const { data: quotesData, isLoading } = useQuery({
-    queryKey: ["sales-quotes", currentQuoteType],
-    queryFn: () => quotationApi.getAll({ quote_type: currentQuoteType }),
+    queryKey: ["sales-quotes"],
+    queryFn: () => quotationApi.getAll({}),
   });
 
   const { data: customers } = useQuery({
@@ -1063,16 +1061,10 @@ export default function QuotationsPage() {
 
   return (
     <>
-      <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
-        <Tabs value={activeTab} onChange={(_, newValue) => setActiveTab(newValue)}>
-          <Tab label="Quotations" icon={<QuoteIcon />} iconPosition="start" />
-          <Tab label="Proforma Invoices" icon={<QuoteIcon />} iconPosition="start" />
-        </Tabs>
-      </Box>
+      {/* No tabs, unified section for both Quotation and Proforma Invoice */}
 
       <MasterDetailLayout
-        title={QUOTE_TYPE_LABELS[currentQuoteType]}
-        icon={<QuoteIcon />}
+        title=""
         masterPanel={
           <SearchableList
             searchValue={searchQuery}
