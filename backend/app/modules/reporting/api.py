@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import date, timedelta
@@ -125,3 +126,48 @@ def get_quick_stats(
             "net_profit": finance_report.net_profit
         }
     }
+
+
+# ==================== Document Reports ====================
+# These endpoints generate printable HTML reports for documents
+
+@router.get("/documents/purchase-order/{po_id}", response_class=HTMLResponse)
+def get_purchase_order_report(
+    po_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate HTML report for a Purchase Order.
+    Returns HTML that can be viewed in browser or printed to PDF.
+    """
+    from app.reporting.document_reports import get_document_report_service
+    report_service = get_document_report_service(db)
+    return report_service.generate_purchase_order_report(po_id)
+
+
+@router.get("/documents/grn/{grn_id}", response_class=HTMLResponse)
+def get_grn_report(
+    grn_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate HTML report for a Good Received Note (GRN).
+    Returns HTML that can be viewed in browser or printed to PDF.
+    """
+    from app.reporting.document_reports import get_document_report_service
+    report_service = get_document_report_service(db)
+    return report_service.generate_grn_report(grn_id)
+
+
+@router.get("/documents/purchase-return/{return_id}", response_class=HTMLResponse)
+def get_purchase_return_report(
+    return_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate HTML report for a Purchase Return.
+    Returns HTML that can be viewed in browser or printed to PDF.
+    """
+    from app.reporting.document_reports import get_document_report_service
+    report_service = get_document_report_service(db)
+    return report_service.generate_purchase_return_report(return_id)

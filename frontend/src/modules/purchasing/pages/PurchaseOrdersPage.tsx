@@ -34,6 +34,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
+import PrintIcon from "@mui/icons-material/Print";
 import toast from "react-hot-toast";
 
 import {
@@ -596,6 +597,25 @@ export default function PurchaseOrdersPage() {
         onEdit={canEdit ? handleStartEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}
         canDelete={canDelete}
+        endActions={
+          selectedOrder && !isCreating && !isEditing ? (
+            <Tooltip title={selectedOrder.status === 'draft' || selectedOrder.status === 'pending' ? 'Cannot print draft/pending orders' : 'Print / Preview Report'}>
+              <span>
+                <IconButton
+                  size="small"
+                  disabled={selectedOrder.status === 'draft' || selectedOrder.status === 'pending'}
+                  onClick={() => {
+                    const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/api\/v1$/, '');
+                    const reportUrl = `${baseUrl}/api/v1/reporting/documents/purchase-order/${selectedOrder.id}`;
+                    window.open(reportUrl, '_blank');
+                  }}
+                >
+                  <PrintIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          ) : undefined
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>

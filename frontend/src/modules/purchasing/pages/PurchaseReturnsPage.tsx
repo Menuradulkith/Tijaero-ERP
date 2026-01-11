@@ -24,6 +24,7 @@ import {
   Chip,
   CircularProgress,
   InputAdornment,
+  Tooltip,
 } from "@mui/material";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import AddIcon from "@mui/icons-material/Add";
@@ -32,6 +33,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import PrintIcon from "@mui/icons-material/Print";
 import toast from "react-hot-toast";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -645,6 +647,25 @@ export default function PurchaseReturnsPage() {
         onSave={handleSave}
         onCancel={() => handleCancel(filteredReturns)}
         onEdit={handleStartEdit}
+        endActions={
+          selectedReturn && !isCreating && !isEditing ? (
+            <Tooltip title={selectedReturn.status === 'draft' || selectedReturn.status === 'pending' ? 'Cannot print draft/pending returns' : 'Print / Preview Report'}>
+              <span>
+                <IconButton
+                  size="small"
+                  disabled={selectedReturn.status === 'draft' || selectedReturn.status === 'pending'}
+                  onClick={() => {
+                    const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/api\/v1$/, '');
+                    const reportUrl = `${baseUrl}/api/v1/reporting/documents/purchase-return/${selectedReturn.id}`;
+                    window.open(reportUrl, '_blank');
+                  }}
+                >
+                  <PrintIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          ) : undefined
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
