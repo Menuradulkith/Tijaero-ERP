@@ -33,6 +33,7 @@ import {
   Checkbox,
   FormControlLabel,
   FormGroup,
+  Tooltip,
 } from "@mui/material";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AddIcon from "@mui/icons-material/Add";
@@ -47,6 +48,7 @@ import BusinessIcon from "@mui/icons-material/Business";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import SaveIcon from "@mui/icons-material/Save";
+import PrintIcon from "@mui/icons-material/Print";
 import toast from "react-hot-toast";
 
 import {
@@ -876,6 +878,22 @@ export default function GoodReceivedNotesPage() {
         onSave={handleSave}
         onCancel={() => handleCancel(filteredGRNs)}
         onEdit={handleStartEdit}
+        endActions={
+          selectedGRN && !isCreating && !isEditing ? (
+            <Tooltip title="Print / Preview Report">
+              <IconButton
+                size="small"
+                onClick={() => {
+                  const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/api\/v1$/, '');
+                  const reportUrl = `${baseUrl}/api/v1/reporting/documents/grn/${selectedGRN.id}`;
+                  window.open(reportUrl, '_blank');
+                }}
+              >
+                <PrintIcon />
+              </IconButton>
+            </Tooltip>
+          ) : undefined
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>

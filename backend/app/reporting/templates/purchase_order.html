@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Purchase Order - {{ po.purchasing_order_no }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #333;
+            background: #fff;
+            padding: 20px;
+        }
+        
+        .document {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border: 1px solid #ddd;
+        }
+        
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #1976d2;
+        }
+        
+        .company-info h1 {
+            font-size: 24px;
+            color: #1976d2;
+            margin-bottom: 5px;
+        }
+        
+        .company-info p {
+            color: #666;
+            font-size: 11px;
+        }
+        
+        .document-title {
+            text-align: right;
+        }
+        
+        .document-title h2 {
+            font-size: 28px;
+            color: #1976d2;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        
+        .document-title .po-number {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .document-title .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-top: 8px;
+        }
+        
+        .status-pending { background: #fff3e0; color: #e65100; }
+        .status-approved { background: #e8f5e9; color: #2e7d32; }
+        .status-draft { background: #f5f5f5; color: #666; }
+        .status-rejected { background: #ffebee; color: #c62828; }
+        
+        /* Info Sections */
+        .info-section {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 25px;
+            gap: 30px;
+        }
+        
+        .info-box {
+            flex: 1;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #1976d2;
+        }
+        
+        .info-box h3 {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+        
+        .info-box p {
+            margin-bottom: 4px;
+        }
+        
+        .info-box .label {
+            color: #666;
+            font-size: 10px;
+        }
+        
+        .info-box .value {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        /* Items Table */
+        .items-section {
+            margin-bottom: 25px;
+        }
+        
+        .items-section h3 {
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        
+        th {
+            background: #1976d2;
+            color: #fff;
+            padding: 10px 12px;
+            text-align: left;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        th:first-child {
+            border-radius: 4px 0 0 0;
+        }
+        
+        th:last-child {
+            border-radius: 0 4px 0 0;
+        }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        
+        tr:hover {
+            background: #e3f2fd;
+        }
+        
+        .text-right {
+            text-align: right;
+        }
+        
+        .text-center {
+            text-align: center;
+        }
+        
+        /* Totals */
+        .totals-section {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 25px;
+        }
+        
+        .totals-box {
+            width: 280px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 15px;
+        }
+        
+        .totals-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .totals-row:last-child {
+            border-bottom: none;
+            padding-top: 10px;
+            margin-top: 5px;
+            border-top: 2px solid #1976d2;
+        }
+        
+        .totals-row.grand-total {
+            font-size: 16px;
+            font-weight: bold;
+            color: #1976d2;
+        }
+        
+        /* Remarks */
+        .remarks-section {
+            background: #fff8e1;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #ffc107;
+            margin-bottom: 25px;
+        }
+        
+        .remarks-section h3 {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        /* Footer */
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .signature-box {
+            text-align: center;
+            width: 200px;
+        }
+        
+        .signature-line {
+            border-top: 1px solid #333;
+            margin-top: 50px;
+            padding-top: 8px;
+            font-size: 11px;
+            color: #666;
+        }
+        
+        .print-info {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px dashed #ddd;
+            font-size: 10px;
+            color: #999;
+            text-align: center;
+        }
+        
+        /* Print Styles */
+        @media print {
+            body {
+                padding: 0;
+            }
+            
+            .document {
+                border: none;
+                padding: 0;
+                max-width: none;
+            }
+            
+            .no-print {
+                display: none;
+            }
+        }
+        
+        @page {
+            size: A4;
+            margin: 15mm;
+        }
+    </style>
+</head>
+<body>
+    <div class="document">
+        <!-- Header -->
+        <div class="header">
+            <div class="company-info">
+                <h1>{{ company.name | default('Tijaero ERP') }}</h1>
+                <p>{{ company.address | default('') }}</p>
+                <p>Tel: {{ company.phone | default('') }} | Email: {{ company.email | default('') }}</p>
+            </div>
+            <div class="document-title">
+                <h2>Purchase Order</h2>
+                <div class="po-number">{{ po.purchasing_order_no }}</div>
+                <div class="status status-{{ po.status | lower | default('draft') }}">{{ po.status | default('Draft') }}</div>
+            </div>
+        </div>
+        
+        <!-- Info Sections -->
+        <div class="info-section">
+            <div class="info-box">
+                <h3>Supplier Information</h3>
+                <p><span class="value">{{ supplier.full_name | default('N/A') }}</span></p>
+                <p><span class="label">Company:</span> <span class="value">{{ supplier.company_name | default('N/A') }}</span></p>
+                <p><span class="label">Contact:</span> <span class="value">{{ supplier.mobile_contact_number | default('N/A') }}</span></p>
+                <p><span class="label">Email:</span> <span class="value">{{ supplier.email | default('N/A') }}</span></p>
+            </div>
+            <div class="info-box">
+                <h3>Order Details</h3>
+                <p><span class="label">Order Date:</span> <span class="value">{{ po.purchasing_order_date }}</span></p>
+                <p><span class="label">Expected Delivery:</span> <span class="value">{{ po.good_received_note_date }}</span></p>
+                <p><span class="label">Branch:</span> <span class="value">{{ branch.branch_name | default(po.branch_code) }}</span></p>
+                <p><span class="label">Payment Method:</span> <span class="value">{{ po.payment_method }}</span></p>
+                {% if po.credit_date %}
+                <p><span class="label">Credit Days:</span> <span class="value">{{ po.credit_date }} days</span></p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Items Table -->
+        <div class="items-section">
+            <h3>Order Items</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">#</th>
+                        <th>Product</th>
+                        <th class="text-center" style="width: 80px;">Qty</th>
+                        <th class="text-right" style="width: 100px;">Unit Price</th>
+                        <th class="text-center" style="width: 80px;">Warranty</th>
+                        <th class="text-right" style="width: 120px;">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td class="text-center">{{ loop.index }}</td>
+                        <td>
+                            <strong>{{ item.product_name | default('Product #' ~ item.product_id) }}</strong>
+                            {% if item.remark %}<br><small style="color: #666;">{{ item.remark }}</small>{% endif %}
+                        </td>
+                        <td class="text-center">{{ item.quantity }}</td>
+                        <td class="text-right">Rs. {{ "%.2f" | format(item.unit_price) }}</td>
+                        <td class="text-center">{{ item.warrenty_month | default('-') }}</td>
+                        <td class="text-right">Rs. {{ "%.2f" | format(item.quantity * item.unit_price) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Totals -->
+        <div class="totals-section">
+            <div class="totals-box">
+                <div class="totals-row">
+                    <span>Subtotal:</span>
+                    <span>Rs. {{ "%.2f" | format(subtotal) }}</span>
+                </div>
+                <div class="totals-row">
+                    <span>Items Count:</span>
+                    <span>{{ items | length }} item(s)</span>
+                </div>
+                <div class="totals-row grand-total">
+                    <span>Grand Total:</span>
+                    <span>Rs. {{ "%.2f" | format(subtotal) }}</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Remarks -->
+        {% if po.remarks %}
+        <div class="remarks-section">
+            <h3>Remarks</h3>
+            <p>{{ po.remarks }}</p>
+        </div>
+        {% endif %}
+        
+        <!-- Footer with Signatures -->
+        <div class="footer">
+            <div class="signature-box">
+                <div class="signature-line">Prepared By</div>
+            </div>
+            <div class="signature-box">
+                <div class="signature-line">Approved By</div>
+            </div>
+            <div class="signature-box">
+                <div class="signature-line">Supplier Signature</div>
+            </div>
+        </div>
+        
+        <!-- Print Info -->
+        <div class="print-info">
+            <p>Generated on {{ generated_at }} | Document ID: {{ po.id }}</p>
+        </div>
+    </div>
+</body>
+</html>
