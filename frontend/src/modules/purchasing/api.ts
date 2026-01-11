@@ -20,6 +20,7 @@ import {
   SupplierCreditsSettle,
   SupplierCreditsSettleCreate,
   SupplierCreditsSettleWithTransactions,
+  DailyPOLimitCheck,
 } from "./types";
 
 // Helper to clean empty strings to null/undefined for optional fields
@@ -136,6 +137,13 @@ export const purchaseOrdersApi = {
     const response = await apiClient.get<PurchasingOrder[]>(
       `/purchasing/suppliers/${supplierId}/orders`,
       { params: { skip, limit } }
+    );
+    return response.data;
+  },
+
+  getDailyLimit: async (branchCode: string) => {
+    const response = await apiClient.get<DailyPOLimitCheck>(
+      `/purchasing/orders/daily-limit/${branchCode}`
     );
     return response.data;
   },

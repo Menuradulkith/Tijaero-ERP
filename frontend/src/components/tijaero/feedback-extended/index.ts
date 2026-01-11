@@ -21,3 +21,10 @@ export {
   showWarningToast,
   type ToastOptions 
 } from "./toast";
+export {
+  TRemarkDialog,
+  useRemarkDialog,
+  type TRemarkDialogProps,
+  type UseRemarkDialogOptions,
+  type UseRemarkDialogReturn,
+} from "./TRemarkDialog";

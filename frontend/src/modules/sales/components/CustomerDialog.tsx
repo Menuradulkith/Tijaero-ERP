@@ -1,4 +1,10 @@
-import { showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { 
+    showErrorToast, 
+    showSuccessToast,
+    TITLE_CHOICES,
+    GENDER_CHOICES,
+    CIVIL_CHOICES,
+} from "@/components/tijaero";
 import { customersApi } from "@/modules/customers/api";
 import { Customer, CustomerCreate } from "@/modules/customers/types";
 import {
@@ -38,8 +44,8 @@ export default function CustomerDialog({
       home_contact_number: "",
       company_name: "",
       occupation: "",
-      gender: "Male",
-      civil_status: "Single",
+      gender: "m",
+      civil_status: "single",
       no_of_kids: "0",
       birthdate: "",
       payment_address: "",
@@ -75,14 +81,14 @@ export default function CustomerDialog({
     } else {
       reset({
         customer_name: "",
-        title: "Mr",
+        title: "mr",
         email: "",
         mobile_contact_number: "",
         home_contact_number: "",
         company_name: "",
         occupation: "",
-        gender: "Male",
-        civil_status: "Single",
+        gender: "m",
+        civil_status: "single",
         no_of_kids: "0",
         birthdate: "",
         payment_address: "",
@@ -149,10 +155,9 @@ export default function CustomerDialog({
                     error={!!fieldState.error}
                     helperText={fieldState.error?.message}
                   >
-                    <MenuItem value="Mr">Mr</MenuItem>
-                    <MenuItem value="Ms">Ms</MenuItem>
-                    <MenuItem value="Mrs">Mrs</MenuItem>
-                    <MenuItem value="Dr">Dr</MenuItem>
+                    {TITLE_CHOICES.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                    ))}
                   </TextField>
                 )}
               />
@@ -255,9 +260,9 @@ export default function CustomerDialog({
                     error={!!fieldState.error}
                     helperText={fieldState.error?.message}
                   >
-                    <MenuItem value="Male">Male</MenuItem>
-                    <MenuItem value="Female">Female</MenuItem>
-                    <MenuItem value="Other">Other</MenuItem>
+                    {GENDER_CHOICES.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                    ))}
                   </TextField>
                 )}
               />
@@ -277,10 +282,9 @@ export default function CustomerDialog({
                     error={!!fieldState.error}
                     helperText={fieldState.error?.message}
                   >
-                    <MenuItem value="Single">Single</MenuItem>
-                    <MenuItem value="Married">Married</MenuItem>
-                    <MenuItem value="Divorced">Divorced</MenuItem>
-                    <MenuItem value="Widowed">Widowed</MenuItem>
+                    {CIVIL_CHOICES.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                    ))}
                   </TextField>
                 )}
               />

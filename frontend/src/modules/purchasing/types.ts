@@ -346,3 +346,14 @@ export interface SupplierCreditsSettleUpdate {
 export interface SupplierCreditsSettleWithTransactions extends SupplierCreditsSettle {
   transactions: SupplierCreditsSettleTransaction[];
 }
+
+// Daily PO Limit Check
+export interface DailyPOLimitCheck {
+  branch_code: string;
+  date: string;
+  count: number;
+  limit: number;
+  remaining: number;
+  can_create: boolean;
+  message: string;
+}

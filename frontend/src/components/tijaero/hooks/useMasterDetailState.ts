@@ -21,6 +21,7 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     favoritesKey,
     defaultSortField,
     initialSortField,
+    confirmUnsavedChanges,
   } = options;
 
   // Use initialSortField if provided, otherwise defaultSortField, fallback to "name"
@@ -83,12 +84,15 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     }
   }, [resetFormFromItem]);
 
-  // Handle item selection
-  const handleSelectItem = useCallback((item: T) => {
+  // Handle item selection - returns true if selection succeeded, false if cancelled
+  const handleSelectItem = useCallback(async (item: T): Promise<boolean> => {
     // Warn about unsaved changes
     if (isEditing || isCreating) {
-      if (!window.confirm("You have unsaved changes. Discard them?")) {
-        return;
+      const confirmed = confirmUnsavedChanges
+        ? await confirmUnsavedChanges()
+        : window.confirm("You have unsaved changes. Discard them?");
+      if (!confirmed) {
+        return false;
       }
     }
     setSelectedItem(item);
@@ -97,20 +101,25 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     }
     setIsEditing(false);
     setIsCreating(false);
-  }, [isEditing, isCreating, resetFormFromItem]);
+    return true;
+  }, [isEditing, isCreating, resetFormFromItem, confirmUnsavedChanges]);
 
-  // Handle creating new item
-  const handleNew = useCallback(() => {
+  // Handle creating new item - returns true if succeeded, false if cancelled
+  const handleNew = useCallback(async (): Promise<boolean> => {
     if (isEditing || isCreating) {
-      if (!window.confirm("You have unsaved changes. Discard them?")) {
-        return;
+      const confirmed = confirmUnsavedChanges
+        ? await confirmUnsavedChanges()
+        : window.confirm("You have unsaved changes. Discard them?");
+      if (!confirmed) {
+        return false;
       }
     }
     setSelectedItem(null);
     setFormData(initialFormData);
     setIsCreating(true);
     setIsEditing(true);
-  }, [isEditing, isCreating, initialFormData]);
+    return true;
+  }, [isEditing, isCreating, initialFormData, confirmUnsavedChanges]);
 
   // Handle cancel
   const handleCancel = useCallback((filteredItems: T[]) => {

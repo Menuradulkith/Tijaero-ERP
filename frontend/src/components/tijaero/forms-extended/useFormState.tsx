@@ -33,6 +33,8 @@ export interface UseFormStateOptions<TFormData, TItem = unknown> {
   warnOnUnsaved?: boolean;
   /** Custom unsaved changes message */
   unsavedMessage?: string;
+  /** Custom async confirm function (replaces window.confirm) */
+  confirmFn?: (message: string) => Promise<boolean>;
 }
 
 export interface UseFormStateReturn<TFormData, TItem = unknown> {
@@ -64,8 +66,8 @@ export interface UseFormStateReturn<TFormData, TItem = unknown> {
   setViewMode: () => void;
   /** Mark form as saved (resets dirty state) */
   markSaved: () => void;
-  /** Check for unsaved changes before action */
-  checkUnsaved: (action: () => void) => void;
+  /** Check for unsaved changes before action (async to support dialog confirmations) */
+  checkUnsaved: (action: () => void) => Promise<void>;
 }
 
 export function useFormState<TFormData, TItem = unknown>(
@@ -76,6 +78,7 @@ export function useFormState<TFormData, TItem = unknown>(
     transformItem,
     warnOnUnsaved = true,
     unsavedMessage = "You have unsaved changes. Discard them?",
+    confirmFn,
   } = options;
 
   // State
@@ -147,16 +150,21 @@ export function useFormState<TFormData, TItem = unknown>(
     originalDataRef.current = formData;
   }, [formData]);
 
-  // Check unsaved before action
-  const checkUnsaved = useCallback((action: () => void) => {
+  // Check unsaved before action (supports async confirm dialogs)
+  const checkUnsaved = useCallback(async (action: () => void) => {
     if (warnOnUnsaved && isDirty) {
-      if (window.confirm(unsavedMessage)) {
+      // Use custom confirm function if provided, otherwise fall back to native
+      const confirmed = confirmFn 
+        ? await confirmFn(unsavedMessage)
+        : window.confirm(unsavedMessage);
+      
+      if (confirmed) {
         action();
       }
     } else {
       action();
     }
-  }, [warnOnUnsaved, isDirty, unsavedMessage]);
+  }, [warnOnUnsaved, isDirty, unsavedMessage, confirmFn]);
 
   // Warn on page unload if dirty
   useEffect(() => {

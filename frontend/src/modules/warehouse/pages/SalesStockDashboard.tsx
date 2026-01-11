@@ -39,6 +39,7 @@ import CategoryIcon from "@mui/icons-material/Category";
 import { salesStockApi, productsApi } from "@/modules/inventory/api";
 import { branchApi } from "@/modules/branches/api";
 import { Product } from "@/modules/inventory/types";
+import { modernTableStyles } from "@/components/tijaero";
 
 const STATUS_COLORS: Record<string, "success" | "warning" | "error" | "info" | "default"> = {
   available: "success",        // Green - ready for sale
@@ -402,23 +403,23 @@ export default function SalesStockDashboard() {
           <TableContainer>
             <Table>
               <TableHead>
-                <TableRow sx={{ bgcolor: "grey.50" }}>
-                  <TableCell sx={{ fontWeight: 600 }}>
+                <TableRow sx={modernTableStyles.headerRow}>
+                  <TableCell>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <QrCodeIcon fontSize="small" color="action" />
                       Barcode
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>
+                  <TableCell>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <CategoryIcon fontSize="small" color="action" />
                       Product
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Branch</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Warranty</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Added Date</TableCell>
+                  <TableCell>Branch</TableCell>
+                  <TableCell>Warranty</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Added Date</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -429,8 +430,9 @@ export default function SalesStockDashboard() {
                       <TableRow
                         hover
                         sx={{
+                          ...modernTableStyles.bodyRow,
+                          ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                           "&:last-child td, &:last-child th": { border: 0 },
-                          transition: "background-color 0.2s",
                         }}
                       >
                         <TableCell>

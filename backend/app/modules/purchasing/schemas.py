@@ -326,3 +326,14 @@ class SupplierCreditsSettle(SupplierCreditsSettleBase):
 
 class SupplierCreditsSettleWithTransactions(SupplierCreditsSettle):
     transactions: List[SupplierCreditsSettleTransaction] = []
+
+
+# Daily PO Limit Check Schema
+class DailyPOLimitCheck(BaseModel):
+    branch_code: str
+    date: date
+    count: int
+    limit: int
+    remaining: int
+    can_create: bool
+    message: str

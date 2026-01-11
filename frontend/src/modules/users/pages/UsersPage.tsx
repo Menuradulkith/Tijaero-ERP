@@ -30,6 +30,7 @@ import {
     SelectableListItem,
     SortOption,
     useMasterDetailState,
+    GENDER_CHOICES,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/components/PermissionGuard";
@@ -53,7 +54,7 @@ const INITIAL_FORM_DATA: Partial<UserCreate> = {
   first_name: "",
   middle_name: "",
   last_name: "",
-  gender: "Male",
+  gender: "m",
   birthdate: new Date().toISOString().split("T")[0],
   occupation: "",
   employee_id: "",
@@ -69,7 +70,7 @@ const resetFormFromUser = (user: UserList): Partial<UserCreate> => ({
   first_name: user.first_name,
   middle_name: "",
   last_name: user.last_name,
-  gender: "Male",
+  gender: "m",
   birthdate: new Date().toISOString().split("T")[0],
   occupation: user.occupation || "",
   employee_id: user.employee_id || "",
@@ -507,9 +508,10 @@ export default function UsersPage() {
                 fullWidth
               />
               <Autocomplete
-                options={["Male", "Female", "Other"]}
-                value={formData.gender || "Male"}
-                onChange={(_, newValue) => setFormData({ ...formData, gender: newValue || "Male" })}
+                options={GENDER_CHOICES}
+                getOptionLabel={(option) => typeof option === 'string' ? option : option.label}
+                value={GENDER_CHOICES.find(g => g.value === formData.gender) || GENDER_CHOICES[0]}
+                onChange={(_, newValue) => setFormData({ ...formData, gender: newValue?.value || "m" })}
                 disabled={isDisabled}
                 renderInput={(params) => <TextField {...params} label="Gender" size="small" />}
                 fullWidth
