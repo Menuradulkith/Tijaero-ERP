@@ -13,7 +13,6 @@
  * - Locations management section
  */
 
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { formatErrorMessage } from "@/utils/errorHandling";
 import AddIcon from "@mui/icons-material/Add";
 import BusinessIcon from "@mui/icons-material/Business";
@@ -38,7 +37,7 @@ import {
     Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import toast from "react-hot-toast";
 
 // Tijaero Components - Import everything from one place
@@ -52,6 +51,8 @@ import {
     SelectableListItem,
     SortOption,
     useMasterDetailState,
+    TConfirmDialog,
+    useConfirmDialog,
 } from "@/components/tijaero";
 
 import type { Branch, BranchCreate } from "@/api/types";
@@ -82,6 +83,7 @@ const resetFormFromBranch = (branch: Branch): BranchCreate => ({
 
 export default function BranchesPage() {
   const queryClient = useQueryClient();
+  const confirmDialog = useConfirmDialog();
 
   // Location dialog state
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
@@ -103,6 +105,7 @@ export default function BranchesPage() {
     toggleFavorite,
     formData,
     setFormData,
+    markAsSaved,
     handleSelectItem: handleSelectBranch,
     handleNew: handleNewBranch,
     handleCancel,
@@ -112,6 +115,13 @@ export default function BranchesPage() {
     resetFormFromItem: resetFormFromBranch,
     favoritesKey: "branches_favorites",
     defaultSortField: "branch_code",
+    confirmUnsavedChanges: () => confirmDialog.confirm({
+      title: "Discard Changes",
+      message: "You have unsaved changes. Discard them?",
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      confirmColor: "warning",
+    }),
   });
 
   // Data fetching
@@ -148,6 +158,14 @@ export default function BranchesPage() {
     return filtered;
   }, [data?.items, searchQuery, sortField]);
 
+  // Auto-select first branch when branches are loaded or filtered
+  // But NOT when we're creating a new item (selectedBranch is null during creation)
+  useEffect(() => {
+    if (filteredBranches.length > 0 && !selectedBranch && !isCreating) {
+      handleSelectBranch(filteredBranches[0]);
+    }
+  }, [filteredBranches, selectedBranch, isCreating, handleSelectBranch]);
+
   // Mutations
   const createMutation = useMutation({
     mutationFn: branchApi.create,
@@ -155,6 +173,7 @@ export default function BranchesPage() {
       console.log("[BranchesPage] Create success:", newBranch);
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       toast.success("Branch created successfully");
+      markAsSaved();
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
       setIsEditing(false);
@@ -175,6 +194,7 @@ export default function BranchesPage() {
       console.log("[BranchesPage] Update success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       toast.success("Branch updated successfully");
+      markAsSaved();
       setIsEditing(false);
     },
     onError: (error: any) => {
@@ -186,16 +206,28 @@ export default function BranchesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: branchApi.delete,
-    onSuccess: () => {
+    onSuccess: (data) => {
       console.log("[BranchesPage] Delete success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
-      toast.success("Branch deleted successfully");
+      // Use the success message from backend if available
+      toast.success(data?.message || "Branch deleted successfully");
       handleCancel(filteredBranches);
     },
     onError: (error: any) => {
       console.error("[BranchesPage] Delete error:", error);
       console.error("[BranchesPage] Error response:", error.response);
-      toast.error(formatErrorMessage(error) || "Failed to delete branch");
+      
+      // Show the specific error message from backend with enhanced formatting for assignment warnings
+      const errorMessage = error?.response?.data?.detail || formatErrorMessage(error) || "Failed to delete branch";
+      
+      // For detailed assignment warnings, show with longer duration
+      if (errorMessage.includes("It is assigned to")) {
+        toast.error(errorMessage, { 
+          duration: 6000 // Longer duration for detailed messages
+        });
+      } else {
+        toast.error(errorMessage);
+      }
     },
   });
 
@@ -249,8 +281,6 @@ export default function BranchesPage() {
       console.warn("[BranchesPage] handleSave called but no action taken - isCreating:", isCreating, "selectedBranch:", selectedBranch);
     }
   }, [isCreating, isEditing, selectedBranch, formData, createMutation, updateMutation]);
-
-  const confirmDialog = useConfirmDialog();
 
   const handleDelete = useCallback(async () => {
     if (selectedBranch) {
@@ -339,11 +369,65 @@ export default function BranchesPage() {
       renderItem={(branch, isSelected) => (
         <SelectableListItem
           key={branch.id}
-          id={branch.id}
           isSelected={isSelected}
           onClick={() => handleSelectBranch(branch)}
-          primaryText={branch.branch_code}
-          secondaryText={`Name: ${branch.branch_name}`}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Branch Code */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{branch.branch_code}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Branch Code)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {branch.branch_name}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Name)
+                    </Typography>
+                  </Box>
+                  {branch.address && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {branch.address}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Address)
+                      </Typography>
+                    </Box>
+                  )}
+                  {branch.email && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {branch.email}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Email)
+                      </Typography>
+                    </Box>
+                  )}
+                  {branch.contact_number && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {branch.contact_number}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Contact)
+                      </Typography>
+                    </Box>
+                  )}
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? branch.branch_name : undefined}
           isFavorite={favorites.includes(branch.id)}
           onToggleFavorite={(e) => toggleFavorite(branch.id, e)}
         />
@@ -518,7 +602,7 @@ export default function BranchesPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
       
       {/* Location Dialog */}
       <Dialog 

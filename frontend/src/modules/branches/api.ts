@@ -46,7 +46,8 @@ export const branchApi = {
     return response.data;
   },
 
-  delete: async (id: number): Promise<void> => {
-    await apiClient.delete(`/branches/${id}`);
+  delete: async (id: number): Promise<{ message: string }> => {
+    const response = await apiClient.delete<{ message: string }>(`/branches/${id}`);
+    return response.data;
   },
 };

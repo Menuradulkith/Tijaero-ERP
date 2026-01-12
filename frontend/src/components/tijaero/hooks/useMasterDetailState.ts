@@ -54,6 +54,10 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
 
   // Form State
   const [formData, setFormData] = useState<TCreate>(initialFormData);
+  const [originalFormData, setOriginalFormData] = useState<TCreate>(initialFormData);
+
+  // Check if there are unsaved changes
+  const hasChanges = JSON.stringify(formData) !== JSON.stringify(originalFormData);
 
   // Persist favorites to localStorage
   useEffect(() => {
@@ -86,8 +90,11 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
 
   // Handle item selection - returns true if selection succeeded, false if cancelled
   const handleSelectItem = useCallback(async (item: T): Promise<boolean> => {
-    // Warn about unsaved changes
-    if (isEditing || isCreating) {
+    // Check if form has actual changes (only when editing existing items, not creating)
+    const hasChanges = !isCreating && JSON.stringify(formData) !== JSON.stringify(originalFormData);
+    
+    // Warn about unsaved changes only if there are actual changes
+    if ((isEditing || isCreating) && hasChanges) {
       const confirmed = confirmUnsavedChanges
         ? await confirmUnsavedChanges()
         : window.confirm("You have unsaved changes. Discard them?");
@@ -96,30 +103,35 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
       }
     }
     setSelectedItem(item);
-    if (resetFormFromItem) {
-      setFormData(resetFormFromItem(item));
-    }
+    const newFormData = resetFormFromItem ? resetFormFromItem(item) : initialFormData;
+    setFormData(newFormData);
+    setOriginalFormData(newFormData);
     setIsEditing(false);
     setIsCreating(false);
     return true;
-  }, [isEditing, isCreating, resetFormFromItem, confirmUnsavedChanges]);
+  }, [isEditing, isCreating, formData, originalFormData, resetFormFromItem, confirmUnsavedChanges, initialFormData]);
 
   // Handle creating new item - returns true if succeeded, false if cancelled
   const handleNew = useCallback(async (): Promise<boolean> => {
-    if (isEditing || isCreating) {
-      const confirmed = confirmUnsavedChanges
-        ? await confirmUnsavedChanges()
-        : window.confirm("You have unsaved changes. Discard them?");
-      if (!confirmed) {
-        return false;
+    // Only check for changes when editing existing items, not when creating new ones
+    if (isEditing && !isCreating) {
+      const hasChanges = JSON.stringify(formData) !== JSON.stringify(originalFormData);
+      if (hasChanges) {
+        const confirmed = confirmUnsavedChanges
+          ? await confirmUnsavedChanges()
+          : window.confirm("You have unsaved changes. Discard them?");
+        if (!confirmed) {
+          return false;
+        }
       }
     }
     setSelectedItem(null);
     setFormData(initialFormData);
+    setOriginalFormData(initialFormData);
     setIsCreating(true);
     setIsEditing(true);
     return true;
-  }, [isEditing, isCreating, initialFormData, confirmUnsavedChanges]);
+  }, [isEditing, isCreating, formData, originalFormData, initialFormData, confirmUnsavedChanges]);
 
   // Handle cancel
   const handleCancel = useCallback((filteredItems: T[]) => {
@@ -129,20 +141,30 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
       // Select first item if available
       if (filteredItems.length > 0 && resetFormFromItem) {
         const firstItem = filteredItems[0];
+        const newFormData = resetFormFromItem(firstItem);
         setSelectedItem(firstItem);
-        setFormData(resetFormFromItem(firstItem));
+        setFormData(newFormData);
+        setOriginalFormData(newFormData);
       }
     } else if (selectedItem && resetFormFromItem) {
       // Reset to current item
-      setFormData(resetFormFromItem(selectedItem));
+      const resetData = resetFormFromItem(selectedItem);
+      setFormData(resetData);
+      setOriginalFormData(resetData);
       setIsEditing(false);
     }
   }, [isCreating, selectedItem, resetFormFromItem]);
 
   // Handle starting edit mode
   const handleStartEdit = useCallback(() => {
+    setOriginalFormData(formData);
     setIsEditing(true);
-  }, []);
+  }, [formData]);
+
+  // Mark form as saved (sync original data with current data)
+  const markAsSaved = useCallback(() => {
+    setOriginalFormData(formData);
+  }, [formData]);
 
   return {
     // Search & Sort
@@ -162,6 +184,7 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     setIsEditing,
     isCreating,
     setIsCreating,
+    hasChanges,
     
     // Favorites
     favorites,
@@ -171,6 +194,7 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     formData,
     setFormData,
     updateFormField,
+    markAsSaved,
     
     // Handlers
     handleSelectItem,

@@ -2,7 +2,6 @@
  * UsersPage - Refactored to use Tijaero-style reusable components
  */
 
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { formatErrorMessage } from "@/utils/errorHandling";
 import PersonIcon from "@mui/icons-material/Person";
 import {
@@ -15,6 +14,7 @@ import {
     FormControlLabel,
     Switch,
     TextField,
+    Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
@@ -31,6 +31,8 @@ import {
     SortOption,
     useMasterDetailState,
     GENDER_CHOICES,
+    TConfirmDialog,
+    useConfirmDialog,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/components/PermissionGuard";
@@ -80,6 +82,22 @@ const resetFormFromUser = (user: UserList): Partial<UserCreate> => ({
   group_ids: user.groups?.map((g) => g.id) || [],
 });
 
+// Email validation
+const validateEmail = (email: string): string | null => {
+  if (!email) return "Email is required";
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) return "Please enter a valid email address";
+  return null;
+};
+
+// Employee ID validation
+const validateEmployeeId = (employeeId: string): string | null => {
+  if (!employeeId) return "Employee ID is required";
+  if (employeeId.length < 3) return "Employee ID must be at least 3 characters long";
+  if (!/^[a-zA-Z0-9-_]+$/.test(employeeId)) return "Employee ID can only contain letters, numbers, hyphens, and underscores";
+  return null;
+};
+
 // Password validation
 const validatePassword = (password: string): string | null => {
   if (!password) return null;
@@ -97,6 +115,8 @@ export default function UsersPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [employeeIdError, setEmployeeIdError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -107,6 +127,8 @@ export default function UsersPage() {
   const canCreate = usePermission(PERMISSIONS.USER_CREATE.resource, PERMISSIONS.USER_CREATE.action);
   const canUpdate = usePermission(PERMISSIONS.USER_UPDATE.resource, PERMISSIONS.USER_UPDATE.action);
   const canDelete = usePermission(PERMISSIONS.USER_DELETE.resource, PERMISSIONS.USER_DELETE.action);
+
+  const confirmDialog = useConfirmDialog();
 
   // Use reusable state hook
   const {
@@ -124,6 +146,7 @@ export default function UsersPage() {
     toggleFavorite,
     formData,
     setFormData,
+    markAsSaved,
     handleSelectItem: baseHandleSelectUser,
     handleNew: handleCreate,
     handleCancel: baseHandleCancel,
@@ -133,6 +156,13 @@ export default function UsersPage() {
     resetFormFromItem: resetFormFromUser,
     favoritesKey: "users_favorites",
     defaultSortField: "username",
+    confirmUnsavedChanges: () => confirmDialog.confirm({
+      title: "Discard Changes",
+      message: "You have unsaved changes. Discard them?",
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      confirmColor: "warning",
+    }),
   });
 
   useEffect(() => {
@@ -211,20 +241,102 @@ export default function UsersPage() {
   // Handlers
   const handleSelectUser = useCallback((user: UserList) => {
     setPasswordError(null);
+    setEmailError(null);
+    setEmployeeIdError(null);
+    setUsernameError(null);
     baseHandleSelectUser(user);
   }, [baseHandleSelectUser]);
+
+  // Auto-select first user when users are loaded or filtered
+  // But NOT when we're creating a new item (selectedUser is null during creation)
+  useEffect(() => {
+    if (filteredUsers.length > 0 && !selectedUser && !isCreating) {
+      handleSelectUser(filteredUsers[0]);
+    }
+  }, [filteredUsers, selectedUser, isCreating, handleSelectUser]);
 
   const handlePasswordChange = useCallback((value: string) => {
     setFormData((prev) => ({ ...prev, password: value }));
     setPasswordError(validatePassword(value));
   }, [setFormData]);
 
+  const handleEmailChange = useCallback((value: string) => {
+    setFormData((prev) => ({ ...prev, email: value }));
+    setEmailError(validateEmail(value));
+  }, [setFormData]);
+
+  const handleEmployeeIdChange = useCallback(async (value: string) => {
+    setFormData((prev) => ({ ...prev, employee_id: value }));
+    
+    // Basic validation first
+    const basicValidation = validateEmployeeId(value);
+    if (basicValidation) {
+      setEmployeeIdError(basicValidation);
+      return;
+    }
+    
+    // Check for duplicates when creating and value is valid
+    if (isCreating && value.length >= 3) {
+      try {
+        const exists = await usersApi.checkEmployeeIdExists(value);
+        if (exists) {
+          setEmployeeIdError("Employee ID already exists");
+        } else {
+          setEmployeeIdError(null);
+        }
+      } catch {
+        // Ignore API errors for real-time validation
+        setEmployeeIdError(null);
+      }
+    } else {
+      setEmployeeIdError(null);
+    }
+  }, [setFormData, isCreating]);
+
   const handleSave = useCallback(async () => {
     console.log("[UsersPage] handleSave called:", { isCreating, isEditing, selectedUser, formData });
     try {
       setError(null);
       setUsernameError(null);
+      setEmailError(null);
+      setEmployeeIdError(null);
       setSaving(true);
+      
+      // Validate required fields
+      const validationErrors = [];
+      if (!formData.username?.trim()) validationErrors.push("Username is required");
+      if (!formData.first_name?.trim()) validationErrors.push("First name is required");
+      if (!formData.last_name?.trim()) validationErrors.push("Last name is required");
+      if (!formData.occupation?.trim()) validationErrors.push("Occupation is required");
+      
+      // Validate email format
+      const emailValidation = validateEmail(formData.email || '');
+      if (emailValidation) {
+        setEmailError(emailValidation);
+        validationErrors.push(emailValidation);
+      }
+      
+      // Validate employee ID
+      const employeeIdValidation = validateEmployeeId(formData.employee_id || '');
+      if (employeeIdValidation) {
+        setEmployeeIdError(employeeIdValidation);
+        validationErrors.push(employeeIdValidation);
+      }
+      
+      // Validate password when creating
+      if (isCreating) {
+        const passwordValidation = validatePassword(formData.password || '');
+        if (passwordValidation) {
+          setPasswordError(passwordValidation);
+          validationErrors.push(passwordValidation);
+        }
+      }
+      
+      if (validationErrors.length > 0) {
+        toast.error(`Please fix the following errors: ${validationErrors.join(", ")}`);
+        setSaving(false);
+        return;
+      }
       
       // Check for duplicate username when creating
       if (isCreating && formData.username) {
@@ -232,6 +344,17 @@ export default function UsersPage() {
         if (exists) {
           setUsernameError("Username already exists");
           toast.error("Username already exists");
+          setSaving(false);
+          return;
+        }
+      }
+      
+      // Check for duplicate employee ID when creating
+      if (isCreating && formData.employee_id) {
+        const employeeExists = await usersApi.checkEmployeeIdExists(formData.employee_id);
+        if (employeeExists) {
+          setEmployeeIdError("Employee ID already exists");
+          toast.error("Employee ID already exists");
           setSaving(false);
           return;
         }
@@ -248,6 +371,7 @@ export default function UsersPage() {
         await usersApi.createUser(cleanedData as UserCreate);
         console.log("[UsersPage] Create success");
         toast.success("User created successfully");
+        markAsSaved();
         setIsCreating(false);
         setIsEditing(false);
         loadData();
@@ -256,6 +380,7 @@ export default function UsersPage() {
         await usersApi.updateUser(selectedUser.id, cleanedData as UserUpdate);
         console.log("[UsersPage] Update success");
         toast.success("User updated successfully");
+        markAsSaved();
         setIsEditing(false);
         // Refresh with selected user ID to update the view
         loadData(selectedUser.id);
@@ -276,10 +401,11 @@ export default function UsersPage() {
 
   const handleCancel = useCallback(() => {
     setPasswordError(null);
+    setEmailError(null);
+    setEmployeeIdError(null);
+    setUsernameError(null);
     baseHandleCancel(filteredUsers);
   }, [baseHandleCancel, filteredUsers]);
-
-  const confirmDialog = useConfirmDialog();
 
   const handleDelete = useCallback(async () => {
     if (selectedUser) {
@@ -296,7 +422,8 @@ export default function UsersPage() {
           setSelectedUser(null);
           loadData();
         } catch (err: any) {
-          toast.error(formatErrorMessage(err) || "Failed to delete user");
+          const errorMessage = err?.response?.data?.detail || formatErrorMessage(err) || "Failed to delete user";
+          toast.error(errorMessage, { duration: 6000 });
         }
       }
     }
@@ -358,19 +485,74 @@ export default function UsersPage() {
       renderItem={(user, isSelected) => (
         <SelectableListItem
           key={user.id}
-          id={user.id}
           isSelected={isSelected}
           onClick={() => handleSelectUser(user)}
-          primaryText={user.username}
-          secondaryText={`${user.first_name} ${user.last_name}`}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Username */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{user.username}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Username)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {user.first_name} {user.last_name}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Name)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {user.email}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Email)
+                    </Typography>
+                  </Box>
+                  {/* Status Chips - shown below all fields when selected */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label={user.is_active ? "Active" : "Inactive"}
+                      size="small"
+                      color={user.is_active ? "success" : "default"}
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                    {user.is_staff && (
+                      <Chip
+                        label="Staff"
+                        size="small"
+                        color="warning"
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                    )}
+                    {user.is_superuser && (
+                      <Chip
+                        label="Super"
+                        size="small"
+                        color="error"
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                    )}
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? `${user.first_name} ${user.last_name}` : undefined}
           isFavorite={favorites.includes(user.id)}
           onToggleFavorite={(e) => toggleFavorite(user.id, e)}
-          statusChip={
-            user.is_active
-              ? { label: "Active", color: "success" }
-              : { label: "Inactive", color: "default" }
-          }
-          chips={user.is_staff ? [{ label: "Staff", color: "warning" }] : []}
+          chips={!isSelected ? [
+            ...(user.is_active ? [{ label: "Active", color: "success" as const }] : [{ label: "Inactive", color: "default" as const }]),
+            ...(user.is_staff ? [{ label: "Staff", color: "warning" as const }] : []),
+          ] : []}
         />
       )}
     />
@@ -462,20 +644,24 @@ export default function UsersPage() {
                 label="Email"
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) => handleEmailChange(e.target.value)}
                 disabled={isDisabled}
                 required
                 size="small"
                 fullWidth
+                error={!!emailError}
+                helperText={emailError}
               />
               <TextField
                 label="Employee ID"
                 value={formData.employee_id}
-                onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })}
+                onChange={(e) => handleEmployeeIdChange(e.target.value)}
                 disabled={isDisabled}
                 required
                 size="small"
                 fullWidth
+                error={!!employeeIdError}
+                helperText={employeeIdError || "Unique identifier for the employee (letters, numbers, hyphens, underscores)"}
               />
             </FormSection>
 
@@ -650,7 +836,7 @@ export default function UsersPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

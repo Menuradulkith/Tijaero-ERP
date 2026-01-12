@@ -67,14 +67,13 @@ def update_branch(
     """
     return service.branch_service.update_branch(db, branch_id, branch)
 
-@router.delete("/{branch_id}", status_code=204)
+@router.delete("/{branch_id}", status_code=200)
 def delete_branch(
     branch_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Delete a branch
+    Delete a branch if not assigned to users or other entities
     """
-    service.branch_service.delete_branch(db, branch_id)
-    return None
+    return service.branch_service.delete_branch(db, branch_id)

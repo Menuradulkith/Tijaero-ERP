@@ -115,6 +115,16 @@ export const usersApi = {
     }
   },
 
+  // Check if employee ID exists
+  checkEmployeeIdExists: async (employeeId: string): Promise<boolean> => {
+    try {
+      const response = await apiClient.get(`/users/check-employee-id/${employeeId}`);
+      return response.data.exists;
+    } catch {
+      return false;
+    }
+  },
+
   // Get current user
   getCurrentUser: async (): Promise<User> => {
     const response = await apiClient.get("/users/me");
