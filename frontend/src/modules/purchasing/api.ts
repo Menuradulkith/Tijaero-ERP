@@ -147,6 +147,15 @@ export const purchaseOrdersApi = {
     );
     return response.data;
   },
+
+  checkCredit: async (supplierId: number, poAmount: number): Promise<POCreditCheckResult> => {
+    const response = await apiClient.post<POCreditCheckResult>(
+      `/purchasing/orders/check-credit`,
+      null,
+      { params: { supplier_id: supplierId, po_value: poAmount, payment_method: "Credit" } }
+    );
+    return response.data;
+  },
 };
 
 // Purchase Returns API
@@ -220,10 +229,11 @@ export const goodReceivedNotesApi = {
     return response.data;
   },
 
-  create: async (data: GoodReceivedNoteCreate) => {
+  create: async (data: GoodReceivedNoteCreate, allowCreditOverride?: boolean) => {
     const response = await apiClient.post<GoodReceivedNote>(
       "/purchasing/grn",
-      data
+      data,
+      { params: allowCreditOverride ? { allow_credit_override: true } : {} }
     );
     return response.data;
   },
@@ -232,6 +242,15 @@ export const goodReceivedNotesApi = {
     const response = await apiClient.patch<GoodReceivedNote>(
       `/purchasing/grn/${id}`,
       data
+    );
+    return response.data;
+  },
+
+  checkCredit: async (supplierId: number, grnAmount: number): Promise<GRNCreditCheckResult> => {
+    const response = await apiClient.post<GRNCreditCheckResult>(
+      `/purchasing/grn/check-credit`,
+      null,
+      { params: { supplier_id: supplierId, grn_value: grnAmount } }
     );
     return response.data;
   },
@@ -250,6 +269,13 @@ export const goodReceivedItemsApi = {
     const response = await apiClient.post<GoodReceivedItem>(
       "/purchasing/grn-items",
       data
+    );
+    return response.data;
+  },
+
+  checkBarcodeExists: async (barcode: string): Promise<{ exists: boolean; barcode: string }> => {
+    const response = await apiClient.get<{ exists: boolean; barcode: string }>(
+      `/purchasing/grn-items/check-barcode/${barcode}`
     );
     return response.data;
   },
@@ -357,6 +383,35 @@ export interface SupplierCreditCheckResult {
   overdue_count: number;
   has_overdue: boolean;
   message: string;
+}
+
+// PO Credit Check Result (soft check - allows save but may require approval)
+export interface POCreditCheckResult {
+  requires_approval: boolean;
+  message: string;
+  credit_check: {
+    current_outstanding: number;
+    po_amount: number;
+    new_total: number;
+    max_credit_limit: number;
+    available_credit: number;
+    excess_amount: number;
+  };
+}
+
+// GRN Credit Check Result (hard check - may block posting)
+export interface GRNCreditCheckResult {
+  can_post: boolean;
+  requires_override: boolean;
+  message: string;
+  credit_check: {
+    current_outstanding: number;
+    grn_amount: number;
+    new_total: number;
+    max_credit_limit: number;
+    available_credit: number;
+    excess_amount: number;
+  };
 }
 
 export interface SupplierAgingReport {

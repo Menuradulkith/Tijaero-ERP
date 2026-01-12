@@ -35,6 +35,10 @@ class SalesStockCreate(SalesStockBase):
 class SalesStock(SalesStockBase):
     id: int
     added_date: datetime
+    grn_no: Optional[str] = None  # GRN number from relationship
+    location_name: Optional[str] = None  # Location name from GRN
+    cost_price: Optional[float] = None  # Cost price from product
+    selling_price: Optional[float] = None  # Selling price from product
     
     class Config:
         from_attributes = True

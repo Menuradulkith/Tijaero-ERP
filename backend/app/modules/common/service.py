@@ -28,6 +28,9 @@ class LocationService:
     def get_all(self) -> List[Locations]:
         return self.db.query(Locations).order_by(Locations.name).all()
     
+    def get_by_branch(self, branch_code: str) -> List[Locations]:
+        return self.db.query(Locations).filter(Locations.branch_code == branch_code).order_by(Locations.name).all()
+    
     def get_by_id(self, location_id: int) -> Locations:
         location = self.db.query(Locations).filter(Locations.id == location_id).first()
         if not location:
@@ -40,6 +43,7 @@ class LocationService:
     def create(self, data: schemas.LocationCreate) -> Locations:
         location = Locations(
             name=data.name,
+            branch_code=data.branch_code,
             created_date=datetime.now()
         )
         self.db.add(location)
@@ -50,6 +54,7 @@ class LocationService:
     def update(self, location_id: int, data: schemas.LocationCreate) -> Locations:
         location = self.get_by_id(location_id)
         location.name = data.name
+        location.branch_code = data.branch_code
         self.db.commit()
         self.db.refresh(location)
         return location

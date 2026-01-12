@@ -2,6 +2,17 @@ from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, Boolean,
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
+# Transfer Note Status Constants
+class TransferNoteStatus:
+    PENDING = "pending"           # Created, waiting for approval
+    APPROVED = "approved"         # Approved by manager
+    DISPATCHED = "dispatched"     # Items sent out
+    IN_TRANSIT = "in_transit"     # Items in transit
+    PARTIALLY_RECEIVED = "partially_received"  # Some items received
+    RECEIVED = "received"         # All items received
+    REJECTED = "rejected"         # Transfer rejected
+    CANCELLED = "cancelled"       # Transfer cancelled
+
 class ItemTransferNote(Base):
     __tablename__ = "item_transfer_note"
     
@@ -14,6 +25,7 @@ class ItemTransferNote(Base):
     branch_code = Column(String(200), nullable=False)
     added_date = Column(TIMESTAMP, nullable=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"))
+    status = Column(String(50), nullable=False, default="pending")  # pending, approved, dispatched, in_transit, partially_received, received, rejected, cancelled
     
     # Relationships
     from_location = relationship("Locations", foreign_keys=[from_location_id], back_populates="item_transfer_notes_from")

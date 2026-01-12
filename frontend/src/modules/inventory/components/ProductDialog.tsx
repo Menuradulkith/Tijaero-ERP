@@ -279,6 +279,7 @@ export default function ProductDialog({
                   required: "Cost price is required",
                   min: { value: 0, message: "Cost price cannot be negative" },
                   validate: (value) => {
+                    if (value === undefined || value === null) return "Cost price is required";
                     if (value <= 0) return "Cost price must be greater than 0";
                     if (value > 999999.99) return "Cost price is too high";
                     return true;

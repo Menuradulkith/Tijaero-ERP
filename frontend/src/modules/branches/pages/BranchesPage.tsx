@@ -89,6 +89,9 @@ export default function BranchesPage() {
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
   const [locationName, setLocationName] = useState("");
+  
+  // Track locations for the current branch being created/edited
+  const [branchLocations, setBranchLocations] = useState<Location[]>([]);
 
   // Use the reusable state management hook
   const {
@@ -130,10 +133,11 @@ export default function BranchesPage() {
     queryFn: () => branchApi.getAll(1, 100),
   });
 
-  // Locations data fetching
+  // Locations data fetching - fetch locations for the selected branch
   const { data: locations, isLoading: locationsLoading } = useQuery({
-    queryKey: ["locations"],
-    queryFn: () => locationsApi.getAll(),
+    queryKey: ["locations", selectedBranch?.branch_code],
+    queryFn: () => selectedBranch ? locationsApi.getAll(selectedBranch.branch_code) : Promise.resolve([]),
+    enabled: !!selectedBranch && !isCreating, // Only fetch for existing branches
   });
 
   // Filter and sort branches
@@ -166,17 +170,45 @@ export default function BranchesPage() {
     }
   }, [filteredBranches, selectedBranch, isCreating, handleSelectBranch]);
 
+  // Clear branch locations when starting to create a new branch
+  useEffect(() => {
+    if (isCreating) {
+      setBranchLocations([]);
+    } else if (selectedBranch && locations) {
+      // When selecting an existing branch, load its specific locations
+      setBranchLocations(locations);
+    }
+  }, [isCreating, selectedBranch, locations]);
+
   // Mutations
   const createMutation = useMutation({
     mutationFn: branchApi.create,
-    onSuccess: (newBranch) => {
+    onSuccess: async (newBranch) => {
       console.log("[BranchesPage] Create success:", newBranch);
+      
+      // Create locations after branch is created
+      if (branchLocations.length > 0) {
+        const locationPromises = branchLocations.map(loc => 
+          locationsApi.create({ name: loc.name, branch_code: newBranch.branch_code })
+        );
+        
+        try {
+          await Promise.all(locationPromises);
+          console.log("[BranchesPage] Locations created successfully");
+        } catch (error) {
+          console.error("[BranchesPage] Error creating locations:", error);
+          toast.error("Branch created but some locations failed to save");
+        }
+      }
+      
       queryClient.invalidateQueries({ queryKey: ["branches"] });
+      queryClient.invalidateQueries({ queryKey: ["locations", newBranch.branch_code] });
       toast.success("Branch created successfully");
       markAsSaved();
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
       setIsEditing(false);
+      setBranchLocations([]);
       // Then select the new branch (with slight delay to allow state update)
       setTimeout(() => handleSelectBranch(newBranch), 0);
     },
@@ -234,8 +266,16 @@ export default function BranchesPage() {
   // Location mutations
   const createLocationMutation = useMutation({
     mutationFn: locationsApi.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["locations"] });
+    onSuccess: (newLocation) => {
+      // Invalidate queries for the specific branch
+      const branch_code = isCreating ? formData.branch_code : selectedBranch?.branch_code;
+      if (branch_code) {
+        queryClient.invalidateQueries({ queryKey: ["locations", branch_code] });
+      }
+      // If creating a new branch, add location to local state
+      if (isCreating) {
+        setBranchLocations(prev => [...prev, newLocation]);
+      }
       toast.success("Location created successfully");
       handleCloseLocationDialog();
     },
@@ -247,8 +287,18 @@ export default function BranchesPage() {
   const updateLocationMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: LocationCreate }) =>
       locationsApi.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["locations"] });
+    onSuccess: (updatedLocation) => {
+      // Invalidate queries for the specific branch
+      const branch_code = isCreating ? formData.branch_code : selectedBranch?.branch_code;
+      if (branch_code) {
+        queryClient.invalidateQueries({ queryKey: ["locations", branch_code] });
+      }
+      // If creating a new branch, update location in local state
+      if (isCreating) {
+        setBranchLocations(prev => 
+          prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc)
+        );
+      }
       toast.success("Location updated successfully");
       handleCloseLocationDialog();
     },
@@ -259,8 +309,16 @@ export default function BranchesPage() {
 
   const deleteLocationMutation = useMutation({
     mutationFn: locationsApi.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["locations"] });
+    onSuccess: (_, deletedId) => {
+      // Invalidate queries for the specific branch
+      const branch_code = isCreating ? formData.branch_code : selectedBranch?.branch_code;
+      if (branch_code) {
+        queryClient.invalidateQueries({ queryKey: ["locations", branch_code] });
+      }
+      // If creating a new branch, remove location from local state
+      if (isCreating) {
+        setBranchLocations(prev => prev.filter(loc => loc.id !== deletedId));
+      }
       toast.success("Location deleted successfully");
     },
     onError: (error: any) => {
@@ -330,12 +388,47 @@ export default function BranchesPage() {
       toast.error("Location name is required");
       return;
     }
-    if (editingLocation) {
-      updateLocationMutation.mutate({ id: editingLocation.id, data: { name: locationName } });
-    } else {
-      createLocationMutation.mutate({ name: locationName });
+    
+    // Get branch_code from formData (for new branch) or selectedBranch (for existing)
+    const branch_code = isCreating ? formData.branch_code : selectedBranch?.branch_code;
+    
+    if (!branch_code) {
+      toast.error("Please enter branch code first");
+      return;
     }
-  }, [locationName, editingLocation, createLocationMutation, updateLocationMutation]);
+    
+    // When creating a new branch, store locations locally (don't create via API yet)
+    if (isCreating) {
+      if (editingLocation) {
+        // Update local location
+        setBranchLocations(prev => 
+          prev.map(loc => loc.id === editingLocation.id ? { ...loc, name: locationName } : loc)
+        );
+        toast.success("Location updated");
+      } else {
+        // Add new local location with temporary ID
+        const tempLocation: Location = {
+          id: Date.now(), // Temporary ID
+          name: locationName,
+          branch_code,
+          created_date: new Date().toISOString(),
+        };
+        setBranchLocations(prev => [...prev, tempLocation]);
+        toast.success("Location added (will be saved with branch)");
+      }
+      handleCloseLocationDialog();
+    } else {
+      // For existing branches, create/update via API immediately
+      if (editingLocation) {
+        updateLocationMutation.mutate({ 
+          id: editingLocation.id, 
+          data: { name: locationName, branch_code } 
+        });
+      } else {
+        createLocationMutation.mutate({ name: locationName, branch_code });
+      }
+    }
+  }, [locationName, editingLocation, createLocationMutation, updateLocationMutation, isCreating, formData.branch_code, selectedBranch, handleCloseLocationDialog]);
 
   const handleDeleteLocation = useCallback(async (location: Location) => {
     const confirmed = await confirmDialog.confirm({
@@ -345,9 +438,16 @@ export default function BranchesPage() {
       confirmColor: "error",
     });
     if (confirmed) {
-      deleteLocationMutation.mutate(location.id);
+      if (isCreating) {
+        // For new branches, remove from local state
+        setBranchLocations(prev => prev.filter(loc => loc.id !== location.id));
+        toast.success("Location removed");
+      } else {
+        // For existing branches, delete via API
+        deleteLocationMutation.mutate(location.id);
+      }
     }
-  }, [confirmDialog, deleteLocationMutation]);
+  }, [confirmDialog, deleteLocationMutation, isCreating]);
 
   const isFormValid = formData.branch_code && formData.branch_name;
   const isSaving = createMutation.isPending || updateMutation.isPending;
@@ -527,68 +627,76 @@ export default function BranchesPage() {
           </FormSection>
         )}
 
-        {/* Locations Section - Always visible */}
-        <Divider sx={{ my: 3 }} />
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <LocationOnIcon color="primary" />
-            <Typography variant="h6">Warehouse Locations</Typography>
-          </Box>
-          {(isEditing || isCreating) && (
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => handleOpenLocationDialog()}
-            >
-              Add Location
-            </Button>
-          )}
-        </Box>
-        <Paper variant="outlined">
-          {locationsLoading ? (
-            <Box sx={{ p: 2, textAlign: "center" }}>
-              <Typography color="text.secondary">Loading locations...</Typography>
-            </Box>
-          ) : !locations || locations.length === 0 ? (
-            <Box sx={{ p: 2, textAlign: "center" }}>
-              <Typography color="text.secondary">No locations defined yet</Typography>
-            </Box>
-          ) : (
-            <List dense disablePadding>
-              {locations.map((location, index) => (
-                <ListItem 
-                  key={location.id}
-                  divider={index < locations.length - 1}
-                  sx={{ py: 1 }}
+        {/* Locations Section - Show for both creating and editing, hide when nothing selected */}
+        {(selectedBranch || isCreating) && (
+          <>
+            <Divider sx={{ my: 3 }} />
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <LocationOnIcon color="primary" />
+                <Typography variant="h6">Warehouse Locations</Typography>
+              </Box>
+              {(isEditing || isCreating) && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={() => handleOpenLocationDialog()}
+                  disabled={isCreating && !formData.branch_code}
+                  title={isCreating && !formData.branch_code ? "Enter branch code first" : ""}
                 >
-                  <ListItemText
-                    primary={location.name}
-                    secondary={`Created: ${new Date(location.created_date).toLocaleDateString()}`}
-                  />
-                  {(isEditing || isCreating) && (
-                    <ListItemSecondaryAction>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleOpenLocationDialog(location)}
-                        sx={{ mr: 0.5 }}
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => handleDeleteLocation(location)}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </ListItemSecondaryAction>
-                  )}
-                </ListItem>
-              ))}
-            </List>
-          )}
-        </Paper>
+                  Add Location
+                </Button>
+              )}
+            </Box>
+            <Paper variant="outlined">
+              {locationsLoading ? (
+                <Box sx={{ p: 2, textAlign: "center" }}>
+                  <Typography color="text.secondary">Loading locations...</Typography>
+                </Box>
+              ) : !branchLocations || branchLocations.length === 0 ? (
+                <Box sx={{ p: 2, textAlign: "center" }}>
+                  <Typography color="text.secondary">
+                    {isCreating ? "No locations added yet. Click 'Add Location' to create one." : "No locations defined yet"}
+                  </Typography>
+                </Box>
+              ) : (
+                <List dense disablePadding>
+                  {branchLocations.map((location, index) => (
+                    <ListItem 
+                      key={location.id}
+                      divider={index < branchLocations.length - 1}
+                      sx={{ py: 1 }}
+                    >
+                      <ListItemText
+                        primary={location.name}
+                        secondary={`Created: ${new Date(location.created_date).toLocaleDateString()}`}
+                      />
+                      {(isEditing || isCreating) && (
+                        <ListItemSecondaryAction>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleOpenLocationDialog(location)}
+                            sx={{ mr: 0.5 }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteLocation(location)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </ListItemSecondaryAction>
+                      )}
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </Paper>
+          </>
+        )}
       </Box>
     </Box>
   );

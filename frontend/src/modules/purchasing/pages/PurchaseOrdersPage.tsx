@@ -144,6 +144,13 @@ export default function PurchaseOrdersPage() {
   const [dailyLimitWarningOpen, setDailyLimitWarningOpen] = useState(false);
   const [dailyLimitInfo, setDailyLimitInfo] = useState<DailyPOLimitCheck | null>(null);
   
+  // Credit warning state
+  const [creditWarning, setCreditWarning] = useState<{
+    show: boolean;
+    message: string;
+    requiresApproval: boolean;
+  }>({ show: false, message: "", requiresApproval: false });
+  
   // Mark field as touched when user leaves it
   const handleBlur = (fieldName: string) => {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
@@ -228,6 +235,7 @@ export default function PurchaseOrdersPage() {
     setLineItems([]);
     setFormStep(0);
     setTouched({}); // Reset validation state
+    setCreditWarning({ show: false, message: "", requiresApproval: false }); // Clear credit warning
   }, [handleCancelBase]);
 
   // Handler that wraps hook's handler (which already handles unsaved changes confirm)
@@ -301,6 +309,7 @@ export default function PurchaseOrdersPage() {
     setLineItems([]);
     setFormStep(0);
     setTouched({}); // Reset validation state
+    setCreditWarning({ show: false, message: "", requiresApproval: false }); // Clear credit warning
   }, [handleNewOrderBase, setFormData]);
 
   // Handle new order - check daily limit first
@@ -366,14 +375,60 @@ export default function PurchaseOrdersPage() {
       handleSelectOrderWithItems(filteredOrders[0]);
     }
   }, [filteredOrders, selectedOrder, isCreating]);
+  
+  // Check credit limit when supplier or amount changes
+  const checkCreditLimit = useCallback(async (supplierId: number, amount: number, paymentMethod: string) => {
+    if (paymentMethod?.toLowerCase() === "credit" && supplierId > 0 && amount > 0) {
+      try {
+        const creditCheck = await purchaseOrdersApi.checkCredit(supplierId, amount);
+        if (creditCheck.requires_approval) {
+          setCreditWarning({
+            show: true,
+            message: creditCheck.message,
+            requiresApproval: true,
+          });
+        } else {
+          setCreditWarning({ show: false, message: "", requiresApproval: false });
+        }
+      } catch (error) {
+        console.error("Credit check failed:", error);
+        setCreditWarning({ show: false, message: "", requiresApproval: false });
+      }
+    } else {
+      setCreditWarning({ show: false, message: "", requiresApproval: false });
+    }
+  }, []);
+  
+  // Calculate total amount from line items
+  const totalAmount = useMemo(() => {
+    return lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+  }, [lineItems]);
+  
+  // Check credit limit when supplier, payment method, or total amount changes
+  useEffect(() => {
+    if (isCreating && formData.first_suppliers_id && formData.payment_method) {
+      checkCreditLimit(formData.first_suppliers_id, totalAmount, formData.payment_method);
+    }
+  }, [isCreating, formData.first_suppliers_id, formData.payment_method, totalAmount, checkCreditLimit]);
 
   const createMutation = useMutation({
     mutationFn: purchaseOrdersApi.create,
     onSuccess: (newOrder) => {
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      toast.success("Purchase order created successfully");
+      
+      // Check if the order was set to pending_approval due to credit limit
+      if (newOrder.status?.toLowerCase() === "pending_approval") {
+        toast.success(
+          "Purchase order created but requires approval due to supplier credit limit. Status set to 'Pending Approval'.",
+          { duration: 6000 }
+        );
+      } else {
+        toast.success("Purchase order created successfully");
+      }
+      
       setIsCreating(false);
       setIsEditing(false);
+      setCreditWarning({ show: false, message: "", requiresApproval: false });
       setTimeout(() => handleSelectOrderWithItems(newOrder), 0);
     },
     onError: (error: any) => {
@@ -407,7 +462,7 @@ export default function PurchaseOrdersPage() {
   });
 
   const handleDelete = useCallback(async () => {
-    if (selectedOrder && selectedOrder.status?.toLowerCase() !== "approved") {
+    if (selectedOrder && selectedOrder.status?.toLowerCase() !== "approved" && selectedOrder.status?.toLowerCase() !== "completed") {
       const confirmed = await confirmDialog.confirm({
         title: "Delete Purchase Order",
         message: `Are you sure you want to delete purchase order "${selectedOrder.purchasing_order_no}"?`,
@@ -418,15 +473,15 @@ export default function PurchaseOrdersPage() {
         deleteMutation.mutate(selectedOrder.id);
       }
     } else {
-      toast.error("Cannot delete an approved purchase order");
+      toast.error("Cannot delete an approved or completed purchase order");
     }
   }, [selectedOrder, deleteMutation, confirmDialog]);
 
-  // Check if order can be deleted (not approved)
-  const canDelete = !!(selectedOrder && selectedOrder.status?.toLowerCase() !== "approved");
+  // Check if order can be deleted (not approved or completed)
+  const canDelete = !!(selectedOrder && selectedOrder.status?.toLowerCase() !== "approved" && selectedOrder.status?.toLowerCase() !== "completed");
 
-  // Check if order can be edited (any status, but approved orders will need re-approval)
-  const canEdit = !!selectedOrder;
+  // Check if order can be edited (any status except completed)
+  const canEdit = !!(selectedOrder && selectedOrder.status?.toLowerCase() !== "completed");
 
   const handleAddLineItem = () => {
     const newItem: OrderLineItem = {
@@ -789,11 +844,13 @@ export default function PurchaseOrdersPage() {
                   <Autocomplete
                     size="small"
                     options={suppliers || []}
-                    getOptionLabel={(option: Supplier) => 
-                      option.company_name 
+                    getOptionLabel={(option: Supplier) => {
+                      const name = option.company_name 
                         ? `${option.full_name} (${option.company_name})` 
-                        : option.full_name
-                    }
+                        : option.full_name;
+                      return option.active ? name : `${name} (Inactive)`;
+                    }}
+                    getOptionDisabled={(option: Supplier) => !option.active}
                     value={suppliers?.find((s: Supplier) => s.id === formData.first_suppliers_id) || null}
                     onChange={(_, newValue: Supplier | null) => {
                       setFormData({ 
@@ -818,11 +875,13 @@ export default function PurchaseOrdersPage() {
                   <Autocomplete
                     size="small"
                     options={suppliers || []}
-                    getOptionLabel={(option: Supplier) => 
-                      option.company_name 
+                    getOptionLabel={(option: Supplier) => {
+                      const name = option.company_name 
                         ? `${option.full_name} (${option.company_name})` 
-                        : option.full_name
-                    }
+                        : option.full_name;
+                      return option.active ? name : `${name} (Inactive)`;
+                    }}
+                    getOptionDisabled={(option: Supplier) => !option.active}
                     value={suppliers?.find((s: Supplier) => s.id === formData.second_suppliers_id) || null}
                     onChange={(_, newValue: Supplier | null) => {
                       setFormData({ ...formData, second_suppliers_id: newValue?.id || 0 });
@@ -895,6 +954,27 @@ export default function PurchaseOrdersPage() {
                     helperText={getFieldError('credit_date') || (isCreating || isEditing ? "Auto-filled from supplier" : "")}
                   />
                 </FormSection>
+                
+                {/* Credit Limit Warning */}
+                {isCreating && creditWarning.show && (
+                  <Alert 
+                    severity="warning" 
+                    sx={{ mb: 2 }}
+                    icon={<WarningAmberIcon />}
+                  >
+                    <Typography variant="subtitle2" gutterBottom>
+                      Credit Limit Warning
+                    </Typography>
+                    <Typography variant="body2">
+                      {creditWarning.message}
+                    </Typography>
+                    {creditWarning.requiresApproval && (
+                      <Typography variant="body2" sx={{ mt: 1, fontWeight: 500 }}>
+                        This purchase order will be set to "Pending Approval" status and require manager approval.
+                      </Typography>
+                    )}
+                  </Alert>
+                )}
 
                 {selectedOrder && !isCreating && (
                   <>
@@ -1022,7 +1102,15 @@ export default function PurchaseOrdersPage() {
                                 options={products || []}
                                 getOptionLabel={(option: any) => option.name || ""}
                                 value={products?.find((p: any) => p.id === item.product_id) || null}
-                                onChange={(_, newValue: any) => handleUpdateLineItem(item._id, "product_id", newValue?.id || 0)}
+                                onChange={(_, newValue: any) => {
+                                  // Set product_id and automatically populate unit_price from cost_price
+                                  const updatedItems = lineItems.map(lineItem => 
+                                    lineItem._id === item._id 
+                                      ? { ...lineItem, product_id: newValue?.id || 0, unit_price: newValue?.cost_price || 0 }
+                                      : lineItem
+                                  );
+                                  setLineItems(updatedItems);
+                                }}
                                 renderInput={(params) => (
                                   <TextField {...params} placeholder="Select Product" size="small" />
                                 )}
@@ -1052,8 +1140,14 @@ export default function PurchaseOrdersPage() {
                                 size="small"
                                 type="number"
                                 value={item.unit_price}
-                                onChange={(e) => handleUpdateLineItem(item._id, "unit_price", parseFloat(e.target.value) || 0)}
-                                sx={{ width: 100 }}
+                                disabled
+                                sx={{ 
+                                  width: 100,
+                                  '& .MuiInputBase-input.Mui-disabled': {
+                                    WebkitTextFillColor: 'rgba(0, 0, 0, 0.87)',
+                                    color: 'rgba(0, 0, 0, 0.87)'
+                                  }
+                                }}
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (

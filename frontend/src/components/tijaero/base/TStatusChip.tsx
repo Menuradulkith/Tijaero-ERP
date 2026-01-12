@@ -41,6 +41,7 @@ export const STATUS_MAPS = {
   orderStatus: {
     draft: { label: "Draft", color: "default" as StatusColor },
     pending: { label: "Pending", color: "warning" as StatusColor },
+    pending_approval: { label: "Pending Approval", color: "warning" as StatusColor },
     approved: { label: "Approved", color: "success" as StatusColor },
     rejected: { label: "Rejected", color: "error" as StatusColor },
     cancelled: { label: "Cancelled", color: "default" as StatusColor },
@@ -115,7 +116,7 @@ export const STATUS_MAPS = {
     draft: { label: "Draft", color: "default" as StatusColor },
     submitted: { label: "Submitted", color: "info" as StatusColor },
     pending_approval: { label: "Pending Approval", color: "warning" as StatusColor },
-    approved: { label: "Approved", color: "success" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
     rejected: { label: "Rejected", color: "error" as StatusColor },
     partially_received: { label: "Partially Received", color: "info" as StatusColor },
     received: { label: "Received", color: "success" as StatusColor },
@@ -129,7 +130,7 @@ export const STATUS_MAPS = {
   purchaseReturn: {
     draft: { label: "Draft", color: "default" as StatusColor },
     pending: { label: "Pending", color: "warning" as StatusColor },
-    approved: { label: "Approved", color: "success" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
     rejected: { label: "Rejected", color: "error" as StatusColor },
   },
   

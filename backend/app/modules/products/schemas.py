@@ -58,6 +58,7 @@ class ProductBase(BaseModel):
     description: Optional[str] = None
     website_active: bool = False
     website_price: Optional[float] = None
+    selling_price: Optional[float] = None  # Selling price for sales stock
     active: bool = True
     cost_price: float = Field(..., ge=0)
     category_id: int
@@ -73,6 +74,7 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     website_active: Optional[bool] = None
     website_price: Optional[float] = None
+    selling_price: Optional[float] = None  # Selling price for sales stock
     active: Optional[bool] = None
     cost_price: Optional[float] = Field(None, ge=0)
     category_id: Optional[int] = None

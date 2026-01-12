@@ -18,16 +18,55 @@ class SalesStockService:
         branch_code: Optional[str] = None,
         product_id: Optional[int] = None,
         status: Optional[str] = None
-    ) -> List[models.SalesStock]:
-        """Get all sales stock items with optional filters"""
-        query = self.db.query(models.SalesStock)
+    ) -> List[dict]:
+        """Get all sales stock items with optional filters, including related data"""
+        from sqlalchemy.orm import joinedload
+        
+        query = self.db.query(models.SalesStock).options(
+            joinedload(models.SalesStock.product),
+            joinedload(models.SalesStock.good_received_note)
+        )
+        
         if branch_code:
             query = query.filter(models.SalesStock.branch_code == branch_code)
         if product_id:
             query = query.filter(models.SalesStock.product_id == product_id)
         if status:
             query = query.filter(models.SalesStock.status == status)
-        return query.order_by(models.SalesStock.added_date.desc()).all()
+        
+        items = query.order_by(models.SalesStock.added_date.desc()).all()
+        
+        # Enrich with GRN number, location, and prices
+        result = []
+        for item in items:
+            item_dict = {
+                "id": item.id,
+                "product_id": item.product_id,
+                "barcode": item.barcode,
+                "branch_code": item.branch_code,
+                "good_received_note_id": item.good_received_note_id,
+                "purchasing_order_items_id": item.purchasing_order_items_id,
+                "warranty_month": item.warranty_month,
+                "status": item.status,
+                "added_date": item.added_date,
+                "grn_no": item.good_received_note.good_received_no if item.good_received_note else None,
+                "location_name": None,  # Will be fetched from location
+                "cost_price": item.product.cost_price if item.product else None,
+                "selling_price": item.product.selling_price if item.product else None,
+            }
+            
+            # Get location name from GRN if available
+            if item.good_received_note and item.good_received_note.good_received_locations_id:
+                from app.modules.common.models import Locations
+                location = self.db.query(Locations).filter(
+                    Locations.id == item.good_received_note.good_received_locations_id
+                ).first()
+                if location:
+                    item_dict["location_name"] = location.name
+            
+            result.append(item_dict)
+        
+        return result
     
     def create(self, item: schemas.SalesStockCreate) -> models.SalesStock:
         # Check if barcode already exists (prevent duplicates)

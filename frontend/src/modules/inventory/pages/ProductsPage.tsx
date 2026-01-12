@@ -67,9 +67,10 @@ const emptyProductForm: ProductCreate = {
   item_type: "inventory",
   description: "",
   website_active: false,
-  website_price: 0,
+  website_price: undefined,
+  selling_price: undefined,
   active: true,
-  cost_price: 0,
+  cost_price: undefined,
   category_id: 0,
   items_brand_id: 0,
 };
@@ -131,7 +132,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     setBrandTouched(prev => ({ ...prev, [fieldName]: true }));
   };
 
-  // Minimum price dialog state
+  // Minimum selling price dialog state
   const [minPriceDialogOpen, setMinPriceDialogOpen] = useState(false);
   const [newMinPrice, setNewMinPrice] = useState<number>(0);
   const [createMinPrice, setCreateMinPrice] = useState<number | "">("");
@@ -196,7 +197,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   const activeCategories = useMemo(() => categories?.filter(c => c.active) || [], [categories]);
   const activeBrands = useMemo(() => brands || [], [brands]);
 
-  // Fetch current minimum price for selected product
+  // Fetch current minimum selling price for selected product
   const { data: currentMinPrice } = useQuery({
     queryKey: ["minimum-price", productState.selectedItem?.id],
     queryFn: () => minimumPriceApi.getCurrent(productState.selectedItem!.id),
@@ -394,26 +395,26 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     },
   });
 
-  // Minimum price mutation
+  // Minimum selling price mutation
   const setMinimumPriceForProductMutation = useMutation({
     mutationFn: ({ productId, price }: { productId: number; price: number }) =>
       minimumPriceApi.set(productId, { minimum_price: price }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["minimum-price", variables.productId] });
-      showSuccessToast("Minimum price set successfully");
+      showSuccessToast("Minimum selling price set successfully");
     },
-    onError: () => showErrorToast("Failed to set minimum price"),
+    onError: () => showErrorToast("Failed to set minimum selling price"),
   });
 
   const setMinimumPriceMutation = useMutation({
     mutationFn: (price: number) => minimumPriceApi.set(productState.selectedItem!.id, { minimum_price: price }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["minimum-price", productState.selectedItem?.id] });
-      showSuccessToast("Minimum price set successfully");
+      showSuccessToast("Minimum selling price set successfully");
       setMinPriceDialogOpen(false);
       setNewMinPrice(0);
     },
-    onError: () => showErrorToast("Failed to set minimum price"),
+    onError: () => showErrorToast("Failed to set minimum selling price"),
   });
 
   // Product handlers
@@ -441,6 +442,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       description: product.description || "",
       website_active: product.website_active,
       website_price: product.website_price || 0,
+      selling_price: product.selling_price || 0,
       active: product.active,
       cost_price: product.cost_price,
       category_id: product.category_id,
@@ -954,8 +956,8 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   label="Cost Price"
                   size="small"
                   type="number"
-                  value={productState.formData.cost_price}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, cost_price: parseFloat(e.target.value) || 0 })}
+                  value={productState.formData.cost_price ?? ""}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, cost_price: e.target.value ? parseFloat(e.target.value) : undefined })}
                   disabled={!productState.isEditing && !productState.isCreating}
                   InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                 />
@@ -963,15 +965,24 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   label="Website Price"
                   size="small"
                   type="number"
-                  value={productState.formData.website_price}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, website_price: parseFloat(e.target.value) || 0 })}
+                  value={productState.formData.website_price ?? ""}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, website_price: e.target.value ? parseFloat(e.target.value) : undefined })}
                   disabled={!productState.isEditing && !productState.isCreating}
                   InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                 />
-                {/* Minimum Price */}
+                <TextField
+                  label="Selling Price"
+                  size="small"
+                  type="number"
+                  value={productState.formData.selling_price ?? ""}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, selling_price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                  InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                />
+                {/* Minimum Selling Price */}
                 {productState.isCreating ? (
                   <TextField
-                    label="Minimum Price"
+                    label="Minimum Selling Price"
                     size="small"
                     type="number"
                     value={createMinPrice}
@@ -990,7 +1001,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   productState.selectedItem && (
                   <Box sx={{ display: "flex", alignItems: "center", gap: 2, gridColumn: { sm: "1 / -1" } }}>
                     <Typography variant="body2" color="text.secondary">
-                      Minimum Price:
+                      Minimum Selling Price:
                     </Typography>
                     {currentMinPrice ? (
                       <Chip
@@ -1395,12 +1406,12 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       {/* Single unified confirm dialog */}
       <TConfirmDialog {...confirmDialog.dialogProps} />
       
-      {/* Minimum Price Dialog */}
+      {/* Minimum Selling Price Dialog */}
       <Dialog open={minPriceDialogOpen} onClose={() => setMinPriceDialogOpen(false)}>
-        <DialogTitle>Set Minimum Price</DialogTitle>
+        <DialogTitle>Set Minimum Selling Price</DialogTitle>
         <DialogContent>
           <TextField
-            label="Minimum Price"
+            label="Minimum Selling Price"
             type="number"
             fullWidth
             value={newMinPrice}

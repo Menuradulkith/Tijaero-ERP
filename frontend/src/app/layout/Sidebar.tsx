@@ -25,6 +25,7 @@ import SpeedIcon from "@mui/icons-material/Speed";
 import StoreIcon from "@mui/icons-material/Store";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import {
     Box,
     Divider,
@@ -125,6 +126,8 @@ const menuItems: MenuItem[] = [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse" },
       { text: "Sales Track", icon: <ReceiptLongIcon />, path: "/warehouse/sales-track" },
       { text: "Transfer Notes", icon: <LocalShippingOutlinedIcon />, path: "/warehouse/transfer-notes" },
+      { text: "Item Transfer Notes", icon: <SwapHorizIcon />, path: "/warehouse/item-transfer-notes" },
+      { text: "ITN Approvals", icon: <FactCheckIcon />, path: "/warehouse/itn-approvals" },
     ],
   },
   {

@@ -54,6 +54,7 @@ export interface Product {
   description?: string;
   website_active: boolean;
   website_price?: number;
+  selling_price?: number;  // Selling price for sales stock
   active: boolean;
   cost_price: number;
   category_id: number;
@@ -85,8 +86,9 @@ export interface ProductCreate {
   description?: string;
   website_active?: boolean;
   website_price?: number;
+  selling_price?: number;  // Selling price for sales stock
   active?: boolean;
-  cost_price: number;
+  cost_price?: number;
   category_id: number;
   items_brand_id: number;
 }
@@ -98,6 +100,7 @@ export interface ProductUpdate {
   description?: string;
   website_active?: boolean;
   website_price?: number;
+  selling_price?: number;  // Selling price for sales stock
   active?: boolean;
   cost_price?: number;
   category_id?: number;
@@ -147,6 +150,10 @@ export interface SalesStock {
   returned_date?: string;  // When item was returned
   purchase_return_id?: number;  // Link to return record
   added_date: string;
+  grn_no?: string;  // GRN number from relationship
+  location_name?: string;  // Location name from GRN
+  cost_price?: number;  // Cost price from product
+  selling_price?: number;  // Selling price from product
 }
 
 export interface SalesStockCreate {

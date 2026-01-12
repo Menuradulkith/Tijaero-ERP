@@ -39,6 +39,7 @@ class Product(Base, TimestampMixin):
     description = Column(Text)
     website_active = Column(Boolean, nullable=False)
     website_price = Column(Numeric(60, 2))
+    selling_price = Column(Numeric(60, 2))  # Selling price for sales stock
     active = Column(Boolean, nullable=False)
     cost_price = Column(Numeric(60, 2), nullable=False)
     created_date = Column(Date, nullable=False)
