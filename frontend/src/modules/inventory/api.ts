@@ -57,7 +57,8 @@ export const productsApi = {
   },
 
   delete: async (id: number) => {
-    await apiClient.delete(`/inventory/products/${id}`);
+    const response = await apiClient.delete<{ message: string }>(`/inventory/products/${id}`);
+    return response.data;
   },
 };
 
@@ -93,7 +94,8 @@ export const categoriesApi = {
   },
 
   delete: async (id: number) => {
-    await apiClient.delete(`/inventory/categories/${id}`);
+    const response = await apiClient.delete<{ message: string }>(`/inventory/categories/${id}`);
+    return response.data;
   },
 };
 
@@ -121,7 +123,8 @@ export const brandsApi = {
   },
 
   delete: async (id: number) => {
-    await apiClient.delete(`/inventory/brands/${id}`);
+    const response = await apiClient.delete<{ message: string }>(`/inventory/brands/${id}`);
+    return response.data;
   },
 };
 

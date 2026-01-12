@@ -21,13 +21,25 @@ interface BrandDialogProps {
 export default function BrandDialog({ open, onClose }: BrandDialogProps) {
   const queryClient = useQueryClient();
 
-  const { control, handleSubmit, reset } = useForm<BrandCreate>({
+  const { 
+    control, 
+    handleSubmit, 
+    reset, 
+    formState: { isSubmitting } 
+  } = useForm<BrandCreate>({
     defaultValues: {
       brand_name: "",
       brand_code: "",
       description: "",
     },
   });
+
+  // Style for required field labels (red asterisk)
+  const requiredFieldSx = {
+    '& .MuiInputLabel-asterisk': {
+      color: 'error.main',
+    },
+  };
 
   const createMutation = useMutation({
     mutationFn: brandsApi.create,
@@ -56,15 +68,20 @@ export default function BrandDialog({ open, onClose }: BrandDialogProps) {
               <Controller
                 name="brand_name"
                 control={control}
-                rules={{ required: "Name is required" }}
+                rules={{ 
+                  required: "Brand name is required",
+                  minLength: { value: 2, message: "Name must be at least 2 characters" },
+                  maxLength: { value: 50, message: "Name cannot exceed 50 characters" }
+                }}
                 render={({ field, fieldState }) => (
                   <TextField
                     {...field}
                     label="Brand Name"
                     fullWidth
                     required
+                    sx={requiredFieldSx}
                     error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
+                    helperText={fieldState.error?.message || "Enter the brand name"}
                   />
                 )}
               />
@@ -100,7 +117,8 @@ export default function BrandDialog({ open, onClose }: BrandDialogProps) {
                     label="Description"
                     fullWidth
                     multiline
-                    rows={3}
+                    rows={2}
+                    helperText="Optional brand description"
                   />
                 )}
               />
@@ -108,13 +126,15 @@ export default function BrandDialog({ open, onClose }: BrandDialogProps) {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose} color="inherit">
+            Cancel
+          </Button>
           <Button
             type="submit"
             variant="contained"
-            disabled={createMutation.isPending}
+            disabled={isSubmitting || createMutation.isPending}
           >
-            Create
+            {isSubmitting || createMutation.isPending ? "Creating..." : "Create Brand"}
           </Button>
         </DialogActions>
       </form>

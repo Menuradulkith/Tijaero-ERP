@@ -140,6 +140,7 @@ export {
   TLoadingSkeleton,
   TConfirmDialog,
   useTConfirmDialog,
+  useTConfirmDialog as useConfirmDialog,
   TEmptyState,
   TRemarkDialog,
   useRemarkDialog,
