@@ -1,7 +1,7 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
-from app.modules.products import repository, schemas
+from app.modules.products import repository, schemas, models
 
 class ProductService:
     def get_product(self, db: Session, product_id: int) -> schemas.Product:
@@ -39,13 +39,65 @@ class ProductService:
         return updated_product
     
     def delete_product(self, db: Session, product_id: int) -> dict:
+        # First check if product exists
+        product = repository.product_repository.get_by_id(db, product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product with id {product_id} not found"
+            )
+        
+        # Check if product is used in various business processes by checking the relationships
+        usage_checks = []
+        
+        # Check relationships using the product's relationships
+        if hasattr(product, 'invoice_items') and product.invoice_items:
+            usage_checks.append(f"invoice items ({len(product.invoice_items)})")
+        
+        if hasattr(product, 'purchasing_order_items') and product.purchasing_order_items:
+            usage_checks.append(f"purchase orders ({len(product.purchasing_order_items)})")
+        
+        if hasattr(product, 'purchasing_return_items') and product.purchasing_return_items:
+            usage_checks.append(f"purchase returns ({len(product.purchasing_return_items)})")
+        
+        if hasattr(product, 'cs_job_items') and product.cs_job_items:
+            usage_checks.append(f"service jobs ({len(product.cs_job_items)})")
+        
+        if hasattr(product, 'item_transfer_note_items') and product.item_transfer_note_items:
+            usage_checks.append(f"transfer notes ({len(product.item_transfer_note_items)})")
+        
+        if hasattr(product, 'item_transfer_note_item_products') and product.item_transfer_note_item_products:
+            usage_checks.append(f"transfer note products ({len(product.item_transfer_note_item_products)})")
+        
+        if hasattr(product, 'cupon_codes') and product.cupon_codes:
+            usage_checks.append(f"coupon codes ({len(product.cupon_codes)})")
+        
+        if hasattr(product, 'company_assets') and product.company_assets:
+            usage_checks.append(f"company assets ({len(product.company_assets)})")
+        
+        if hasattr(product, 'sales_stock') and product.sales_stock:
+            usage_checks.append(f"sales stock records ({len(product.sales_stock)})")
+        
+        # If product is used anywhere, prevent deletion
+        if usage_checks:
+            usage_list = ", ".join(usage_checks)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete product '{product.name}' (Code: {product.item_code}). It is used in: {usage_list}. Please remove these references first or consider deactivating the product instead."
+            )
+        
+        # Delete related MinimumPrice records first (they have cascade delete now, but being explicit)
+        db.query(models.MinimumPrice).filter(models.MinimumPrice.product_id == product_id).delete()
+        db.commit()
+        
+        # Now delete the product
         success = repository.product_repository.delete(db, product_id)
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Product with id {product_id} not found"
             )
-        return {"message": "Product deleted successfully"}
+        return {"message": f"Product '{product.name}' deleted successfully"}
 
 class CategoryService:
     def get_category(self, db: Session, category_id: int) -> schemas.Category:
@@ -57,8 +109,8 @@ class CategoryService:
             )
         return category
     
-    def get_all_categories(self, db: Session, skip: int = 0, limit: int = 100) -> List[schemas.Category]:
-        return repository.category_repository.get_all(db, skip, limit)
+    def get_all_categories(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[schemas.Category]:
+        return repository.category_repository.get_all(db, skip, limit, active_only)
     
     def create_category(self, db: Session, category: schemas.CategoryCreate, user_id: int) -> schemas.Category:
         return repository.category_repository.create(db, category, user_id)
@@ -72,14 +124,30 @@ class CategoryService:
             )
         return updated_category
     
-    def delete_category(self, db: Session, category_id: int) -> bool:
+    def delete_category(self, db: Session, category_id: int) -> dict:
+        # First check if category exists
+        category = repository.category_repository.get_by_id(db, category_id)
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category with id {category_id} not found"
+            )
+        
+        # Check if category is assigned to any products
+        products_count = db.query(models.Product).filter(models.Product.category_id == category_id).count()
+        if products_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete category '{category.name}'. It is assigned to {products_count} product(s). Please reassign or delete those products first."
+            )
+        
         deleted = repository.category_repository.delete(db, category_id)
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Category with id {category_id} not found"
             )
-        return True
+        return {"message": f"Category '{category.name}' deleted successfully"}
 
 class BrandService:
     def get_brand(self, db: Session, brand_id: int) -> schemas.Brand:
@@ -106,14 +174,30 @@ class BrandService:
             )
         return updated_brand
     
-    def delete_brand(self, db: Session, brand_id: int) -> bool:
+    def delete_brand(self, db: Session, brand_id: int) -> dict:
+        # First check if brand exists
+        brand = repository.brand_repository.get_by_id(db, brand_id)
+        if not brand:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Brand with id {brand_id} not found"
+            )
+        
+        # Check if brand is assigned to any products
+        products_count = db.query(models.Product).filter(models.Product.items_brand_id == brand_id).count()
+        if products_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete brand '{brand.brand_name}'. It is assigned to {products_count} product(s). Please reassign or delete those products first."
+            )
+        
         deleted = repository.brand_repository.delete(db, brand_id)
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Brand with id {brand_id} not found"
             )
-        return True
+        return {"message": f"Brand '{brand.brand_name}' deleted successfully"}
 
 product_service = ProductService()
 category_service = CategoryService()

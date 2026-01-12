@@ -23,7 +23,12 @@ interface CategoryDialogProps {
 export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
   const queryClient = useQueryClient();
 
-  const { control, handleSubmit, reset } = useForm<CategoryCreate>({
+  const { 
+    control, 
+    handleSubmit, 
+    reset, 
+    formState: { isSubmitting } 
+  } = useForm<CategoryCreate>({
     defaultValues: {
       name: "",
       category_code: "",
@@ -32,6 +37,13 @@ export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
       active: true,
     },
   });
+
+  // Style for required field labels (red asterisk)
+  const requiredFieldSx = {
+    '& .MuiInputLabel-asterisk': {
+      color: 'error.main',
+    },
+  };
 
   const createMutation = useMutation({
     mutationFn: categoriesApi.create,
@@ -60,15 +72,20 @@ export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
               <Controller
                 name="name"
                 control={control}
-                rules={{ required: "Name is required" }}
+                rules={{ 
+                  required: "Category name is required",
+                  minLength: { value: 2, message: "Name must be at least 2 characters" },
+                  maxLength: { value: 50, message: "Name cannot exceed 50 characters" }
+                }}
                 render={({ field, fieldState }) => (
                   <TextField
                     {...field}
                     label="Category Name"
                     fullWidth
                     required
+                    sx={requiredFieldSx}
                     error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
+                    helperText={fieldState.error?.message || "Enter a descriptive category name"}
                   />
                 )}
               />
@@ -77,15 +94,23 @@ export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
               <Controller
                 name="category_code"
                 control={control}
-                rules={{ required: "Code is required" }}
+                rules={{ 
+                  required: "Category code is required",
+                  pattern: {
+                    value: /^[A-Z0-9-_]+$/,
+                    message: "Use only uppercase letters, numbers, hyphens and underscores"
+                  },
+                  maxLength: { value: 10, message: "Code cannot exceed 10 characters" }
+                }}
                 render={({ field, fieldState }) => (
                   <TextField
                     {...field}
                     label="Category Code"
                     fullWidth
                     required
+                    sx={requiredFieldSx}
                     error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
+                    helperText={fieldState.error?.message || "Unique identifier for the category"}
                   />
                 )}
               />
@@ -95,7 +120,12 @@ export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
                 name="memo"
                 control={control}
                 render={({ field }) => (
-                  <TextField {...field} label="Memo" fullWidth />
+                  <TextField 
+                    {...field} 
+                    label="Memo" 
+                    fullWidth 
+                    helperText="Short memo or note (optional)"
+                  />
                 )}
               />
             </Grid>
@@ -110,6 +140,7 @@ export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
                     fullWidth
                     multiline
                     rows={3}
+                    helperText="Optional detailed description of the category"
                   />
                 )}
               />
@@ -129,13 +160,15 @@ export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose} color="inherit">
+            Cancel
+          </Button>
           <Button
             type="submit"
             variant="contained"
-            disabled={createMutation.isPending}
+            disabled={isSubmitting || createMutation.isPending}
           >
-            Create
+            {isSubmitting || createMutation.isPending ? "Creating..." : "Create Category"}
           </Button>
         </DialogActions>
       </form>

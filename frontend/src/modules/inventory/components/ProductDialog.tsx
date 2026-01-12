@@ -41,7 +41,12 @@ export default function ProductDialog({
     queryFn: () => brandsApi.getAll(),
   });
 
-  const { control, handleSubmit, reset } = useForm<ProductCreate>({
+  const { 
+    control, 
+    handleSubmit, 
+    reset, 
+    formState: { isSubmitting } 
+  } = useForm<ProductCreate>({
     defaultValues: {
       name: "",
       item_code: "",
@@ -56,6 +61,13 @@ export default function ProductDialog({
       items_brand_id: 0,
     },
   });
+
+  // Style for required field labels (red asterisk)
+  const requiredFieldSx = {
+    '& .MuiInputLabel-asterisk': {
+      color: 'error.main',
+    },
+  };
 
   useEffect(() => {
     if (product) {
@@ -132,15 +144,20 @@ export default function ProductDialog({
               <Controller
                 name="name"
                 control={control}
-                rules={{ required: "Name is required" }}
+                rules={{ 
+                  required: "Product name is required",
+                  minLength: { value: 2, message: "Name must be at least 2 characters" },
+                  maxLength: { value: 100, message: "Name cannot exceed 100 characters" }
+                }}
                 render={({ field, fieldState }) => (
                   <TextField
                     {...field}
                     label="Product Name"
                     fullWidth
                     required
+                    sx={requiredFieldSx}
                     error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
+                    helperText={fieldState.error?.message || "Enter a descriptive product name"}
                   />
                 )}
               />
@@ -149,16 +166,24 @@ export default function ProductDialog({
               <Controller
                 name="item_code"
                 control={control}
-                rules={{ required: "Item code is required" }}
+                rules={{ 
+                  required: "Item code is required",
+                  pattern: {
+                    value: /^[A-Z0-9-_]+$/,
+                    message: "Use only uppercase letters, numbers, hyphens and underscores"
+                  },
+                  maxLength: { value: 20, message: "Code cannot exceed 20 characters" }
+                }}
                 render={({ field, fieldState }) => (
                   <TextField
                     {...field}
                     label="Item Code"
                     fullWidth
                     required
+                    sx={requiredFieldSx}
                     disabled={isEdit}
                     error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
+                    helperText={fieldState.error?.message || (isEdit ? "Cannot edit item code" : "Unique identifier for the product")}
                   />
                 )}
               />
@@ -168,7 +193,12 @@ export default function ProductDialog({
                 name="model"
                 control={control}
                 render={({ field }) => (
-                  <TextField {...field} label="Model" fullWidth />
+                  <TextField 
+                    {...field} 
+                    label="Model" 
+                    fullWidth 
+                    helperText="Product model or variant (optional)"
+                  />
                 )}
               />
             </Grid>
@@ -201,8 +231,9 @@ export default function ProductDialog({
                         {...params}
                         label="Category"
                         required
+                        sx={requiredFieldSx}
                         error={!!fieldState.error}
-                        helperText={fieldState.error?.message}
+                        helperText={fieldState.error?.message || "Select the product category"}
                         placeholder="Search categories..."
                       />
                     )}
@@ -229,8 +260,9 @@ export default function ProductDialog({
                         {...params}
                         label="Brand"
                         required
+                        sx={requiredFieldSx}
                         error={!!fieldState.error}
-                        helperText={fieldState.error?.message}
+                        helperText={fieldState.error?.message || "Select the product brand"}
                         placeholder="Search brands..."
                       />
                     )}
@@ -243,7 +275,15 @@ export default function ProductDialog({
               <Controller
                 name="cost_price"
                 control={control}
-                rules={{ required: "Cost price is required", min: 0 }}
+                rules={{ 
+                  required: "Cost price is required",
+                  min: { value: 0, message: "Cost price cannot be negative" },
+                  validate: (value) => {
+                    if (value <= 0) return "Cost price must be greater than 0";
+                    if (value > 999999.99) return "Cost price is too high";
+                    return true;
+                  }
+                }}
                 render={({ field, fieldState }) => (
                   <TextField
                     {...field}
@@ -251,8 +291,10 @@ export default function ProductDialog({
                     type="number"
                     fullWidth
                     required
+                    sx={requiredFieldSx}
+                    inputProps={{ min: 0, step: 0.01 }}
                     error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
+                    helperText={fieldState.error?.message || "Purchase cost of the product"}
                   />
                 )}
               />
@@ -261,12 +303,24 @@ export default function ProductDialog({
               <Controller
                 name="website_price"
                 control={control}
-                render={({ field }) => (
+                rules={{
+                  min: { value: 0, message: "Website price cannot be negative" },
+                  validate: (value, formValues) => {
+                    if (value && value > 0 && formValues?.cost_price && value < formValues.cost_price) {
+                      return "Website price should not be less than cost price";
+                    }
+                    return true;
+                  }
+                }}
+                render={({ field, fieldState }) => (
                   <TextField
                     {...field}
                     label="Website Price"
                     type="number"
                     fullWidth
+                    inputProps={{ min: 0, step: 0.01 }}
+                    error={!!fieldState.error}
+                    helperText={fieldState.error?.message || "Selling price on website (optional)"}
                   />
                 )}
               />
@@ -282,6 +336,7 @@ export default function ProductDialog({
                     fullWidth
                     multiline
                     rows={3}
+                    helperText="Optional detailed description of the product"
                   />
                 )}
               />
@@ -313,13 +368,18 @@ export default function ProductDialog({
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose} color="inherit">
+            Cancel
+          </Button>
           <Button
             type="submit"
             variant="contained"
-            disabled={createMutation.isPending || updateMutation.isPending}
+            disabled={isSubmitting || createMutation.isPending || updateMutation.isPending}
           >
-            {isEdit ? "Update" : "Create"}
+            {isSubmitting || createMutation.isPending || updateMutation.isPending
+              ? (isEdit ? "Updating..." : "Creating...")
+              : (isEdit ? "Update Product" : "Create Product")
+            }
           </Button>
         </DialogActions>
       </form>

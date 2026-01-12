@@ -109,11 +109,12 @@ def delete_product(
 def list_categories(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    active_only: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW))
 ):
-    """Get list of all categories."""
-    return service.category_service.get_all_categories(db, skip, limit)
+    """Get list of all categories. Set active_only=True to get only active categories."""
+    return service.category_service.get_all_categories(db, skip, limit, active_only)
 
 @router.get(
     "/categories/{category_id}",
@@ -161,7 +162,7 @@ def update_category(
 
 @router.delete(
     "/categories/{category_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
     summary="Delete Category",
     dependencies=[Depends(require_permission(*Permissions.INVENTORY_DELETE))]
 )
@@ -170,9 +171,8 @@ def delete_category(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.INVENTORY_DELETE))
 ):
-    """Delete a category."""
-    service.category_service.delete_category(db, category_id)
-    return None
+    """Delete a category if not assigned to any products."""
+    return service.category_service.delete_category(db, category_id)
 
 # Brand Endpoints
 @router.get(
@@ -236,7 +236,7 @@ def update_brand(
 
 @router.delete(
     "/brands/{brand_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
     summary="Delete Brand",
     dependencies=[Depends(require_permission(*Permissions.INVENTORY_DELETE))]
 )
@@ -245,9 +245,8 @@ def delete_brand(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.INVENTORY_DELETE))
 ):
-    """Delete a brand."""
-    service.brand_service.delete_brand(db, brand_id)
-    return None
+    """Delete a brand if not assigned to any products."""
+    return service.brand_service.delete_brand(db, brand_id)
 
 # Minimum Price Endpoints
 @router.get(
