@@ -2,12 +2,18 @@ import apiClient from "@/api/client";
 import {
   ItemTransferNote,
   ItemTransferNoteCreate,
+  ItemTransferNoteWithItems,
   ItemTransferNoteItem,
   ItemTransferNoteItemCreate,
   ItemTransferNoteApproved,
   ItemTransferNoteApprovedCreate,
   ItemReceiveNote,
   ItemReceiveNoteCreate,
+  BarcodeValidationRequest,
+  BarcodeValidationResponse,
+  ReceiveItemsRequest,
+  ReceiveItemsResponse,
+  TransferNoteStatusResponse,
 } from "./types";
 
 // Item Transfer Notes API
@@ -28,11 +34,31 @@ export const transferNotesApi = {
     return response.data;
   },
 
-  getById: async (id: number) => {
+  getById: async (id: number): Promise<ItemTransferNoteWithItems> => {
     const response = await apiClient.get<ItemTransferNote>(
       `/warehouse/transfer-notes/${id}`
     );
-    return response.data;
+    // Also fetch items for this transfer note
+    const itemsResponse = await apiClient.get<ItemTransferNoteItem[]>(
+      `/warehouse/transfer-notes/${id}/items`
+    );
+    // Try to get approval status
+    let approved_records: ItemTransferNoteApproved[] = [];
+    try {
+      const approvalResponse = await apiClient.get<ItemTransferNoteApproved>(
+        `/warehouse/transfer-notes/${id}/approval`
+      );
+      if (approvalResponse.data) {
+        approved_records = [approvalResponse.data];
+      }
+    } catch {
+      // No approval record exists yet
+    }
+    return {
+      ...response.data,
+      items: itemsResponse.data,
+      approved_records,
+    };
   },
 
   create: async (data: ItemTransferNoteCreate) => {
@@ -43,7 +69,7 @@ export const transferNotesApi = {
     return response.data;
   },
 
-  update: async (id: number, data: ItemTransferNoteCreate) => {
+  update: async (id: number, data: Partial<ItemTransferNoteCreate>) => {
     const response = await apiClient.put<ItemTransferNote>(
       `/warehouse/transfer-notes/${id}`,
       data
@@ -173,6 +199,39 @@ export const receiveNotesApi = {
     const response = await apiClient.put<ItemReceiveNote>(
       `/warehouse/receive-notes/${id}`,
       data
+    );
+    return response.data;
+  },
+
+  receiveItems: async (transferNoteId: number, data: ReceiveItemsRequest) => {
+    const response = await apiClient.post<ReceiveItemsResponse>(
+      `/warehouse/transfer-notes/${transferNoteId}/receive-items`,
+      data
+    );
+    return response.data;
+  },
+};
+
+// Transfer Notes Workflow API
+export const transferWorkflowApi = {
+  validateBarcode: async (data: BarcodeValidationRequest) => {
+    const response = await apiClient.post<BarcodeValidationResponse>(
+      "/warehouse/transfer-notes/validate-barcode",
+      data
+    );
+    return response.data;
+  },
+
+  dispatch: async (transferNoteId: number) => {
+    const response = await apiClient.post<ItemTransferNote>(
+      `/warehouse/transfer-notes/${transferNoteId}/dispatch`
+    );
+    return response.data;
+  },
+
+  getStatus: async (transferNoteId: number) => {
+    const response = await apiClient.get<TransferNoteStatusResponse>(
+      `/warehouse/transfer-notes/${transferNoteId}/status`
     );
     return response.data;
   },

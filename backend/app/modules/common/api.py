@@ -21,9 +21,11 @@ def get_country(country_id: int, db: Session = Depends(get_db)):
 
 # Location Endpoints
 @router.get("/locations", response_model=List[schemas.Location])
-def list_locations(db: Session = Depends(get_db)):
-    """List all locations (good received locations)"""
+def list_locations(branch_code: str = None, db: Session = Depends(get_db)):
+    """List all locations (good received locations), optionally filtered by branch_code"""
     location_service = service.LocationService(db)
+    if branch_code:
+        return location_service.get_by_branch(branch_code)
     return location_service.get_all()
 
 @router.get("/locations/{location_id}", response_model=schemas.Location)

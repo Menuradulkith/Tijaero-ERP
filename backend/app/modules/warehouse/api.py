@@ -198,3 +198,64 @@ def update_receive_note(
     """Update a receive note"""
     receive_note_service = service.ItemReceiveNoteService(db)
     return receive_note_service.update_receive_note(receive_note_id, receive_note)
+
+
+# Barcode Validation for Transfer Notes
+@router.post("/transfer-notes/validate-barcode", response_model=schemas.BarcodeValidationResponse)
+def validate_barcode_for_transfer(
+    request: schemas.BarcodeValidationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Validate a barcode for transfer.
+    Checks:
+    - Barcode exists in sales_stock
+    - Item status is 'available'
+    - Item is in the specified from_location
+    """
+    transfer_service = service.ItemTransferNoteService(db)
+    return transfer_service.validate_barcode_for_transfer(request)
+
+
+# Dispatch Transfer Note (mark as dispatched and update stock status)
+@router.post("/transfer-notes/{transfer_note_id}/dispatch", response_model=schemas.ItemTransferNote)
+def dispatch_transfer_note(
+    transfer_note_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Dispatch a transfer note:
+    - Updates transfer note status to 'dispatched'
+    - Marks all stock items as 'in_transit'
+    """
+    transfer_service = service.ItemTransferNoteService(db)
+    return transfer_service.dispatch_transfer_note(transfer_note_id)
+
+
+# Receive Items (receiving side workflow)
+@router.post("/transfer-notes/{transfer_note_id}/receive-items", response_model=schemas.ReceiveItemsResponse)
+def receive_transfer_items(
+    transfer_note_id: int,
+    request: schemas.ReceiveItemsRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Receive items from a transfer note:
+    - Validates each barcode is in this transfer note
+    - Marks item_transfer_note_items.item_recieved = true
+    - Updates sales_stock location and status
+    - Creates/updates item_receive_note
+    """
+    receive_service = service.ItemReceiveNoteService(db)
+    return receive_service.receive_items(transfer_note_id, request)
+
+
+# Get Transfer Note Status Summary
+@router.get("/transfer-notes/{transfer_note_id}/status", response_model=schemas.TransferNoteStatusResponse)
+def get_transfer_note_status(
+    transfer_note_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get detailed status of a transfer note including received items count"""
+    transfer_service = service.ItemTransferNoteService(db)
+    return transfer_service.get_transfer_status(transfer_note_id)

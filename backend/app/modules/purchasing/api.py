@@ -133,6 +133,57 @@ def delete_purchase_order(order_id: int, db: Session = Depends(get_db)):
     order_service.delete_order(order_id)
     return None
 
+
+# ==================== CREDIT CHECK ENDPOINTS ====================
+
+@router.post("/orders/check-credit", response_model=schemas.POCreditCheckResponse)
+def check_po_credit(
+    supplier_id: int = Query(..., description="Supplier ID"),
+    po_value: float = Query(..., description="Total PO value"),
+    payment_method: str = Query("Credit", description="Payment method (Credit/Cash)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Soft credit check for Purchase Order creation.
+    
+    Call this BEFORE creating a PO to:
+    - Check if credit limit will be exceeded
+    - Determine if PO needs approval
+    - Get warning messages for overdue payments
+    
+    Returns:
+    - can_save: Always True (soft check allows saving)
+    - requires_approval: True if credit limit would be exceeded
+    - suggested_status: 'pending' or 'pending_approval'
+    """
+    from decimal import Decimal
+    return supplier_credit_service.check_po_credit(
+        db, supplier_id, Decimal(str(po_value)), payment_method
+    )
+
+
+@router.post("/grn/check-credit", response_model=schemas.GRNCreditCheckResponse)
+def check_grn_credit(
+    supplier_id: int = Query(..., description="Supplier ID"),
+    grn_value: float = Query(..., description="Total GRN value"),
+    allow_override: bool = Query(False, description="Allow override if over limit"),
+    db: Session = Depends(get_db)
+):
+    """
+    Hard credit check for GRN posting.
+    
+    Call this BEFORE creating a GRN to:
+    - Check if credit limit will be exceeded
+    - Determine if GRN can be posted
+    
+    Returns:
+    - can_post: True if GRN can be created
+    - requires_override: True if over limit and needs manager approval
+    """
+    from decimal import Decimal
+    return supplier_credit_service.check_grn_credit(
+        db, supplier_id, Decimal(str(grn_value)), allow_override
+    )
 # Supplier Payment Tracking (using existing tables)
 @router.get("/suppliers/{supplier_id}/orders", response_model=List[schemas.PurchasingOrder])
 def get_supplier_orders(
@@ -251,11 +302,12 @@ def list_purchase_returns(
 @router.post("/grn", response_model=schemas.GoodReceivedNote, status_code=status.HTTP_201_CREATED)
 def create_grn(
     grn: schemas.GoodReceivedNoteCreate,
+    allow_credit_override: bool = Query(False, description="Allow GRN creation even if credit limit exceeded (requires authorization)"),
     db: Session = Depends(get_db)
 ):
-    """Create a new Good Received Note"""
+    """Create a new Good Received Note. Will fail if supplier credit limit is exceeded unless allow_credit_override is True."""
     grn_service = service.GoodReceivedNoteService(db)
-    return grn_service.create(grn)
+    return grn_service.create(grn, allow_credit_override=allow_credit_override)
 
 @router.get("/grn/{grn_id}", response_model=schemas.GoodReceivedNote)
 def get_grn(grn_id: int, db: Session = Depends(get_db)):
@@ -309,7 +361,18 @@ def create_grn_item(
 ):
     """Create a GRN item"""
     grn_service = service.GoodReceivedNoteService(db)
-    return grn_service.create_item(item)
+    try:
+        return grn_service.create_item(item)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/grn-items/check-barcode/{barcode}")
+def check_grn_item_barcode_exists(barcode: str, db: Session = Depends(get_db)):
+    """Check if a barcode already exists in good_received_items table"""
+    grn_service = service.GoodReceivedNoteService(db)
+    exists = grn_service.barcode_exists(barcode)
+    return {"exists": exists, "barcode": barcode}
 
 
 # Supplier Credits Settlement Endpoints

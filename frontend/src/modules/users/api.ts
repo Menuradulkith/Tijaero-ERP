@@ -28,7 +28,10 @@ export interface UserList {
   username: string;
   email: string;
   first_name: string;
+  middle_name?: string;
   last_name: string;
+  gender: string;
+  birthdate: string;
   is_active: boolean;
   is_superuser: boolean;
   is_staff: boolean;

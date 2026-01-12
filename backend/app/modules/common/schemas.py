@@ -22,6 +22,7 @@ class Country(CountryBase):
 # Location Schemas
 class LocationBase(BaseModel):
     name: str
+    branch_code: str
 
 class LocationCreate(LocationBase):
     pass

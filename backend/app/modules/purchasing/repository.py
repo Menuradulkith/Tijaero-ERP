@@ -64,11 +64,12 @@ class PurchasingOrderRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, order: schemas.PurchasingOrderCreate) -> models.PurchasingOrder:
+    def create(self, order: schemas.PurchasingOrderCreate, initial_status: str = "pending") -> models.PurchasingOrder:
         # Exclude items - they're handled separately
         order_data = order.model_dump(exclude={'items'})
         db_order = models.PurchasingOrder(
             **order_data,
+            status=initial_status,
             created_date=date.today(),
             added_date=datetime.now()
         )

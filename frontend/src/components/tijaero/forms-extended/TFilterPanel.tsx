@@ -256,6 +256,7 @@ export const PO_STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
   { value: null, label: "All Statuses" },
   { value: "draft", label: "Draft" },
   { value: "pending", label: "Pending" },
+  { value: "pending_approval", label: "Pending Approval" },
   { value: "approved", label: "Approved" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
