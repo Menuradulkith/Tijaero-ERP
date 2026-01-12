@@ -313,6 +313,7 @@ export interface UseMasterDetailStateReturn<T extends BaseEntity, TCreate> {
   setIsEditing: (editing: boolean) => void;
   isCreating: boolean;
   setIsCreating: (creating: boolean) => void;
+  readonly hasChanges: boolean;
   
   // Favorites
   favorites: number[];
@@ -322,6 +323,7 @@ export interface UseMasterDetailStateReturn<T extends BaseEntity, TCreate> {
   formData: TCreate;
   setFormData: React.Dispatch<React.SetStateAction<TCreate>>;
   updateFormField: <K extends keyof TCreate>(field: K, value: TCreate[K]) => void;
+  markAsSaved: () => void;
   
   // Handlers
   /** Select an item - returns true if selection succeeded, false if user cancelled */
