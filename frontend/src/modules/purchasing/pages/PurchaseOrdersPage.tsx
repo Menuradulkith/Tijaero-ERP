@@ -143,6 +143,7 @@ export default function PurchaseOrdersPage() {
   // Daily PO limit warning dialog state
   const [dailyLimitWarningOpen, setDailyLimitWarningOpen] = useState(false);
   const [dailyLimitInfo, setDailyLimitInfo] = useState<DailyPOLimitCheck | null>(null);
+  const [isDailyLimitExceeded, setIsDailyLimitExceeded] = useState(false);
   
   // Credit warning state
   const [creditWarning, setCreditWarning] = useState<{
@@ -307,23 +308,10 @@ export default function PurchaseOrdersPage() {
     setCreditWarning({ show: false, message: "", requiresApproval: false }); // Clear credit warning
   }, [handleNewOrderBase, setFormData]);
 
-  // Handle new order - check daily limit first
+  // Handle new order - don't check daily limit here, check when branch is selected
   const handleNewOrder = useCallback(async () => {
-    // Get user's default branch (first branch for now, or could be from user context)
-    if (branches.length > 0) {
-      const defaultBranch = branches[0].branch_code;
-      const limitInfo = await checkDailyLimit(defaultBranch);
-
-      if (limitInfo && !limitInfo.can_create) {
-        // Show warning dialog - limit reached
-        setDailyLimitInfo(limitInfo);
-        setDailyLimitWarningOpen(true);
-        return;
-      }
-    }
-
     startNewOrderInternal();
-  }, [branches, checkDailyLimit, startNewOrderInternal]);
+  }, [startNewOrderInternal]);
 
   const getProductName = (productId: number) => {
     const product = products?.find((p: any) => p.id === productId);
@@ -500,12 +488,101 @@ export default function PurchaseOrdersPage() {
     ));
   };
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const dataToSave: PurchasingOrderCreate = {
       ...formData,
       items: lineItems.map(({ _id, ...item }) => item),
     };
 
+    // Check credit limit if payment method is Credit
+    const isCreditPayment = formData.payment_method?.toLowerCase() === "credit";
+    console.log("=== PO Save Debug ===");
+    console.log("Payment Method:", formData.payment_method, "| Is Credit:", isCreditPayment);
+    console.log("Supplier ID:", formData.first_suppliers_id);
+    console.log("Line Items:", lineItems.length);
+    
+    if (isCreditPayment && formData.first_suppliers_id) {
+      const totalAmount = lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+      console.log("Total Amount:", totalAmount);
+      
+      try {
+        console.log("Calling checkCredit API...");
+        const creditCheck = await purchaseOrdersApi.checkCredit(formData.first_suppliers_id, totalAmount);
+        console.log("Credit Check Response:", creditCheck);
+        
+        // Show warning modal if requires approval
+        if (creditCheck.requires_approval) {
+          console.log("Showing credit warning modal...");
+          // Get supplier name from suppliers data
+          const supplier = suppliers?.find(s => s.id === formData.first_suppliers_id);
+          const supplierName = supplier?.company_name || supplier?.full_name || 'Unknown';
+          
+          const confirmed = await new Promise<boolean>((resolve) => {
+            toast((t) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ fontWeight: 'bold', color: '#f59e0b' }}>⚠️ Credit Limit Warning</div>
+                <div style={{ fontSize: '14px' }}>
+                  Supplier: {supplierName}<br />
+                  Credit Limit: Rs. {creditCheck.credit_check.max_credit_limit.toLocaleString()}<br />
+                  Current Outstanding: Rs. {creditCheck.credit_check.current_outstanding.toLocaleString()}<br />
+                  This Order: Rs. {creditCheck.credit_check.po_value.toLocaleString()}<br />
+                  New Total: Rs. {creditCheck.credit_check.projected_outstanding.toLocaleString()}<br />
+                  Excess: Rs. {creditCheck.credit_check.excess_amount.toLocaleString()}
+                </div>
+                <div style={{ fontSize: '13px', color: '#666' }}>
+                  {creditCheck.message}
+                </div>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <button
+                    onClick={() => { toast.dismiss(t.id); resolve(true); }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      backgroundColor: '#f59e0b',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontWeight: 500
+                    }}
+                  >
+                    Continue Anyway
+                  </button>
+                  <button
+                    onClick={() => { toast.dismiss(t.id); resolve(false); }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      backgroundColor: '#6b7280',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontWeight: 500
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ), { duration: Infinity });
+          });
+
+          console.log("User confirmed:", confirmed);
+          if (!confirmed) {
+            return; // User cancelled
+          }
+        } else {
+          console.log("Credit check passed - no approval required");
+        }
+      } catch (error) {
+        console.error("Credit check failed:", error);
+        toast.error("Failed to check credit limit. Please try again.");
+        return; // Stop save if credit check fails
+      }
+    }
+
+    console.log("Proceeding with save...");
     if (isCreating) {
       createMutation.mutate(dataToSave);
     } else if (selectedOrder) {
@@ -523,6 +600,13 @@ export default function PurchaseOrdersPage() {
         credit_date: formData.credit_date,
         first_suppliers_id: formData.first_suppliers_id,
         second_suppliers_id: formData.second_suppliers_id,
+        items: lineItems.map(item => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          warrenty_month: item.warrenty_month,
+          remark: item.remark,
+        })),
       };
       
       // Reset to pending if was approved
@@ -536,7 +620,7 @@ export default function PurchaseOrdersPage() {
         data: updateData 
       });
     }
-  }, [isCreating, selectedOrder, formData, lineItems, createMutation, updateMutation]);
+  }, [isCreating, selectedOrder, formData, lineItems, createMutation, updateMutation, suppliers]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedOrder) {
@@ -815,12 +899,16 @@ export default function PurchaseOrdersPage() {
                         if (limitInfo && !limitInfo.can_create) {
                           setDailyLimitInfo(limitInfo);
                           setDailyLimitWarningOpen(true);
-                        } else if (limitInfo && limitInfo.can_create && limitInfo.remaining <= 2) {
-                          // Warn if only 1-2 POs remaining
-                          toast(`Warning: Only ${limitInfo.remaining} PO(s) remaining for today in this branch`, { 
-                            icon: '⚠️',
-                            duration: 5000 
-                          });
+                          setIsDailyLimitExceeded(true);
+                        } else {
+                          setIsDailyLimitExceeded(false);
+                          if (limitInfo && limitInfo.can_create && limitInfo.remaining <= 2) {
+                            // Warn if only 1-2 POs remaining
+                            toast(`Warning: Only ${limitInfo.remaining} PO(s) remaining for today in this branch`, { 
+                              icon: '⚠️',
+                              duration: 5000 
+                            });
+                          }
                         }
                       }
                     }}
@@ -1022,7 +1110,7 @@ export default function PurchaseOrdersPage() {
                     <Button 
                       variant="contained" 
                       onClick={handleNextStep}
-                      disabled={!isStep1Valid}
+                      disabled={!isStep1Valid || isDailyLimitExceeded}
                       endIcon={<ArrowForwardIcon />}
                     >
                       Next

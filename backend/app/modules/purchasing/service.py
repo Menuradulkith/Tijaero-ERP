@@ -151,32 +151,20 @@ class PurchasingOrderService:
         
         # Soft credit check for credit purchases
         initial_status = "pending"
-        credit_warning = None
         
         if order.payment_method.lower() == "credit":
             from app.modules.purchasing.credit_service import SupplierCreditService
             credit_service = SupplierCreditService()
             credit_check = credit_service.check_po_credit(
-                self.db, order.first_suppliers_id, po_total, order.payment_method
+                self.repo.db, order.first_suppliers_id, po_total, order.payment_method
             )
             
             # If credit limit would be exceeded, set status to pending_approval
             if credit_check["requires_approval"]:
                 initial_status = "pending_approval"
-                credit_warning = credit_check["credit_check"]["message"]
         
         # Create the order with determined status
         created_order = self.repo.create(order, initial_status=initial_status)
-        
-        # Add credit warning to the response if applicable
-        if credit_warning:
-            # Store warning in remarks if not already there
-            if created_order.remarks:
-                created_order.remarks = f"[Credit Warning: {credit_warning}] {created_order.remarks}"
-            else:
-                created_order.remarks = f"[Credit Warning: {credit_warning}]"
-            self.db.commit()
-            self.db.refresh(created_order)
         
         return created_order
     
@@ -643,10 +631,10 @@ class GoodReceivedNoteService:
                 for item in po_items
             ) if po_items else Decimal("0")
             
-            # Perform hard credit check
+            # Perform credit check - passing PO ID so it knows credit is already reserved
             credit_service = SupplierCreditService()
             credit_check = credit_service.check_grn_credit(
-                self.db, po.first_suppliers_id, po_total, allow_credit_override
+                self.db, po.first_suppliers_id, po_total, po.id, allow_credit_override
             )
             
             # Block if credit exceeded and no override

@@ -40,7 +40,7 @@ def get_reference_data(
     if "categories" in includes:
         from app.modules.products.service import category_service
         categories = category_service.get_all_categories(db, skip=0, limit=1000, active_only=False)
-        result["categories"] = [{"id": c.id, "name": c.name, "is_active": c.is_active} for c in categories]
+        result["categories"] = [{"id": c.id, "name": c.name, "active": c.active} for c in categories]
     
     if "brands" in includes:
         from app.modules.products.service import brand_service
@@ -61,7 +61,15 @@ def get_reference_data(
                 "name": p.name, 
                 "item_code": p.item_code,
                 "category_id": p.category_id,
-                "items_brand_id": p.items_brand_id
+                "items_brand_id": p.items_brand_id,
+                "cost_price": p.cost_price,
+                "selling_price": p.selling_price,
+                "item_type": p.item_type,
+                "website_active": p.website_active,
+                "active": p.active,
+                "description": p.description,
+                "model": p.model,
+                "website_price": p.website_price
             } for p in products
         ]
     

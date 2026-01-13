@@ -166,15 +166,16 @@ def check_po_credit(
 def check_grn_credit(
     supplier_id: int = Query(..., description="Supplier ID"),
     grn_value: float = Query(..., description="Total GRN value"),
+    po_id: Optional[int] = Query(None, description="Purchase Order ID"),
     allow_override: bool = Query(False, description="Allow override if over limit"),
     db: Session = Depends(get_db)
 ):
     """
-    Hard credit check for GRN posting.
+    Credit check for GRN posting.
     
-    Call this BEFORE creating a GRN to:
-    - Check if credit limit will be exceeded
-    - Determine if GRN can be posted
+    Call this BEFORE creating a GRN to check credit status.
+    If PO was already approved, credit was reserved at PO creation,
+    so GRN will not block.
     
     Returns:
     - can_post: True if GRN can be created
@@ -182,7 +183,7 @@ def check_grn_credit(
     """
     from decimal import Decimal
     return supplier_credit_service.check_grn_credit(
-        db, supplier_id, Decimal(str(grn_value)), allow_override
+        db, supplier_id, Decimal(str(grn_value)), po_id, allow_override
     )
 # Supplier Payment Tracking (using existing tables)
 @router.get("/suppliers/{supplier_id}/orders", response_model=List[schemas.PurchasingOrder])

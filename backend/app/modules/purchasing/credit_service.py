@@ -136,13 +136,17 @@ class SupplierCreditService:
         """
         Get all credit purchase orders for a supplier with their settlement status.
         Only includes POs with payment_method='Credit'.
+        Excludes rejected/cancelled POs.
         """
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        # Get all credit POs for this supplier
+        # Get all credit POs for this supplier (case-insensitive payment method check)
+        # Include all active statuses, exclude rejected/cancelled
+        valid_statuses = ['draft', 'pending', 'pending_approval', 'approved', 'completed']
         credit_pos = db.query(PurchasingOrder).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
-            PurchasingOrder.payment_method == "Credit"
+            func.lower(PurchasingOrder.payment_method) == "credit",
+            PurchasingOrder.status.in_(valid_statuses)
         ).order_by(PurchasingOrder.purchasing_order_date.desc()).all()
         
         result = []
@@ -203,42 +207,39 @@ class SupplierCreditService:
         """
         Calculate total outstanding payable to a supplier.
         
-        Outstanding = PO Values (for POs with GRN) - Settlements - Purchase Returns
+        NEW LOGIC:
+        Outstanding = Credit POs (active statuses) - Settlements - Approved Returns
         
-        Credit only starts when goods are received (GRN created),
-        not when purchase order is created.
+        Credit is reserved when PO is created (not when GRN is posted).
+        - Includes: draft, pending, pending_approval, approved, completed status POs
+        - Excludes: rejected, cancelled status POs
+        - Only includes payment_method='Credit' POs
+        - Subtracts approved purchase returns
+        - Subtracts settled amounts
         
-        Note: We calculate based on PO total, not GRN items, because GRN items
-        may not exist immediately when GRN is created.
+        Note: 'completed' status means GRN was created, but payment still pending!
         """
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        # Get all POs for this supplier that have a GRN (goods received)
-        # This ensures credit only counts after goods are received
-        po_ids_with_grn = db.query(GoodReceivedNote.purchasingorders_id).filter(
-            GoodReceivedNote.purchasingorders_id.in_(
-                db.query(PurchasingOrder.id).filter(
-                    PurchasingOrder.first_suppliers_id == supplier_id
-                )
-            )
-        ).distinct().all()
-        po_ids_with_grn = [p[0] for p in po_ids_with_grn]
+        # Get all CREDIT POs for this supplier
+        # Include all active statuses including 'completed' (GRN created but not paid)
+        # Exclude rejected/cancelled POs
+        valid_statuses = ['draft', 'pending', 'pending_approval', 'approved', 'completed']
+        credit_po_ids = db.query(PurchasingOrder.id).filter(
+            PurchasingOrder.first_suppliers_id == supplier_id,
+            func.lower(PurchasingOrder.payment_method) == "credit",
+            PurchasingOrder.status.in_(valid_statuses)
+        ).all()
+        credit_po_ids = [p[0] for p in credit_po_ids]
         
-        if not po_ids_with_grn:
+        if not credit_po_ids:
             return Decimal("0")
         
-        # Get GRN IDs for these POs (for returns calculation)
-        grn_ids = db.query(GoodReceivedNote.id).filter(
-            GoodReceivedNote.purchasingorders_id.in_(po_ids_with_grn)
-        ).all()
-        grn_ids = [g[0] for g in grn_ids]
-        
-        # Get total PO value for POs that have GRN (goods received)
-        # Using PO items total since GRN confirms receipt of the PO
-        total_grn_value = db.query(
+        # Calculate total PO value for approved/pending credit POs
+        total_po_value = db.query(
             func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
         ).filter(
-            PurchasingOrderItems.purchasingorders_id.in_(po_ids_with_grn)
+            PurchasingOrderItems.purchasingorders_id.in_(credit_po_ids)
         ).scalar() or Decimal("0")
         
         # Get all settled amounts for this supplier
@@ -251,23 +252,33 @@ class SupplierCreditService:
             SupplierCreditsSettle.suppliers_id == supplier_id
         ).scalar() or Decimal("0")
         
-        # Get total purchase returns value (reduces what we owe)
+        # Get total APPROVED purchase returns value (reduces what we owe)
+        # Only count approved returns, not pending/rejected
         from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
         
-        return_ids = db.query(PurchasingReturn.id).filter(
-            PurchasingReturn.goodreceivednote_id.in_(grn_ids)
+        # Get GRN IDs for the credit POs
+        grn_ids = db.query(GoodReceivedNote.id).filter(
+            GoodReceivedNote.purchasingorders_id.in_(credit_po_ids)
         ).all()
-        return_ids = [r[0] for r in return_ids]
+        grn_ids = [g[0] for g in grn_ids]
         
         total_returns = Decimal("0")
-        if return_ids:
-            total_returns = db.query(
-                func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
-            ).filter(
-                PurchasingReturnItems.purchasingreturn_id.in_(return_ids)
-            ).scalar() or Decimal("0")
+        if grn_ids:
+            # Only include approved returns
+            approved_return_ids = db.query(PurchasingReturn.id).filter(
+                PurchasingReturn.goodreceivednote_id.in_(grn_ids),
+                PurchasingReturn.status == "approved"  # Only approved returns
+            ).all()
+            approved_return_ids = [r[0] for r in approved_return_ids]
+            
+            if approved_return_ids:
+                total_returns = db.query(
+                    func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                ).filter(
+                    PurchasingReturnItems.purchasingreturn_id.in_(approved_return_ids)
+                ).scalar() or Decimal("0")
         
-        return total_grn_value - total_settled - total_returns
+        return total_po_value - total_settled - total_returns
     
     def _get_overdue_grns(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
         """Get list of overdue GRNs for a supplier"""
@@ -527,13 +538,15 @@ class SupplierCreditService:
         db: Session, 
         supplier_id: int, 
         grn_value: Decimal,
+        po_id: Optional[int] = None,
         allow_override: bool = False
     ) -> Dict[str, Any]:
         """
-        Hard check for GRN posting.
+        Credit check for GRN posting.
         
-        This is called when creating a GRN to determine if it can be posted.
-        - If credit will exceed limit, GRN is blocked unless override is provided
+        Since PO already reserves credit when created, GRN check is informational only.
+        - If PO was approved, GRN should not block (PO already counted in outstanding)
+        - Only blocks if somehow creating GRN without approved PO
         
         Returns:
             GRNCreditCheckResponse-compatible dict
@@ -541,7 +554,21 @@ class SupplierCreditService:
         # Get supplier credit status
         status = self.get_supplier_credit_status(db, supplier_id)
         
-        projected_outstanding = status["outstanding_payable"] + float(grn_value)
+        # If we have a PO ID, check if it's already in outstanding
+        po_already_counted = False
+        if po_id:
+            po = db.query(PurchasingOrder).filter(PurchasingOrder.id == po_id).first()
+            if po and po.status in ['approved', 'pending', 'pending_approval', 'draft']:
+                # PO is already counted in outstanding, don't count it again
+                po_already_counted = True
+        
+        # Calculate projected outstanding
+        # If PO already counted, don't add grn_value again
+        if po_already_counted:
+            projected_outstanding = status["outstanding_payable"]  # Already includes this PO
+        else:
+            projected_outstanding = status["outstanding_payable"] + float(grn_value)
+            
         will_exceed = projected_outstanding > status["max_credit_limit"]
         excess_amount = max(0, projected_outstanding - status["max_credit_limit"])
         
@@ -553,7 +580,7 @@ class SupplierCreditService:
             warning_level = "warning"
         
         credit_check = {
-            "allowed": not will_exceed or allow_override,
+            "allowed": not will_exceed or allow_override or po_already_counted,
             "requires_approval": False,
             "current_outstanding": status["outstanding_payable"],
             "po_value": float(grn_value),
@@ -570,21 +597,24 @@ class SupplierCreditService:
         
         # Set message
         messages = []
-        if will_exceed:
+        if will_exceed and not po_already_counted:
             if allow_override:
                 messages.append(f"Credit limit exceeded (override applied). Excess: Rs. {excess_amount:,.2f}")
             else:
                 messages.append(f"Cannot post GRN: Credit limit exceeded by Rs. {excess_amount:,.2f}")
+        elif po_already_counted:
+            messages.append("PO already approved - credit was reserved at PO creation")
         if status["overdue_count"] > 0:
             messages.append(f"Warning: {status['overdue_count']} overdue payment(s)")
         
         credit_check["message"] = ". ".join(messages) if messages else "Credit check passed"
         
-        can_post = not will_exceed or allow_override
+        # Allow posting if PO already counted or credit check passes
+        can_post = not will_exceed or allow_override or po_already_counted
         
         return {
             "can_post": can_post,
-            "requires_override": will_exceed and not allow_override,
+            "requires_override": will_exceed and not allow_override and not po_already_counted,
             "credit_check": credit_check,
             "message": credit_check["message"]
         }
