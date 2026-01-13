@@ -1,58 +1,58 @@
-import { useState, useMemo, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Box,
-  TextField,
-  MenuItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography,
-  Button,
-  IconButton,
-  Divider,
-  InputAdornment,
-  Autocomplete,
-  Paper,
-  Chip,
-  Tooltip,
-} from "@mui/material";
-import {
-  Receipt as ReceiptIcon,
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Print as PrintIcon,
-  Visibility as ViewIcon,
-  AssignmentReturn as ReturnIcon,
-  CheckCircle as ApproveIcon,
-} from "@mui/icons-material";
-import {
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
-  SortOption,
-  TConfirmDialog,
-  useTConfirmDialog,
-  showSuccessToast,
-  showErrorToast,
+    ActionToolbar,
+    DetailPanelHeader,
+    EmptyState,
+    FormSection,
+    MasterDetailLayout,
+    SearchableList,
+    SelectableListItem,
+    showErrorToast,
+    showSuccessToast,
+    SortOption,
+    TConfirmDialog,
+    useMasterDetailState,
+    useTConfirmDialog,
 } from "@/components/tijaero";
-import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
+import {
+    Add as AddIcon,
+    CheckCircle as ApproveIcon,
+    Delete as DeleteIcon,
+    Print as PrintIcon,
+    Receipt as ReceiptIcon,
+    AssignmentReturn as ReturnIcon,
+    Visibility as ViewIcon,
+} from "@mui/icons-material";
+import {
+    Autocomplete,
+    Box,
+    Button,
+    Chip,
+    Divider,
+    IconButton,
+    InputAdornment,
+    MenuItem,
+    Paper,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+    TextField,
+    Tooltip,
+    Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { salesApi } from "../api";
 // import { employeesApi } from "@/modules/employees/api";
-import { branchApi } from "@/modules/branches/api";
-import { Invoice, InvoiceCreate } from "../types";
 import { usePermission } from "@/auth/permissions";
+import { branchApi } from "@/modules/branches/api";
 import { format } from "date-fns";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import SaleReturnDialog from "../components/SaleReturnDialog";
+import { Invoice, InvoiceCreate } from "../types";
 
 // Sort options
 const sortOptions: SortOption[] = [
@@ -547,7 +547,7 @@ export default function SalesPage() {
   // Render create invoice form
   const renderCreateForm = () => (
     <>
-      <FormSection title="Order Details">
+      <FormSection title="Order Details" columns={3}>
         <TextField
           label="Invoice No"
           size="small"
@@ -556,18 +556,20 @@ export default function SalesPage() {
           required
         />
         <Autocomplete
+          size="small"
           options={branches}
           getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
           value={branches.find((b) => b.branch_code === state.formData.branch_code) || null}
           onChange={(_, newValue) => state.setFormData({ ...state.formData, branch_code: newValue?.branch_code || "" })}
-          renderInput={(params) => <TextField {...params} label="Branch" size="small" required />}
+          renderInput={(params) => <TextField {...params} label="Branch" required />}
         />
         <Autocomplete
+          size="small"
           options={customers || []}
           getOptionLabel={(option) => option.customer_name || ""}
           value={customers?.find((c) => c.id === state.formData.customer_id) || null}
           onChange={(_, newValue) => state.setFormData({ ...state.formData, customer_id: newValue?.id || 0 })}
-          renderInput={(params) => <TextField {...params} label="Customer" size="small" required />}
+          renderInput={(params) => <TextField {...params} label="Customer" required />}
         />
         <TextField
           label="Payment Method"
@@ -584,12 +586,16 @@ export default function SalesPage() {
           <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
           <MenuItem value="credit">Credit</MenuItem>
         </TextField>
+      </FormSection>
+
+      <FormSection title="Additional Information" columns={1}>
         <TextField
           label="Remarks"
           size="small"
           value={state.formData.remarks}
           onChange={(e) => state.setFormData({ ...state.formData, remarks: e.target.value })}
-          sx={{ gridColumn: { sm: "1 / -1" } }}
+          multiline
+          rows={2}
         />
       </FormSection>
 

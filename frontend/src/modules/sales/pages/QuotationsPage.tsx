@@ -201,13 +201,7 @@ export default function QuotationsPage() {
     }
   }, [filteredQuotes, selectedQuote, isCreating]);
 
-  // Reset form when tab changes
-  useEffect(() => {
-    setFormData(getEmptyQuoteForm(currentQuoteType));
-    setLineItems([]);
-    setIsCreating(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, currentQuoteType]);
+  // No tab changes, form reset handled elsewhere
 
   // Helper functions
   const getBranchName = (branchCode: string) => {
@@ -235,7 +229,7 @@ export default function QuotationsPage() {
       handleSelectQuote(newQuote);
       setIsCreating(false);
       setLineItems([]);
-      showSuccessToast(`${QUOTE_TYPE_LABELS[currentQuoteType]} created successfully`);
+      showSuccessToast(`${QUOTE_TYPE_LABELS[newQuote.quote_type]} created successfully`);
     },
     onError: (error: Error) => {
       showErrorToast(`Failed to create: ${error.message}`);
@@ -342,10 +336,10 @@ export default function QuotationsPage() {
 
   // Handlers
   const handleCreateNew = useCallback(() => {
-    setFormData(getEmptyQuoteForm(currentQuoteType));
+    setFormData(getEmptyQuoteForm("quotation"));
     setLineItems([]);
     handleNewQuote();
-  }, [currentQuoteType, handleNewQuote, setFormData]);
+  }, [handleNewQuote, setFormData]);
 
   const handleDiscardChanges = useCallback(() => {
     baseHandleCancel(filteredQuotes);
@@ -491,7 +485,7 @@ export default function QuotationsPage() {
         selling_price: 0,
         minimum_selling_price: 0,
         warrenty_month: "12",
-        is_price_estimate: currentQuoteType === "quotation",
+        is_price_estimate: formData.quote_type === "quotation",
         discount_percent: 0,
         tax_rate: 0,
       },
@@ -526,7 +520,7 @@ export default function QuotationsPage() {
   const canSendQuote = selectedQuote?.status === "approved";
   const canAcceptQuote = selectedQuote?.status === "sent";
   const canConvertQuote = ["accepted", "approved", "sent"].includes(selectedQuote?.status || "");
-  const canReviseQuote = currentQuoteType === "quotation" && ["sent", "rejected", "expired"].includes(selectedQuote?.status || "");
+  const canReviseQuote = selectedQuote?.quote_type === "quotation" && ["sent", "rejected", "expired"].includes(selectedQuote?.status || "");
   const canCancelQuoteStatus = !["converted", "cancelled"].includes(selectedQuote?.status || "");
   const canDeleteQuoteStatus = selectedQuote?.status === "draft";
 
@@ -599,7 +593,7 @@ export default function QuotationsPage() {
         >
           Convert
         </Button>
-        {currentQuoteType === "quotation" && (
+        {selectedQuote?.quote_type === "quotation" && (
           <Button
             size="small"
             startIcon={<ReviseIcon />}
@@ -634,16 +628,16 @@ export default function QuotationsPage() {
           icon={<QuoteIcon color="primary" />}
           breadcrumbs={[
             { label: 'Sales', href: '/sales' },
-            { label: QUOTE_TYPE_LABELS[currentQuoteType] }
+            { label: 'Quotes' }
           ]}
           title={
             isCreating
-              ? `Create New ${QUOTE_TYPE_LABELS[currentQuoteType]}`
+              ? "Create New Quote"
               : isEditing && selectedQuote
               ? `Edit ${selectedQuote.quote_no}`
               : selectedQuote
               ? selectedQuote.quote_no
-              : `Select a ${QUOTE_TYPE_LABELS[currentQuoteType]}`
+              : "Select a Quote"
           }
           chips={
             selectedQuote && !isCreating && !isEditing
@@ -678,7 +672,7 @@ export default function QuotationsPage() {
           {!selectedQuote && !isCreating ? (
             <EmptyState
               icon={<QuoteIcon sx={{ fontSize: 48 }} />}
-              message={`Select a ${QUOTE_TYPE_LABELS[currentQuoteType]} from the list or create a new one`}
+              message="Select a quote from the list or create a new one"
             />
           ) : isCreating || isEditing ? (
             renderFormContent()
@@ -796,102 +790,106 @@ export default function QuotationsPage() {
     return (
       <>
         {/* Basic Info */}
-        <FormSection title="Basic Information">
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-            <TextField
-              select
-              label="Branch"
-              value={formData.branch_code || ""}
-              onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
-              fullWidth
-              size="small"
-            >
-              {branches.map((branch) => (
-                <MenuItem key={branch.id} value={branch.branch_code}>
-                  {branch.branch_name}
-                </MenuItem>
-              ))}
-            </TextField>
+        <FormSection title="Basic Information" columns={3}>
+          <TextField
+            select
+            label="Branch"
+            value={formData.branch_code || ""}
+            onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
+            size="small"
+            required
+          >
+            {branches.map((branch) => (
+              <MenuItem key={branch.id} value={branch.branch_code}>
+                {branch.branch_name}
+              </MenuItem>
+            ))}
+          </TextField>
 
-            <Autocomplete
-              options={customers || []}
-              getOptionLabel={(option) => option.customer_name}
-              value={customers?.find((c) => c.id === formData.customer_id) || null}
-              onChange={(_, newValue) => setFormData({ ...formData, customer_id: newValue?.id || 0 })}
-              renderInput={(params) => (
-                <TextField {...params} label="Customer" size="small" required />
-              )}
-            />
+          <Autocomplete
+            size="small"
+            options={customers || []}
+            getOptionLabel={(option) => option.customer_name}
+            value={customers?.find((c) => c.id === formData.customer_id) || null}
+            onChange={(_, newValue) => setFormData({ ...formData, customer_id: newValue?.id || 0 })}
+            renderInput={(params) => (
+              <TextField {...params} label="Customer" required />
+            )}
+          />
 
+          <TextField
+            select
+            label="Type"
+            value={formData.quote_type || "quotation"}
+            onChange={(e) => setFormData({ ...formData, quote_type: e.target.value as QuoteType })}
+            size="small"
+            required
+          >
+            <MenuItem value="quotation">Quotation</MenuItem>
+            <MenuItem value="proforma">Proforma Invoice</MenuItem>
+          </TextField>
+
+          <TextField
+            label="Valid Until"
+            type="date"
+            value={formData.valid_until || ""}
+            onChange={(e) => setFormData({ ...formData, valid_until: e.target.value })}
+            size="small"
+            InputLabelProps={{ shrink: true }}
+          />
+
+          {formData.quote_type === "proforma" && (
             <TextField
-              label="Valid Until"
+              label="Expected Delivery Date"
               type="date"
-              value={formData.valid_until || ""}
-              onChange={(e) => setFormData({ ...formData, valid_until: e.target.value })}
-              fullWidth
+              value={formData.expected_delivery_date || ""}
+              onChange={(e) => setFormData({ ...formData, expected_delivery_date: e.target.value })}
               size="small"
               InputLabelProps={{ shrink: true }}
             />
-
-            {currentQuoteType === "proforma" && (
-              <TextField
-                label="Expected Delivery Date"
-                type="date"
-                value={formData.expected_delivery_date || ""}
-                onChange={(e) => setFormData({ ...formData, expected_delivery_date: e.target.value })}
-                fullWidth
-                size="small"
-                InputLabelProps={{ shrink: true }}
-              />
-            )}
-          </Box>
+          )}
         </FormSection>
 
-        <Divider sx={{ my: 2 }} />
-
         {/* Terms (for Proforma) */}
-        {currentQuoteType === "proforma" && (
-          <>
-            <FormSection title="Terms">
-              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-                <TextField
-                  label="Payment Terms"
-                  value={formData.payment_terms || ""}
-                  onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
-                  fullWidth
-                  size="small"
-                  placeholder="e.g., 50% advance, 50% on delivery"
-                />
-                <TextField
-                  label="Delivery Terms"
-                  value={formData.delivery_terms || ""}
-                  onChange={(e) => setFormData({ ...formData, delivery_terms: e.target.value })}
-                  fullWidth
-                  size="small"
-                  placeholder="e.g., FOB Colombo"
-                />
-              </Box>
-            </FormSection>
-            <Divider sx={{ my: 2 }} />
-          </>
+        {formData.quote_type === "proforma" && (
+          <FormSection title="Terms" columns={2}>
+            <TextField
+              label="Payment Terms"
+              value={formData.payment_terms || ""}
+              onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
+              size="small"
+              placeholder="e.g., 50% advance, 50% on delivery"
+            />
+            <TextField
+              label="Delivery Terms"
+              value={formData.delivery_terms || ""}
+              onChange={(e) => setFormData({ ...formData, delivery_terms: e.target.value })}
+              size="small"
+              placeholder="e.g., FOB Colombo"
+            />
+          </FormSection>
         )}
 
         {/* Line Items */}
-        <Box sx={{ px: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-          <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 600 }}>Items</Typography>
-          <Button size="small" startIcon={<AddIcon />} onClick={handleAddLineItem}>
-            Add Item
-          </Button>
-        </Box>
-        <FormSection title="">
-          <Paper variant="outlined" sx={{ overflow: "auto" }}>
+        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <Typography variant="subtitle2" fontWeight={600}>Line Items</Typography>
+            <Button size="small" startIcon={<AddIcon />} onClick={handleAddLineItem}>
+              Add Item
+            </Button>
+          </Box>
+          {lineItems.length === 0 ? (
+            <Typography color="text.secondary" align="center" sx={{ py: 2 }}>
+              No items added. Click "Add Item" to add products.
+            </Typography>
+          ) : (
             <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>Product</TableCell>
                   <TableCell align="right">Qty</TableCell>
-                  <TableCell align="right">Unit Price</TableCell>
-                  {currentQuoteType === "quotation" && (
+                  <TableCell align="right">Price</TableCell>
+                  {formData.quote_type === "quotation" && (
                     <>
                       <TableCell align="right">Min Price</TableCell>
                       <TableCell align="right">Max Price</TableCell>
@@ -899,7 +897,7 @@ export default function QuotationsPage() {
                   )}
                   <TableCell align="right">Discount %</TableCell>
                   <TableCell align="right">Total</TableCell>
-                  <TableCell width={50}></TableCell>
+                  <TableCell align="center">Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -945,7 +943,7 @@ export default function QuotationsPage() {
                         }}
                       />
                     </TableCell>
-                    {currentQuoteType === "quotation" && (
+                    {formData.quote_type === "quotation" && (
                       <>
                         <TableCell align="right">
                           <TextField
@@ -996,48 +994,30 @@ export default function QuotationsPage() {
                         />
                       </Typography>
                     </TableCell>
-                    <TableCell>
-                      <IconButton size="small" onClick={() => handleRemoveLineItem(index)}>
+                    <TableCell align="center">
+                      <IconButton size="small" color="error" onClick={() => handleRemoveLineItem(index)}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </TableCell>
                   </TableRow>
                 ))}
-                {lineItems.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={currentQuoteType === "quotation" ? 8 : 6} align="center">
-                      <Typography color="text.secondary" sx={{ py: 2 }}>
-                        No items added. Click "Add Item" to start.
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                )}
               </TableBody>
             </Table>
-          </Paper>
-
-          {/* Totals */}
-          <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
-            <Box sx={{ minWidth: 200 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                <Typography fontWeight="bold">Total:</Typography>
-                <Typography fontWeight="bold" color="primary">
-                  <TCurrency value={calculateLineItemsTotal()} />
-                </Typography>
-              </Box>
-            </Box>
+          )}
+          <Divider sx={{ my: 2 }} />
+          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+            <Typography variant="h6" fontWeight={700} color="success.main">
+              Total: <TCurrency value={calculateLineItemsTotal()} />
+            </Typography>
           </Box>
-        </FormSection>
-
-        <Divider sx={{ my: 2 }} />
+        </Paper>
 
         {/* Notes */}
-        <FormSection title="Notes">
+        <FormSection title="Notes" columns={2}>
           <TextField
             label="Internal Remarks"
             value={formData.remarks || ""}
             onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-            fullWidth
             multiline
             rows={2}
             size="small"
@@ -1046,11 +1026,9 @@ export default function QuotationsPage() {
             label="Customer Notes (shown on printed document)"
             value={formData.customer_notes || ""}
             onChange={(e) => setFormData({ ...formData, customer_notes: e.target.value })}
-            fullWidth
             multiline
             rows={2}
             size="small"
-            sx={{ mt: 2 }}
           />
         </FormSection>
       </>
@@ -1067,7 +1045,7 @@ export default function QuotationsPage() {
           <SearchableList
             searchValue={searchQuery}
             onSearchChange={setSearchQuery}
-            searchPlaceholder={`Search ${QUOTE_TYPE_LABELS[currentQuoteType]}...`}
+            searchPlaceholder="Search quotes..."
             sortOptions={SORT_OPTIONS}
             currentSort={sortField}
             onSortChange={(value) => setSortField(value as string)}
@@ -1081,7 +1059,7 @@ export default function QuotationsPage() {
                     startIcon={<AddIcon />}
                     onClick={handleCreateNew}
                   >
-                    New {QUOTE_TYPE_LABELS[currentQuoteType]}
+                    New Quote
                   </Button>
                 </Box>
               ) : undefined
@@ -1093,7 +1071,7 @@ export default function QuotationsPage() {
                 <Typography variant="body2" color="text.secondary">
                   {searchQuery
                     ? "No results found. Try adjusting your search."
-                    : `No ${QUOTE_TYPE_LABELS[currentQuoteType]}s yet. Create your first one!`}
+                    : "No quotes yet. Create your first one!"}
                 </Typography>
               </Box>
             ) : (
