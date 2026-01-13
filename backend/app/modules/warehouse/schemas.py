@@ -109,6 +109,7 @@ class BarcodeValidationResponse(BaseModel):
     current_location_id: Optional[int] = None
     current_location_name: Optional[str] = None
     current_status: Optional[str] = None
+    cost_price: Optional[float] = None
 
 
 # Receive Items Schemas

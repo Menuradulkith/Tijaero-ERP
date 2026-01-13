@@ -42,7 +42,7 @@ export const STATUS_MAPS = {
     draft: { label: "Draft", color: "default" as StatusColor },
     pending: { label: "Pending", color: "warning" as StatusColor },
     pending_approval: { label: "Pending Approval", color: "warning" as StatusColor },
-    approved: { label: "Approved", color: "success" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
     rejected: { label: "Rejected", color: "error" as StatusColor },
     cancelled: { label: "Cancelled", color: "default" as StatusColor },
     completed: { label: "Completed", color: "success" as StatusColor },

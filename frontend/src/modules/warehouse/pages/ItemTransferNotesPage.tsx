@@ -96,6 +96,7 @@ interface ITNLineItem {
   remark?: string;
   sales_stock_id?: number;
   item_recieved?: boolean;
+  cost_price?: number;
 }
 
 const resetFormFromITN = (itn: ItemTransferNote): ItemTransferNoteCreate => ({
@@ -134,6 +135,7 @@ export default function ItemTransferNotesPage() {
     product_id: number;
     product_name: string;
     branch_code: string;
+    cost_price?: number;
   }>>([]);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   
@@ -285,6 +287,7 @@ export default function ItemTransferNotesPage() {
         product_id: response.product_id!,
         product_name: response.product_name || `Product #${response.product_id}`,
         branch_code: formData.branch_code,
+        cost_price: response.cost_price || 0,
       };
 
       setValidatedItems(prev => [...prev, validatedItem]);
@@ -299,6 +302,7 @@ export default function ItemTransferNotesPage() {
         branch_code: formData.branch_code,
         sales_stock_id: response.sales_stock_id,
         item_recieved: false,
+        cost_price: response.cost_price || 0,
       };
 
       setLineItems(prev => [...prev, newLineItem]);
@@ -768,30 +772,43 @@ export default function ItemTransferNotesPage() {
                       </Typography>
                     </Box>
                     
-                    <TextField
-                      inputRef={barcodeInputRef}
-                      fullWidth
-                      size="small"
-                      placeholder="Scan or enter barcode and press Enter"
-                      value={barcodeInput}
-                      onChange={(e) => setBarcodeInput(e.target.value)}
-                      onKeyPress={handleBarcodeKeyPress}
-                      disabled={isValidating || !formData.from_location_id}
-                      error={!!validationError}
-                      helperText={validationError || (isValidating ? 'Validating barcode...' : 'Press Enter after scanning')}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <QrCodeScannerIcon color={validationError ? 'error' : 'primary'} />
-                          </InputAdornment>
-                        ),
-                        endAdornment: isValidating ? (
-                          <InputAdornment position="end">
-                            <CircularProgress size={20} />
-                          </InputAdornment>
-                        ) : undefined,
-                      }}
-                    />
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                      <TextField
+                        inputRef={barcodeInputRef}
+                        fullWidth
+                        size="small"
+                        placeholder="Scan or enter barcode"
+                        value={barcodeInput}
+                        onChange={(e) => {
+                          setBarcodeInput(e.target.value);
+                          if (validationError) setValidationError(null);
+                        }}
+                        onKeyPress={handleBarcodeKeyPress}
+                        disabled={isValidating || !formData.from_location_id}
+                        error={!!validationError}
+                        helperText={validationError || (isValidating ? 'Validating barcode...' : 'Press Enter or click Add button')}
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <QrCodeScannerIcon color={validationError ? 'error' : 'primary'} />
+                            </InputAdornment>
+                          ),
+                          endAdornment: isValidating ? (
+                            <InputAdornment position="end">
+                              <CircularProgress size={20} />
+                            </InputAdornment>
+                          ) : undefined,
+                        }}
+                      />
+                      <Button
+                        variant="contained"
+                        onClick={() => handleValidateBarcode(barcodeInput)}
+                        disabled={isValidating || !barcodeInput.trim() || !formData.from_location_id}
+                        sx={{ minWidth: 100 }}
+                      >
+                        {isValidating ? <CircularProgress size={20} /> : 'Add'}
+                      </Button>
+                    </Box>
 
                     {/* Scanned items display */}
                     {validatedItems.length > 0 && (
@@ -838,11 +855,20 @@ export default function ItemTransferNotesPage() {
                           <TableCell>Barcode</TableCell>
                           <TableCell>Product</TableCell>
                           <TableCell>Branch Code</TableCell>
+                          <TableCell align="right">Cost Price</TableCell>
                           <TableCell align="center">Status</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {lineItems.map((item, index) => (
+                        {lineItems
+                          .slice()
+                          .sort((a, b) => {
+                            // Group by product_name first, then by barcode
+                            const nameCompare = (a.product_name || '').localeCompare(b.product_name || '');
+                            if (nameCompare !== 0) return nameCompare;
+                            return (a.barcode || '').localeCompare(b.barcode || '');
+                          })
+                          .map((item, index) => (
                           <TableRow key={item._id} sx={{
                             ...modernTableStyles.bodyRow,
                             ...(index % 2 === 1 && { bgcolor: "grey.25" }),
@@ -855,6 +881,7 @@ export default function ItemTransferNotesPage() {
                             </TableCell>
                             <TableCell>{item.product_name || `Product #${item.product_id}`}</TableCell>
                             <TableCell>{item.branch_code || formData.branch_code || "-"}</TableCell>
+                            <TableCell align="right">{item.cost_price ? `Rs. ${item.cost_price.toFixed(2)}` : '-'}</TableCell>
                             <TableCell align="center">
                               {item.item_recieved ? (
                                 <Chip label="Received" size="small" color="success" />
@@ -876,11 +903,20 @@ export default function ItemTransferNotesPage() {
                           <TableCell>Barcode</TableCell>
                           <TableCell>Product</TableCell>
                           <TableCell>Branch Code</TableCell>
+                          <TableCell align="right">Cost Price</TableCell>
                           <TableCell sx={{ width: 50 }} />
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {lineItems.map((item, index) => {
+                        {lineItems
+                          .slice()
+                          .sort((a, b) => {
+                            // Group by product_name first, then by barcode
+                            const nameCompare = (a.product_name || '').localeCompare(b.product_name || '');
+                            if (nameCompare !== 0) return nameCompare;
+                            return (a.barcode || '').localeCompare(b.barcode || '');
+                          })
+                          .map((item, index) => {
                           const validatedItem = validatedItems.find(v => v.barcode === item.barcode);
                           return (
                             <TableRow key={item._id} sx={{
@@ -903,6 +939,9 @@ export default function ItemTransferNotesPage() {
                                 )}
                               </TableCell>
                               <TableCell>{validatedItem?.branch_code || item.branch_code || formData.branch_code || "-"}</TableCell>
+                              <TableCell align="right">
+                                {item.cost_price || validatedItem?.cost_price ? `Rs. ${(item.cost_price || validatedItem?.cost_price || 0).toFixed(2)}` : '-'}
+                              </TableCell>
                               <TableCell>
                                 <IconButton size="small" onClick={() => handleRemoveValidatedItem(item.barcode)} color="error">
                                   <DeleteIcon fontSize="small" />

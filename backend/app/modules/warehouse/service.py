@@ -118,8 +118,9 @@ class ItemTransferNoteService:
                 current_status=stock_item.status
             )
         
-        # Get product name
+        # Get product name and cost price
         product_name = stock_item.product.name if stock_item.product else None
+        cost_price = stock_item.product.cost_price if stock_item.product else None
         
         return schemas.BarcodeValidationResponse(
             valid=True,
@@ -129,7 +130,8 @@ class ItemTransferNoteService:
             product_id=stock_item.product_id,
             product_name=product_name,
             current_location_id=stock_item.location_id,
-            current_status=stock_item.status
+            current_status=stock_item.status,
+            cost_price=cost_price
         )
     
     def dispatch_transfer_note(self, transfer_note_id: int) -> ItemTransferNote:

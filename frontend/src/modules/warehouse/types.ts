@@ -29,6 +29,8 @@ export interface ItemTransferNoteCreate {
 export interface ItemTransferNoteWithItems extends ItemTransferNote {
   items: ItemTransferNoteItem[];
   approved_records?: ItemTransferNoteApproved[];
+  from_location_name?: string;
+  to_location_name?: string;
 }
 
 // Item Transfer Note Item Types
@@ -106,6 +108,7 @@ export interface BarcodeValidationResponse {
   current_location_id?: number;
   current_location_name?: string;
   current_status?: string;
+  cost_price?: number;
 }
 
 // Receive Items Types

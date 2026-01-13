@@ -4,6 +4,7 @@ import SalesTrackPage from "./pages/SalesTrackPage";
 import StockTransferNotesPage from "./pages/StockTransferNotesPage";
 import ItemTransferNotesPage from "./pages/ItemTransferNotesPage";
 import ItemTransferNoteApprovalsPage from "./pages/ItemTransferNoteApprovalsPage";
+import ReceiveNotesPage from "./pages/ReceiveNotesPage";
 
 export default function WarehouseRoutes() {
   return (
@@ -13,6 +14,7 @@ export default function WarehouseRoutes() {
       <Route path="transfer-notes" element={<StockTransferNotesPage />} />
       <Route path="item-transfer-notes" element={<ItemTransferNotesPage />} />
       <Route path="itn-approvals" element={<ItemTransferNoteApprovalsPage />} />
+      <Route path="receive-notes" element={<ReceiveNotesPage />} />
     </Routes>
   );
 }
