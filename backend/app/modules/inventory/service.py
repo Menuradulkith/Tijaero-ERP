@@ -53,6 +53,10 @@ class SalesStockService:
                 "location_name": None,  # Will be fetched from location
                 "cost_price": item.product.cost_price if item.product else None,
                 "selling_price": item.product.selling_price if item.product else None,
+                # Add product details directly
+                "product_name": item.product.name if item.product else None,
+                "item_code": item.product.item_code if item.product else None,
+                "brand_id": item.product.items_brand_id if item.product else None,
             }
             
             # Get location name from GRN if available

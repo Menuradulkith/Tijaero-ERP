@@ -753,6 +753,7 @@ export default function SalesStockDashboard() {
               <TableBody>
                 {paginatedStock.map((stock: SalesStock) => {
                   const product = getProduct(stock.product_id);
+                  const brandName = stock.brand_id ? getBrand(stock.brand_id)?.brand_name : null;
                   
                   return (
                     <TableRow 
@@ -765,9 +766,9 @@ export default function SalesStockDashboard() {
                       }}
                     >
                       <TableCell sx={{ fontFamily: "monospace", fontSize: "0.85rem" }}>{stock.barcode}</TableCell>
-                      <TableCell sx={{ fontWeight: 500 }}>{product?.name || "Unknown"}</TableCell>
-                      <TableCell>{product?.item_code || "-"}</TableCell>
-                      <TableCell>{getProductBrandName(product)}</TableCell>
+                      <TableCell sx={{ fontWeight: 500 }}>{stock.product_name || product?.name || "Unknown"}</TableCell>
+                      <TableCell>{stock.item_code || product?.item_code || "-"}</TableCell>
+                      <TableCell>{brandName || getProductBrandName(product) || "-"}</TableCell>
                       <TableCell>{stock.branch_code}</TableCell>
                       <TableCell>{stock.location_name || "-"}</TableCell>
                       <TableCell>

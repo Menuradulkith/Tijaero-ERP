@@ -126,8 +126,31 @@ class PurchasingOrderRepository:
         db_order = self.get_by_id(order_id)
         if db_order:
             update_data = order_update.model_dump(exclude_unset=True)
+            
+            # Handle items separately
+            items_data = update_data.pop('items', None)
+            
+            # Update order fields
             for field, value in update_data.items():
                 setattr(db_order, field, value)
+            
+            # Update items if provided
+            if items_data is not None:
+                # Delete existing items
+                self.db.query(models.PurchasingOrderItems).filter(
+                    models.PurchasingOrderItems.purchasingorders_id == order_id
+                ).delete()
+                
+                # Add new items with required date fields
+                for item in items_data:
+                    db_item = models.PurchasingOrderItems(
+                        **item,
+                        purchasingorders_id=db_order.id,
+                        created_date=date.today(),
+                        added_date=datetime.now()
+                    )
+                    self.db.add(db_item)
+            
             self.db.commit()
             self.db.refresh(db_order)
         return db_order

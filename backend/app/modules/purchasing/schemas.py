@@ -116,6 +116,7 @@ class PurchasingOrderUpdate(BaseModel):
     first_suppliers_id: Optional[int] = None
     second_suppliers_id: Optional[int] = None
     status: Optional[str] = None
+    items: Optional[List[PurchasingOrderItemCreate]] = None
 
 class PurchasingOrder(PurchasingOrderBase):
     id: int

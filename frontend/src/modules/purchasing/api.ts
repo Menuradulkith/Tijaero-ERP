@@ -387,15 +387,24 @@ export interface SupplierCreditCheckResult {
 
 // PO Credit Check Result (soft check - allows save but may require approval)
 export interface POCreditCheckResult {
+  can_save: boolean;
   requires_approval: boolean;
+  suggested_status: string;
   message: string;
   credit_check: {
+    allowed: boolean;
+    requires_approval: boolean;
     current_outstanding: number;
-    po_amount: number;
-    new_total: number;
+    po_value: number;
+    projected_outstanding: number;
     max_credit_limit: number;
     available_credit: number;
+    will_exceed_limit: boolean;
     excess_amount: number;
+    overdue_count: number;
+    has_overdue: boolean;
+    message: string;
+    warning_level: string;
   };
 }
 
