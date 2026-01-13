@@ -95,6 +95,14 @@ class PurchasingOrderRepository:
             models.PurchasingOrder.id == order_id
         ).first()
     
+    def get_by_id_with_items(self, order_id: int) -> Optional[models.PurchasingOrder]:
+        """Get purchase order with items eagerly loaded to prevent N+1 queries"""
+        return self.db.query(models.PurchasingOrder).options(
+            joinedload(models.PurchasingOrder.items)
+        ).filter(
+            models.PurchasingOrder.id == order_id
+        ).first()
+    
     def get_all(self, filters: schemas.PurchaseOrderListFilter) -> List[models.PurchasingOrder]:
         query = self.db.query(models.PurchasingOrder)
         

@@ -15,6 +15,7 @@ import {
   DialogActions,
   Typography,
   Alert,
+  Autocomplete,
 } from "@mui/material";
 import {
   Inventory as InventoryIcon,
@@ -484,9 +485,11 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   const handleSaveProduct = () => {
     // Validate required fields
-    if (!productState.formData.item_code || !productState.formData.name) {
+    if (!productState.formData.item_code || !productState.formData.name || 
+        productState.formData.cost_price === undefined || productState.formData.cost_price === null ||
+        productState.formData.selling_price === undefined || productState.formData.selling_price === null) {
       showErrorToast("Please fill in all required fields");
-      setProductTouched({ item_code: true, name: true });
+      setProductTouched({ item_code: true, name: true, cost_price: true, selling_price: true });
       return;
     }
     // Ensure website_active is false if product is inactive
@@ -763,13 +766,13 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                           (Name)
                         </Typography>
                       </Box>
-                      {product.website_price && (
+                      {product.selling_price && (
                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <Typography component="span" variant="caption" fontWeight={600} sx={{ color: "inherit" }}>
-                            Rs. {product.website_price.toFixed(2)}
+                            Rs. {product.selling_price.toFixed(2)}
                           </Typography>
                           <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                            (Price)
+                            (Selling Price)
                           </Typography>
                         </Box>
                       )}
@@ -841,7 +844,9 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           onCancel={handleCancelProduct}
           onEdit={() => productState.setIsEditing(true)}
           isSaving={createProductMutation.isPending || updateProductMutation.isPending}
-          saveDisabled={!productState.formData.name || !productState.formData.item_code}
+          saveDisabled={!productState.formData.name || !productState.formData.item_code || 
+            productState.formData.cost_price === undefined || productState.formData.cost_price === null ||
+            productState.formData.selling_price === undefined || productState.formData.selling_price === null}
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -912,43 +917,32 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
               </FormSection>
 
               <FormSection title="Classification">
-                <TextField
-                  label="Category"
+                <Autocomplete
                   size="small"
-                  select
-                  value={productState.formData.category_id}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, category_id: Number(e.target.value) })}
+                  options={activeCategories}
+                  getOptionLabel={(option) => option.name}
+                  value={activeCategories.find(c => c.id === productState.formData.category_id) || null}
+                  onChange={(_, newValue) => productState.setFormData({ ...productState.formData, category_id: newValue?.id || 0 })}
                   disabled={!productState.isEditing && !productState.isCreating}
-                  helperText={productState.isEditing || productState.isCreating ? "Only active categories can be selected" : ""}
-                >
-                  {/* Show active categories, plus the current category if it's inactive */}
-                  {activeCategories.map((cat) => (
-                    <MenuItem key={cat.id} value={cat.id}>{cat.name}</MenuItem>
-                  ))}
-                  {/* If current product has an inactive category, show it (disabled) */}
-                  {productState.selectedItem && 
-                    categories?.find(c => c.id === productState.selectedItem?.category_id && !c.active) && (
-                    <MenuItem 
-                      key={productState.selectedItem.category_id} 
-                      value={productState.selectedItem.category_id}
-                      disabled
-                    >
-                      {categories?.find(c => c.id === productState.selectedItem?.category_id)?.name} (Inactive)
-                    </MenuItem>
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Category"
+                      helperText={productState.isEditing || productState.isCreating ? "Only active categories can be selected" : ""}
+                    />
                   )}
-                </TextField>
-                <TextField
-                  label="Brand"
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                />
+                <Autocomplete
                   size="small"
-                  select
-                  value={productState.formData.items_brand_id}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, items_brand_id: Number(e.target.value) })}
+                  options={brands || []}
+                  getOptionLabel={(option) => option.brand_name}
+                  value={brands?.find(b => b.id === productState.formData.items_brand_id) || null}
+                  onChange={(_, newValue) => productState.setFormData({ ...productState.formData, items_brand_id: newValue?.id || 0 })}
                   disabled={!productState.isEditing && !productState.isCreating}
-                >
-                  {brands?.map((brand) => (
-                    <MenuItem key={brand.id} value={brand.id}>{brand.brand_name}</MenuItem>
-                  ))}
-                </TextField>
+                  renderInput={(params) => <TextField {...params} label="Brand" />}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                />
               </FormSection>
 
               <FormSection title="Pricing">
@@ -958,7 +952,11 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   type="number"
                   value={productState.formData.cost_price ?? ""}
                   onChange={(e) => productState.setFormData({ ...productState.formData, cost_price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  onBlur={() => handleProductBlur("cost_price")}
                   disabled={!productState.isEditing && !productState.isCreating}
+                  required
+                  error={productTouched.cost_price && (productState.formData.cost_price === undefined || productState.formData.cost_price === null)}
+                  helperText={productTouched.cost_price && (productState.formData.cost_price === undefined || productState.formData.cost_price === null) ? "Cost price is required" : ""}
                   InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                 />
                 <TextField
@@ -976,7 +974,11 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   type="number"
                   value={productState.formData.selling_price ?? ""}
                   onChange={(e) => productState.setFormData({ ...productState.formData, selling_price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  onBlur={() => handleProductBlur("selling_price")}
                   disabled={!productState.isEditing && !productState.isCreating}
+                  required
+                  error={productTouched.selling_price && (productState.formData.selling_price === undefined || productState.formData.selling_price === null)}
+                  helperText={productTouched.selling_price && (productState.formData.selling_price === undefined || productState.formData.selling_price === null) ? "Selling price is required" : ""}
                   InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                 />
                 {/* Minimum Selling Price */}

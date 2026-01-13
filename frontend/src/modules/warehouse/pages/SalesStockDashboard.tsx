@@ -1,5 +1,9 @@
 /**
  * SalesStockDashboard - Comprehensive Sales Stock Management
+ * 
+ * OPTIMIZED: Uses aggregated reference data endpoint to reduce API calls
+ * BEFORE: 6 separate API calls (branches, brands, categories, locations, products, salesStock)
+ * AFTER: 2 API calls (reference-data, salesStock)
  */
 
 import { useState, useEffect, useMemo } from "react";
@@ -37,9 +41,8 @@ import {
   ExpandLess as CollapseIcon,
   AssignmentReturn as ReturnIcon,
 } from "@mui/icons-material";
-import { branchApi } from "@/modules/branches/api";
-import { salesStockApi, productsApi, categoriesApi, brandsApi } from "@/modules/inventory/api";
-import { locationsApi, Location } from "@/modules/common/api";
+import { salesStockApi } from "@/modules/inventory/api";
+import { useReferenceData, REFERENCE_DATA_PRESETS, LocationRef } from "@/hooks";
 import { SalesStock, Product, Brand, Category } from "@/modules/inventory/types";
 import { format, parseISO } from "date-fns";
 
@@ -300,32 +303,13 @@ export default function SalesStockDashboard() {
   const [selectedStock, setSelectedStock] = useState<SalesStock | null>(null);
   const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(false);
 
-  // Fetch Data
-  const { data: branchesData, isLoading: isLoadingBranches } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
+  // OPTIMIZED: Fetch all reference data in a single API call
+  const { data: refData, isLoading: isLoadingRefData } = useReferenceData(
+    REFERENCE_DATA_PRESETS.DASHBOARD,
+    { productsLimit: 1000 }
+  );
 
-  const { data: brandsData } = useQuery({
-    queryKey: ["brands"],
-    queryFn: () => brandsApi.getAll(0, 1000),
-  });
-
-  const { data: categoriesData } = useQuery({
-    queryKey: ["categories"],
-    queryFn: () => categoriesApi.getAll(0, 1000),
-  });
-
-  const { data: locationsData, isLoading: isLoadingLocations } = useQuery({
-    queryKey: ["locations"],
-    queryFn: () => locationsApi.getAll(),
-  });
-
-  const { data: productsData } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(0, 1000),
-  });
-
+  // Fetch sales stock data (still separate as it depends on branch filter)
   const { data: salesStockData, isLoading: isLoadingStock, refetch: refetchStock } = useQuery({
     queryKey: ["salesStock", selectedBranch],
     queryFn: async () => {
@@ -338,12 +322,17 @@ export default function SalesStockDashboard() {
     },
   });
 
-  const branches = branchesData?.items || [];
-  const brands = brandsData || [];
-  const categories = categoriesData || [];
-  const locations = locationsData || [];
-  const products = productsData || [];
+  // Extract data from aggregated reference data response
+  const branches = refData?.branches || [];
+  const brands = (refData?.brands || []) as Brand[];
+  const categories = (refData?.categories || []) as Category[];
+  const locations = refData?.locations || [];
+  const products = (refData?.products || []) as Product[];
   const salesStock = salesStockData || [];
+  
+  // Loading state combines reference data and stock loading
+  const isLoadingBranches = isLoadingRefData;
+  const isLoadingLocations = isLoadingRefData;
 
   // Product lookup helper
   const getProduct = (productId: number): Product | undefined => {
@@ -568,9 +557,9 @@ export default function SalesStockDashboard() {
               <Autocomplete
                 size="small"
                 options={locations}
-                getOptionLabel={(option: Location) => option.name || ""}
-                value={locations.find((location: Location) => location.name === selectedLocation) || null}
-                onChange={(_, value: Location | null) => setSelectedLocation(value?.name || "all")}
+                getOptionLabel={(option: LocationRef) => option.name || ""}
+                value={locations.find((location: LocationRef) => location.name === selectedLocation) || null}
+                onChange={(_, value: LocationRef | null) => setSelectedLocation(value?.name || "all")}
                 renderInput={(params) => (
                   <TextField
                     {...params}

@@ -26,8 +26,8 @@ import {
 } from "@mui/icons-material";
 import { salesApi } from "../api";
 import { Invoice } from "../types";
-import { customersApi } from "@/modules/customers/api";
-import { productsApi } from "@/modules/inventory/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed customersApi, productsApi imports - using aggregated endpoint
 import { format } from "date-fns";
 import { useRef } from "react";
 import { modernTableStyles } from "@/components/tijaero";
@@ -52,17 +52,10 @@ export default function InvoiceDetailsDialog({
     enabled: !!invoice?.id && open,
   });
 
-  const { data: customers } = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(),
-    enabled: open,
-  });
-
-  const { data: products } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-    enabled: open,
-  });
+  // OPTIMIZED: Single API call for customers and products (was 2 calls)
+  const { data: refData } = useReferenceData(["customers", "products"], { enabled: open });
+  const customers = refData?.customers || [];
+  const products = refData?.products || [];
 
   const customer = customers?.find((c) => c.id === invoiceDetails?.customer_id);
   const getProductName = (productId: number) => {

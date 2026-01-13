@@ -51,10 +51,9 @@ import {
 } from "@/components/tijaero";
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
-import { productsApi } from "@/modules/inventory/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData, ProductRef } from "@/hooks";
+// OPTIMIZED: Removed productsApi, branchApi imports - using aggregated endpoint
 import { PurchasingReturn, PurchasingReturnWithItems, GoodReceivedNote } from "@/modules/purchasing/types";
-import { Product } from "@/modules/inventory/types";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "added_date", label: "Date" },
@@ -91,18 +90,10 @@ export default function PurchaseReturnApprovalsPage() {
     queryFn: () => goodReceivedNotesApi.getAll(),
   });
 
-  // Fetch products
-  const { data: products = [] } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-  });
-
-  // Fetch branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Single API call for products and branches (was 2 calls)
+  const { data: refData } = useReferenceData(["products", "branches"]);
+  const products = refData?.products || [];
+  const branches = refData?.branches || [];
 
   // Create lookup maps
   const grnMap = useMemo(() => {
@@ -112,7 +103,7 @@ export default function PurchaseReturnApprovalsPage() {
   }, [grns]);
 
   const productMap = useMemo(() => {
-    const map = new Map<number, Product>();
+    const map = new Map<number, ProductRef>();
     products.forEach((p) => map.set(p.id, p));
     return map;
   }, [products]);

@@ -59,7 +59,8 @@ import {
 
 import { transferNotesApi, transferNoteItemsApi, transferNoteApprovalsApi, transferWorkflowApi } from "@/modules/warehouse/api";
 import { locationsApi } from "@/modules/common/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import { salesStockApi } from "@/modules/inventory/api";
 import { 
   ItemTransferNote, 
@@ -191,12 +192,9 @@ export default function ItemTransferNotesPage() {
   });
   const locations = locationsData || [];
 
-  // Fetch branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const handleNewITN = useCallback(() => {
     handleNewITNBase();

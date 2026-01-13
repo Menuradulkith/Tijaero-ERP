@@ -60,7 +60,8 @@ import {
 } from "@/components/tijaero";
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import { 
   PurchasingReturn, 
   PurchasingReturnWithItems,
@@ -265,11 +266,9 @@ export default function PurchaseReturnsPage() {
     queryFn: () => goodReceivedNotesApi.getAll(),
   });
 
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Use aggregated endpoint for branches
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const filteredReturns = useMemo(() => {
     if (!returns) return [];

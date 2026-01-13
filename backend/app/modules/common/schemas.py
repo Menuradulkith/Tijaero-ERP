@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Any
 from datetime import datetime
 from decimal import Decimal
 
@@ -55,6 +55,25 @@ class Approval(ApprovalBase):
     status_changed_by: Optional[int] = None
     next_approval_group: Optional[str] = None
     next_user_to_approve: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+
+# Aggregated Reference Data Schema for optimized API calls
+class ReferenceDataResponse(BaseModel):
+    """
+    Aggregated reference data response - reduces multiple API calls to one.
+    Only requested data will be included based on 'include' parameter.
+    """
+    branches: Optional[List[Any]] = None
+    categories: Optional[List[Any]] = None
+    brands: Optional[List[Any]] = None
+    locations: Optional[List[Any]] = None
+    products: Optional[List[Any]] = None
+    countries: Optional[List[Any]] = None
+    suppliers: Optional[List[Any]] = None
+    customers: Optional[List[Any]] = None
     
     class Config:
         from_attributes = True

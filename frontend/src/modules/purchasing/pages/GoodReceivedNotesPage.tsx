@@ -1,6 +1,10 @@
 /**
  * GoodReceivedNotesPage - Using Tijaero-style reusable components
  * Refactored to use common purchasing components for better code reuse
+ * 
+ * OPTIMIZED: Uses aggregated reference data endpoint
+ * BEFORE: 4 separate API calls (locations, branches, purchaseOrders, grns)
+ * AFTER: 3 API calls (reference-data with locations/branches, purchaseOrders, grns)
  */
 
 import { useMemo, useCallback, useState, useEffect, useRef } from "react";
@@ -76,9 +80,9 @@ import {
 } from "@/components/tijaero";
 
 import { goodReceivedNotesApi, goodReceivedItemsApi, purchaseOrdersApi } from "@/modules/purchasing/api";
-import { locationsApi, Location } from "@/modules/common/api";
-import { branchApi } from "@/modules/branches/api";
-import { productsApi, salesStockApi, companyAssetsApi } from "@/modules/inventory/api";
+import { useReferenceData } from "@/hooks";
+import { locationsApi } from "@/modules/common/api";
+import { salesStockApi, companyAssetsApi, productsApi } from "@/modules/inventory/api";
 import { Product } from "@/modules/inventory/types";
 import { formatCurrency } from "@/utils/formatters";
 import { 
@@ -97,6 +101,13 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 
 const FORM_STEPS = ["GRN Information", "Received Items"];
+
+// Location type for reference data
+interface Location {
+  id: number;
+  name: string;
+  branch_code: string;
+}
 
 const generateGRNNo = () => `GRN-${Date.now().toString(36).toUpperCase()}`;
 
@@ -219,18 +230,21 @@ export default function GoodReceivedNotesPage() {
     }),
   });
 
-  // Fetch locations for the selected branch
-  const { data: locations } = useQuery({
-    queryKey: ["locations", formData.branch_code],
-    queryFn: () => locationsApi.getAll(formData.branch_code),
-    enabled: !!formData.branch_code,
-  });
+  // OPTIMIZED: Fetch locations and branches in a single call
+  const { data: refData } = useReferenceData(["locations", "branches"]);
+  
+  // Filter locations for the selected branch from the aggregated data
+  const locations = useMemo(() => {
+    if (!refData?.locations || !formData.branch_code) return [];
+    return (refData.locations as Location[]).filter(
+      (loc) => loc.branch_code === formData.branch_code
+    );
+  }, [refData?.locations, formData.branch_code]);
 
-  // Fetch branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
+  // Get all branches from reference data
+  const branchesData = useMemo(() => {
+    return { items: refData?.branches || [] };
+  }, [refData?.branches]);
 
   const handleNewGRN = useCallback(() => {
     handleNewGRNBase();

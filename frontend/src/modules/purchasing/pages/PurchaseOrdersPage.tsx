@@ -62,8 +62,8 @@ import {
 } from "@/components/tijaero";
 
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
-import { productsApi } from "@/modules/inventory/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed individual imports for productsApi, branchApi - using aggregated endpoint
 import { 
   PurchasingOrder, 
   PurchasingOrderCreate, 
@@ -269,21 +269,16 @@ export default function PurchaseOrdersPage() {
     queryFn: () => purchaseOrdersApi.getAll(),
   });
 
+  // OPTIMIZED: Fetch suppliers separately (has complex filters) but use aggregated endpoint for products/branches
   const { data: suppliers } = useQuery({
     queryKey: ["suppliers"],
     queryFn: () => suppliersApi.getAll(),
   });
 
-  const { data: products } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-  });
-
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Single API call for products and branches (was 2 calls)
+  const { data: refData } = useReferenceData(["products", "branches"]);
+  const products = refData?.products || [];
+  const branches = refData?.branches || [];
 
   // Check daily PO limit for a branch
   const checkDailyLimit = useCallback(

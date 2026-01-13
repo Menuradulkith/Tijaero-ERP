@@ -26,8 +26,8 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 
 import { suppliersApi, purchaseOrdersApi, goodReceivedNotesApi, purchaseReturnsApi } from "@/modules/purchasing/api";
-import { branchApi } from "@/modules/branches/api";
-import type { Branch } from "@/api/types";
+import { useReferenceData, BranchRef } from "@/hooks";
+// OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import { TStatCard, TStatusChip, TPageHeader, TChip } from "@/components/tijaero";
 
 interface RecentItemProps {
@@ -61,11 +61,9 @@ export default function PurchasingDashboard() {
   const navigate = useNavigate();
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
-  const { data: branchesResponse } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesResponse?.items || [];
+  // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const { data: suppliers, isLoading: suppliersLoading } = useQuery({
     queryKey: ["suppliers"],
@@ -147,7 +145,7 @@ export default function PurchasingDashboard() {
           <Autocomplete
             size="small"
             options={branches}
-            getOptionLabel={(option: Branch) => `${option.branch_code} - ${option.branch_name}`}
+            getOptionLabel={(option: BranchRef) => `${option.branch_code} - ${option.branch_name}`}
             value={branches.find((b) => b.branch_code === filterBranch) || null}
             onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
             renderInput={(params) => (

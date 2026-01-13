@@ -11,12 +11,22 @@ import { createAppTheme } from "./styles/theme";
 import { useThemeStore } from "./state/themeStore";
 import "./styles/global.css"; // Import global styles for required fields
 
+/**
+ * OPTIMIZED QueryClient Configuration
+ * 
+ * - Increased staleTime: Reduces unnecessary refetches
+ * - gcTime (cacheTime): Keeps data in cache longer
+ * - refetchOnWindowFocus: Disabled to reduce API calls
+ * - retry: Limited to 1 retry to fail fast
+ */
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
       retry: 1,
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      staleTime: 5 * 60 * 1000, // 5 minutes - data considered fresh
+      gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache (formerly cacheTime)
     },
   },
 });
