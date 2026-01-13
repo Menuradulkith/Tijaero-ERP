@@ -53,9 +53,8 @@ import {
 
 import { transferNotesApi, transferNoteApprovalsApi } from "@/modules/warehouse/api";
 import { locationsApi, Location } from "@/modules/common/api";
-import { branchApi } from "@/modules/branches/api";
-import { productsApi } from "@/modules/inventory/api";
-import { Product } from "@/modules/inventory/types";
+import { useReferenceData, ProductRef } from "@/hooks";
+// OPTIMIZED: Removed branchApi, productsApi imports - using aggregated endpoint
 import {
   ItemTransferNote, 
   ItemTransferNoteItem,
@@ -144,19 +143,10 @@ export default function ItemTransferNoteApprovalsPage() {
   });
   const locations = locationsData || [];
 
-  // Fetch branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(),
-  });
-  const branches = branchesData?.items || [];
-
-  // Fetch products
-  const { data: productsData } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-  });
-  const products = productsData || [];
+  // OPTIMIZED: Single API call for branches and products (was 2 separate calls)
+  const { data: refData } = useReferenceData(["branches", "products"]);
+  const branches = refData?.branches || [];
+  const products = refData?.products || [];
 
   // Create lookup maps
   const locationMap = useMemo(() => {
@@ -166,7 +156,7 @@ export default function ItemTransferNoteApprovalsPage() {
   }, [locations]);
 
   const productMap = useMemo(() => {
-    const map = new Map<number, Product>();
+    const map = new Map<number, ProductRef>();
     products.forEach((p) => map.set(p.id, p));
     return map;
   }, [products]);

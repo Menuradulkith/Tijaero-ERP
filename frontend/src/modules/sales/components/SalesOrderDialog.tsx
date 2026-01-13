@@ -1,5 +1,5 @@
 import { useForm, Controller, useFieldArray } from "react-hook-form";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogTitle,
@@ -21,9 +21,8 @@ import {
 } from "@mui/material";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { salesApi } from "../api";
-import { customersApi } from "@/modules/customers/api";
-import { productsApi } from "@/modules/inventory/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed customersApi, productsApi, branchApi imports - using aggregated endpoint
 import { Invoice, InvoiceCreate } from "../types";
 import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
@@ -41,22 +40,11 @@ export default function SalesOrderDialog({
   const queryClient = useQueryClient();
   const isView = !!invoice;
 
-  const { data: customers } = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(),
-  });
-
-  const { data: products } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-  });
-
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Single API call for customers, products, branches (was 3 calls)
+  const { data: refData } = useReferenceData(["customers", "products", "branches"]);
+  const customers = refData?.customers || [];
+  const products = refData?.products || [];
+  const branches = refData?.branches || [];
 
   const { control, handleSubmit, watch } = useForm<InvoiceCreate>({
     defaultValues: {

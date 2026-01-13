@@ -55,6 +55,37 @@ def search_invoices(
     return service.sales_service.search_invoices(db, q, skip, limit)
 
 @router.get(
+    "/pending-approval",
+    response_model=List[schemas.Invoice],
+    summary="Get Pending Approval Invoices",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_pending_approval_invoices(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get invoices pending approval - server-side filtered for efficiency."""
+    return service.sales_service.get_pending_approval(db, skip, limit)
+
+@router.get(
+    "/by-customer/{customer_id}",
+    response_model=List[schemas.Invoice],
+    summary="Get Invoices by Customer",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_invoices_by_customer(
+    customer_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get all invoices for a specific customer."""
+    return service.sales_service.get_by_customer(db, customer_id, skip, limit)
+
+@router.get(
     "/{invoice_id}",
     response_model=schemas.InvoiceWithItems,
     summary="Get Sales Order by ID",
@@ -127,6 +158,22 @@ def list_sale_returns(
 ):
     """Get list of all sale returns."""
     return service.sales_service.get_all_sale_returns(db, skip, limit)
+
+@router.get(
+    "/returns/by-invoice/{invoice_id}",
+    response_model=List[schemas.SaleReturn],
+    summary="Get Sale Returns by Invoice",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_returns_by_invoice(
+    invoice_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get all sale returns for a specific invoice - server-side filtered."""
+    return service.sales_service.get_returns_by_invoice(db, invoice_id, skip, limit)
 
 @router.get(
     "/returns/{return_id}",

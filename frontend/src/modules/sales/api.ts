@@ -61,18 +61,20 @@ export const salesApi = {
     return response.data;
   },
 
-  // Get invoices by customer
+  // OPTIMIZED: Get invoices by customer - now uses server-side filtering
   getByCustomer: async (customerId: number, skip = 0, limit = 100) => {
-    const response = await apiClient.get<Invoice[]>("/sales/search", {
-      params: { q: customerId.toString(), skip, limit },
+    const response = await apiClient.get<Invoice[]>(`/sales/by-customer/${customerId}`, {
+      params: { skip, limit },
     });
     return response.data;
   },
 
-  // Get pending approval invoices
+  // OPTIMIZED: Get pending approval invoices - now uses server-side filtering
   getPendingApproval: async (skip = 0, limit = 100) => {
-    const all = await salesApi.getAll(skip, limit);
-    return all.filter((inv) => !inv.approval);
+    const response = await apiClient.get<Invoice[]>("/sales/pending-approval", {
+      params: { skip, limit },
+    });
+    return response.data;
   },
 };
 
@@ -96,9 +98,11 @@ export const saleReturnsApi = {
     return response.data;
   },
 
-  // Get returns by invoice
-  getByInvoice: async (invoiceId: number) => {
-    const all = await saleReturnsApi.getAll();
-    return all.filter((ret) => ret.invoice_id === invoiceId);
+  // OPTIMIZED: Get returns by invoice - now uses server-side filtering
+  getByInvoice: async (invoiceId: number, skip = 0, limit = 100) => {
+    const response = await apiClient.get<SaleReturn[]>(`/sales/returns/by-invoice/${invoiceId}`, {
+      params: { skip, limit },
+    });
+    return response.data;
   },
 };

@@ -46,9 +46,8 @@ import {
 } from "@/components/tijaero";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
-import { productsApi } from "@/modules/inventory/api";
-// import { employeesApi } from "@/modules/employees/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed productsApi, branchApi imports - using aggregated endpoint
 import { Invoice, InvoiceCreate } from "../types";
 import { usePermission } from "@/auth/permissions";
 import { format } from "date-fns";
@@ -124,27 +123,16 @@ export default function SalesPage() {
     queryFn: () => salesApi.getAll(),
   });
 
+  // Fetch customers separately (has complex operations like credit check)
   const { data: customers } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
   });
 
-  const { data: products } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-  });
-
-  // const { data: _employees } = useQuery({
-  //   queryKey: ["employees"],
-  //   queryFn: () => employeesApi.getAll(),
-  // });
-
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Single API call for products and branches (was 2 calls)
+  const { data: refData } = useReferenceData(["products", "branches"]);
+  const products = refData?.products || [];
+  const branches = refData?.branches || [];
 
   // Get branch name by code
   const getBranchName = (branchCode: string) => {
@@ -623,7 +611,7 @@ export default function SalesPage() {
                       onChange={(_, newValue) => {
                         updateLineItem(index, "product_id", newValue?.id || 0);
                         if (newValue) {
-                          updateLineItem(index, "selling_price", newValue.cost_price);
+                          updateLineItem(index, "selling_price", newValue.cost_price || 0);
                         }
                       }}
                       renderInput={(params) => <TextField {...params} placeholder="Select product" />}

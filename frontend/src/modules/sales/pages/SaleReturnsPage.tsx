@@ -10,8 +10,8 @@ import {
   SortOption,
   useMasterDetailState,
 } from "@/components/tijaero";
-import { branchApi } from "@/modules/branches/api";
-import { customersApi } from "@/modules/customers/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed branchApi, customersApi imports - using aggregated endpoint
 import {
   AssignmentReturn as ReturnIcon,
 } from "@mui/icons-material";
@@ -60,16 +60,10 @@ export default function SaleReturnsPage() {
     queryFn: () => salesApi.getAll(),
   });
 
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
-
-  const { data: customers } = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(),
-  });
+  // OPTIMIZED: Single API call for branches and customers (was 2 calls)
+  const { data: refData } = useReferenceData(["branches", "customers"]);
+  const branches = refData?.branches || [];
+  const customers = refData?.customers || [];
 
   // Filter and sort
   const filteredReturns = useMemo(() => {

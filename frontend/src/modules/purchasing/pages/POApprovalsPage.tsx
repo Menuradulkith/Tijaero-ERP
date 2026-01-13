@@ -51,8 +51,8 @@ import {
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
-import { productsApi } from "@/modules/inventory/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed individual imports for productsApi, branchApi - using aggregated endpoint
 import { PurchasingOrder, PurchasingOrderWithItems, Supplier } from "@/modules/purchasing/types";
 import { Product } from "@/modules/inventory/types";
 
@@ -97,24 +97,16 @@ export default function POApprovalsPage() {
     queryFn: () => purchaseOrdersApi.getAll(),
   });
 
-  // Fetch suppliers
+  // Fetch suppliers (needs separate call due to complex filters)
   const { data: suppliers = [] } = useQuery({
     queryKey: ["suppliers"],
     queryFn: () => suppliersApi.getAll(),
   });
 
-  // Fetch products
-  const { data: products = [] } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-  });
-
-  // Fetch branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Single API call for products and branches (was 2 calls)
+  const { data: refData } = useReferenceData(["products", "branches"]);
+  const products = (refData?.products || []) as Product[];
+  const branches = refData?.branches || [];
 
   // Create lookup maps
   const supplierMap = useMemo(() => {

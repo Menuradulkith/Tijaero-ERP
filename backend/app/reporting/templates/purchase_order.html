@@ -12,20 +12,19 @@
         }
         
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            font-size: 12px;
-            line-height: 1.5;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
             color: #333;
             background: #fff;
-            padding: 20px;
+            padding: 15px;
         }
         
         .document {
             max-width: 800px;
             margin: 0 auto;
             background: #fff;
-            padding: 30px;
-            border: 1px solid #ddd;
+            padding: 20px;
         }
         
         /* Header */
@@ -33,251 +32,208 @@
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 3px solid #1976d2;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #1a4480;
+        }
+        
+        .company-info {
+            flex: 1;
+        }
+        
+        .company-info .logo {
+            width: 50px;
+            height: 50px;
+            background: #1a4480;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: bold;
+            font-size: 18px;
+            float: left;
+            margin-right: 10px;
         }
         
         .company-info h1 {
-            font-size: 24px;
-            color: #1976d2;
-            margin-bottom: 5px;
+            font-size: 20px;
+            color: #1a4480;
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
+        
+        .company-info h1 span {
+            font-style: italic;
+            font-weight: normal;
         }
         
         .company-info p {
             color: #666;
-            font-size: 11px;
+            font-size: 10px;
+            line-height: 1.3;
         }
         
-        .document-title {
-            text-align: right;
+        /* Document Info Grid */
+        .doc-info {
+            width: 280px;
         }
         
-        .document-title h2 {
-            font-size: 28px;
-            color: #1976d2;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-        
-        .document-title .po-number {
-            font-size: 14px;
-            color: #666;
-            margin-top: 5px;
-        }
-        
-        .document-title .status {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: bold;
-            text-transform: uppercase;
-            margin-top: 8px;
-        }
-        
-        .status-pending { background: #fff3e0; color: #e65100; }
-        .status-approved { background: #e8f5e9; color: #2e7d32; }
-        .status-draft { background: #f5f5f5; color: #666; }
-        .status-rejected { background: #ffebee; color: #c62828; }
-        
-        /* Info Sections */
-        .info-section {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 25px;
-            gap: 30px;
-        }
-        
-        .info-box {
-            flex: 1;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 6px;
-            border-left: 4px solid #1976d2;
-        }
-        
-        .info-box h3 {
-            font-size: 11px;
-            text-transform: uppercase;
-            color: #666;
-            margin-bottom: 10px;
-            letter-spacing: 1px;
-        }
-        
-        .info-box p {
-            margin-bottom: 4px;
-        }
-        
-        .info-box .label {
-            color: #666;
+        .doc-info table {
+            width: 100%;
+            border-collapse: collapse;
             font-size: 10px;
         }
         
-        .info-box .value {
-            font-weight: 600;
-            color: #333;
+        .doc-info td {
+            border: 1px solid #1a4480;
+            padding: 3px 6px;
+        }
+        
+        .doc-info td.label {
+            background: #1a4480;
+            color: #fff;
+            font-weight: bold;
+            width: 45%;
+        }
+        
+        .doc-info td.value {
+            background: #fff;
+        }
+        
+        /* Supplier Info */
+        .supplier-section {
+            margin-bottom: 15px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            background: #f9f9f9;
+        }
+        
+        .supplier-section table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .supplier-section td.label {
+            font-weight: bold;
+            width: 120px;
+            color: #1a4480;
         }
         
         /* Items Table */
-        .items-section {
-            margin-bottom: 25px;
-        }
-        
-        .items-section h3 {
-            font-size: 14px;
-            color: #333;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #ddd;
-        }
-        
-        table {
+        .items-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         
-        th {
-            background: #1976d2;
+        .items-table th {
+            background: #1a4480;
             color: #fff;
-            padding: 10px 12px;
-            text-align: left;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            padding: 8px 6px;
+            text-align: center;
+            font-weight: bold;
+            border: 1px solid #1a4480;
         }
         
-        th:first-child {
-            border-radius: 4px 0 0 0;
-        }
-        
-        th:last-child {
-            border-radius: 0 4px 0 0;
-        }
-        
-        td {
-            padding: 10px 12px;
-            border-bottom: 1px solid #eee;
-        }
-        
-        tr:nth-child(even) {
-            background: #f8f9fa;
-        }
-        
-        tr:hover {
-            background: #e3f2fd;
-        }
-        
-        .text-right {
-            text-align: right;
-        }
-        
-        .text-center {
+        .items-table td {
+            border: 1px solid #ccc;
+            padding: 6px;
             text-align: center;
         }
         
-        /* Totals */
+        .items-table td.description {
+            text-align: left;
+        }
+        
+        .items-table tbody tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        
+        /* Totals Box */
         .totals-section {
             display: flex;
             justify-content: flex-end;
-            margin-bottom: 25px;
+            margin-bottom: 15px;
         }
         
         .totals-box {
-            width: 280px;
-            background: #f8f9fa;
-            border-radius: 6px;
-            padding: 15px;
+            width: 200px;
         }
         
-        .totals-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 6px 0;
-            border-bottom: 1px solid #eee;
+        .totals-box table {
+            width: 100%;
+            border-collapse: collapse;
         }
         
-        .totals-row:last-child {
-            border-bottom: none;
-            padding-top: 10px;
-            margin-top: 5px;
-            border-top: 2px solid #1976d2;
+        .totals-box td {
+            border: 1px solid #1a4480;
+            padding: 4px 8px;
         }
         
-        .totals-row.grand-total {
-            font-size: 16px;
+        .totals-box td.label {
+            background: #1a4480;
+            color: #fff;
             font-weight: bold;
-            color: #1976d2;
+        }
+        
+        .totals-box td.value {
+            text-align: right;
+            font-weight: bold;
         }
         
         /* Remarks */
         .remarks-section {
-            background: #fff8e1;
-            padding: 15px;
-            border-radius: 6px;
-            border-left: 4px solid #ffc107;
-            margin-bottom: 25px;
+            background: #f9f9f9;
+            padding: 10px;
+            border: 1px solid #ddd;
+            margin-bottom: 15px;
         }
         
         .remarks-section h3 {
-            font-size: 11px;
+            font-size: 10px;
             text-transform: uppercase;
-            color: #666;
-            margin-bottom: 8px;
+            color: #1a4480;
+            margin-bottom: 5px;
         }
         
-        /* Footer */
-        .footer {
+        /* Signatures */
+        .signatures {
             display: flex;
             justify-content: space-between;
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid #ddd;
+            margin-top: 30px;
+            padding-top: 10px;
         }
         
         .signature-box {
             text-align: center;
-            width: 200px;
+            width: 30%;
         }
         
-        .signature-line {
+        .signature-box .line {
             border-top: 1px solid #333;
-            margin-top: 50px;
-            padding-top: 8px;
-            font-size: 11px;
-            color: #666;
+            margin-bottom: 5px;
+            min-height: 40px;
         }
         
-        .print-info {
-            margin-top: 30px;
-            padding-top: 15px;
-            border-top: 1px dashed #ddd;
+        .signature-box .title {
             font-size: 10px;
+            font-weight: bold;
+        }
+        
+        /* Print Info */
+        .print-info {
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px dashed #ccc;
+            font-size: 9px;
             color: #999;
             text-align: center;
         }
         
-        /* Print Styles */
         @media print {
-            body {
-                padding: 0;
-            }
-            
-            .document {
-                border: none;
-                padding: 0;
-                max-width: none;
-            }
-            
-            .no-print {
-                display: none;
-            }
-        }
-        
-        @page {
-            size: A4;
-            margin: 15mm;
+            body { padding: 0; }
+            .document { border: none; padding: 10px; }
         }
     </style>
 </head>
@@ -286,85 +242,112 @@
         <!-- Header -->
         <div class="header">
             <div class="company-info">
-                <h1>{{ company.name | default('Tijaero ERP') }}</h1>
-                <p>{{ company.address | default('') }}</p>
-                <p>Tel: {{ company.phone | default('') }} | Email: {{ company.email | default('') }}</p>
+                <div class="logo">T</div>
+                <h1>{{ company.name | default('TIJAERO') }} <span>Solutions</span></h1>
+                <p>
+                    {{ company.address | default('Ground Floor, Unity Plaza') }}<br>
+                    Tel: {{ company.phone | default('011-2345678') }}<br>
+                    E-mail: {{ company.email | default('info@tijaero.lk') }}
+                </p>
             </div>
-            <div class="document-title">
-                <h2>Purchase Order</h2>
-                <div class="po-number">{{ po.purchasing_order_no }}</div>
-                <div class="status status-{{ po.status | lower | default('draft') }}">{{ po.status | default('Draft') }}</div>
+            <div class="doc-info">
+                <table>
+                    <tr>
+                        <td class="label">PO No.</td>
+                        <td class="value">{{ po.purchasing_order_no }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Date</td>
+                        <td class="value">{{ po.purchasing_order_date }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Status</td>
+                        <td class="value">{{ po.status | default('Draft') | upper }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Branch</td>
+                        <td class="value">{{ branch.branch_name | default(po.branch_code) }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Payment</td>
+                        <td class="value">{{ po.payment_method }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Expected Delivery</td>
+                        <td class="value">{{ po.good_received_note_date }}</td>
+                    </tr>
+                </table>
             </div>
         </div>
         
-        <!-- Info Sections -->
-        <div class="info-section">
-            <div class="info-box">
-                <h3>Supplier Information</h3>
-                <p><span class="value">{{ supplier.full_name | default('N/A') }}</span></p>
-                <p><span class="label">Company:</span> <span class="value">{{ supplier.company_name | default('N/A') }}</span></p>
-                <p><span class="label">Contact:</span> <span class="value">{{ supplier.mobile_contact_number | default('N/A') }}</span></p>
-                <p><span class="label">Email:</span> <span class="value">{{ supplier.email | default('N/A') }}</span></p>
-            </div>
-            <div class="info-box">
-                <h3>Order Details</h3>
-                <p><span class="label">Order Date:</span> <span class="value">{{ po.purchasing_order_date }}</span></p>
-                <p><span class="label">Expected Delivery:</span> <span class="value">{{ po.good_received_note_date }}</span></p>
-                <p><span class="label">Branch:</span> <span class="value">{{ branch.branch_name | default(po.branch_code) }}</span></p>
-                <p><span class="label">Payment Method:</span> <span class="value">{{ po.payment_method }}</span></p>
-                {% if po.credit_date %}
-                <p><span class="label">Credit Days:</span> <span class="value">{{ po.credit_date }} days</span></p>
-                {% endif %}
-            </div>
+        <!-- Supplier Info -->
+        <div class="supplier-section">
+            <table>
+                <tr>
+                    <td class="label">Supplier</td>
+                    <td>{{ supplier.full_name | default('N/A') }}</td>
+                </tr>
+                <tr>
+                    <td class="label">Company</td>
+                    <td>{{ supplier.company_name | default('N/A') }}</td>
+                </tr>
+                <tr>
+                    <td class="label">Contact</td>
+                    <td>{{ supplier.mobile_contact_number | default('N/A') }}</td>
+                </tr>
+                <tr>
+                    <td class="label">Email</td>
+                    <td>{{ supplier.email | default('N/A') }}</td>
+                </tr>
+            </table>
         </div>
         
         <!-- Items Table -->
-        <div class="items-section">
-            <h3>Order Items</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 40px;">#</th>
-                        <th>Product</th>
-                        <th class="text-center" style="width: 80px;">Qty</th>
-                        <th class="text-right" style="width: 100px;">Unit Price</th>
-                        <th class="text-center" style="width: 80px;">Warranty</th>
-                        <th class="text-right" style="width: 120px;">Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in items %}
-                    <tr>
-                        <td class="text-center">{{ loop.index }}</td>
-                        <td>
-                            <strong>{{ item.product_name | default('Product #' ~ item.product_id) }}</strong>
-                            {% if item.remark %}<br><small style="color: #666;">{{ item.remark }}</small>{% endif %}
-                        </td>
-                        <td class="text-center">{{ item.quantity }}</td>
-                        <td class="text-right">Rs. {{ "%.2f" | format(item.unit_price) }}</td>
-                        <td class="text-center">{{ item.warrenty_month | default('-') }}</td>
-                        <td class="text-right">Rs. {{ "%.2f" | format(item.quantity * item.unit_price) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px;">NO</th>
+                    <th>Product</th>
+                    <th style="width: 50px;">Qty</th>
+                    <th style="width: 80px;">Unit Price</th>
+                    <th style="width: 70px;">Warranty</th>
+                    <th style="width: 90px;">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td class="description">
+                        {{ item.product_name | default('Product #' ~ item.product_id) }}
+                        {% if item.remark %}<br><small style="color: #666;">{{ item.remark }}</small>{% endif %}
+                    </td>
+                    <td>{{ item.quantity }}</td>
+                    <td style="text-align: right;">{{ "%.2f" | format(item.unit_price) }}</td>
+                    <td>{{ item.warrenty_month | default('-') }}</td>
+                    <td style="text-align: right;">{{ "%.2f" | format(item.quantity * item.unit_price) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
         
         <!-- Totals -->
         <div class="totals-section">
             <div class="totals-box">
-                <div class="totals-row">
-                    <span>Subtotal:</span>
-                    <span>Rs. {{ "%.2f" | format(subtotal) }}</span>
-                </div>
-                <div class="totals-row">
-                    <span>Items Count:</span>
-                    <span>{{ items | length }} item(s)</span>
-                </div>
-                <div class="totals-row grand-total">
-                    <span>Grand Total:</span>
-                    <span>Rs. {{ "%.2f" | format(subtotal) }}</span>
-                </div>
+                <table>
+                    <tr>
+                        <td class="label">Items Count</td>
+                        <td class="value">{{ items | length }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Sub Total</td>
+                        <td class="value">{{ "%.2f" | format(subtotal) }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Grand Total</td>
+                        <td class="value">{{ "%.2f" | format(subtotal) }}</td>
+                    </tr>
+                </table>
             </div>
         </div>
         
@@ -376,22 +359,25 @@
         </div>
         {% endif %}
         
-        <!-- Footer with Signatures -->
-        <div class="footer">
+        <!-- Signatures -->
+        <div class="signatures">
             <div class="signature-box">
-                <div class="signature-line">Prepared By</div>
+                <div class="line"></div>
+                <div class="title">Prepared By</div>
             </div>
             <div class="signature-box">
-                <div class="signature-line">Approved By</div>
+                <div class="line"></div>
+                <div class="title">Approved By</div>
             </div>
             <div class="signature-box">
-                <div class="signature-line">Supplier Signature</div>
+                <div class="line"></div>
+                <div class="title">Supplier Signature</div>
             </div>
         </div>
         
         <!-- Print Info -->
         <div class="print-info">
-            <p>Generated on {{ generated_at }} | Document ID: {{ po.id }}</p>
+            Generated on {{ generated_at }} | Document ID: {{ po.id }}
         </div>
     </div>
 </body>
