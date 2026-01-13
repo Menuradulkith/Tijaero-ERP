@@ -125,9 +125,9 @@ const menuItems: MenuItem[] = [
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse" },
       { text: "Sales Track", icon: <ReceiptLongIcon />, path: "/warehouse/sales-track" },
-      { text: "Transfer Notes", icon: <LocalShippingOutlinedIcon />, path: "/warehouse/transfer-notes" },
       { text: "Item Transfer Notes", icon: <SwapHorizIcon />, path: "/warehouse/item-transfer-notes" },
       { text: "ITN Approvals", icon: <FactCheckIcon />, path: "/warehouse/itn-approvals" },
+      { text: "Receive Notes", icon: <InventoryIcon />, path: "/warehouse/receive-notes" },
     ],
   },
   {

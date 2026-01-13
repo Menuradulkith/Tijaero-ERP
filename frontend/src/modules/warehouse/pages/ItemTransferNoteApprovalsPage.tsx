@@ -69,6 +69,7 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 
 const STATUS_FILTER_OPTIONS = [
+  { value: null, label: "All" },
   { value: "pending", label: "Pending" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
@@ -99,7 +100,7 @@ export default function ItemTransferNoteApprovalsPage() {
   const confirmDialog = useTConfirmDialog();
 
   // Filter states
-  const [filterStatus, setFilterStatus] = useState<string | null>("pending");
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // Dialogs
@@ -107,11 +108,34 @@ export default function ItemTransferNoteApprovalsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
 
-  // Fetch transfer notes
+  // Fetch transfer notes with approval status
   const { data: transferNotes = [], isLoading, refetch } = useQuery({
     queryKey: ["transfer-notes"],
     queryFn: () => transferNotesApi.getAll(),
   });
+
+  // Fetch approval status for all ITNs
+  const [itnStatusMap, setItnStatusMap] = useState<Map<number, string>>(new Map());
+  
+  useEffect(() => {
+    const fetchAllStatuses = async () => {
+      const statusMap = new Map<number, string>();
+      for (const itn of transferNotes) {
+        try {
+          const fullITN = await transferNotesApi.getById(itn.id);
+          const { status } = getITNApprovalStatus(fullITN);
+          statusMap.set(itn.id, status);
+        } catch {
+          statusMap.set(itn.id, "pending");
+        }
+      }
+      setItnStatusMap(statusMap);
+    };
+    
+    if (transferNotes.length > 0) {
+      fetchAllStatuses();
+    }
+  }, [transferNotes]);
 
   // Fetch locations
   const { data: locationsData } = useQuery({
@@ -157,8 +181,12 @@ export default function ItemTransferNoteApprovalsPage() {
   const filteredITNs = useMemo(() => {
     let filtered = transferNotes;
 
-    // We need to fetch approval status for filtering
-    // For now, we'll filter on the list and refetch details when selected
+    // Filter by approval status
+    if (filterStatus) {
+      filtered = filtered.filter(itn => itnStatusMap.get(itn.id) === filterStatus);
+    }
+    
+    // Filter by branch
     if (filterBranch) {
       filtered = filtered.filter(itn => itn.branch_code === filterBranch);
     }
@@ -180,23 +208,13 @@ export default function ItemTransferNoteApprovalsPage() {
     });
 
     return filtered;
-  }, [transferNotes, searchQuery, sortField, filterBranch, locationMap]);
+  }, [transferNotes, searchQuery, sortField, filterBranch, filterStatus, locationMap, itnStatusMap]);
 
   // Handle selection
   const handleSelectITN = useCallback(async (itn: ItemTransferNote) => {
     try {
       setLoadingItems(true);
       const fullITN = await fetchITNDetails(itn.id);
-      
-      // Apply status filter if set
-      if (filterStatus) {
-        const { status } = getITNApprovalStatus(fullITN);
-        if (status !== filterStatus) {
-          // Skip this item if it doesn't match the filter
-          setLoadingItems(false);
-          return;
-        }
-      }
       
       setSelectedITN(fullITN);
       setSelectedItems(fullITN.items || []);
@@ -205,7 +223,7 @@ export default function ItemTransferNoteApprovalsPage() {
     } finally {
       setLoadingItems(false);
     }
-  }, [fetchITNDetails, filterStatus]);
+  }, [fetchITNDetails]);
 
   // Auto-select first ITN
   useEffect(() => {
@@ -343,8 +361,10 @@ export default function ItemTransferNoteApprovalsPage() {
         </TFilterPanel>
       }
       renderItem={(itn, isSelected) => {
-        // Note: We can't know the status without fetching details
-        // For the list view, we'll show basic info
+        // Get status from cached map
+        const status = itnStatusMap.get(itn.id) || "pending";
+        const statusProps = getStatusProps(status, "orderStatus");
+        
         return (
           <SelectableListItem
             key={itn.id}
@@ -355,43 +375,56 @@ export default function ItemTransferNoteApprovalsPage() {
               <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span>{itn.item_transfer_note}</span>
+                  {isSelected && (
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (ITN No)
+                    </Typography>
+                  )}
                 </Box>
                 {isSelected && (
                   <>
-                    <Typography variant="caption" color="text.secondary">
-                      From: {getLocationName(itn.from_location_id)}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      To: {getLocationName(itn.to_location_id)}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(itn.created_date).toLocaleDateString()}
-                    </Typography>
-                    {selectedITN && isSelected && (
-                      <Box sx={{ mt: 0.5 }}>
-                        {(() => {
-                          const { status } = getITNApprovalStatus(selectedITN);
-                          const statusProps = getStatusProps(status, "orderStatus");
-                          return (
-                            <Chip
-                              label={statusProps.label}
-                              size="small"
-                              color={statusProps.color}
-                              sx={{ height: 18, fontSize: "0.65rem" }}
-                            />
-                          );
-                        })()}
-                      </Box>
-                    )}
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {getLocationName(itn.from_location_id)}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (From)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {getLocationName(itn.to_location_id)}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (To)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {new Date(itn.created_date).toLocaleDateString()}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Date)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                      <Chip
+                        label={statusProps.label}
+                        size="small"
+                        color={statusProps.color}
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                    </Box>
                   </>
                 )}
               </Box>
             }
             secondaryText={
               !isSelected
-                ? `${getLocationName(itn.from_location_id)} → ${getLocationName(itn.to_location_id)}`
+                ? `${getLocationName(itn.from_location_id)} → ${getLocationName(itn.to_location_id)} • ${new Date(itn.created_date).toLocaleDateString()}`
                 : undefined
             }
+            statusChip={!isSelected ? statusProps : undefined}
           />
         );
       }}

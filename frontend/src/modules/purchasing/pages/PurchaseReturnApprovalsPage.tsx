@@ -71,7 +71,7 @@ export default function PurchaseReturnApprovalsPage() {
   const [selectedReturn, setSelectedReturn] = useState<PurchasingReturnWithItems | null>(null);
 
   // Filter states
-  const [filterStatus, setFilterStatus] = useState<string | null>("pending");
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // Dialogs
