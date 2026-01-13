@@ -2,6 +2,7 @@ import {
     People as CustomersIcon,
     Dashboard as DashboardIcon,
     Receipt as OrdersIcon,
+    Description as QuotationsIcon,
     AssignmentReturn as ReturnsIcon,
 } from "@mui/icons-material";
 import { Box, Tab, Tabs } from "@mui/material";
@@ -12,10 +13,11 @@ interface SalesNavTabsProps {
 }
 
 const salesTabs = [
+  { value: "/sales/dashboard", label: "Dashboard", icon: <DashboardIcon />, path: "/sales/dashboard" },
+  { value: "/sales/customers", label: "Customers", icon: <CustomersIcon />, path: "/sales/customers" },
+  { value: "/sales/quotations", label: "Quotations", icon: <QuotationsIcon />, path: "/sales/quotations" },
   { value: "/sales", label: "Orders", icon: <OrdersIcon />, path: "/sales" },
   { value: "/sales/returns", label: "Returns", icon: <ReturnsIcon />, path: "/sales/returns" },
-  { value: "/sales/customers", label: "Customers", icon: <CustomersIcon />, path: "/sales/customers" },
-  { value: "/sales/dashboard", label: "Dashboard", icon: <DashboardIcon />, path: "/sales/dashboard" },
 ];
 
 export default function SalesNavTabs({ value }: SalesNavTabsProps) {

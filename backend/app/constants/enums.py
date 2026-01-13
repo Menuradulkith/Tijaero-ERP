@@ -2,11 +2,13 @@
 Centralized Enums for TijaeroERP Backend
 All enum constants used across modules should be defined here.
 """
+
 from enum import Enum
 
 
 class OrderStatus(str, Enum):
     """Status for orders (sales/purchase)"""
+
     DRAFT = "draft"
     PENDING = "pending"
     CONFIRMED = "confirmed"
@@ -18,6 +20,7 @@ class OrderStatus(str, Enum):
 
 class PaymentStatus(str, Enum):
     """Payment status for invoices and orders"""
+
     UNPAID = "unpaid"
     PARTIAL = "partial"
     PAID = "paid"
@@ -27,6 +30,7 @@ class PaymentStatus(str, Enum):
 
 class PaymentMethod(str, Enum):
     """Payment methods supported"""
+
     CASH = "cash"
     CARD = "card"
     CHEQUE = "cheque"
@@ -37,6 +41,7 @@ class PaymentMethod(str, Enum):
 
 class InvoiceStatus(str, Enum):
     """Invoice lifecycle status"""
+
     DRAFT = "draft"
     PENDING = "pending"
     SENT = "sent"
@@ -49,6 +54,7 @@ class InvoiceStatus(str, Enum):
 
 class PurchaseOrderStatus(str, Enum):
     """Purchase order status"""
+
     DRAFT = "draft"
     PENDING = "pending"
     APPROVED = "approved"
@@ -60,6 +66,7 @@ class PurchaseOrderStatus(str, Enum):
 
 class TransferStatus(str, Enum):
     """Item transfer note status"""
+
     DRAFT = "draft"
     PENDING = "pending"
     APPROVED = "approved"
@@ -70,6 +77,7 @@ class TransferStatus(str, Enum):
 
 class LeaveStatus(str, Enum):
     """Employee leave request status"""
+
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -78,6 +86,7 @@ class LeaveStatus(str, Enum):
 
 class AttendanceStatus(str, Enum):
     """Employee attendance status"""
+
     PRESENT = "present"
     ABSENT = "absent"
     LATE = "late"
@@ -88,6 +97,7 @@ class AttendanceStatus(str, Enum):
 
 class UserRole(str, Enum):
     """User roles in the system"""
+
     SUPERADMIN = "superadmin"
     ADMIN = "admin"
     MANAGER = "manager"
@@ -97,6 +107,7 @@ class UserRole(str, Enum):
 
 class ApprovalStatus(str, Enum):
     """Generic approval status"""
+
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -105,6 +116,7 @@ class ApprovalStatus(str, Enum):
 
 class GRNStatus(str, Enum):
     """Goods Received Note status"""
+
     DRAFT = "draft"
     PENDING = "pending"
     PARTIALLY_RECEIVED = "partially_received"
@@ -114,6 +126,7 @@ class GRNStatus(str, Enum):
 
 class SupportTicketStatus(str, Enum):
     """Customer support ticket status"""
+
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     WAITING_CUSTOMER = "waiting_customer"
@@ -123,6 +136,7 @@ class SupportTicketStatus(str, Enum):
 
 class WarrantyClaimStatus(str, Enum):
     """Warranty claim status"""
+
     SUBMITTED = "submitted"
     UNDER_REVIEW = "under_review"
     APPROVED = "approved"
@@ -133,6 +147,7 @@ class WarrantyClaimStatus(str, Enum):
 
 class ExpenseStatus(str, Enum):
     """Expense claim status"""
+
     DRAFT = "draft"
     SUBMITTED = "submitted"
     APPROVED = "approved"
@@ -142,6 +157,7 @@ class ExpenseStatus(str, Enum):
 
 class StockMovementType(str, Enum):
     """Type of stock movement"""
+
     IN = "in"
     OUT = "out"
     TRANSFER = "transfer"

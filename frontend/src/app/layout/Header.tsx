@@ -1,26 +1,26 @@
-import {
-  AppBar,
-  Toolbar,
-  IconButton,
-  Typography,
-  Box,
-  Avatar,
-  Menu,
-  MenuItem,
-  Divider,
-  ListItemIcon,
-} from "@mui/material";
+import { useAuthStore } from "@/state/authStore";
+import { useThemeStore } from "@/state/themeStore";
+import AccountCircleIcon from "@mui/icons-material/AccountCircle";
+import Brightness4Icon from "@mui/icons-material/Brightness4";
+import Brightness7Icon from "@mui/icons-material/Brightness7";
+import LogoutIcon from "@mui/icons-material/Logout";
 import MenuIcon from "@mui/icons-material/Menu";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import SettingsIcon from "@mui/icons-material/Settings";
-import AccountCircleIcon from "@mui/icons-material/AccountCircle";
-import LogoutIcon from "@mui/icons-material/Logout";
-import Brightness4Icon from "@mui/icons-material/Brightness4";
-import Brightness7Icon from "@mui/icons-material/Brightness7";
+import {
+    AppBar,
+    Avatar,
+    Box,
+    Divider,
+    IconButton,
+    ListItemIcon,
+    Menu,
+    MenuItem,
+    Toolbar,
+    Typography,
+} from "@mui/material";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuthStore } from "@/state/authStore";
-import { useThemeStore } from "@/state/themeStore";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -80,7 +80,7 @@ export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: H
             fontSize: { xs: "0.9rem", sm: "1rem" },
           }}
         >
-          ERP System
+          TijaeroERP
         </Typography>
 
         <Box

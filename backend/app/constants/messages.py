@@ -11,28 +11,23 @@ SUCCESS_MESSAGES = {
     "DELETE": "{entity} deleted successfully",
     "FETCH": "{entity} retrieved successfully",
     "LIST": "{entity} list retrieved successfully",
-    
     # Auth
     "LOGIN": "Login successful",
     "LOGOUT": "Logout successful",
     "PASSWORD_CHANGE": "Password changed successfully",
     "PASSWORD_RESET": "Password reset email sent",
-    
     # Sales
     "INVOICE_CREATED": "Invoice created successfully",
     "INVOICE_PAID": "Invoice marked as paid",
     "SALE_RETURN_PROCESSED": "Sale return processed successfully",
-    
     # Purchasing
     "PO_CREATED": "Purchase order created successfully",
     "PO_APPROVED": "Purchase order approved",
     "GRN_CREATED": "Goods received note created successfully",
-    
     # Inventory
     "STOCK_UPDATED": "Stock updated successfully",
     "TRANSFER_INITIATED": "Item transfer initiated",
     "TRANSFER_COMPLETED": "Item transfer completed",
-    
     # HR
     "LEAVE_APPROVED": "Leave request approved",
     "LEAVE_REJECTED": "Leave request rejected",
@@ -47,14 +42,12 @@ ERROR_MESSAGES = {
     "INVALID_DATA": "Invalid data provided",
     "OPERATION_FAILED": "Operation failed",
     "PERMISSION_DENIED": "You do not have permission to perform this action",
-    
     # Auth
     "INVALID_CREDENTIALS": "Invalid username or password",
     "TOKEN_EXPIRED": "Token has expired",
     "TOKEN_INVALID": "Invalid token",
     "USER_INACTIVE": "User account is inactive",
     "UNAUTHORIZED": "Authentication required",
-    
     # Validation
     "REQUIRED_FIELD": "{field} is required",
     "INVALID_FORMAT": "Invalid {field} format",
@@ -62,7 +55,6 @@ ERROR_MESSAGES = {
     "MAX_LENGTH": "{field} must not exceed {max} characters",
     "INVALID_EMAIL": "Invalid email address",
     "INVALID_PHONE": "Invalid phone number",
-    
     # Business Logic
     "INSUFFICIENT_STOCK": "Insufficient stock for {product}",
     "INVOICE_ALREADY_PAID": "Invoice is already paid",
@@ -70,7 +62,6 @@ ERROR_MESSAGES = {
     "DUPLICATE_ENTRY": "Duplicate entry found for {field}",
     "INVALID_STATUS_TRANSITION": "Cannot transition from {current} to {new} status",
     "APPROVAL_REQUIRED": "Approval required before proceeding",
-    
     # File Upload
     "FILE_TOO_LARGE": "File size exceeds maximum allowed size",
     "INVALID_FILE_TYPE": "Invalid file type. Allowed types: {types}",

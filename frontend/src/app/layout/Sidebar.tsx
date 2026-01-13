@@ -73,9 +73,10 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.SALES_VIEW,
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/sales/dashboard" },
+      { text: "Customers", icon: <PeopleIcon />, path: "/sales/customers" },
+      { text: "Quotations", icon: <ReceiptLongIcon />, path: "/sales/quotations" },
       { text: "Sales Orders", icon: <PointOfSaleIcon />, path: "/sales/orders" },
       { text: "Sales Returns", icon: <AssignmentReturnIcon />, path: "/sales/returns" },
-      { text: "Customers", icon: <PeopleIcon />, path: "/sales/customers" },
     ],
   },
   {
@@ -231,7 +232,7 @@ export default function Sidebar({
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <AccountBalanceIcon fontSize="small" />
           <Typography variant="subtitle1" fontWeight={600} noWrap>
-            ERP System
+            TijaeroERP
           </Typography>
         </Box>
       </Toolbar>

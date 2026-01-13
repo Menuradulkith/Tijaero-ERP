@@ -1,0 +1,296 @@
+from datetime import date, datetime
+from enum import Enum
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
+
+class QuoteTypeEnum(str, Enum):
+    QUOTATION = "quotation"
+    PROFORMA = "proforma"
+
+
+class QuoteStatusEnum(str, Enum):
+    DRAFT = "draft"
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    SENT = "sent"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    CONVERTED = "converted"
+    CANCELLED = "cancelled"
+    REVISED = "revised"
+
+
+class DiscountTypeEnum(str, Enum):
+    NONE = "none"
+    PERCENTAGE = "percentage"
+    FIXED = "fixed"
+
+
+# ==================== Quote Item Schemas ====================
+
+
+class SalesQuoteItemBase(BaseModel):
+    """Base schema for quote items"""
+
+    product_id: int
+    quantity: int = Field(..., gt=0)
+    selling_price: float = Field(..., ge=0)
+    minimum_selling_price: float = Field(..., ge=0)
+    warrenty_month: str = Field(..., max_length=30)
+
+    # Quote specific
+    min_price: Optional[float] = Field(None, ge=0)  # For estimate range
+    max_price: Optional[float] = Field(None, ge=0)  # For estimate range
+    is_price_estimate: bool = False
+    description: Optional[str] = None
+    discount_percent: float = Field(default=0, ge=0, le=100)
+    tax_rate: float = Field(default=0, ge=0, le=100)
+    remark: Optional[str] = None
+
+
+class SalesQuoteItemCreate(SalesQuoteItemBase):
+    """Schema for creating a quote item"""
+
+    pass
+
+
+class SalesQuoteItemUpdate(BaseModel):
+    """Schema for updating a quote item"""
+
+    product_id: Optional[int] = None
+    quantity: Optional[int] = Field(None, gt=0)
+    selling_price: Optional[float] = Field(None, ge=0)
+    minimum_selling_price: Optional[float] = Field(None, ge=0)
+    warrenty_month: Optional[str] = Field(None, max_length=30)
+    min_price: Optional[float] = Field(None, ge=0)
+    max_price: Optional[float] = Field(None, ge=0)
+    is_price_estimate: Optional[bool] = None
+    description: Optional[str] = None
+    discount_percent: Optional[float] = Field(None, ge=0, le=100)
+    tax_rate: Optional[float] = Field(None, ge=0, le=100)
+    remark: Optional[str] = None
+
+
+class SalesQuoteItem(SalesQuoteItemBase):
+    """Schema for quote item response"""
+
+    id: int
+    quote_id: int
+    created_date: datetime
+    line_total: float
+
+    class Config:
+        from_attributes = True
+
+
+class SalesQuoteItemWithProduct(SalesQuoteItem):
+    """Schema for quote item with product details"""
+
+    product_name: Optional[str] = None
+    product_code: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ==================== Quote Schemas ====================
+
+
+class SalesQuoteBase(BaseModel):
+    """Base schema for sales quote"""
+
+    quote_type: QuoteTypeEnum = QuoteTypeEnum.QUOTATION
+    branch_code: str = Field(..., max_length=200)
+    customer_id: int
+    sale_rep_id: int
+    customer_agent_id: Optional[int] = None
+    valid_until: date
+    expected_delivery_date: Optional[date] = None
+
+    # Quote specific
+    is_estimate: bool = True  # True for quotation, False for proforma
+    payment_terms: Optional[str] = None
+    delivery_terms: Optional[str] = None
+
+    # Notes
+    remarks: Optional[str] = None
+    customer_notes: Optional[str] = None
+    terms_conditions: Optional[str] = None
+
+    # Discount
+    discount_type: DiscountTypeEnum = DiscountTypeEnum.NONE
+    discount_value: float = Field(default=0, ge=0)
+
+    # Flags
+    special: bool = False
+
+
+class SalesQuoteCreate(SalesQuoteBase):
+    """Schema for creating a sales quote"""
+
+    items: List[SalesQuoteItemCreate]
+
+
+class SalesQuoteUpdate(BaseModel):
+    """Schema for updating a sales quote"""
+
+    branch_code: Optional[str] = Field(None, max_length=200)
+    customer_id: Optional[int] = None
+    sale_rep_id: Optional[int] = None
+    customer_agent_id: Optional[int] = None
+    valid_until: Optional[date] = None
+    expected_delivery_date: Optional[date] = None
+
+    is_estimate: Optional[bool] = None
+    payment_terms: Optional[str] = None
+    delivery_terms: Optional[str] = None
+
+    remarks: Optional[str] = None
+    customer_notes: Optional[str] = None
+    terms_conditions: Optional[str] = None
+
+    discount_type: Optional[DiscountTypeEnum] = None
+    discount_value: Optional[float] = Field(None, ge=0)
+
+    special: Optional[bool] = None
+
+    items: Optional[List[SalesQuoteItemCreate]] = None
+
+
+class SalesQuoteStatusUpdate(BaseModel):
+    """Schema for updating quote status"""
+
+    status: QuoteStatusEnum
+    remarks: Optional[str] = None
+
+
+class SalesQuote(SalesQuoteBase):
+    """Schema for sales quote response"""
+
+    id: int
+    quote_no: str
+    created_date: date
+    created_date_time: datetime
+    status: QuoteStatusEnum
+    approval: bool
+    approval_id: Optional[int] = None
+    sys_code: Optional[int] = None
+    revision_number: int
+    parent_quote_id: Optional[int] = None
+
+    # Totals
+    subtotal: float
+    tax_amount: float
+    total_amount: float
+
+    # Conversion
+    converted_to_invoice_id: Optional[int] = None
+    converted_at: Optional[datetime] = None
+    converted_by: Optional[int] = None
+
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SalesQuoteWithItems(SalesQuote):
+    """Schema for sales quote with items"""
+
+    items: List[SalesQuoteItem] = []
+
+    class Config:
+        from_attributes = True
+
+
+class SalesQuoteDetail(SalesQuoteWithItems):
+    """Schema for detailed sales quote with related data"""
+
+    customer_name: Optional[str] = None
+    customer_agent_name: Optional[str] = None
+    sale_rep_name: Optional[str] = None
+    converted_invoice_no: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SalesQuoteList(BaseModel):
+    """Schema for paginated list of quotes"""
+
+    items: List[SalesQuote]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+# ==================== Conversion Schemas ====================
+
+
+class ConvertToInvoiceRequest(BaseModel):
+    """Schema for converting quote to invoice"""
+
+    payment_method: str = Field(..., max_length=30)
+    cash_amount: float = Field(default=0, ge=0)
+    card_visa_amount: float = Field(default=0, ge=0)
+    card_mastercard_amount: float = Field(default=0, ge=0)
+    card_amex_amount: float = Field(default=0, ge=0)
+    cheque_amount: float = Field(default=0, ge=0)
+    cheque_date: Optional[date] = None
+    bank_transfer_amount: float = Field(default=0, ge=0)
+    credit_amount: float = Field(default=0, ge=0)
+    payment_adjustments: float = Field(default=0)
+    remarks: Optional[str] = None
+
+
+class ConvertToInvoiceResponse(BaseModel):
+    """Response after converting quote to invoice"""
+
+    quote_id: int
+    quote_no: str
+    invoice_id: int
+    invoice_no: str
+    message: str
+
+
+# ==================== Revision Schema ====================
+
+
+class CreateRevisionRequest(BaseModel):
+    """Schema for creating a quote revision"""
+
+    remarks: Optional[str] = None  # Reason for revision
+
+
+class CreateRevisionResponse(BaseModel):
+    """Response after creating a revision"""
+
+    original_quote_id: int
+    original_quote_no: str
+    new_quote_id: int
+    new_quote_no: str
+    revision_number: int
+    message: str
+
+
+# ==================== Filter/Search Schemas ====================
+
+
+class SalesQuoteFilter(BaseModel):
+    """Schema for filtering quotes"""
+
+    quote_type: Optional[QuoteTypeEnum] = None
+    status: Optional[QuoteStatusEnum] = None
+    customer_id: Optional[int] = None
+    sale_rep_id: Optional[int] = None
+    branch_code: Optional[str] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    is_expired: Optional[bool] = None
+    search: Optional[str] = None  # Search in quote_no, customer name
+    search: Optional[str] = None  # Search in quote_no, customer name
