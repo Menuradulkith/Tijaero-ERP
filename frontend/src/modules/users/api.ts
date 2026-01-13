@@ -28,7 +28,10 @@ export interface UserList {
   username: string;
   email: string;
   first_name: string;
+  middle_name?: string;
   last_name: string;
+  gender: string;
+  birthdate: string;
   is_active: boolean;
   is_superuser: boolean;
   is_staff: boolean;
@@ -109,6 +112,16 @@ export const usersApi = {
   checkUsernameExists: async (username: string): Promise<boolean> => {
     try {
       const response = await apiClient.get(`/users/check-username/${username}`);
+      return response.data.exists;
+    } catch {
+      return false;
+    }
+  },
+
+  // Check if employee ID exists
+  checkEmployeeIdExists: async (employeeId: string): Promise<boolean> => {
+    try {
+      const response = await apiClient.get(`/users/check-employee-id/${employeeId}`);
       return response.data.exists;
     } catch {
       return false;

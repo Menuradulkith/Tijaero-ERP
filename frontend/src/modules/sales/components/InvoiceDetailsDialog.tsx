@@ -26,10 +26,11 @@ import {
 } from "@mui/icons-material";
 import { salesApi } from "../api";
 import { Invoice } from "../types";
-import { customersApi } from "@/modules/customers/api";
-import { productsApi } from "@/modules/inventory/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed customersApi, productsApi imports - using aggregated endpoint
 import { format } from "date-fns";
 import { useRef } from "react";
+import { modernTableStyles } from "@/components/tijaero";
 
 interface InvoiceDetailsDialogProps {
   open: boolean;
@@ -51,17 +52,10 @@ export default function InvoiceDetailsDialog({
     enabled: !!invoice?.id && open,
   });
 
-  const { data: customers } = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(),
-    enabled: open,
-  });
-
-  const { data: products } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-    enabled: open,
-  });
+  // OPTIMIZED: Single API call for customers and products (was 2 calls)
+  const { data: refData } = useReferenceData(["customers", "products"], { enabled: open });
+  const customers = refData?.customers || [];
+  const products = refData?.products || [];
 
   const customer = customers?.find((c) => c.id === invoiceDetails?.customer_id);
   const getProductName = (productId: number) => {
@@ -255,10 +249,10 @@ export default function InvoiceDetailsDialog({
             <Typography variant="subtitle2" color="text.secondary" gutterBottom>
               Order Items
             </Typography>
-            <Paper variant="outlined" sx={{ mb: 3 }}>
+            <Paper variant="outlined" sx={{ mb: 3, borderRadius: 2, border: "1px solid", borderColor: "divider", overflow: "hidden" }}>
               <Table size="small">
                 <TableHead>
-                  <TableRow sx={{ bgcolor: "grey.100" }}>
+                  <TableRow sx={modernTableStyles.headerRow}>
                     <TableCell>Product</TableCell>
                     <TableCell align="center">Qty</TableCell>
                     <TableCell align="right">Unit Price</TableCell>
@@ -268,8 +262,11 @@ export default function InvoiceDetailsDialog({
                 </TableHead>
                 <TableBody>
                   {invoiceDetails.items?.length > 0 ? (
-                    invoiceDetails.items.map((item) => (
-                      <TableRow key={item.id}>
+                    invoiceDetails.items.map((item, index) => (
+                      <TableRow key={item.id} sx={{ 
+                        ...modernTableStyles.bodyRow,
+                        ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                      }}>
                         <TableCell>{getProductName(item.product_id)}</TableCell>
                         <TableCell align="center">{item.quantity}</TableCell>
                         <TableCell align="right">Rs. {item.selling_price.toFixed(2)}</TableCell>
@@ -281,8 +278,8 @@ export default function InvoiceDetailsDialog({
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={5} align="center">
-                        <Typography color="text.secondary">No items found</Typography>
+                      <TableCell colSpan={5} sx={modernTableStyles.emptyCell}>
+                        No items found
                       </TableCell>
                     </TableRow>
                   )}

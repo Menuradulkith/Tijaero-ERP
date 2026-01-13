@@ -5,7 +5,8 @@ import {
   TStatCard,
   TStatusChip,
 } from "@/components/tijaero";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import {
   AttachMoney as MoneyIcon,
   People as PeopleIcon,
@@ -47,11 +48,9 @@ export default function SalesDashboard() {
     queryFn: () => saleReturnsApi.getAll(),
   });
 
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Using aggregated endpoint (was separate branchApi call)
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const isLoading = invoicesLoading || returnsLoading;
 

@@ -10,16 +10,10 @@ import {
   TCurrency,
   showSuccessToast,
   showErrorToast,
+  EXPENSES_METHOD,
 } from "@/components/tijaero";
 import { expensesApi } from "@/modules/finance/api";
 import { ExpenseCreate } from "@/modules/finance/types";
-
-const PAYMENT_METHODS = [
-  { value: "cash", label: "Cash" },
-  { value: "card", label: "Card" },
-  { value: "cheque", label: "Cheque" },
-  { value: "bank_transfer", label: "Bank Transfer" },
-];
 
 export default function ExpensesPage() {
   const queryClient = useQueryClient();
@@ -37,7 +31,7 @@ export default function ExpensesPage() {
   const { control, handleSubmit, reset } = useForm<ExpenseCreate>({
     defaultValues: {
       expenses_no: "",
-      expenses_method: "cash",
+      expenses_method: "meal_expenses",
       expense_amount: 0,
       remarks: "",
       branch_code: "",
@@ -86,7 +80,7 @@ export default function ExpensesPage() {
   const handleAdd = () => {
     reset({
       expenses_no: "",
-      expenses_method: "cash",
+      expenses_method: "meal_expenses",
       expense_amount: 0,
       remarks: "",
       branch_code: "",
@@ -143,10 +137,10 @@ export default function ExpensesPage() {
               <Controller
                 name="expenses_method"
                 control={control}
-                rules={{ required: "Payment method is required" }}
+                rules={{ required: "Expense type is required" }}
                 render={({ field, fieldState }) => (
-                  <TextField {...field} select label="Payment Method" required error={!!fieldState.error} helperText={fieldState.error?.message} fullWidth>
-                    {PAYMENT_METHODS.map((m) => (
+                  <TextField {...field} select label="Expense Type" required error={!!fieldState.error} helperText={fieldState.error?.message} fullWidth>
+                    {EXPENSES_METHOD.map((m) => (
                       <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                     ))}
                   </TextField>

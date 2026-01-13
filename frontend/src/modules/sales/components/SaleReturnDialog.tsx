@@ -23,7 +23,8 @@ import {
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { saleReturnsApi, salesApi } from "../api";
 import { Invoice, SaleReturnCreate } from "../types";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 import { format } from "date-fns";
 
@@ -52,12 +53,9 @@ export default function SaleReturnDialog({
     queryFn: () => salesApi.getAll(),
   });
 
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const { control, handleSubmit, watch, setValue, reset } = useForm<SaleReturnCreate>({
     defaultValues: {

@@ -432,6 +432,163 @@ class SupplierCreditService:
         
         return result
     
+    def check_po_credit(
+        self, 
+        db: Session, 
+        supplier_id: int, 
+        po_value: Decimal,
+        payment_method: str = "Credit"
+    ) -> Dict[str, Any]:
+        """
+        Soft check for Purchase Order creation.
+        
+        This is called when creating a PO to determine if it needs approval.
+        - If payment method is not Credit, always allowed
+        - If credit will exceed limit, PO is allowed but requires approval
+        
+        Returns:
+            POCreditCheckResponse-compatible dict
+        """
+        # If not a credit purchase, always allow
+        if payment_method.lower() != "credit":
+            return {
+                "can_save": True,
+                "requires_approval": False,
+                "suggested_status": "pending",
+                "credit_check": {
+                    "allowed": True,
+                    "requires_approval": False,
+                    "current_outstanding": 0,
+                    "po_value": float(po_value),
+                    "projected_outstanding": 0,
+                    "max_credit_limit": 0,
+                    "available_credit": 0,
+                    "will_exceed_limit": False,
+                    "excess_amount": 0,
+                    "overdue_count": 0,
+                    "has_overdue": False,
+                    "message": "Non-credit purchase - no credit check required",
+                    "warning_level": "none"
+                },
+                "message": "PO can be saved (non-credit purchase)"
+            }
+        
+        # Get supplier credit status
+        status = self.get_supplier_credit_status(db, supplier_id)
+        
+        projected_outstanding = status["outstanding_payable"] + float(po_value)
+        will_exceed = projected_outstanding > status["max_credit_limit"]
+        excess_amount = max(0, projected_outstanding - status["max_credit_limit"])
+        
+        # Determine warning level
+        warning_level = "none"
+        if will_exceed:
+            warning_level = "error"
+        elif status["overdue_count"] > 0:
+            warning_level = "warning"
+        elif projected_outstanding > status["max_credit_limit"] * 0.8:
+            warning_level = "warning"  # Over 80% usage
+        
+        credit_check = {
+            "allowed": True,  # PO is always allowed (soft check)
+            "requires_approval": will_exceed,
+            "current_outstanding": status["outstanding_payable"],
+            "po_value": float(po_value),
+            "projected_outstanding": projected_outstanding,
+            "max_credit_limit": status["max_credit_limit"],
+            "available_credit": status["available_credit"],
+            "will_exceed_limit": will_exceed,
+            "excess_amount": excess_amount,
+            "overdue_count": status["overdue_count"],
+            "has_overdue": status["overdue_count"] > 0,
+            "message": "",
+            "warning_level": warning_level
+        }
+        
+        # Set message
+        messages = []
+        if will_exceed:
+            messages.append(f"Credit limit will be exceeded by Rs. {excess_amount:,.2f}")
+        if status["overdue_count"] > 0:
+            messages.append(f"Warning: {status['overdue_count']} overdue payment(s) to this supplier")
+        
+        credit_check["message"] = ". ".join(messages) if messages else "Credit check passed"
+        
+        return {
+            "can_save": True,  # Soft check - always allow saving
+            "requires_approval": will_exceed,
+            "suggested_status": "pending_approval" if will_exceed else "pending",
+            "credit_check": credit_check,
+            "message": f"PO {'requires approval' if will_exceed else 'can be saved'}. {credit_check['message']}"
+        }
+    
+    def check_grn_credit(
+        self, 
+        db: Session, 
+        supplier_id: int, 
+        grn_value: Decimal,
+        allow_override: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Hard check for GRN posting.
+        
+        This is called when creating a GRN to determine if it can be posted.
+        - If credit will exceed limit, GRN is blocked unless override is provided
+        
+        Returns:
+            GRNCreditCheckResponse-compatible dict
+        """
+        # Get supplier credit status
+        status = self.get_supplier_credit_status(db, supplier_id)
+        
+        projected_outstanding = status["outstanding_payable"] + float(grn_value)
+        will_exceed = projected_outstanding > status["max_credit_limit"]
+        excess_amount = max(0, projected_outstanding - status["max_credit_limit"])
+        
+        # Determine warning level
+        warning_level = "none"
+        if will_exceed:
+            warning_level = "error"
+        elif status["overdue_count"] > 0:
+            warning_level = "warning"
+        
+        credit_check = {
+            "allowed": not will_exceed or allow_override,
+            "requires_approval": False,
+            "current_outstanding": status["outstanding_payable"],
+            "po_value": float(grn_value),
+            "projected_outstanding": projected_outstanding,
+            "max_credit_limit": status["max_credit_limit"],
+            "available_credit": status["available_credit"],
+            "will_exceed_limit": will_exceed,
+            "excess_amount": excess_amount,
+            "overdue_count": status["overdue_count"],
+            "has_overdue": status["overdue_count"] > 0,
+            "message": "",
+            "warning_level": warning_level
+        }
+        
+        # Set message
+        messages = []
+        if will_exceed:
+            if allow_override:
+                messages.append(f"Credit limit exceeded (override applied). Excess: Rs. {excess_amount:,.2f}")
+            else:
+                messages.append(f"Cannot post GRN: Credit limit exceeded by Rs. {excess_amount:,.2f}")
+        if status["overdue_count"] > 0:
+            messages.append(f"Warning: {status['overdue_count']} overdue payment(s)")
+        
+        credit_check["message"] = ". ".join(messages) if messages else "Credit check passed"
+        
+        can_post = not will_exceed or allow_override
+        
+        return {
+            "can_post": can_post,
+            "requires_override": will_exceed and not allow_override,
+            "credit_check": credit_check,
+            "message": credit_check["message"]
+        }
+    
     def update_supplier_credit_balance(self, db: Session, supplier_id: int):
         """
         Recalculate and update supplier's left_credit_amount.

@@ -291,6 +291,8 @@ export interface UseMasterDetailStateOptions<T extends BaseEntity, TCreate> {
   defaultSortField?: string;
   /** Alias for defaultSortField */
   initialSortField?: string;
+  /** Optional async function to confirm discarding unsaved changes (replaces window.confirm) */
+  confirmUnsavedChanges?: () => Promise<boolean>;
 }
 
 export interface UseMasterDetailStateReturn<T extends BaseEntity, TCreate> {
@@ -311,6 +313,7 @@ export interface UseMasterDetailStateReturn<T extends BaseEntity, TCreate> {
   setIsEditing: (editing: boolean) => void;
   isCreating: boolean;
   setIsCreating: (creating: boolean) => void;
+  readonly hasChanges: boolean;
   
   // Favorites
   favorites: number[];
@@ -320,10 +323,13 @@ export interface UseMasterDetailStateReturn<T extends BaseEntity, TCreate> {
   formData: TCreate;
   setFormData: React.Dispatch<React.SetStateAction<TCreate>>;
   updateFormField: <K extends keyof TCreate>(field: K, value: TCreate[K]) => void;
+  markAsSaved: () => void;
   
   // Handlers
-  handleSelectItem: (item: T) => void;
-  handleNew: () => void;
+  /** Select an item - returns true if selection succeeded, false if user cancelled */
+  handleSelectItem: (item: T) => Promise<boolean>;
+  /** Create new item - returns true if succeeded, false if user cancelled */
+  handleNew: () => Promise<boolean>;
   handleCancel: (filteredItems: T[]) => void;
   handleStartEdit: () => void;
   resetToItem: (item: T) => void;

@@ -1,7 +1,11 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import date
 from . import models, schemas, repository
 from fastapi import HTTPException, status
+
+# Configuration - Daily PO limit per branch
+DAILY_PO_LIMIT_PER_BRANCH = 5
 
 class SupplierService:
     def __init__(self, db: Session):
@@ -23,6 +27,41 @@ class SupplierService:
         return self.repo.get_all(filters)
     
     def update_supplier(self, supplier_id: int, supplier_update: schemas.SupplierUpdate) -> models.Supplier:
+        # If deactivating supplier, check for pending orders or outstanding credit
+        if supplier_update.active is False:
+            supplier = self.repo.get_by_id(supplier_id)
+            if not supplier:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Supplier with id {supplier_id} not found"
+                )
+            
+            # Check for pending purchase orders
+            from app.db.session import SessionLocal
+            db = SessionLocal()
+            try:
+                pending_orders = db.query(models.PurchasingOrder).filter(
+                    (models.PurchasingOrder.first_suppliers_id == supplier_id) | 
+                    (models.PurchasingOrder.second_suppliers_id == supplier_id),
+                    models.PurchasingOrder.status.in_(["pending", "approved"])
+                ).count()
+                
+                if pending_orders > 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot deactivate supplier '{supplier.full_name}': {pending_orders} pending purchase order(s) exist. Complete or cancel all pending orders first."
+                    )
+                
+                # Check for outstanding credit
+                if supplier.left_credit_amount and supplier.left_credit_amount < supplier.initial_credit_amount:
+                    outstanding = supplier.initial_credit_amount - supplier.left_credit_amount
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot deactivate supplier '{supplier.full_name}': Outstanding credit balance of Rs. {outstanding:,.2f}. Settle all dues first."
+                    )
+            finally:
+                db.close()
+        
         supplier = self.repo.update(supplier_id, supplier_update)
         if not supplier:
             raise HTTPException(
@@ -44,20 +83,102 @@ class PurchasingOrderService:
         self.repo = repository.PurchasingOrderRepository(db)
         self.supplier_repo = repository.SupplierRepository(db)
     
+    def check_daily_limit(self, branch_code: str, target_date: date = None) -> schemas.DailyPOLimitCheck:
+        """Check if branch has reached daily PO limit"""
+        if target_date is None:
+            target_date = date.today()
+        
+        count = self.repo.count_daily_orders_by_branch(branch_code, target_date)
+        remaining = max(0, DAILY_PO_LIMIT_PER_BRANCH - count)
+        can_create = count < DAILY_PO_LIMIT_PER_BRANCH
+        
+        if can_create:
+            message = f"Branch {branch_code} has created {count} PO(s) today. {remaining} remaining."
+        else:
+            message = f"Daily limit of {DAILY_PO_LIMIT_PER_BRANCH} POs reached for branch {branch_code}. Cannot create more POs today."
+        
+        return schemas.DailyPOLimitCheck(
+            branch_code=branch_code,
+            date=target_date,
+            count=count,
+            limit=DAILY_PO_LIMIT_PER_BRANCH,
+            remaining=remaining,
+            can_create=can_create,
+            message=message
+        )
+    
     def create_order(self, order: schemas.PurchasingOrderCreate) -> models.PurchasingOrder:
-        # Verify suppliers exist
-        if not self.supplier_repo.get_by_id(order.first_suppliers_id):
+        # Check daily limit for the branch
+        limit_check = self.check_daily_limit(order.branch_code)
+        if not limit_check.can_create:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=limit_check.message
+            )
+        
+        # Verify first supplier exists and is active
+        first_supplier = self.supplier_repo.get_by_id(order.first_suppliers_id)
+        if not first_supplier:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"First supplier with id {order.first_suppliers_id} not found"
             )
-        if not self.supplier_repo.get_by_id(order.second_suppliers_id):
+        if not first_supplier.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Supplier '{first_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
+            )
+        
+        # Verify second supplier exists and is active
+        second_supplier = self.supplier_repo.get_by_id(order.second_suppliers_id)
+        if not second_supplier:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Second supplier with id {order.second_suppliers_id} not found"
             )
+        if not second_supplier.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
+            )
         
-        return self.repo.create(order)
+        # Calculate PO total for credit check
+        from decimal import Decimal
+        po_total = sum(
+            Decimal(str(item.quantity)) * item.unit_price 
+            for item in order.items
+        ) if order.items else Decimal("0")
+        
+        # Soft credit check for credit purchases
+        initial_status = "pending"
+        credit_warning = None
+        
+        if order.payment_method.lower() == "credit":
+            from app.modules.purchasing.credit_service import SupplierCreditService
+            credit_service = SupplierCreditService()
+            credit_check = credit_service.check_po_credit(
+                self.db, order.first_suppliers_id, po_total, order.payment_method
+            )
+            
+            # If credit limit would be exceeded, set status to pending_approval
+            if credit_check["requires_approval"]:
+                initial_status = "pending_approval"
+                credit_warning = credit_check["credit_check"]["message"]
+        
+        # Create the order with determined status
+        created_order = self.repo.create(order, initial_status=initial_status)
+        
+        # Add credit warning to the response if applicable
+        if credit_warning:
+            # Store warning in remarks if not already there
+            if created_order.remarks:
+                created_order.remarks = f"[Credit Warning: {credit_warning}] {created_order.remarks}"
+            else:
+                created_order.remarks = f"[Credit Warning: {credit_warning}]"
+            self.db.commit()
+            self.db.refresh(created_order)
+        
+        return created_order
     
     def get_order(self, order_id: int) -> models.PurchasingOrder:
         order = self.repo.get_by_id(order_id)
@@ -72,6 +193,33 @@ class PurchasingOrderService:
         return self.repo.get_all(filters)
     
     def update_order(self, order_id: int, order_update: schemas.PurchasingOrderUpdate) -> models.PurchasingOrder:
+        # If updating suppliers, verify they are active
+        if order_update.first_suppliers_id is not None:
+            first_supplier = self.supplier_repo.get_by_id(order_update.first_suppliers_id)
+            if not first_supplier:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"First supplier with id {order_update.first_suppliers_id} not found"
+                )
+            if not first_supplier.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Supplier '{first_supplier.full_name}' is inactive. Please reactivate the supplier before updating the purchase order."
+                )
+        
+        if order_update.second_suppliers_id is not None:
+            second_supplier = self.supplier_repo.get_by_id(order_update.second_suppliers_id)
+            if not second_supplier:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Second supplier with id {order_update.second_suppliers_id} not found"
+                )
+            if not second_supplier.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier before updating the purchase order."
+                )
+        
         order = self.repo.update(order_id, order_update)
         if not order:
             raise HTTPException(
@@ -439,14 +587,19 @@ class GoodReceivedNoteService:
         self.repo = repository.GoodReceivedNoteRepository(db)
         self.db = db
     
-    def create(self, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
+    def create(self, grn: schemas.GoodReceivedNoteCreate, allow_credit_override: bool = False) -> models.GoodReceivedNote:
         """
         Create a GRN and update supplier credit.
         When goods are received on credit, supplier.left_credit_amount decreases.
+        
+        Args:
+            grn: GRN data
+            allow_credit_override: If True, allow GRN even if credit limit exceeded
         """
         from app.modules.purchasing.credit_service import SupplierCreditService
+        from decimal import Decimal
         
-        # Get PO to find supplier
+        # Get PO to find supplier and calculate value
         po = self.db.query(models.PurchasingOrder).filter(
             models.PurchasingOrder.id == grn.purchasingorders_id
         ).first()
@@ -456,6 +609,52 @@ class GoodReceivedNoteService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Purchase order {grn.purchasingorders_id} not found"
             )
+        
+        # Check if suppliers are active
+        first_supplier = self.db.query(models.Supplier).filter(
+            models.Supplier.id == po.first_suppliers_id
+        ).first()
+        
+        if first_supplier and not first_supplier.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot create GRN: Supplier '{first_supplier.full_name}' is inactive. Please reactivate the supplier first."
+            )
+        
+        second_supplier = self.db.query(models.Supplier).filter(
+            models.Supplier.id == po.second_suppliers_id
+        ).first()
+        
+        if second_supplier and not second_supplier.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot create GRN: Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier first."
+            )
+        
+        # Hard credit check for credit purchases
+        if po.payment_method and po.payment_method.lower() == "credit":
+            # Calculate PO value
+            po_items = self.db.query(models.PurchasingOrderItems).filter(
+                models.PurchasingOrderItems.purchasingorders_id == po.id
+            ).all()
+            
+            po_total = sum(
+                Decimal(str(item.quantity)) * item.unit_price 
+                for item in po_items
+            ) if po_items else Decimal("0")
+            
+            # Perform hard credit check
+            credit_service = SupplierCreditService()
+            credit_check = credit_service.check_grn_credit(
+                self.db, po.first_suppliers_id, po_total, allow_credit_override
+            )
+            
+            # Block if credit exceeded and no override
+            if not credit_check["can_post"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot post GRN: {credit_check['message']}. Current outstanding: Rs. {credit_check['credit_check']['current_outstanding']:,.2f}, Credit limit: Rs. {credit_check['credit_check']['max_credit_limit']:,.2f}. Contact manager for override."
+                )
         
         import uuid
         from sqlalchemy.exc import IntegrityError
@@ -570,7 +769,16 @@ class GoodReceivedNoteService:
         
         return result
     
+    def barcode_exists(self, barcode: str) -> bool:
+        """Check if barcode already exists in good_received_items table"""
+        return self.db.query(models.GoodReceivedItems).filter(
+            models.GoodReceivedItems.barcode == barcode
+        ).first() is not None
+    
     def create_item(self, item: schemas.GoodReceivedItemCreate) -> models.GoodReceivedItems:
+        # Check if barcode already exists
+        if self.barcode_exists(item.barcode):
+            raise ValueError(f"Barcode '{item.barcode}' already exists in Good Received Items")
         return self.repo.create_item(item)
 
 

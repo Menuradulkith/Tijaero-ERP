@@ -49,6 +49,12 @@ export {
   TDatePicker,
   TChip,
   TStatusChip,
+  TPrintButton,
+  getReportUrl,
+  canPrintDocument,
+  getPrintDisabledReason,
+  getStatusProps,
+  STATUS_MAPS,
   type TButtonProps,
   type TIconButtonProps,
   type TTextFieldProps,
@@ -59,6 +65,8 @@ export {
   type TDatePickerProps,
   type TChipProps,
   type TStatusChipProps,
+  type TPrintButtonProps,
+  type TPrintDocumentType,
 } from './base';
 
 // =============================================================================
@@ -95,6 +103,16 @@ export {
   TFormActions,
   TLineItemsTable,
   TFilterBar,
+  TFilterPanel,
+  TBranchFilter,
+  TSupplierFilter,
+  TStatusFilter,
+  PO_STATUS_FILTER_OPTIONS,
+  RETURN_STATUS_FILTER_OPTIONS,
+  GRN_STATUS_FILTER_OPTIONS,
+  INVOICE_STATUS_FILTER_OPTIONS,
+  SALES_STATUS_FILTER_OPTIONS,
+  SERVICE_JOB_STATUS_FILTER_OPTIONS,
   useFormState,
   type TFormFieldProps,
   type TFormSectionProps,
@@ -104,6 +122,13 @@ export {
   type TFilterBarProps,
   type TFilterConfig,
   type TLineItemColumn,
+  type TFilterPanelProps,
+  type TBranchFilterProps,
+  type TSupplierFilterProps,
+  type TStatusFilterProps,
+  type TFilterBranch,
+  type TFilterSupplier,
+  type TFilterStatusOption,
 } from './forms-extended';
 
 // =============================================================================
@@ -115,7 +140,10 @@ export {
   TLoadingSkeleton,
   TConfirmDialog,
   useTConfirmDialog,
+  useTConfirmDialog as useConfirmDialog,
   TEmptyState,
+  TRemarkDialog,
+  useRemarkDialog,
   showToast,
   showSuccessToast,
   showErrorToast,
@@ -126,6 +154,9 @@ export {
   type TLoadingSkeletonProps,
   type TConfirmDialogProps,
   type TEmptyStateProps,
+  type TRemarkDialogProps,
+  type UseRemarkDialogOptions,
+  type UseRemarkDialogReturn,
 } from './feedback-extended';
 
 // =============================================================================
@@ -173,6 +204,20 @@ export {
 } from './layout';
 
 // =============================================================================
+// STYLES - Reusable style utilities
+// =============================================================================
+export {
+  modernTableStyles,
+  modernTableContainerSx,
+  modernTableHeaderCellSx,
+  modernTableCellSx,
+  currencyCellSx,
+  numberCellSx,
+  actionCellSx,
+  getRowStyle,
+} from './styles';
+
+// =============================================================================
 // MASTER-DETAIL COMPONENTS - Pre-built master-detail patterns (legacy)
 // =============================================================================
 
@@ -199,3 +244,47 @@ export { FormSection } from "./forms";
 
 // Feedback (legacy - use TEmptyState for new code)
 export { EmptyState } from "./feedback";
+
+// =============================================================================
+// CONSTANTS - ERP Enums and Constants
+// =============================================================================
+export {
+  // Person/Employee choices
+  TITLE_CHOICES,
+  GENDER_CHOICES,
+  CIVIL_CHOICES,
+  OCCUPATION_CHOICES,
+  // Payment methods
+  CUSTOMER_PAYMENT_METHOD,
+  SUPPLIER_PAYMENT_METHOD,
+  SALES_RETURN_PAYMENT_METHOD,
+  PURCHASING_PAYMENT_METHOD,
+  GENERIC_PAYMENT_METHOD,
+  CARD_TYPE,
+  // Expenses
+  EXPENSES_METHOD,
+  // Product/Inventory
+  PRODUCT_ITEM_TYPE,
+  // Service Job
+  SERVICE_JOB_STATUS,
+  SERVICE_JOB_FAULT_TYPE,
+  // Helper functions
+  getChoiceLabel,
+  choicesToSelectOptions,
+  choicesToAutocompleteOptions,
+  // Types
+  type TitleChoice,
+  type GenderChoice,
+  type CivilChoice,
+  type OccupationChoice,
+  type CustomerPaymentMethod,
+  type SupplierPaymentMethod,
+  type SalesReturnPaymentMethod,
+  type PurchasingPaymentMethod,
+  type GenericPaymentMethod,
+  type CardType,
+  type ExpensesMethod,
+  type ProductItemType,
+  type ServiceJobStatus,
+  type ServiceJobFaultType,
+} from "./constants";

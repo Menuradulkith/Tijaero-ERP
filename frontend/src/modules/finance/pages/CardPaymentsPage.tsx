@@ -20,6 +20,7 @@ import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
 import { cardPaymentsApi } from "@/modules/finance/api";
 import { CardPaymentCreate } from "@/modules/finance/types";
+import { CARD_TYPE } from "@/components/tijaero";
 
 export default function CardPaymentsPage() {
   const queryClient = useQueryClient();
@@ -159,10 +160,9 @@ export default function CardPaymentsPage() {
                       error={!!fieldState.error}
                       helperText={fieldState.error?.message}
                     >
-                      <MenuItem value="VISA">Visa</MenuItem>
-                      <MenuItem value="MASTERCARD">Mastercard</MenuItem>
-                      <MenuItem value="AMEX">American Express</MenuItem>
-                      <MenuItem value="OTHER">Other</MenuItem>
+                      {CARD_TYPE.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                      ))}
                     </TextField>
                   )}
                 />

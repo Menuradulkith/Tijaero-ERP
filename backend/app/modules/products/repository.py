@@ -68,8 +68,11 @@ class CategoryRepository:
     def get_by_id(self, db: Session, category_id: int) -> Optional[Category]:
         return db.query(Category).filter(Category.id == category_id).first()
     
-    def get_all(self, db: Session, skip: int = 0, limit: int = 100) -> List[Category]:
-        return db.query(Category).filter(Category.active == True).offset(skip).limit(limit).all()
+    def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Category]:
+        query = db.query(Category)
+        if active_only:
+            query = query.filter(Category.active == True)
+        return query.offset(skip).limit(limit).all()
     
     def create(self, db: Session, category: CategoryCreate, created_by: int) -> Category:
         from datetime import datetime

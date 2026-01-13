@@ -153,6 +153,7 @@ class PurchasingReturnItem(PurchasingReturnItemBase):
     purchasingreturn_id: int
     branch_code: str
     added_date: datetime
+    product_name: Optional[str] = None  # Loaded from product relationship
     
     class Config:
         from_attributes = True
@@ -325,3 +326,49 @@ class SupplierCreditsSettle(SupplierCreditsSettleBase):
 
 class SupplierCreditsSettleWithTransactions(SupplierCreditsSettle):
     transactions: List[SupplierCreditsSettleTransaction] = []
+
+
+# Daily PO Limit Check Schema
+class DailyPOLimitCheck(BaseModel):
+    branch_code: str
+    date: date
+    count: int
+    limit: int
+    remaining: int
+    can_create: bool
+    message: str
+
+
+# Credit Check Schemas for PO and GRN
+class CreditCheckResult(BaseModel):
+    """Result of credit limit check"""
+    allowed: bool
+    requires_approval: bool = False
+    current_outstanding: float
+    po_value: float
+    projected_outstanding: float
+    max_credit_limit: float
+    available_credit: float
+    will_exceed_limit: bool
+    excess_amount: float
+    overdue_count: int
+    has_overdue: bool
+    message: str
+    warning_level: str = "none"  # none, warning, error
+
+
+class POCreditCheckResponse(BaseModel):
+    """Response for PO credit validation"""
+    can_save: bool
+    requires_approval: bool
+    suggested_status: str  # 'pending', 'pending_approval'
+    credit_check: CreditCheckResult
+    message: str
+
+
+class GRNCreditCheckResponse(BaseModel):
+    """Response for GRN credit validation"""
+    can_post: bool
+    requires_override: bool
+    credit_check: CreditCheckResult
+    message: str

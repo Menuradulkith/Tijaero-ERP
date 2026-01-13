@@ -1,5 +1,6 @@
 /**
  * PurchaseReturnsPage - Using Tijaero-style reusable components
+ * Refactored to use common purchasing components for better code reuse
  * With barcode scanning/validation for purchase returns
  */
 
@@ -24,8 +25,7 @@ import {
   Chip,
   CircularProgress,
   InputAdornment,
-  Switch,
-  FormControlLabel,
+  Alert,
 } from "@mui/material";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import AddIcon from "@mui/icons-material/Add";
@@ -37,6 +37,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import toast from "react-hot-toast";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
+// Import tijaero components
 import {
   MasterDetailLayout,
   SearchableList,
@@ -45,12 +46,22 @@ import {
   ActionToolbar,
   FormSection,
   EmptyState,
+  TFilterPanel,
+  TBranchFilter,
+  TStatusFilter,
+  RETURN_STATUS_FILTER_OPTIONS,
+  TStatusChip,
+  TPrintButton,
+  canPrintDocument,
+  getStatusProps,
   useMasterDetailState,
   SortOption,
+  modernTableStyles,
 } from "@/components/tijaero";
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import { 
   PurchasingReturn, 
   PurchasingReturnWithItems,
@@ -78,6 +89,9 @@ const INITIAL_FORM_DATA: PurchasingReturnCreate = {
 
 interface ReturnLineItem extends PurchasingReturnItemCreate {
   _id: string;
+  branch_code?: string;
+  added_date?: string;
+  product_name?: string;
 }
 
 const resetFormFromReturn = (ret: PurchasingReturn | PurchasingReturnWithItems): PurchasingReturnCreate => ({
@@ -112,15 +126,26 @@ export default function PurchaseReturnsPage() {
   const [lineItems, setLineItems] = useState<ReturnLineItem[]>([]);
   const [formStep, setFormStep] = useState(0);
   
+  // Confirm dialog for unsaved changes and delete actions
+  const confirmDialog = useConfirmDialog();
+  
+  // Validation state - track which fields have been touched/blurred
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  
+  // Mark field as touched when user leaves it
+  const handleBlur = (fieldName: string) => {
+    setTouched(prev => ({ ...prev, [fieldName]: true }));
+  };
+  
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
   // Barcode scanning states
   const [barcodeInput, setBarcodeInput] = useState("");
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validatedItems, setValidatedItems] = useState<ValidatedItem[]>([]);
-  const [requireApproval, setRequireApproval] = useState(true);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -146,6 +171,13 @@ export default function PurchaseReturnsPage() {
     resetFormFromItem: resetFormFromReturn,
     favoritesKey: "purchase_returns_favorites",
     defaultSortField: "added_date",
+    confirmUnsavedChanges: () => confirmDialog.confirm({
+      title: "Discard Changes",
+      message: "You have unsaved changes. Discard them?",
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      confirmColor: "warning",
+    }),
   });
 
   const handleNewReturn = useCallback(() => {
@@ -159,7 +191,7 @@ export default function PurchaseReturnsPage() {
     setBarcodeInput("");
     setValidationError(null);
     setValidatedItems([]);
-    setRequireApproval(true);
+    setTouched({}); // Reset validation state
   }, [handleNewReturnBase, setFormData]);
 
   const handleStartEdit = useCallback(() => {
@@ -167,6 +199,7 @@ export default function PurchaseReturnsPage() {
     setFormStep(0);
     setBarcodeInput("");
     setValidationError(null);
+    setTouched({}); // Reset validation state
     // @ts-ignore
     if (selectedReturn?.items) {
       // @ts-ignore
@@ -188,30 +221,39 @@ export default function PurchaseReturnsPage() {
     setBarcodeInput("");
     setValidationError(null);
     setValidatedItems([]);
+    setTouched({}); // Reset validation state
   }, [handleCancelBase]);
 
-  const handleSelectReturnWithItems = useCallback((ret: PurchasingReturn) => {
-    handleSelectReturn(ret);
+  // Handler that wraps hook's handler (which already handles unsaved changes confirm)
+  const handleSelectReturnWithItems = useCallback(async (ret: PurchasingReturn) => {
+    const selected = await handleSelectReturn(ret);
+    if (!selected) return; // User cancelled
+    
+    // Load detailed items after selection
+    setTouched({});
     setBarcodeInput("");
     setValidationError(null);
     setValidatedItems([]);
-    // Fetch detailed return with items
-    purchaseReturnsApi.getById(ret.id).then((detailedReturn) => {
+    try {
+      const detailedReturn = await purchaseReturnsApi.getById(ret.id);
       if (detailedReturn.items) {
-        setLineItems(detailedReturn.items.map((item, idx) => ({
+        setLineItems(detailedReturn.items.map((item: any, idx: number) => ({
           _id: `existing-${idx}`,
           product_id: item.product_id,
           purchasing_price: item.purchasing_price,
           return_price: item.return_price,
           barcode: item.barcode,
           sales_stock_id: item.sales_stock_id,
+          branch_code: item.branch_code,
+          added_date: item.added_date,
+          product_name: item.product_name,
         })));
       } else {
         setLineItems([]);
       }
-    }).catch(() => {
+    } catch {
       setLineItems([]);
-    });
+    }
   }, [handleSelectReturn]);
 
   const { data: returns, isLoading, refetch } = useQuery({
@@ -224,11 +266,9 @@ export default function PurchaseReturnsPage() {
     queryFn: () => goodReceivedNotesApi.getAll(),
   });
 
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Use aggregated endpoint for branches
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const filteredReturns = useMemo(() => {
     if (!returns) return [];
@@ -244,6 +284,11 @@ export default function PurchaseReturnsPage() {
       filtered = filtered.filter(ret => ret.branch_code === filterBranch);
     }
 
+    // Apply status filter
+    if (filterStatus) {
+      filtered = filtered.filter(ret => ret.status === filterStatus);
+    }
+
     filtered.sort((a, b) => {
       if (sortField === "added_date") {
         return new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
@@ -254,7 +299,7 @@ export default function PurchaseReturnsPage() {
     });
 
     return filtered;
-  }, [returns, searchQuery, sortField, filterBranch]);
+  }, [returns, searchQuery, sortField, filterBranch, filterStatus]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -282,6 +327,8 @@ export default function PurchaseReturnsPage() {
     const grn = grns?.find((g: GoodReceivedNote) => g.id === grnId);
     return grn ? grn.good_received_no : "Unknown";
   }, [grns]);
+
+  // getStatusColor is now imported from common components and uses RETURN_STATUS_OPTIONS
 
   // Barcode validation handler
   const handleValidateBarcode = useCallback(async (barcode: string) => {
@@ -396,17 +443,18 @@ export default function PurchaseReturnsPage() {
   const handleSave = useCallback(() => {
     const dataToSave: PurchasingReturnCreate = {
       ...formData,
-      items: lineItems.map(({ _id, ...item }) => item),
-      require_approval: requireApproval,
+      items: lineItems.map(({ _id, branch_code, added_date, product_name, ...item }) => item),
+      require_approval: true, // Approval is always required for purchase returns
     };
 
     if (isCreating) {
       createMutation.mutate(dataToSave);
     }
     // Note: Update not supported by current API
-  }, [isCreating, formData, lineItems, createMutation, requireApproval]);
+  }, [isCreating, formData, lineItems, createMutation]);
 
-  const confirmDialog = useConfirmDialog();
+  // Completely prevent deletion of approved returns - delete button won't show
+  const canDelete = selectedReturn?.status !== "approved";
 
   const handleDelete = useCallback(async () => {
     if (selectedReturn) {
@@ -445,12 +493,38 @@ export default function PurchaseReturnsPage() {
   }, [selectedReturn, setFormData, handleNewReturnBase]);
 
   const calculateTotal = () => {
-    return lineItems.reduce((sum, item) => sum + item.return_price, 0);
+    return lineItems.reduce((sum, item) => sum + (Number(item.return_price) || 0), 0);
   };
 
   const getBranchDisplay = (branchCode: string) => {
     const branch = branches.find((b) => b.branch_code === branchCode);
     return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
+  };
+
+  // Validation error messages
+  const getFieldError = (fieldName: string): string | undefined => {
+    if (!touched[fieldName] && !isCreating) return undefined;
+    
+    switch (fieldName) {
+      case 'purchasing_return_no':
+        if (!formData.purchasing_return_no) return 'Return number is required';
+        break;
+      case 'goodreceivednote_id':
+        if (!formData.goodreceivednote_id || formData.goodreceivednote_id === 0) return 'GRN selection is required';
+        break;
+      case 'branch_code':
+        if (!formData.branch_code) return 'Branch is required';
+        break;
+      case 'lineItems':
+        if (lineItems.length === 0) return 'At least one item is required';
+        break;
+    }
+    return undefined;
+  };
+
+  // Check if a field has an error (for styling)
+  const hasError = (fieldName: string): boolean => {
+    return !!getFieldError(fieldName);
   };
 
   // Step 1 validation
@@ -486,18 +560,18 @@ export default function PurchaseReturnsPage() {
       onSelectItem={handleSelectReturnWithItems}
       emptyMessage="No purchase returns found"
       listHeader={
-        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
-          <Autocomplete
-            size="small"
-            options={branches}
-            getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-            value={branches.find(b => b.branch_code === filterBranch) || null}
-            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
-            renderInput={(params) => (
-              <TextField {...params} label="Filter by Branch" placeholder="All Branches" />
-            )}
+        <TFilterPanel>
+          <TStatusFilter
+            options={RETURN_STATUS_FILTER_OPTIONS}
+            value={filterStatus}
+            onChange={setFilterStatus}
           />
-        </Box>
+          <TBranchFilter
+            branches={branches}
+            value={filterBranch}
+            onChange={setFilterBranch}
+          />
+        </TFilterPanel>
       }
       renderItem={(ret, isSelected) => (
         <SelectableListItem
@@ -545,12 +619,7 @@ export default function PurchaseReturnsPage() {
                   </Box>
                   {/* Status Chips - shown below all fields when selected */}
                   <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label="Returned"
-                      size="small"
-                      color="warning"
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
+                    <TStatusChip status={ret.status || "pending"} statusMap="purchaseReturn" size="small" />
                   </Box>
                 </>
               )}
@@ -559,7 +628,7 @@ export default function PurchaseReturnsPage() {
           secondaryText={!isSelected ? `GRN: ${getGRNNumber(ret.goodreceivednote_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
           isFavorite={favorites.includes(ret.id)}
           onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
-          statusChip={!isSelected ? { label: "Returned", color: "warning" } : undefined}
+          statusChip={!isSelected ? { label: getStatusProps(ret.status || "pending", "purchaseReturn").label, color: getStatusProps(ret.status || "pending", "purchaseReturn").color } : undefined}
         />
       )}
     />
@@ -590,12 +659,23 @@ export default function PurchaseReturnsPage() {
         isEditing={isEditing}
         isSaving={isSaving}
         isFormValid={!!isFormValid}
+        canDelete={canDelete}
         onNew={handleNewReturn}
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredReturns)}
         onEdit={handleStartEdit}
+        endActions={
+          selectedReturn && !isCreating && !isEditing ? (
+            <TPrintButton
+              documentType="purchase-return"
+              documentId={selectedReturn.id}
+              disabled={!canPrintDocument(selectedReturn.status)}
+              disabledReason="Cannot print draft/pending returns"
+            />
+          ) : undefined
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -623,8 +703,11 @@ export default function PurchaseReturnsPage() {
                     size="small"
                     value={formData.purchasing_return_no}
                     onChange={(e) => setFormData({ ...formData, purchasing_return_no: e.target.value })}
+                    onBlur={() => handleBlur('purchasing_return_no')}
                     disabled={!isEditing && !isCreating}
                     required
+                    error={hasError('purchasing_return_no')}
+                    helperText={getFieldError('purchasing_return_no')}
                   />
                   <Autocomplete
                     size="small"
@@ -641,10 +724,17 @@ export default function PurchaseReturnsPage() {
                       } else {
                         setFormData({ ...formData, goodreceivednote_id: 0 });
                       }
+                      handleBlur('goodreceivednote_id');
                     }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
-                      <TextField {...params} label="Good Received Note" required />
+                      <TextField 
+                        {...params} 
+                        label="Good Received Note" 
+                        required 
+                        error={hasError('goodreceivednote_id')}
+                        helperText={getFieldError('goodreceivednote_id')}
+                      />
                     )}
                   />
                   <TextField
@@ -760,30 +850,17 @@ export default function PurchaseReturnsPage() {
                       </Button>
                     </Box>
 
-                    {/* Approval Workflow Option */}
+                    {/* Note: Approval is always required for purchase returns */}
                     <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={requireApproval}
-                            onChange={(e) => setRequireApproval(e.target.checked)}
-                            color="primary"
-                          />
-                        }
-                        label={
-                          <Typography variant="body2">
-                            Require approval before processing return
-                            {requireApproval && (
-                              <Chip 
-                                label="Pending Approval" 
-                                size="small" 
-                                color="warning" 
-                                sx={{ ml: 1 }} 
-                              />
-                            )}
-                          </Typography>
-                        }
-                      />
+                      <Typography variant="body2" color="text.secondary">
+                        <Chip 
+                          label="Requires Approval" 
+                          size="small" 
+                          color="warning" 
+                          sx={{ mr: 1 }} 
+                        />
+                        All purchase returns require approval before processing
+                      </Typography>
                     </Box>
 
                     {/* Scanned Items Summary */}
@@ -818,13 +895,23 @@ export default function PurchaseReturnsPage() {
                     </IconButton>
                   )}
                 </Box>
+                
+                {/* Warning for empty items */}
+                {(isEditing || isCreating) && lineItems.length === 0 && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    At least one item is required to save the return. Scan barcodes to add items.
+                  </Alert>
+                )}
+                
                 <Box>
-              <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+              <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
                 <Table size="small">
                   <TableHead>
-                    <TableRow sx={{ bgcolor: "action.hover" }}>
+                    <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Barcode</TableCell>
                       <TableCell>Product</TableCell>
+                      <TableCell>Branch Code</TableCell>
+                      <TableCell>Added Date</TableCell>
                       <TableCell align="right" sx={{ width: 120 }}>Purchase Price</TableCell>
                       <TableCell align="right" sx={{ width: 120 }}>Return Price</TableCell>
                       {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
@@ -833,19 +920,20 @@ export default function PurchaseReturnsPage() {
                   <TableBody>
                     {lineItems.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={isEditing || isCreating ? 5 : 4} align="center">
-                          <Typography variant="body2" color="text.secondary" py={2}>
-                            {(isEditing || isCreating) 
-                              ? "Scan barcodes above to add items" 
-                              : "No items added yet"}
-                          </Typography>
+                        <TableCell colSpan={isEditing || isCreating ? 7 : 6} sx={modernTableStyles.emptyCell}>
+                          {(isEditing || isCreating) 
+                            ? "Scan barcodes above to add items" 
+                            : "No items added yet"}
                         </TableCell>
                       </TableRow>
                     ) : (
-                      lineItems.map((item) => {
+                      lineItems.map((item, index) => {
                         const validatedItem = validatedItems.find(v => v.barcode === item.barcode);
                         return (
-                        <TableRow key={item._id}>
+                        <TableRow key={item._id} sx={{ 
+                          ...modernTableStyles.bodyRow,
+                          ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                        }}>
                           <TableCell>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                               {validatedItem && (
@@ -867,6 +955,8 @@ export default function PurchaseReturnsPage() {
                           <TableCell>
                             {validatedItem ? (
                               <Typography variant="body2">{validatedItem.product_name}</Typography>
+                            ) : item.product_name ? (
+                              <Typography variant="body2">{item.product_name}</Typography>
                             ) : (isEditing || isCreating) ? (
                               <TextField
                                 size="small"
@@ -880,6 +970,12 @@ export default function PurchaseReturnsPage() {
                               `#${item.product_id}`
                             )}
                           </TableCell>
+                          <TableCell>
+                            {validatedItem?.branch_code || item.branch_code || formData.branch_code || "-"}
+                          </TableCell>
+                          <TableCell>
+                            {item.added_date ? new Date(item.added_date).toLocaleDateString() : (isCreating ? "New" : "-")}
+                          </TableCell>
                           <TableCell align="right">
                             {(isEditing || isCreating) ? (
                               <TextField
@@ -891,7 +987,7 @@ export default function PurchaseReturnsPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              `Rs. ${Number(item.purchasing_price).toFixed(2)}`
+                              `Rs. ${(Number(item.purchasing_price) || 0).toFixed(2)}`
                             )}
                           </TableCell>
                           <TableCell align="right">
@@ -899,13 +995,13 @@ export default function PurchaseReturnsPage() {
                               <TextField
                                 size="small"
                                 type="number"
-                                value={item.return_price}
+                                value={item.return_price ?? 0}
                                 onChange={(e) => handleUpdateLineItem(item._id, "return_price", parseFloat(e.target.value) || 0)}
                                 sx={{ width: 100 }}
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              `Rs. ${Number(item.return_price).toFixed(2)}`
+                              `Rs. ${(Number(item.return_price) || 0).toFixed(2)}`
                             )}
                           </TableCell>
                           {(isEditing || isCreating) && (
@@ -919,11 +1015,11 @@ export default function PurchaseReturnsPage() {
                       );})
                     )}
                     <TableRow sx={{ bgcolor: "action.hover" }}>
-                      <TableCell colSpan={isEditing || isCreating ? 3 : 3} align="right">
+                      <TableCell colSpan={isEditing || isCreating ? 5 : 5} align="right">
                         <Typography fontWeight="bold">Total Return:</Typography>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography fontWeight="bold">Rs. {calculateTotal().toFixed(2)}</Typography>
+                        <Typography fontWeight="bold">Rs. {(calculateTotal() || 0).toFixed(2)}</Typography>
                       </TableCell>
                       {(isEditing || isCreating) && <TableCell />}
                     </TableRow>

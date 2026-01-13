@@ -4,17 +4,20 @@ import apiClient from "@/api/client";
 export interface Location {
   id: number;
   name: string;
+  branch_code: string;
   created_date: string;
 }
 
 export interface LocationCreate {
   name: string;
+  branch_code: string;
 }
 
 // Locations API
 export const locationsApi = {
-  getAll: async () => {
-    const response = await apiClient.get<Location[]>("/common/locations");
+  getAll: async (branchCode?: string) => {
+    const params = branchCode ? { branch_code: branchCode } : {};
+    const response = await apiClient.get<Location[]>("/common/locations", { params });
     return response.data;
   },
 

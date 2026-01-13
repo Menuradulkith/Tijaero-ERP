@@ -1,5 +1,10 @@
 /**
  * GoodReceivedNotesPage - Using Tijaero-style reusable components
+ * Refactored to use common purchasing components for better code reuse
+ * 
+ * OPTIMIZED: Uses aggregated reference data endpoint
+ * BEFORE: 4 separate API calls (locations, branches, purchaseOrders, grns)
+ * AFTER: 3 API calls (reference-data with locations/branches, purchaseOrders, grns)
  */
 
 import { useMemo, useCallback, useState, useEffect, useRef } from "react";
@@ -33,6 +38,11 @@ import {
   Checkbox,
   FormControlLabel,
   FormGroup,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AddIcon from "@mui/icons-material/Add";
@@ -47,8 +57,13 @@ import BusinessIcon from "@mui/icons-material/Business";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import SaveIcon from "@mui/icons-material/Save";
+import PrintIcon from "@mui/icons-material/Print";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import toast from "react-hot-toast";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { usePermission } from "@/auth/permissions";
 
+// Import tijaero components
 import {
   MasterDetailLayout,
   SearchableList,
@@ -57,14 +72,17 @@ import {
   ActionToolbar,
   FormSection,
   EmptyState,
+  TFilterPanel,
+  TBranchFilter,
   useMasterDetailState,
   SortOption,
+  modernTableStyles,
 } from "@/components/tijaero";
 
 import { goodReceivedNotesApi, goodReceivedItemsApi, purchaseOrdersApi } from "@/modules/purchasing/api";
-import { locationsApi, Location } from "@/modules/common/api";
-import { branchApi } from "@/modules/branches/api";
-import { productsApi, salesStockApi, companyAssetsApi } from "@/modules/inventory/api";
+import { useReferenceData } from "@/hooks";
+import { locationsApi } from "@/modules/common/api";
+import { salesStockApi, companyAssetsApi, productsApi } from "@/modules/inventory/api";
 import { Product } from "@/modules/inventory/types";
 import { formatCurrency } from "@/utils/formatters";
 import { 
@@ -83,6 +101,13 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 
 const FORM_STEPS = ["GRN Information", "Received Items"];
+
+// Location type for reference data
+interface Location {
+  id: number;
+  name: string;
+  branch_code: string;
+}
 
 const generateGRNNo = () => `GRN-${Date.now().toString(36).toUpperCase()}`;
 
@@ -146,6 +171,30 @@ export default function GoodReceivedNotesPage() {
   const [activeScanItem, setActiveScanItem] = useState<string | null>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   
+  // Track barcode validation state for debouncing
+  const barcodeValidationTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  
+  // Credit limit override state
+  const [creditLimitDialog, setCreditLimitDialog] = useState<{
+    open: boolean;
+    errorMessage: string;
+    pendingData: GoodReceivedNoteCreate | null;
+  }>({ open: false, errorMessage: "", pendingData: null });
+  
+  // Check if user can override credit limit
+  const canOverrideCredit = usePermission("purchasing", "credit_override");
+  
+  // Confirm dialog for unsaved changes and delete actions
+  const confirmDialog = useConfirmDialog();
+  
+  // Validation state - track which fields have been touched/blurred
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  
+  // Mark field as touched when user leaves it
+  const handleBlur = (fieldName: string) => {
+    setTouched(prev => ({ ...prev, [fieldName]: true }));
+  };
+  
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
@@ -172,19 +221,30 @@ export default function GoodReceivedNotesPage() {
     resetFormFromItem: resetFormFromGRN,
     favoritesKey: "grn_favorites",
     defaultSortField: "good_received_date",
+    confirmUnsavedChanges: () => confirmDialog.confirm({
+      title: "Discard Changes",
+      message: "You have unsaved changes. Discard them?",
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      confirmColor: "warning",
+    }),
   });
 
-  // Fetch locations
-  const { data: locations } = useQuery({
-    queryKey: ["locations"],
-    queryFn: () => locationsApi.getAll(),
-  });
+  // OPTIMIZED: Fetch locations and branches in a single call
+  const { data: refData } = useReferenceData(["locations", "branches"]);
+  
+  // Filter locations for the selected branch from the aggregated data
+  const locations = useMemo(() => {
+    if (!refData?.locations || !formData.branch_code) return [];
+    return (refData.locations as Location[]).filter(
+      (loc) => loc.branch_code === formData.branch_code
+    );
+  }, [refData?.locations, formData.branch_code]);
 
-  // Fetch branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
+  // Get all branches from reference data
+  const branchesData = useMemo(() => {
+    return { items: refData?.branches || [] };
+  }, [refData?.branches]);
 
   const handleNewGRN = useCallback(() => {
     handleNewGRNBase();
@@ -194,6 +254,7 @@ export default function GoodReceivedNotesPage() {
     }));
     setLineItems([]);
     setFormStep(0);
+    setTouched({}); // Reset validation state
   }, [handleNewGRNBase, setFormData]);
 
   // Load GRN items when selecting a GRN
@@ -247,10 +308,16 @@ export default function GoodReceivedNotesPage() {
     handleCancelBase(items);
     setLineItems([]);
     setFormStep(0);
+    setTouched({}); // Reset validation state
   }, [handleCancelBase]);
 
-  const handleSelectGRNWithItems = useCallback((grn: GoodReceivedNote) => {
-    handleSelectGRN(grn);
+  // Handler that wraps hook's handler (which already handles unsaved changes confirm)
+  const handleSelectGRNWithItems = useCallback(async (grn: GoodReceivedNote) => {
+    const selected = await handleSelectGRN(grn);
+    if (!selected) return; // User cancelled
+    
+    // Load detailed items after selection
+    setTouched({});
     loadGRNItems(grn.id);
   }, [handleSelectGRN, loadGRNItems]);
 
@@ -298,21 +365,69 @@ export default function GoodReceivedNotesPage() {
   }, [filteredGRNs, selectedGRN, isCreating]);
 
   const createMutation = useMutation({
-    mutationFn: async (data: GoodReceivedNoteCreate) => {
-      // First create the GRN
-      const newGRN = await goodReceivedNotesApi.create(data);
+    mutationFn: async ({ data, allowCreditOverride = false }: { data: GoodReceivedNoteCreate; allowCreditOverride?: boolean }) => {
+      // Check for any items still being validated (Checking... state)
+      const itemsStillChecking = lineItems.filter(item => item.barcodeError === "Checking...");
+      if (itemsStillChecking.length > 0) {
+        throw new Error("Please wait - some barcodes are still being validated");
+      }
       
-      // Get items with barcodes to save - exclude items with barcode errors
-      const itemsToSave = lineItems.filter(item => item.barcode && !item.barcodeError);
+      // Check for any barcode errors before saving (excluding "Checking..." which we already handled)
+      const itemsWithErrors = lineItems.filter(item => item.barcodeError && item.barcodeError !== "Checking...");
+      if (itemsWithErrors.length > 0) {
+        const errorDetails = itemsWithErrors.map(i => `${i.barcode}: ${i.barcodeError}`).join("; ");
+        throw new Error(`Cannot save: ${itemsWithErrors.length} item(s) have barcode errors - ${errorDetails}`);
+      }
+      
+      // Get items with barcodes to save
+      const itemsToSave = lineItems.filter(item => item.barcode);
+      
+      if (itemsToSave.length === 0) {
+        throw new Error("No items with barcodes to save. Please scan barcodes for items.");
+      }
+      
+      // Final validation: Check ALL barcodes one more time before saving (critical safety check)
+      // Check against ALL three tables: good_received_items, sales_stock, company_assets
+      console.log("Performing final barcode validation for", itemsToSave.length, "items");
+      const barcodeValidationPromises = itemsToSave.map(async (item) => {
+        try {
+          // Check good_received_items first
+          const grnResult = await goodReceivedItemsApi.checkBarcodeExists(item.barcode);
+          if (grnResult.exists) {
+            return { barcode: item.barcode, error: "already exists in GRN Items" };
+          }
+          // Check sales_stock
+          const salesResult = await salesStockApi.checkBarcodeExists(item.barcode);
+          if (salesResult.exists) {
+            return { barcode: item.barcode, error: "already exists in Sales Stock" };
+          }
+          // Check company_assets
+          const assetsResult = await companyAssetsApi.checkBarcodeExists(item.barcode);
+          if (assetsResult.exists) {
+            return { barcode: item.barcode, error: "already exists in Company Assets" };
+          }
+          return null;
+        } catch (error) {
+          console.error(`Barcode validation error for ${item.barcode}:`, error);
+          // On API error, treat as potential duplicate (fail-safe)
+          return { barcode: item.barcode, error: "validation failed - cannot verify" };
+        }
+      });
+      
+      const validationResults = await Promise.all(barcodeValidationPromises);
+      const duplicates = validationResults.filter(r => r !== null);
+      
+      if (duplicates.length > 0) {
+        const errorMsg = duplicates.map(d => `${d!.barcode} ${d!.error}`).join(", ");
+        throw new Error(`Cannot save GRN: Duplicate barcodes found - ${errorMsg}`);
+      }
+      
+      // First create the GRN (with credit override if authorized)
+      const newGRN = await goodReceivedNotesApi.create(data, allowCreditOverride);
+      
       let grnItemCount = 0;
       let salesStockCount = 0;
       let companyAssetCount = 0;
-      
-      // Check for any barcode errors before saving
-      const itemsWithErrors = lineItems.filter(item => item.barcodeError);
-      if (itemsWithErrors.length > 0) {
-        throw new Error(`Cannot save: ${itemsWithErrors.length} item(s) have duplicate barcodes`);
-      }
       
       for (const item of itemsToSave) {
         // Step 1: Always save to good_received_items table first
@@ -371,10 +486,23 @@ export default function GoodReceivedNotesPage() {
       setIsEditing(false);
       setLineItems([]);
       setProductGroups([]);
+      setCreditLimitDialog({ open: false, errorMessage: "", pendingData: null });
       setTimeout(() => handleSelectGRNWithItems(newGRN), 0);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || error.message || "Failed to create GRN");
+    onError: (error: any, variables) => {
+      const errorDetail = error.response?.data?.detail || error.message || "Failed to create GRN";
+      
+      // Check if this is a credit limit error
+      if (errorDetail.includes("Cannot post GRN:") && errorDetail.includes("Credit limit")) {
+        // Show credit limit dialog for authorized users to override
+        setCreditLimitDialog({
+          open: true,
+          errorMessage: errorDetail,
+          pendingData: variables.data,
+        });
+      } else {
+        toast.error(errorDetail);
+      }
     },
   });
 
@@ -416,13 +544,29 @@ export default function GoodReceivedNotesPage() {
     ));
   };
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback((allowCreditOverride = false) => {
     if (isCreating) {
-      createMutation.mutate(formData);
+      createMutation.mutate({ data: formData, allowCreditOverride });
     } else if (selectedGRN) {
       updateMutation.mutate({ id: selectedGRN.id, data: formData });
     }
   }, [isCreating, selectedGRN, formData, createMutation, updateMutation]);
+  
+  // Button click handler that calls handleSave with default parameters
+  const handleSaveClick = useCallback(() => {
+    handleSave(false);
+  }, [handleSave]);
+  
+  // Handle credit limit override confirmation
+  const handleCreditOverrideConfirm = useCallback(() => {
+    if (creditLimitDialog.pendingData) {
+      createMutation.mutate({ data: creditLimitDialog.pendingData, allowCreditOverride: true });
+    }
+  }, [creditLimitDialog.pendingData, createMutation]);
+  
+  const handleCreditDialogClose = useCallback(() => {
+    setCreditLimitDialog({ open: false, errorMessage: "", pendingData: null });
+  }, []);
 
   const getOrderNumber = (orderId: number) => {
     const order = purchaseOrders?.find((o: PurchasingOrder) => o.id === orderId);
@@ -442,10 +586,23 @@ export default function GoodReceivedNotesPage() {
   const handlePOChange = async (poId: number) => {
     const selectedPO = purchaseOrders?.find((o: PurchasingOrder) => o.id === poId);
     if (selectedPO) {
+      // Fetch locations for the PO's branch to auto-select the first one
+      let selectedLocationId = formData.good_received_locations_id;
+      try {
+        const branchLocations = await locationsApi.getAll(selectedPO.branch_code);
+        if (branchLocations && branchLocations.length > 0) {
+          selectedLocationId = branchLocations[0].id;
+        }
+      } catch (error) {
+        console.error("Failed to fetch branch locations:", error);
+      }
+      
       setFormData({ 
         ...formData, 
         purchasingorders_id: poId,
-        branch_code: selectedPO.branch_code 
+        branch_code: selectedPO.branch_code,
+        good_received_date: selectedPO.good_received_note_date?.split("T")[0] || new Date().toISOString().split("T")[0],
+        good_received_locations_id: selectedLocationId
       });
       
       // Load PO items when PO is selected
@@ -535,37 +692,16 @@ export default function GoodReceivedNotesPage() {
     );
   };
   
-  // Handle barcode scan for an item - check for duplicates
-  const handleBarcodeChange = async (itemId: string, barcode: string) => {
-    // First update the barcode value
-    setLineItems(items => 
-      items.map(item => 
-        item._id === itemId 
-          ? { ...item, barcode, scanned: barcode.length > 0, barcodeError: undefined } 
-          : item
-      )
-    );
-    // Also update the product groups
-    setProductGroups(groups => 
-      groups.map(g => ({
-        ...g,
-        items: g.items.map(item => 
-          item._id === itemId 
-            ? { ...item, barcode, scanned: barcode.length > 0, barcodeError: undefined } 
-            : item
-        ),
-      }))
-    );
-    
-    // Check if barcode already exists in the system or in current line items
-    if (barcode) {
-      // Check for duplicates in current line items
-      const duplicateInList = lineItems.find(item => item._id !== itemId && item.barcode === barcode);
-      if (duplicateInList) {
+  // Validate barcode against database - extracted for reuse
+  const validateBarcodeInDatabase = async (itemId: string, barcode: string) => {
+    try {
+      // Check good_received_items first (GRN items table)
+      const grnItemsResult = await goodReceivedItemsApi.checkBarcodeExists(barcode);
+      if (grnItemsResult.exists) {
         setLineItems(items => 
           items.map(item => 
             item._id === itemId 
-              ? { ...item, barcodeError: "Duplicate barcode in current list" } 
+              ? { ...item, barcodeError: "Barcode already exists in GRN Items" } 
               : item
           )
         );
@@ -574,7 +710,7 @@ export default function GoodReceivedNotesPage() {
             ...g,
             items: g.items.map(item => 
               item._id === itemId 
-                ? { ...item, barcodeError: "Duplicate barcode in current list" } 
+                ? { ...item, barcodeError: "Barcode already exists in GRN Items" } 
                 : item
             ),
           }))
@@ -582,57 +718,206 @@ export default function GoodReceivedNotesPage() {
         return;
       }
       
-      // Check if barcode exists in database (both sales_stock and company_assets)
-      try {
-        // Check sales_stock
-        const salesResult = await salesStockApi.checkBarcodeExists(barcode);
-        if (salesResult.exists) {
-          setLineItems(items => 
-            items.map(item => 
+      // Check sales_stock
+      const salesResult = await salesStockApi.checkBarcodeExists(barcode);
+      if (salesResult.exists) {
+        setLineItems(items => 
+          items.map(item => 
+            item._id === itemId 
+              ? { ...item, barcodeError: "Barcode already exists in Sales Stock" } 
+              : item
+          )
+        );
+        setProductGroups(groups => 
+          groups.map(g => ({
+            ...g,
+            items: g.items.map(item => 
               item._id === itemId 
                 ? { ...item, barcodeError: "Barcode already exists in Sales Stock" } 
                 : item
-            )
-          );
-          setProductGroups(groups => 
-            groups.map(g => ({
-              ...g,
-              items: g.items.map(item => 
-                item._id === itemId 
-                  ? { ...item, barcodeError: "Barcode already exists in Sales Stock" } 
-                  : item
-              ),
-            }))
-          );
-          return;
-        }
-        
-        // Check company_assets
-        const assetsResult = await companyAssetsApi.checkBarcodeExists(barcode);
-        if (assetsResult.exists) {
-          setLineItems(items => 
-            items.map(item => 
+            ),
+          }))
+        );
+        return;
+      }
+      
+      // Check company_assets
+      const assetsResult = await companyAssetsApi.checkBarcodeExists(barcode);
+      if (assetsResult.exists) {
+        setLineItems(items => 
+          items.map(item => 
+            item._id === itemId 
+              ? { ...item, barcodeError: "Barcode already exists in Company Assets" } 
+              : item
+          )
+        );
+        setProductGroups(groups => 
+          groups.map(g => ({
+            ...g,
+            items: g.items.map(item => 
               item._id === itemId 
                 ? { ...item, barcodeError: "Barcode already exists in Company Assets" } 
                 : item
-            )
-          );
-          setProductGroups(groups => 
-            groups.map(g => ({
-              ...g,
-              items: g.items.map(item => 
-                item._id === itemId 
-                  ? { ...item, barcodeError: "Barcode already exists in Company Assets" } 
-                  : item
-              ),
-            }))
-          );
-        }
-      } catch (error) {
-        // Ignore error if endpoint doesn't exist yet
-        console.log("Barcode check failed:", error);
+            ),
+          }))
+        );
+        return;
       }
+      
+      // If no duplicates found, clear the error
+      setLineItems(items => 
+        items.map(item => 
+          item._id === itemId 
+            ? { ...item, barcodeError: undefined } 
+            : item
+        )
+      );
+      setProductGroups(groups => 
+        groups.map(g => ({
+          ...g,
+          items: g.items.map(item => 
+            item._id === itemId 
+              ? { ...item, barcodeError: undefined } 
+              : item
+          ),
+        }))
+      );
+    } catch (error) {
+      // On error, mark the barcode with an error
+      console.error("Barcode check failed:", error);
+      setLineItems(items => 
+        items.map(item => 
+          item._id === itemId 
+            ? { ...item, barcodeError: "Failed to verify barcode - please try again" } 
+            : item
+        )
+      );
+      setProductGroups(groups => 
+        groups.map(g => ({
+          ...g,
+          items: g.items.map(item => 
+            item._id === itemId 
+              ? { ...item, barcodeError: "Failed to verify barcode - please try again" } 
+              : item
+          ),
+        }))
+      );
     }
+  };
+  
+  // Handle barcode scan for an item - with debounced validation
+  const handleBarcodeChange = (itemId: string, barcode: string) => {
+    // Cancel any pending validation for this item
+    const existingTimer = barcodeValidationTimers.current.get(itemId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+    
+    // If barcode is empty, just clear it
+    if (!barcode) {
+      setLineItems(items => 
+        items.map(item => 
+          item._id === itemId 
+            ? { ...item, barcode: "", scanned: false, barcodeError: undefined } 
+            : item
+        )
+      );
+      setProductGroups(groups => 
+        groups.map(g => ({
+          ...g,
+          items: g.items.map(item => 
+            item._id === itemId 
+              ? { ...item, barcode: "", scanned: false, barcodeError: undefined } 
+              : item
+          ),
+        }))
+      );
+      return;
+    }
+    
+    // Update barcode value immediately
+    setLineItems(items => 
+      items.map(item => 
+        item._id === itemId 
+          ? { ...item, barcode, scanned: true, barcodeError: undefined } 
+          : item
+      )
+    );
+    setProductGroups(groups => 
+      groups.map(g => ({
+        ...g,
+        items: g.items.map(item => 
+          item._id === itemId 
+            ? { ...item, barcode, scanned: true, barcodeError: undefined } 
+            : item
+        ),
+      }))
+    );
+    
+    // Check for duplicates in current line items FIRST (instant check)
+    const duplicateInList = lineItems.find(item => item._id !== itemId && item.barcode === barcode);
+    if (duplicateInList) {
+      setLineItems(items => 
+        items.map(item => 
+          item._id === itemId 
+            ? { ...item, barcodeError: "Duplicate barcode in current list" } 
+            : item
+        )
+      );
+      setProductGroups(groups => 
+        groups.map(g => ({
+          ...g,
+          items: g.items.map(item => 
+            item._id === itemId 
+              ? { ...item, barcodeError: "Duplicate barcode in current list" } 
+              : item
+          ),
+        }))
+      );
+      return;
+    }
+    
+    // Set checking state
+    setLineItems(items => 
+      items.map(item => 
+        item._id === itemId 
+          ? { ...item, barcodeError: "Checking..." } 
+          : item
+      )
+    );
+    setProductGroups(groups => 
+      groups.map(g => ({
+        ...g,
+        items: g.items.map(item => 
+          item._id === itemId 
+            ? { ...item, barcodeError: "Checking..." } 
+            : item
+        ),
+      }))
+    );
+    
+    // Debounce the database validation (500ms delay)
+    const timer = setTimeout(() => {
+      validateBarcodeInDatabase(itemId, barcode);
+      barcodeValidationTimers.current.delete(itemId);
+    }, 500);
+    
+    barcodeValidationTimers.current.set(itemId, timer);
+  };
+  
+  // Handle immediate validation on blur or enter
+  const handleBarcodeBlur = (itemId: string, barcode: string) => {
+    if (!barcode) return;
+    
+    // Cancel debounced validation
+    const existingTimer = barcodeValidationTimers.current.get(itemId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      barcodeValidationTimers.current.delete(itemId);
+    }
+    
+    // Validate immediately
+    validateBarcodeInDatabase(itemId, barcode);
   };
   
   // Handle warranty change for an item
@@ -712,9 +997,21 @@ export default function GoodReceivedNotesPage() {
     return lineItems.length > 0 && lineItems.every(item => item.scanned);
   }, [lineItems]);
   
-  // Check if any items have barcode errors
+  // Check if any items have barcode errors (excluding "Checking..." state)
   const hasBarcodeErrors = useMemo(() => {
-    return lineItems.some(item => item.barcodeError);
+    return lineItems.some(item => item.barcodeError && item.barcodeError !== "Checking...");
+  }, [lineItems]);
+  
+  // Check if any items are still being validated
+  const isValidatingBarcodes = useMemo(() => {
+    return lineItems.some(item => item.barcodeError === "Checking...");
+  }, [lineItems]);
+  
+  // Check if all scanned barcodes have been validated (no errors and not checking)
+  const allBarcodesValidated = useMemo(() => {
+    return lineItems.length > 0 && 
+           lineItems.every(item => item.scanned) && 
+           !lineItems.some(item => item.barcodeError);
   }, [lineItems]);
   
   // Count scanned items
@@ -731,6 +1028,41 @@ export default function GoodReceivedNotesPage() {
   }, [grns]);
 
   const branches = branchesData?.items || [];
+
+  // Validation error messages
+  const getFieldError = (fieldName: string): string | undefined => {
+    if (!touched[fieldName] && !isCreating) return undefined;
+    
+    switch (fieldName) {
+      case 'good_received_no':
+        if (!formData.good_received_no) return 'GRN number is required';
+        break;
+      case 'purchasingorders_id':
+        if (!formData.purchasingorders_id || formData.purchasingorders_id === 0) return 'Purchase order is required';
+        break;
+      case 'supplier_invoice_no':
+        if (!formData.supplier_invoice_no) return 'Supplier invoice number is required';
+        break;
+      case 'supplier_invoice_date':
+        if (!formData.supplier_invoice_date) return 'Supplier invoice date is required';
+        break;
+      case 'good_received_date':
+        if (!formData.good_received_date) return 'GRN date is required';
+        break;
+      case 'good_received_locations_id':
+        if (!formData.good_received_locations_id || formData.good_received_locations_id === 0) return 'Location is required';
+        break;
+      case 'branch_code':
+        if (!formData.branch_code) return 'Branch is required';
+        break;
+    }
+    return undefined;
+  };
+
+  // Check if a field has an error (for styling)
+  const hasError = (fieldName: string): boolean => {
+    return !!getFieldError(fieldName);
+  };
 
   // Step 1 validation: GRN Information, Supplier Invoice, Remarks
   const isStep1Valid = formData.good_received_no && 
@@ -768,18 +1100,13 @@ export default function GoodReceivedNotesPage() {
       onSelectItem={handleSelectGRNWithItems}
       emptyMessage="No GRNs found"
       listHeader={
-        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
-          <Autocomplete
-            size="small"
-            options={branches}
-            getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-            value={branches.find(b => b.branch_code === filterBranch) || null}
-            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
-            renderInput={(params) => (
-              <TextField {...params} placeholder="Filter by Branch" size="small" />
-            )}
+        <TFilterPanel>
+          <TBranchFilter
+            branches={branches}
+            value={filterBranch}
+            onChange={setFilterBranch}
           />
-        </Box>
+        </TFilterPanel>
       }
       renderItem={(grn, isSelected) => (
         <SelectableListItem
@@ -873,9 +1200,25 @@ export default function GoodReceivedNotesPage() {
         isSaving={isSaving}
         isFormValid={!!isFormValid}
         onNew={handleNewGRN}
-        onSave={handleSave}
+        onSave={handleSaveClick}
         onCancel={() => handleCancel(filteredGRNs)}
         onEdit={handleStartEdit}
+        endActions={
+          selectedGRN && !isCreating && !isEditing ? (
+            <Tooltip title="Print / Preview Report">
+              <IconButton
+                size="small"
+                onClick={() => {
+                  const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/api\/v1$/, '');
+                  const reportUrl = `${baseUrl}/api/v1/reporting/documents/grn/${selectedGRN.id}`;
+                  window.open(reportUrl, '_blank');
+                }}
+              >
+                <PrintIcon />
+              </IconButton>
+            </Tooltip>
+          ) : undefined
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -903,8 +1246,11 @@ export default function GoodReceivedNotesPage() {
                     size="small"
                     value={formData.good_received_no}
                     onChange={(e) => setFormData({ ...formData, good_received_no: e.target.value })}
+                    onBlur={() => handleBlur('good_received_no')}
                     disabled={!isEditing && !isCreating}
                     required
+                    error={hasError('good_received_no')}
+                    helperText={getFieldError('good_received_no')}
                   />
                   <Autocomplete
                     size="small"
@@ -915,13 +1261,18 @@ export default function GoodReceivedNotesPage() {
                     }) || []}
                     getOptionLabel={(option: PurchasingOrder) => option.purchasing_order_no || ""}
                     value={purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id) || null}
-                    onChange={(_, newValue) => handlePOChange(newValue?.id || 0)}
+                    onChange={(_, newValue) => {
+                      handlePOChange(newValue?.id || 0);
+                      handleBlur('purchasingorders_id');
+                    }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
                       <TextField
                         {...params}
                         label="Purchase Order (Approved Only)"
                         required
+                        error={hasError('purchasingorders_id')}
+                        helperText={getFieldError('purchasingorders_id')}
                       />
                     )}
                     isOptionEqualToValue={(option, value) => option.id === value?.id}
@@ -932,8 +1283,12 @@ export default function GoodReceivedNotesPage() {
                 type="date"
                 value={formData.good_received_date}
                 onChange={(e) => setFormData({ ...formData, good_received_date: e.target.value })}
+                onBlur={() => handleBlur('good_received_date')}
                 disabled={!isEditing && !isCreating}
                 InputLabelProps={{ shrink: true }}
+                required
+                error={hasError('good_received_date')}
+                helperText={getFieldError('good_received_date')}
               />
               <TextField
                 label="Branch"
@@ -947,9 +1302,14 @@ export default function GoodReceivedNotesPage() {
                 label="Location"
                 size="small"
                 value={formData.good_received_locations_id}
-                onChange={(e) => setFormData({ ...formData, good_received_locations_id: parseInt(e.target.value) || 1 })}
+                onChange={(e) => {
+                  setFormData({ ...formData, good_received_locations_id: parseInt(e.target.value) || 1 });
+                  handleBlur('good_received_locations_id');
+                }}
                 disabled={!isEditing && !isCreating}
                 required
+                error={hasError('good_received_locations_id')}
+                helperText={getFieldError('good_received_locations_id')}
               >
                 {locations?.map((location: Location) => (
                   <MenuItem key={location.id} value={location.id}>
@@ -968,9 +1328,11 @@ export default function GoodReceivedNotesPage() {
                 size="small"
                 value={formData.supplier_invoice_no}
                 onChange={(e) => setFormData({ ...formData, supplier_invoice_no: e.target.value })}
+                onBlur={() => handleBlur('supplier_invoice_no')}
                 disabled={!isEditing && !isCreating}
                 required
-
+                error={hasError('supplier_invoice_no')}
+                helperText={getFieldError('supplier_invoice_no')}
               />
               <TextField
                 label="Supplier Invoice Date"
@@ -978,8 +1340,12 @@ export default function GoodReceivedNotesPage() {
                 type="date"
                 value={formData.supplier_invoice_date}
                 onChange={(e) => setFormData({ ...formData, supplier_invoice_date: e.target.value })}
+                onBlur={() => handleBlur('supplier_invoice_date')}
                 disabled={!isEditing && !isCreating}
                 InputLabelProps={{ shrink: true }}
+                required
+                error={hasError('supplier_invoice_date')}
+                helperText={getFieldError('supplier_invoice_date')}
               />
             </FormSection>
 
@@ -1239,23 +1605,29 @@ export default function GoodReceivedNotesPage() {
                                     placeholder="Scan or enter barcode"
                                     value={item.barcode}
                                     onChange={(e) => handleBarcodeChange(item._id, e.target.value)}
+                                    onBlur={(e) => handleBarcodeBlur(item._id, e.target.value)}
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter" && item.barcode) {
+                                        handleBarcodeBlur(item._id, item.barcode);
                                         completeScan(item._id);
                                       }
                                     }}
-                                    error={!!item.barcodeError}
+                                    error={!!item.barcodeError && item.barcodeError !== "Checking..."}
                                     helperText={item.barcodeError}
                                     sx={{ flex: 1, minWidth: 200 }}
                                     InputProps={{
                                       startAdornment: (
                                         <InputAdornment position="start">
-                                          <QrCodeScannerIcon color={item.barcodeError ? "error" : item.scanned ? "success" : "action"} />
+                                          <QrCodeScannerIcon color={item.barcodeError && item.barcodeError !== "Checking..." ? "error" : item.scanned ? "success" : "action"} />
                                         </InputAdornment>
                                       ),
-                                      endAdornment: item.barcodeError ? (
+                                      endAdornment: item.barcodeError && item.barcodeError !== "Checking..." ? (
                                         <InputAdornment position="end">
                                           <ErrorIcon color="error" />
+                                        </InputAdornment>
+                                      ) : item.barcodeError === "Checking..." ? (
+                                        <InputAdornment position="end">
+                                          <CircularProgress size={16} />
                                         </InputAdornment>
                                       ) : item.scanned ? (
                                         <InputAdornment position="end">
@@ -1331,10 +1703,25 @@ export default function GoodReceivedNotesPage() {
                       </Card>
                     ))}
 
+                    {/* Barcode Validation Status */}
+                    {isValidatingBarcodes && (
+                      <Alert severity="info" sx={{ mb: 2 }}>
+                        <CircularProgress size={16} sx={{ mr: 1 }} />
+                        Validating barcodes against database... Please wait.
+                      </Alert>
+                    )}
+                    
                     {/* Barcode Error Alert */}
-                    {hasBarcodeErrors && (
+                    {hasBarcodeErrors && !isValidatingBarcodes && (
                       <Alert severity="error" sx={{ mb: 2 }}>
-                        Some barcodes are duplicates. Please fix them before saving.
+                        Some barcodes have errors: {lineItems.filter(i => i.barcodeError && i.barcodeError !== "Checking...").map(i => `${i.barcode} (${i.barcodeError})`).join(", ")}
+                      </Alert>
+                    )}
+                    
+                    {/* All Valid Alert */}
+                    {allBarcodesValidated && !hasBarcodeErrors && !isValidatingBarcodes && (
+                      <Alert severity="success" sx={{ mb: 2 }}>
+                        All {lineItems.length} barcodes validated successfully! Ready to save.
                       </Alert>
                     )}
 
@@ -1345,21 +1732,26 @@ export default function GoodReceivedNotesPage() {
                         color="success"
                         size="large"
                         startIcon={<SaveIcon />}
-                        onClick={handleSave}
-                        disabled={isSaving || hasBarcodeErrors}
+                        onClick={handleSaveClick}
+                        disabled={isSaving || hasBarcodeErrors || isValidatingBarcodes || !allBarcodesValidated}
                         sx={{ mt: 2 }}
                       >
-                        {isSaving ? "Saving..." : `Save GRN with ${lineItems.length} Items`}
+                        {isSaving 
+                          ? "Saving..." 
+                          : isValidatingBarcodes 
+                            ? "Validating barcodes..." 
+                            : `Save GRN with ${lineItems.length} Items`
+                        }
                       </Button>
                     )}
                   </Box>
                 ) : (
                   /* View/Edit mode - Table layout */
                   <Box>
-                    <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+                    <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
                       <Table size="small">
                         <TableHead>
-                          <TableRow sx={{ bgcolor: "action.hover" }}>
+                          <TableRow sx={modernTableStyles.headerRow}>
                             <TableCell>Barcode</TableCell>
                             <TableCell>Product</TableCell>
                             <TableCell>Saved To</TableCell>
@@ -1377,18 +1769,19 @@ export default function GoodReceivedNotesPage() {
                             </TableRow>
                           ) : lineItems.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={isEditing || isCreating ? 6 : 5} align="center">
-                                <Typography variant="body2" color="text.secondary" py={2}>
-                                  {isCreating 
-                                    ? "Select a Purchase Order to load items" 
-                                    : "No items received yet"}
-                                </Typography>
+                              <TableCell colSpan={isEditing || isCreating ? 6 : 5} sx={modernTableStyles.emptyCell}>
+                                {isCreating 
+                                  ? "Select a Purchase Order to load items" 
+                                  : "No items received yet"}
                               </TableCell>
                             </TableRow>
                           ) : isEditing ? (
                             // Edit mode - flat list
-                            lineItems.map((item) => (
-                              <TableRow key={item._id}>
+                            lineItems.map((item, index) => (
+                              <TableRow key={item._id} sx={{ 
+                                ...modernTableStyles.bodyRow,
+                                ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                              }}>
                                 <TableCell>
                                   <TextField
                                     size="small"
@@ -1491,6 +1884,53 @@ export default function GoodReceivedNotesPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
+      
+      {/* Confirm Dialog */}
+      <ConfirmDialog {...confirmDialog.dialogProps} />
+      
+      {/* Credit Limit Override Dialog */}
+      <Dialog
+        open={creditLimitDialog.open}
+        onClose={handleCreditDialogClose}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <WarningAmberIcon color="warning" />
+          <Typography variant="h6">Credit Limit Exceeded</Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {creditLimitDialog.errorMessage}
+          </Alert>
+          {canOverrideCredit ? (
+            <Typography>
+              As an authorized user, you can override this limit and proceed with the GRN.
+              This will be logged for audit purposes.
+            </Typography>
+          ) : (
+            <Typography color="error">
+              You do not have permission to override credit limits.
+              Please contact a manager or administrator to proceed with this GRN.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCreditDialogClose} color="inherit">
+            Cancel
+          </Button>
+          {canOverrideCredit && (
+            <Button
+              onClick={handleCreditOverrideConfirm}
+              variant="contained"
+              color="warning"
+              disabled={createMutation.isPending}
+            >
+              {createMutation.isPending ? "Processing..." : "Override & Create GRN"}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

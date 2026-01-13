@@ -10,6 +10,10 @@ class SalesService:
     def get_all_invoices(self, db: Session, skip: int = 0, limit: int = 100):
         return repository.sales_repository.get_all(db, skip, limit)
     
+    def get_all_invoices_with_items(self, db: Session, skip: int = 0, limit: int = 100):
+        """Get invoices with items eagerly loaded"""
+        return repository.sales_repository.get_all_with_items(db, skip, limit)
+    
     def search_invoices(self, db: Session, query: str, skip: int = 0, limit: int = 100):
         return repository.sales_repository.search(db, query, skip, limit)
     
@@ -21,6 +25,18 @@ class SalesService:
                 detail="Invoice not found"
             )
         return invoice
+    
+    def get_pending_approval(self, db: Session, skip: int = 0, limit: int = 100):
+        """Get invoices pending approval - server-side filtered"""
+        return repository.sales_repository.get_pending_approval(db, skip, limit)
+    
+    def get_by_customer(self, db: Session, customer_id: int, skip: int = 0, limit: int = 100):
+        """Get invoices for a specific customer"""
+        return repository.sales_repository.get_by_customer(db, customer_id, skip, limit)
+    
+    def get_returns_by_invoice(self, db: Session, invoice_id: int, skip: int = 0, limit: int = 100):
+        """Get sale returns for a specific invoice"""
+        return repository.sales_repository.get_returns_by_invoice(db, invoice_id, skip, limit)
     
     def get_sales_statistics(self, db: Session):
         """Get sales statistics for dashboard"""

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -14,6 +14,8 @@ import {
   DialogContent,
   DialogActions,
   Typography,
+  Alert,
+  Autocomplete,
 } from "@mui/material";
 import {
   Inventory as InventoryIcon,
@@ -32,9 +34,10 @@ import {
   SortOption,
   TabConfig,
   TConfirmDialog,
-  useTConfirmDialog,
+  useConfirmDialog,
   showSuccessToast,
   showErrorToast,
+  PRODUCT_ITEM_TYPE,
 } from "@/components/tijaero";
 import { productsApi, categoriesApi, brandsApi, minimumPriceApi } from "../api";
 import { Product, ProductCreate, Category, CategoryCreate, CategoryUpdate, Brand, BrandCreate, BrandUpdate } from "../types";
@@ -62,12 +65,13 @@ const emptyProductForm: ProductCreate = {
   name: "",
   item_code: "",
   model: "",
-  item_type: "PRODUCT",
+  item_type: "inventory",
   description: "",
   website_active: false,
-  website_price: 0,
+  website_price: undefined,
+  selling_price: undefined,
   active: true,
-  cost_price: 0,
+  cost_price: undefined,
   category_id: 0,
   items_brand_id: 0,
 };
@@ -110,20 +114,26 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   const canUpdate = usePermission("inventory", "update");
   const canDelete = usePermission("inventory", "delete");
 
-  // Confirm dialogs
-  const deleteProductDialog = useTConfirmDialog();
-  const discardProductDialog = useTConfirmDialog();
-  const deleteCategoryDialog = useTConfirmDialog();
-  const discardCategoryDialog = useTConfirmDialog();
-  const deleteBrandDialog = useTConfirmDialog();
-  const discardBrandDialog = useTConfirmDialog();
+  // Confirm dialog - unified for all tabs
+  const confirmDialog = useConfirmDialog();
 
-  // Pending item for selection after discard confirm
-  const [_pendingProduct, setPendingProduct] = useState<Product | null>(null);
-  const [_pendingCategory, setPendingCategory] = useState<Category | null>(null);
-  const [_pendingBrand, setPendingBrand] = useState<Brand | null>(null);
+  // Validation state - track which fields have been touched/blurred
+  const [productTouched, setProductTouched] = useState<Record<string, boolean>>({});
+  const [categoryTouched, setCategoryTouched] = useState<Record<string, boolean>>({});
+  const [brandTouched, setBrandTouched] = useState<Record<string, boolean>>({});
 
-  // Minimum price dialog state
+  // Mark field as touched when user leaves it
+  const handleProductBlur = (fieldName: string) => {
+    setProductTouched(prev => ({ ...prev, [fieldName]: true }));
+  };
+  const handleCategoryBlur = (fieldName: string) => {
+    setCategoryTouched(prev => ({ ...prev, [fieldName]: true }));
+  };
+  const handleBrandBlur = (fieldName: string) => {
+    setBrandTouched(prev => ({ ...prev, [fieldName]: true }));
+  };
+
+  // Minimum selling price dialog state
   const [minPriceDialogOpen, setMinPriceDialogOpen] = useState(false);
   const [newMinPrice, setNewMinPrice] = useState<number>(0);
   const [createMinPrice, setCreateMinPrice] = useState<number | "">("");
@@ -132,30 +142,51 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   const productState = useMasterDetailState<Product, ProductCreate>({
     initialFormData: emptyProductForm,
     initialSortField: "item_code",
+    confirmUnsavedChanges: () => confirmDialog.confirm({
+      title: "Discard Changes",
+      message: "You have unsaved changes. Discard them?",
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      confirmColor: "warning",
+    }),
   });
 
   // Categories state
   const categoryState = useMasterDetailState<Category, CategoryCreate>({
     initialFormData: emptyCategoryForm,
     initialSortField: "name",
+    confirmUnsavedChanges: () => confirmDialog.confirm({
+      title: "Discard Changes",
+      message: "You have unsaved changes. Discard them?",
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      confirmColor: "warning",
+    }),
   });
 
   // Brands state
   const brandState = useMasterDetailState<Brand, BrandCreate>({
     initialFormData: emptyBrandForm,
     initialSortField: "brand_name",
+    confirmUnsavedChanges: () => confirmDialog.confirm({
+      title: "Discard Changes",
+      message: "You have unsaved changes. Discard them?",
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      confirmColor: "warning",
+    }),
   });
 
-  // Queries
+  // Queries - get all items including inactive so they can be viewed and reactivated
   const { data: products, isLoading: productsLoading, refetch: refetchProducts } = useQuery({
     queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
+    queryFn: () => productsApi.getAll(0, 1000, false), // Get all including inactive
     enabled: activeTab === 0,
   });
 
   const { data: categories, isLoading: categoriesLoading, refetch: refetchCategories } = useQuery({
     queryKey: ["categories"],
-    queryFn: () => categoriesApi.getAll(),
+    queryFn: () => categoriesApi.getAll(0, 1000), // Get all including inactive
   });
 
   const { data: brands, isLoading: brandsLoading, refetch: refetchBrands } = useQuery({
@@ -163,7 +194,11 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     queryFn: () => brandsApi.getAll(),
   });
 
-  // Fetch current minimum price for selected product
+  // Active categories and brands for dropdowns (only active items can be selected for new products)
+  const activeCategories = useMemo(() => categories?.filter(c => c.active) || [], [categories]);
+  const activeBrands = useMemo(() => brands || [], [brands]);
+
+  // Fetch current minimum selling price for selected product
   const { data: currentMinPrice } = useQuery({
     queryKey: ["minimum-price", productState.selectedItem?.id],
     queryFn: () => minimumPriceApi.getCurrent(productState.selectedItem!.id),
@@ -250,12 +285,25 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   const deleteProductMutation = useMutation({
     mutationFn: productsApi.delete,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
-      showSuccessToast("Product deleted successfully");
+      // Use the success message from backend if available, otherwise use default
+      showSuccessToast(data?.message || "Product deleted successfully");
       productState.setSelectedItem(null);
     },
-    onError: () => showErrorToast("Failed to delete product"),
+    onError: (error: any) => {
+      // Show the specific error message from backend with enhanced formatting for product usage warnings
+      const errorMessage = error?.response?.data?.detail || "Failed to delete product";
+      
+      // For detailed usage warnings, show with longer duration
+      if (errorMessage.includes("It is used in:")) {
+        showErrorToast(errorMessage, { 
+          duration: 8000 // Longer duration for detailed messages
+        });
+      } else {
+        showErrorToast(errorMessage);
+      }
+    },
   });
 
   const createCategoryMutation = useMutation({
@@ -282,12 +330,25 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   const deleteCategoryMutation = useMutation({
     mutationFn: categoriesApi.delete,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      showSuccessToast("Category deleted successfully");
+      // Use the success message from backend if available, otherwise use default
+      showSuccessToast(data?.message || "Category deleted successfully");
       categoryState.setSelectedItem(null);
     },
-    onError: () => showErrorToast("Failed to delete category"),
+    onError: (error: any) => {
+      // Show the specific error message from backend with enhanced formatting for assignment warnings
+      const errorMessage = error?.response?.data?.detail || "Failed to delete category";
+      
+      // For detailed assignment warnings, show with longer duration
+      if (errorMessage.includes("It is assigned to")) {
+        showErrorToast(errorMessage, { 
+          duration: 6000 // Longer duration for detailed messages
+        });
+      } else {
+        showErrorToast(errorMessage);
+      }
+    },
   });
 
   const createBrandMutation = useMutation({
@@ -314,52 +375,63 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   const deleteBrandMutation = useMutation({
     mutationFn: brandsApi.delete,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["brands"] });
-      showSuccessToast("Brand deleted successfully");
+      // Use the success message from backend if available, otherwise use default
+      showSuccessToast(data?.message || "Brand deleted successfully");
       brandState.setSelectedItem(null);
     },
-    onError: () => showErrorToast("Failed to delete brand"),
+    onError: (error: any) => {
+      // Show the specific error message from backend with enhanced formatting for assignment warnings
+      const errorMessage = error?.response?.data?.detail || "Failed to delete brand";
+      
+      // For detailed assignment warnings, show with longer duration
+      if (errorMessage.includes("It is assigned to")) {
+        showErrorToast(errorMessage, { 
+          duration: 6000 // Longer duration for detailed messages
+        });
+      } else {
+        showErrorToast(errorMessage);
+      }
+    },
   });
 
-  // Minimum price mutation
+  // Minimum selling price mutation
   const setMinimumPriceForProductMutation = useMutation({
     mutationFn: ({ productId, price }: { productId: number; price: number }) =>
       minimumPriceApi.set(productId, { minimum_price: price }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["minimum-price", variables.productId] });
-      showSuccessToast("Minimum price set successfully");
+      showSuccessToast("Minimum selling price set successfully");
     },
-    onError: () => showErrorToast("Failed to set minimum price"),
+    onError: () => showErrorToast("Failed to set minimum selling price"),
   });
 
   const setMinimumPriceMutation = useMutation({
     mutationFn: (price: number) => minimumPriceApi.set(productState.selectedItem!.id, { minimum_price: price }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["minimum-price", productState.selectedItem?.id] });
-      showSuccessToast("Minimum price set successfully");
+      showSuccessToast("Minimum selling price set successfully");
       setMinPriceDialogOpen(false);
       setNewMinPrice(0);
     },
-    onError: () => showErrorToast("Failed to set minimum price"),
+    onError: () => showErrorToast("Failed to set minimum selling price"),
   });
 
   // Product handlers
-  const handleSelectProduct = (product: Product) => {
+  const handleSelectProduct = useCallback(async (product: Product) => {
     if (productState.isEditing || productState.isCreating) {
-      setPendingProduct(product);
-      discardProductDialog.open(
-        "Discard Changes",
-        "You have unsaved changes. Discard them?",
-        () => {
-          selectProductInternal(product);
-          setPendingProduct(null);
-        }
-      );
-      return;
+      const confirmed = await confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      });
+      if (!confirmed) return;
     }
     selectProductInternal(product);
-  };
+  }, [productState.isEditing, productState.isCreating, confirmDialog]);
 
   const selectProductInternal = (product: Product) => {
     productState.setSelectedItem(product);
@@ -371,6 +443,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       description: product.description || "",
       website_active: product.website_active,
       website_price: product.website_price || 0,
+      selling_price: product.selling_price || 0,
       active: product.active,
       cost_price: product.cost_price,
       category_id: product.category_id,
@@ -381,13 +454,18 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   };
 
   const handleNewProduct = () => {
+    // Only allow selecting active categories and brands
+    const defaultCategory = activeCategories?.[0]?.id || 0;
+    const defaultBrand = activeBrands?.[0]?.id || 0;
+    
     productState.setSelectedItem(null);
     productState.setFormData({
       ...emptyProductForm,
-      category_id: categories?.[0]?.id || 0,
-      items_brand_id: brands?.[0]?.id || 0,
+      category_id: defaultCategory,
+      items_brand_id: defaultBrand,
     });
     setCreateMinPrice("");
+    setProductTouched({});
     productState.setIsCreating(true);
     productState.setIsEditing(true);
   };
@@ -406,10 +484,24 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   };
 
   const handleSaveProduct = () => {
+    // Validate required fields
+    if (!productState.formData.item_code || !productState.formData.name || 
+        productState.formData.cost_price === undefined || productState.formData.cost_price === null ||
+        productState.formData.selling_price === undefined || productState.formData.selling_price === null) {
+      showErrorToast("Please fill in all required fields");
+      setProductTouched({ item_code: true, name: true, cost_price: true, selling_price: true });
+      return;
+    }
+    // Ensure website_active is false if product is inactive
+    const dataToSave = { ...productState.formData };
+    if (!dataToSave.active) {
+      dataToSave.website_active = false;
+    }
+    
     if (productState.isCreating) {
-      createProductMutation.mutate(productState.formData);
+      createProductMutation.mutate(dataToSave);
     } else if (productState.selectedItem) {
-      updateProductMutation.mutate({ id: productState.selectedItem.id, data: productState.formData });
+      updateProductMutation.mutate({ id: productState.selectedItem.id, data: dataToSave });
     }
   };
 
@@ -418,39 +510,44 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       productState.setIsCreating(false);
       productState.setIsEditing(false);
       setCreateMinPrice("");
-      if (filteredProducts.length > 0) handleSelectProduct(filteredProducts[0]);
+      setProductTouched({});
+      if (filteredProducts.length > 0) selectProductInternal(filteredProducts[0]);
     } else if (productState.selectedItem) {
-      handleSelectProduct(productState.selectedItem);
+      selectProductInternal(productState.selectedItem);
       productState.setIsEditing(false);
+      setProductTouched({});
     }
   };
 
-  const handleDeleteProduct = () => {
+  const handleDeleteProduct = async () => {
     if (productState.selectedItem) {
-      deleteProductDialog.open(
-        "Delete Product",
-        "Are you sure you want to delete this product?",
-        () => deleteProductMutation.mutate(productState.selectedItem!.id)
-      );
+      const confirmed = await confirmDialog.confirm({
+        title: "Delete Product",
+        message: "Are you sure you want to permanently delete this product? This action cannot be undone.",
+        confirmText: "Delete",
+        confirmColor: "danger",
+        type: "danger",
+      });
+      if (confirmed) {
+        deleteProductMutation.mutate(productState.selectedItem.id);
+      }
     }
   };
 
   // Category handlers
-  const handleSelectCategory = (category: Category) => {
+  const handleSelectCategory = useCallback(async (category: Category) => {
     if (categoryState.isEditing || categoryState.isCreating) {
-      setPendingCategory(category);
-      discardCategoryDialog.open(
-        "Discard Changes",
-        "You have unsaved changes. Discard them?",
-        () => {
-          selectCategoryInternal(category);
-          setPendingCategory(null);
-        }
-      );
-      return;
+      const confirmed = await confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      });
+      if (!confirmed) return;
     }
     selectCategoryInternal(category);
-  };
+  }, [categoryState.isEditing, categoryState.isCreating, confirmDialog]);
 
   const selectCategoryInternal = (category: Category) => {
     categoryState.setSelectedItem(category);
@@ -468,11 +565,19 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   const handleNewCategory = () => {
     categoryState.setSelectedItem(null);
     categoryState.setFormData(emptyCategoryForm);
+    setCategoryTouched({});
     categoryState.setIsCreating(true);
     categoryState.setIsEditing(true);
   };
 
   const handleSaveCategory = () => {
+    // Validate required fields
+    if (!categoryState.formData.name || !categoryState.formData.category_code) {
+      showErrorToast("Please fill in all required fields");
+      setCategoryTouched({ name: true, category_code: true });
+      return;
+    }
+    
     if (categoryState.isCreating) {
       createCategoryMutation.mutate(categoryState.formData);
     } else if (categoryState.selectedItem) {
@@ -480,13 +585,18 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     }
   };
 
-  const handleDeleteCategory = () => {
+  const handleDeleteCategory = async () => {
     if (categoryState.selectedItem) {
-      deleteCategoryDialog.open(
-        "Delete Category",
-        "Are you sure you want to delete this category?",
-        () => deleteCategoryMutation.mutate(categoryState.selectedItem!.id)
-      );
+      const confirmed = await confirmDialog.confirm({
+        title: "Delete Category",
+        message: "Are you sure you want to permanently delete this category? This action cannot be undone and may affect existing products.",
+        confirmText: "Delete",
+        confirmColor: "danger",
+        type: "danger",
+      });
+      if (confirmed) {
+        deleteCategoryMutation.mutate(categoryState.selectedItem.id);
+      }
     }
   };
 
@@ -494,29 +604,29 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     if (categoryState.isCreating) {
       categoryState.setIsCreating(false);
       categoryState.setIsEditing(false);
-      if (filteredCategories.length > 0) handleSelectCategory(filteredCategories[0]);
+      setCategoryTouched({});
+      if (filteredCategories.length > 0) selectCategoryInternal(filteredCategories[0]);
     } else if (categoryState.selectedItem) {
-      handleSelectCategory(categoryState.selectedItem);
+      selectCategoryInternal(categoryState.selectedItem);
       categoryState.setIsEditing(false);
+      setCategoryTouched({});
     }
   };
 
   // Brand handlers
-  const handleSelectBrand = (brand: Brand) => {
+  const handleSelectBrand = useCallback(async (brand: Brand) => {
     if (brandState.isEditing || brandState.isCreating) {
-      setPendingBrand(brand);
-      discardBrandDialog.open(
-        "Discard Changes",
-        "You have unsaved changes. Discard them?",
-        () => {
-          selectBrandInternal(brand);
-          setPendingBrand(null);
-        }
-      );
-      return;
+      const confirmed = await confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      });
+      if (!confirmed) return;
     }
     selectBrandInternal(brand);
-  };
+  }, [brandState.isEditing, brandState.isCreating, confirmDialog]);
 
   const selectBrandInternal = (brand: Brand) => {
     brandState.setSelectedItem(brand);
@@ -551,11 +661,19 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   const handleNewBrand = () => {
     brandState.setSelectedItem(null);
     brandState.setFormData(emptyBrandForm);
+    setBrandTouched({});
     brandState.setIsCreating(true);
     brandState.setIsEditing(true);
   };
 
   const handleSaveBrand = () => {
+    // Validate required fields
+    if (!brandState.formData.brand_name || !brandState.formData.brand_code) {
+      showErrorToast("Please fill in all required fields");
+      setBrandTouched({ brand_name: true, brand_code: true });
+      return;
+    }
+    
     if (brandState.isCreating) {
       createBrandMutation.mutate(brandState.formData);
     } else if (brandState.selectedItem) {
@@ -563,13 +681,18 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     }
   };
 
-  const handleDeleteBrand = () => {
+  const handleDeleteBrand = async () => {
     if (brandState.selectedItem) {
-      deleteBrandDialog.open(
-        "Delete Brand",
-        "Are you sure you want to delete this brand?",
-        () => deleteBrandMutation.mutate(brandState.selectedItem!.id)
-      );
+      const confirmed = await confirmDialog.confirm({
+        title: "Delete Brand",
+        message: "Are you sure you want to delete this brand?",
+        confirmText: "Delete",
+        confirmColor: "danger",
+        type: "danger",
+      });
+      if (confirmed) {
+        deleteBrandMutation.mutate(brandState.selectedItem.id);
+      }
     }
   };
 
@@ -577,10 +700,12 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     if (brandState.isCreating) {
       brandState.setIsCreating(false);
       brandState.setIsEditing(false);
-      if (filteredBrands.length > 0) handleSelectBrand(filteredBrands[0]);
+      setBrandTouched({});
+      if (filteredBrands.length > 0) selectBrandInternal(filteredBrands[0]);
     } else if (brandState.selectedItem) {
-      handleSelectBrand(brandState.selectedItem);
+      selectBrandInternal(brandState.selectedItem);
       brandState.setIsEditing(false);
+      setBrandTouched({});
     }
   };
 
@@ -641,13 +766,13 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                           (Name)
                         </Typography>
                       </Box>
-                      {product.website_price && (
+                      {product.selling_price && (
                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <Typography component="span" variant="caption" fontWeight={600} sx={{ color: "inherit" }}>
-                            Rs. {product.website_price.toFixed(2)}
+                            Rs. {product.selling_price.toFixed(2)}
                           </Typography>
                           <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                            (Price)
+                            (Selling Price)
                           </Typography>
                         </Box>
                       )}
@@ -719,7 +844,9 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           onCancel={handleCancelProduct}
           onEdit={() => productState.setIsEditing(true)}
           isSaving={createProductMutation.isPending || updateProductMutation.isPending}
-          saveDisabled={!productState.formData.name || !productState.formData.item_code}
+          saveDisabled={!productState.formData.name || !productState.formData.item_code || 
+            productState.formData.cost_price === undefined || productState.formData.cost_price === null ||
+            productState.formData.selling_price === undefined || productState.formData.selling_price === null}
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -727,14 +854,24 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
             <EmptyState message="Select a product from the list or create a new one" />
           ) : (
             <>
+              {/* Show inactive warning */}
+              {productState.selectedItem && !productState.selectedItem.active && !productState.isCreating && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  This product is inactive and cannot be used in transactions. Edit to reactivate.
+                </Alert>
+              )}
+              
               <FormSection title="Basic Information">
                 <TextField
                   label="Item Code"
                   size="small"
                   value={productState.formData.item_code}
                   onChange={(e) => productState.setFormData({ ...productState.formData, item_code: e.target.value.toUpperCase() })}
+                  onBlur={() => handleProductBlur("item_code")}
                   disabled={!productState.isCreating}
                   required
+                  error={productTouched.item_code && !productState.formData.item_code}
+                  helperText={productTouched.item_code && !productState.formData.item_code ? "Item code is required" : ""}
                   inputProps={{ style: { textTransform: "uppercase" } }}
                 />
                 <TextField
@@ -742,8 +879,11 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   size="small"
                   value={productState.formData.name}
                   onChange={(e) => productState.setFormData({ ...productState.formData, name: e.target.value })}
+                  onBlur={() => handleProductBlur("name")}
                   disabled={!productState.isEditing && !productState.isCreating}
                   required
+                  error={productTouched.name && !productState.formData.name}
+                  helperText={productTouched.name && !productState.formData.name ? "Product name is required" : ""}
                 />
                 <TextField
                   label="Model"
@@ -760,9 +900,9 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   onChange={(e) => productState.setFormData({ ...productState.formData, item_type: e.target.value })}
                   disabled={!productState.isEditing && !productState.isCreating}
                 >
-                  <MenuItem value="PRODUCT">Product</MenuItem>
-                  <MenuItem value="SERVICE">Service</MenuItem>
-                  <MenuItem value="PART">Part</MenuItem>
+                  {PRODUCT_ITEM_TYPE.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                  ))}
                 </TextField>
                 <TextField
                   label="Description"
@@ -777,30 +917,32 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
               </FormSection>
 
               <FormSection title="Classification">
-                <TextField
-                  label="Category"
+                <Autocomplete
                   size="small"
-                  select
-                  value={productState.formData.category_id}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, category_id: Number(e.target.value) })}
+                  options={activeCategories}
+                  getOptionLabel={(option) => option.name}
+                  value={activeCategories.find(c => c.id === productState.formData.category_id) || null}
+                  onChange={(_, newValue) => productState.setFormData({ ...productState.formData, category_id: newValue?.id || 0 })}
                   disabled={!productState.isEditing && !productState.isCreating}
-                >
-                  {categories?.map((cat) => (
-                    <MenuItem key={cat.id} value={cat.id}>{cat.name}</MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  label="Brand"
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Category"
+                      helperText={productState.isEditing || productState.isCreating ? "Only active categories can be selected" : ""}
+                    />
+                  )}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                />
+                <Autocomplete
                   size="small"
-                  select
-                  value={productState.formData.items_brand_id}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, items_brand_id: Number(e.target.value) })}
+                  options={brands || []}
+                  getOptionLabel={(option) => option.brand_name}
+                  value={brands?.find(b => b.id === productState.formData.items_brand_id) || null}
+                  onChange={(_, newValue) => productState.setFormData({ ...productState.formData, items_brand_id: newValue?.id || 0 })}
                   disabled={!productState.isEditing && !productState.isCreating}
-                >
-                  {brands?.map((brand) => (
-                    <MenuItem key={brand.id} value={brand.id}>{brand.brand_name}</MenuItem>
-                  ))}
-                </TextField>
+                  renderInput={(params) => <TextField {...params} label="Brand" />}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                />
               </FormSection>
 
               <FormSection title="Pricing">
@@ -808,24 +950,41 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   label="Cost Price"
                   size="small"
                   type="number"
-                  value={productState.formData.cost_price}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, cost_price: parseFloat(e.target.value) || 0 })}
+                  value={productState.formData.cost_price ?? ""}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, cost_price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  onBlur={() => handleProductBlur("cost_price")}
                   disabled={!productState.isEditing && !productState.isCreating}
+                  required
+                  error={productTouched.cost_price && (productState.formData.cost_price === undefined || productState.formData.cost_price === null)}
+                  helperText={productTouched.cost_price && (productState.formData.cost_price === undefined || productState.formData.cost_price === null) ? "Cost price is required" : ""}
                   InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                 />
                 <TextField
                   label="Website Price"
                   size="small"
                   type="number"
-                  value={productState.formData.website_price}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, website_price: parseFloat(e.target.value) || 0 })}
+                  value={productState.formData.website_price ?? ""}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, website_price: e.target.value ? parseFloat(e.target.value) : undefined })}
                   disabled={!productState.isEditing && !productState.isCreating}
                   InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
                 />
-                {/* Minimum Price */}
+                <TextField
+                  label="Selling Price"
+                  size="small"
+                  type="number"
+                  value={productState.formData.selling_price ?? ""}
+                  onChange={(e) => productState.setFormData({ ...productState.formData, selling_price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  onBlur={() => handleProductBlur("selling_price")}
+                  disabled={!productState.isEditing && !productState.isCreating}
+                  required
+                  error={productTouched.selling_price && (productState.formData.selling_price === undefined || productState.formData.selling_price === null)}
+                  helperText={productTouched.selling_price && (productState.formData.selling_price === undefined || productState.formData.selling_price === null) ? "Selling price is required" : ""}
+                  InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                />
+                {/* Minimum Selling Price */}
                 {productState.isCreating ? (
                   <TextField
-                    label="Minimum Price"
+                    label="Minimum Selling Price"
                     size="small"
                     type="number"
                     value={createMinPrice}
@@ -844,7 +1003,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   productState.selectedItem && (
                   <Box sx={{ display: "flex", alignItems: "center", gap: 2, gridColumn: { sm: "1 / -1" } }}>
                     <Typography variant="body2" color="text.secondary">
-                      Minimum Price:
+                      Minimum Selling Price:
                     </Typography>
                     {currentMinPrice ? (
                       <Chip
@@ -873,27 +1032,48 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
               </FormSection>
 
               <FormSection title="Status" isLast>
-                <Box sx={{ display: "flex", gap: 3, gridColumn: { sm: "1 / -1" } }}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={productState.formData.active}
-                        onChange={(e) => productState.setFormData({ ...productState.formData, active: e.target.checked })}
-                        disabled={!productState.isEditing && !productState.isCreating}
-                      />
-                    }
-                    label="Active"
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={productState.formData.website_active}
-                        onChange={(e) => productState.setFormData({ ...productState.formData, website_active: e.target.checked })}
-                        disabled={!productState.isEditing && !productState.isCreating}
-                      />
-                    }
-                    label="Website Active"
-                  />
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2, gridColumn: { sm: "1 / -1" } }}>
+                  <Box sx={{ display: "flex", gap: 3 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={productState.formData.active}
+                          onChange={(e) => {
+                            const isActive = e.target.checked;
+                            productState.setFormData({ 
+                              ...productState.formData, 
+                              active: isActive,
+                              // Automatically disable website_active if product becomes inactive
+                              website_active: isActive ? productState.formData.website_active : false
+                            });
+                          }}
+                          disabled={!productState.isEditing && !productState.isCreating}
+                        />
+                      }
+                      label="Active"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={productState.formData.website_active}
+                          onChange={(e) => productState.setFormData({ ...productState.formData, website_active: e.target.checked })}
+                          // Website active can only be enabled if product is active
+                          disabled={(!productState.isEditing && !productState.isCreating) || !productState.formData.active}
+                        />
+                      }
+                      label="Website Active"
+                    />
+                  </Box>
+                  {!productState.formData.active && (productState.isEditing || productState.isCreating) && (
+                    <Typography variant="caption" color="warning.main">
+                      Note: Inactive products cannot be used in sales, purchases, or displayed on the website.
+                    </Typography>
+                  )}
+                  {productState.formData.active && !productState.formData.website_active && (productState.isEditing || productState.isCreating) && (
+                    <Typography variant="caption" color="text.secondary">
+                      Enable "Website Active" to display this product on the website.
+                    </Typography>
+                  )}
                 </Box>
               </FormSection>
             </>
@@ -1005,52 +1185,74 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           {!categoryState.selectedItem && !categoryState.isCreating ? (
             <EmptyState message="Select a category from the list or create a new one" />
           ) : (
-            <FormSection title="Category Information" isLast>
-              <TextField
-                label="Category Name"
-                size="small"
-                value={categoryState.formData.name}
-                onChange={(e) => categoryState.setFormData({ ...categoryState.formData, name: e.target.value })}
-                disabled={!categoryState.isEditing && !categoryState.isCreating}
-                required
-              />
-              <TextField
-                label="Category Code"
-                size="small"
-                value={categoryState.formData.category_code}
-                onChange={(e) => categoryState.setFormData({ ...categoryState.formData, category_code: e.target.value.toUpperCase() })}
-                disabled={!categoryState.isCreating}
-                required
-                inputProps={{ style: { textTransform: "uppercase" } }}
-              />
-              <TextField
-                label="Memo"
-                size="small"
-                value={categoryState.formData.memo}
-                onChange={(e) => categoryState.setFormData({ ...categoryState.formData, memo: e.target.value })}
-                disabled={!categoryState.isEditing && !categoryState.isCreating}
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={categoryState.formData.active}
-                    onChange={(e) => categoryState.setFormData({ ...categoryState.formData, active: e.target.checked })}
-                    disabled={!categoryState.isEditing && !categoryState.isCreating}
+            <>
+              {/* Show inactive warning */}
+              {categoryState.selectedItem && !categoryState.selectedItem.active && !categoryState.isCreating && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  This category is inactive and cannot be assigned to new products. Edit to reactivate.
+                </Alert>
+              )}
+              
+              <FormSection title="Category Information" isLast>
+                <TextField
+                  label="Category Name"
+                  size="small"
+                  value={categoryState.formData.name}
+                  onChange={(e) => categoryState.setFormData({ ...categoryState.formData, name: e.target.value })}
+                  onBlur={() => handleCategoryBlur("name")}
+                  disabled={!categoryState.isEditing && !categoryState.isCreating}
+                  required
+                  error={categoryTouched.name && !categoryState.formData.name}
+                  helperText={categoryTouched.name && !categoryState.formData.name ? "Category name is required" : ""}
+                />
+                <TextField
+                  label="Category Code"
+                  size="small"
+                  value={categoryState.formData.category_code}
+                  onChange={(e) => categoryState.setFormData({ ...categoryState.formData, category_code: e.target.value.toUpperCase() })}
+                  onBlur={() => handleCategoryBlur("category_code")}
+                  disabled={!categoryState.isCreating}
+                  required
+                  error={categoryTouched.category_code && !categoryState.formData.category_code}
+                  helperText={categoryTouched.category_code && !categoryState.formData.category_code ? "Category code is required" : ""}
+                  inputProps={{ style: { textTransform: "uppercase" } }}
+                />
+                <TextField
+                  label="Memo"
+                  size="small"
+                  value={categoryState.formData.memo}
+                  onChange={(e) => categoryState.setFormData({ ...categoryState.formData, memo: e.target.value })}
+                  disabled={!categoryState.isEditing && !categoryState.isCreating}
+                />
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={categoryState.formData.active}
+                        onChange={(e) => categoryState.setFormData({ ...categoryState.formData, active: e.target.checked })}
+                        disabled={!categoryState.isEditing && !categoryState.isCreating}
+                      />
+                    }
+                    label="Active"
                   />
-                }
-                label="Active"
-              />
-              <TextField
-                label="Description"
-                size="small"
-                value={categoryState.formData.description}
-                onChange={(e) => categoryState.setFormData({ ...categoryState.formData, description: e.target.value })}
-                disabled={!categoryState.isEditing && !categoryState.isCreating}
-                multiline
-                rows={3}
-                sx={{ gridColumn: { sm: "1 / -1" } }}
-              />
-            </FormSection>
+                  {!categoryState.formData.active && (categoryState.isEditing || categoryState.isCreating) && (
+                    <Typography variant="caption" color="warning.main">
+                      Note: Inactive categories cannot be assigned to new products.
+                    </Typography>
+                  )}
+                </Box>
+                <TextField
+                  label="Description"
+                  size="small"
+                  value={categoryState.formData.description}
+                  onChange={(e) => categoryState.setFormData({ ...categoryState.formData, description: e.target.value })}
+                  disabled={!categoryState.isEditing && !categoryState.isCreating}
+                  multiline
+                  rows={3}
+                  sx={{ gridColumn: { sm: "1 / -1" } }}
+                />
+              </FormSection>
+            </>
           )}
         </Box>
       </Box>
@@ -1150,16 +1352,22 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                 size="small"
                 value={brandState.formData.brand_name}
                 onChange={(e) => brandState.setFormData({ ...brandState.formData, brand_name: e.target.value })}
+                onBlur={() => handleBrandBlur("brand_name")}
                 disabled={!brandState.isEditing && !brandState.isCreating}
                 required
+                error={brandTouched.brand_name && !brandState.formData.brand_name}
+                helperText={brandTouched.brand_name && !brandState.formData.brand_name ? "Brand name is required" : ""}
               />
               <TextField
                 label="Brand Code"
                 size="small"
                 value={brandState.formData.brand_code}
                 onChange={(e) => brandState.setFormData({ ...brandState.formData, brand_code: e.target.value.toUpperCase() })}
+                onBlur={() => handleBrandBlur("brand_code")}
                 disabled={!brandState.isCreating}
                 required
+                error={brandTouched.brand_code && !brandState.formData.brand_code}
+                helperText={brandTouched.brand_code && !brandState.formData.brand_code ? "Brand code is required" : ""}
                 inputProps={{ style: { textTransform: "uppercase" } }}
               />
               <TextField
@@ -1196,19 +1404,16 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
         {activeTab === 1 && renderCategoriesTab()}
         {activeTab === 2 && renderBrandsTab()}
       </MasterDetailLayout>
-      <TConfirmDialog {...deleteProductDialog.dialogProps} />
-      <TConfirmDialog {...discardProductDialog.dialogProps} confirmText="Discard" />
-      <TConfirmDialog {...deleteCategoryDialog.dialogProps} />
-      <TConfirmDialog {...discardCategoryDialog.dialogProps} confirmText="Discard" />
-      <TConfirmDialog {...deleteBrandDialog.dialogProps} />
-      <TConfirmDialog {...discardBrandDialog.dialogProps} confirmText="Discard" />
       
-      {/* Minimum Price Dialog */}
+      {/* Single unified confirm dialog */}
+      <TConfirmDialog {...confirmDialog.dialogProps} />
+      
+      {/* Minimum Selling Price Dialog */}
       <Dialog open={minPriceDialogOpen} onClose={() => setMinPriceDialogOpen(false)}>
-        <DialogTitle>Set Minimum Price</DialogTitle>
+        <DialogTitle>Set Minimum Selling Price</DialogTitle>
         <DialogContent>
           <TextField
-            label="Minimum Price"
+            label="Minimum Selling Price"
             type="number"
             fullWidth
             value={newMinPrice}

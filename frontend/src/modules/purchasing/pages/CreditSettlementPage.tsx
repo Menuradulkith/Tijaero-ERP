@@ -44,6 +44,7 @@ import {
   DetailPanelHeader,
   EmptyState,
   SortOption,
+  PURCHASING_PAYMENT_METHOD,
 } from "@/components/tijaero";
 
 import {
@@ -64,14 +65,6 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "full_name", label: "Name" },
   { value: "max_credit_limit", label: "Credit Limit" },
   { value: "credit_days", label: "Credit Days" },
-];
-
-const PAYMENT_METHODS = [
-  "Cash",
-  "Bank Transfer",
-  "Cheque",
-  "Credit Card",
-  "Online Payment",
 ];
 
 // Credit PO from API
@@ -825,9 +818,9 @@ export default function CreditSettlementPage() {
               select
               required
             >
-              {PAYMENT_METHODS.map((method) => (
-                <MenuItem key={method} value={method}>
-                  {method}
+              {PURCHASING_PAYMENT_METHOD.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
                 </MenuItem>
               ))}
             </TextField>

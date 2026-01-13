@@ -133,10 +133,40 @@ export function TTable<T = Record<string, unknown>>({
   maxHeight,
   getRowKey,
   hover = true,
-  striped = false,
+  striped = true,
   dense = false,
 }: TTableProps<T>) {
   const tableSize = dense ? "small" : size;
+
+  // Modern table styles
+  const modernTableSx = {
+    borderRadius: 2,
+    overflow: "hidden",
+    border: "1px solid",
+    borderColor: "divider",
+    "& .MuiTableHead-root": {
+      bgcolor: "grey.50",
+    },
+    "& .MuiTableHead-root .MuiTableCell-root": {
+      fontWeight: 600,
+      fontSize: "0.875rem",
+      color: "text.primary",
+      borderBottom: "2px solid",
+      borderColor: "divider",
+      py: 1.5,
+    },
+    "& .MuiTableBody-root .MuiTableCell-root": {
+      fontSize: "0.875rem",
+      borderColor: "grey.100",
+      py: 1.25,
+    },
+    "& .MuiTableBody-root .MuiTableRow-root": {
+      transition: "background-color 0.15s ease",
+    },
+    "& .MuiTableBody-root .MuiTableRow-root:hover": {
+      bgcolor: "primary.50",
+    },
+  };
 
   // Get cell value from row
   const getCellValue = (row: T, field: string): unknown => {
@@ -155,7 +185,7 @@ export function TTable<T = Record<string, unknown>>({
   // Render loading skeleton
   if (loading) {
     return (
-      <TableContainer component={Paper} sx={{ maxHeight }}>
+      <TableContainer component={Paper} sx={{ maxHeight, ...modernTableSx }}>
         <Table size={tableSize} stickyHeader={stickyHeader}>
           <TableHead>
             <TableRow>
@@ -175,7 +205,7 @@ export function TTable<T = Record<string, unknown>>({
               <TableRow key={rowIdx}>
                 {columns.map((_, colIdx) => (
                   <TableCell key={colIdx}>
-                    <Skeleton variant="text" />
+                    <Skeleton variant="text" animation="wave" />
                   </TableCell>
                 ))}
               </TableRow>
@@ -189,7 +219,7 @@ export function TTable<T = Record<string, unknown>>({
   // Render empty state
   if (data.length === 0) {
     return (
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} sx={modernTableSx}>
         <Table size={tableSize}>
           <TableHead>
             <TableRow>
@@ -208,7 +238,7 @@ export function TTable<T = Record<string, unknown>>({
             <TableRow>
               <TableCell colSpan={columns.length} align="center">
                 <Box sx={{ py: 4 }}>
-                  <Typography color="text.secondary">{emptyMessage}</Typography>
+                  <Typography color="text.secondary" variant="body2">{emptyMessage}</Typography>
                 </Box>
               </TableCell>
             </TableRow>
@@ -219,7 +249,7 @@ export function TTable<T = Record<string, unknown>>({
   }
 
   return (
-    <TableContainer component={Paper} sx={{ maxHeight }}>
+    <TableContainer component={Paper} sx={{ maxHeight, ...modernTableSx }}>
       <Table size={tableSize} stickyHeader={stickyHeader}>
         <TableHead>
           <TableRow>
@@ -228,7 +258,6 @@ export function TTable<T = Record<string, unknown>>({
                 key={idx}
                 align={col.align}
                 style={{ width: col.width }}
-                sx={{ fontWeight: 600 }}
               >
                 {col.header}
               </TableCell>
@@ -244,7 +273,7 @@ export function TTable<T = Record<string, unknown>>({
               sx={{
                 cursor: onRowClick ? "pointer" : "default",
                 ...(striped && rowIdx % 2 === 1 && {
-                  backgroundColor: "action.hover",
+                  backgroundColor: "grey.25",
                 }),
               }}
             >

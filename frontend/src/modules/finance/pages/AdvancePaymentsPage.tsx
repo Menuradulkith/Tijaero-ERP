@@ -21,6 +21,7 @@ import { toast } from "react-hot-toast";
 import { advancePaymentsApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
 import { CustomerAdvancePaymentCreate } from "@/modules/finance/types";
+import { GENERIC_PAYMENT_METHOD } from "@/components/tijaero";
 
 export default function AdvancePaymentsPage() {
   const queryClient = useQueryClient();
@@ -210,10 +211,9 @@ export default function AdvancePaymentsPage() {
                       select
                       fullWidth
                     >
-                      <MenuItem value="cash">Cash</MenuItem>
-                      <MenuItem value="card">Card</MenuItem>
-                      <MenuItem value="cheque">Cheque</MenuItem>
-                      <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
+                      {GENERIC_PAYMENT_METHOD.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                      ))}
                     </TextField>
                   )}
                 />

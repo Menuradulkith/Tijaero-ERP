@@ -39,6 +39,7 @@ class Product(Base, TimestampMixin):
     description = Column(Text)
     website_active = Column(Boolean, nullable=False)
     website_price = Column(Numeric(60, 2))
+    selling_price = Column(Numeric(60, 2))  # Selling price for sales stock
     active = Column(Boolean, nullable=False)
     cost_price = Column(Numeric(60, 2), nullable=False)
     created_date = Column(Date, nullable=False)
@@ -50,7 +51,7 @@ class Product(Base, TimestampMixin):
     category = relationship("Category", back_populates="products")
     brand = relationship("ItemsBrand", back_populates="products")
     invoice_items = relationship("InvoiceItems", back_populates="product")
-    minimum_prices = relationship("MinimumPrice", back_populates="product")
+    minimum_prices = relationship("MinimumPrice", back_populates="product", cascade="all, delete-orphan")
     purchasing_order_items = relationship("PurchasingOrderItems", back_populates="product")
     purchasing_return_items = relationship("PurchasingReturnItems", back_populates="product")
     cs_job_items = relationship("CSJobItem", back_populates="product")
@@ -66,7 +67,7 @@ class MinimumPrice(Base, TimestampMixin):
     id = Column(Integer, primary_key=True, index=True)
     minimum_price = Column(Numeric(60, 2), nullable=False)
     created_date = Column(TIMESTAMP, nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
     
     # Relationships
     product = relationship("Product", back_populates="minimum_prices")

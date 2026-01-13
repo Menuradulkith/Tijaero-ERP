@@ -13,11 +13,13 @@ class ItemTransferNoteBase(BaseModel):
 
 class ItemTransferNoteCreate(ItemTransferNoteBase):
     approval_id: Optional[int] = None
+    status: Optional[str] = "pending"
 
 class ItemTransferNote(ItemTransferNoteBase):
     id: int
     added_date: datetime
     approval_id: Optional[int] = None
+    status: str = "pending"
     
     class Config:
         from_attributes = True
@@ -89,3 +91,59 @@ class WarehouseListFilter(BaseModel):
     approved_status: Optional[int] = None
     skip: int = 0
     limit: int = 100
+
+
+# Barcode Validation Schemas
+class BarcodeValidationRequest(BaseModel):
+    barcode: str
+    from_location_id: int
+    branch_code: Optional[str] = None
+
+class BarcodeValidationResponse(BaseModel):
+    valid: bool
+    barcode: str
+    message: str
+    sales_stock_id: Optional[int] = None
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    current_location_id: Optional[int] = None
+    current_location_name: Optional[str] = None
+    current_status: Optional[str] = None
+    cost_price: Optional[float] = None
+
+
+# Receive Items Schemas
+class ReceiveItemsRequest(BaseModel):
+    barcodes: List[str]
+    received_note: Optional[str] = None
+    received_user_id: Optional[int] = None
+
+class ReceivedItemResult(BaseModel):
+    barcode: str
+    success: bool
+    message: str
+    product_name: Optional[str] = None
+
+class ReceiveItemsResponse(BaseModel):
+    transfer_note_id: int
+    total_items: int
+    received_items: int
+    pending_items: int
+    results: List[ReceivedItemResult]
+    all_received: bool
+
+
+# Transfer Note Status Response
+class TransferNoteStatusResponse(BaseModel):
+    transfer_note_id: int
+    transfer_note_number: str
+    status: str
+    total_items: int
+    received_items: int
+    pending_items: int
+    from_location_name: Optional[str] = None
+    to_location_name: Optional[str] = None
+    created_date: date
+    approval_status: Optional[int] = None
+    can_dispatch: bool
+    can_receive: bool

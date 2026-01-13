@@ -172,6 +172,7 @@ export interface PurchasingReturnItem {
   branch_code: string;
   added_date: string;
   sales_stock_id?: number;
+  product_name?: string;  // Loaded from product relationship
 }
 
 export interface PurchasingReturnItemCreate {
@@ -344,4 +345,15 @@ export interface SupplierCreditsSettleUpdate {
 
 export interface SupplierCreditsSettleWithTransactions extends SupplierCreditsSettle {
   transactions: SupplierCreditsSettleTransaction[];
+}
+
+// Daily PO Limit Check
+export interface DailyPOLimitCheck {
+  branch_code: string;
+  date: string;
+  count: number;
+  limit: number;
+  remaining: number;
+  can_create: boolean;
+  message: string;
 }

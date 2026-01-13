@@ -30,6 +30,9 @@ import {
     TConfirmDialog,
     useMasterDetailState,
     useTConfirmDialog,
+    TITLE_CHOICES,
+    GENDER_CHOICES,
+    CIVIL_CHOICES,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
@@ -44,14 +47,14 @@ const SORT_OPTIONS: SortOption[] = [
 
 const INITIAL_FORM_DATA: CustomerCreate = {
   customer_name: "",
-  title: "Mr.",
+  title: "mr",
   email: "",
   mobile_contact_number: "",
   home_contact_number: "",
   company_name: "",
   occupation: "",
-  gender: "Male",
-  civil_status: "Single",
+  gender: "m",
+  civil_status: "single",
   no_of_kids: "0",
   birthdate: "",
   id_card_number: "",
@@ -378,10 +381,9 @@ export default function CustomersPage() {
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 disabled={isDisabled}
               >
-                <MenuItem value="Mr.">Mr.</MenuItem>
-                <MenuItem value="Mrs.">Mrs.</MenuItem>
-                <MenuItem value="Ms.">Ms.</MenuItem>
-                <MenuItem value="Dr.">Dr.</MenuItem>
+                {TITLE_CHOICES.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                ))}
               </TextField>
               <TextField
                 label="Customer Name"
@@ -436,9 +438,9 @@ export default function CustomersPage() {
                 onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
                 disabled={isDisabled}
               >
-                <MenuItem value="Male">Male</MenuItem>
-                <MenuItem value="Female">Female</MenuItem>
-                <MenuItem value="Other">Other</MenuItem>
+                {GENDER_CHOICES.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                ))}
               </TextField>
               <TextField
                 label="Civil Status"
@@ -448,10 +450,9 @@ export default function CustomersPage() {
                 onChange={(e) => setFormData({ ...formData, civil_status: e.target.value })}
                 disabled={isDisabled}
               >
-                <MenuItem value="Single">Single</MenuItem>
-                <MenuItem value="Married">Married</MenuItem>
-                <MenuItem value="Divorced">Divorced</MenuItem>
-                <MenuItem value="Widowed">Widowed</MenuItem>
+                {CIVIL_CHOICES.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                ))}
               </TextField>
               <TextField
                 label="No. of Kids"

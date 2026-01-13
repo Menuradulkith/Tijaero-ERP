@@ -14,4 +14,12 @@ export { TCheckbox, type TCheckboxProps } from "./TCheckbox";
 export { TSwitch, type TSwitchProps } from "./TSwitch";
 export { TDatePicker, type TDatePickerProps } from "./TDatePicker";
 export { TChip, type TChipProps } from "./TChip";
-export { TStatusChip, type TStatusChipProps, STATUS_MAPS } from "./TStatusChip";
+export { TStatusChip, getStatusProps, type TStatusChipProps, STATUS_MAPS } from "./TStatusChip";
+export {
+  TPrintButton,
+  getReportUrl,
+  canPrintDocument,
+  getPrintDisabledReason,
+  type TPrintButtonProps,
+  type TPrintDocumentType,
+} from "./TPrintButton";

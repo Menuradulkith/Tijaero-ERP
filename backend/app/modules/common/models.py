@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, Date, TIMESTAMP, Numeric, SmallInteger
+from sqlalchemy import Column, Integer, String, Text, Boolean, Date, TIMESTAMP, Numeric, SmallInteger, ForeignKey
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.common.base_models import TimestampMixin
@@ -59,10 +59,14 @@ class Locations(Base, TimestampMixin):
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
+    branch_code = Column(String(255), ForeignKey("branches.branch_code"), nullable=False)
     created_date = Column(TIMESTAMP, nullable=False)
     
     # Relationships
+    branch = relationship("Branch")
     good_received_notes = relationship("GoodReceivedNote", back_populates="location")
     sale_returns = relationship("SaleReturn", back_populates="location")
     item_transfer_notes_from = relationship("ItemTransferNote", foreign_keys="ItemTransferNote.from_location_id", back_populates="from_location")
     item_transfer_notes_to = relationship("ItemTransferNote", foreign_keys="ItemTransferNote.to_location_id", back_populates="to_location")
+    sales_stock_items = relationship("SalesStock", back_populates="location")
+

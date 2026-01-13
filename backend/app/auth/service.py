@@ -95,6 +95,16 @@ class AuthService:
         user = db.query(models.User).filter(models.User.username == username).first()
         return user is not None
     
+    def check_employee_id_exists(self, db: Session, employee_id: str) -> bool:
+        try:
+            from app.modules.employees.models import Employee
+            employee = db.query(Employee).filter(Employee.employee_id == employee_id).first()
+            return employee is not None
+        except (ImportError, Exception):
+            # If employees module doesn't exist or table doesn't exist, check users table
+            user = db.query(models.User).filter(models.User.employee_id == employee_id).first()
+            return user is not None
+    
     def get_user(self, db: Session, user_id: int) -> Optional[models.User]:
         user = db.query(models.User).filter(models.User.id == user_id).first()
         if not user:
@@ -142,6 +152,83 @@ class AuthService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete superuser"
             )
+        
+        # Check for foreign key references
+        errors = []
+        
+        # Check employees table
+        try:
+            from app.modules.employees.models import Employee
+            employee_count = db.query(Employee).filter(Employee.user_id == user_id).count()
+            if employee_count > 0:
+                errors.append(f"User is linked to {employee_count} employee record(s)")
+        except (ImportError, Exception):
+            pass
+        
+        # Check support tickets
+        try:
+            from app.modules.support.models import SupportTicket
+            ticket_count = db.query(SupportTicket).filter(SupportTicket.assigned_user_id == user_id).count()
+            if ticket_count > 0:
+                errors.append(f"User is assigned to {ticket_count} support ticket(s)")
+        except (ImportError, Exception):
+            pass
+        
+        # Check warehouse approvals
+        try:
+            from app.modules.warehouse.models import GoodReceiveNote
+            grn_count = db.query(GoodReceiveNote).filter(GoodReceiveNote.approved_user_id == user_id).count()
+            if grn_count > 0:
+                errors.append(f"User has approved {grn_count} warehouse transaction(s)")
+        except (ImportError, Exception):
+            pass
+        
+        # Check reports
+        try:
+            from app.modules.reporting.models import ReportDefinition, ReportExecution
+            report_def_count = db.query(ReportDefinition).filter(ReportDefinition.created_by == user_id).count()
+            report_exec_count = db.query(ReportExecution).filter(ReportExecution.executed_by == user_id).count()
+            if report_def_count > 0:
+                errors.append(f"User has created {report_def_count} report definition(s)")
+            if report_exec_count > 0:
+                errors.append(f"User has {report_exec_count} report execution(s)")
+        except (ImportError, Exception):
+            pass
+        
+        # Check marketing campaigns
+        try:
+            from app.modules.marketing.models import Campaign
+            campaign_count = db.query(Campaign).filter(Campaign.author_id == user_id).count()
+            if campaign_count > 0:
+                errors.append(f"User is author of {campaign_count} marketing campaign(s)")
+        except (ImportError, Exception):
+            pass
+        
+        # Check attachments (skip if table doesn't exist)
+        try:
+            from app.common.attachments import Attachment
+            attachment_count = db.query(Attachment).filter(Attachment.uploaded_by == user_id).count()
+            if attachment_count > 0:
+                errors.append(f"User has uploaded {attachment_count} attachment(s)")
+        except (ImportError, Exception):
+            pass
+        
+        # Check workflow approvals (skip if table doesn't exist)
+        try:
+            from app.common.workflow import WorkflowInstance
+            workflow_count = db.query(WorkflowInstance).filter(WorkflowInstance.approver_id == user_id).count()
+            if workflow_count > 0:
+                errors.append(f"User is approver in {workflow_count} workflow instance(s)")
+        except (ImportError, Exception):
+            pass
+        
+        if errors:
+            error_message = "Cannot delete user. " + "; ".join(errors) + "."
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_message
+            )
+        
         db.delete(user)
         db.commit()
         return {"message": "User deleted successfully"}

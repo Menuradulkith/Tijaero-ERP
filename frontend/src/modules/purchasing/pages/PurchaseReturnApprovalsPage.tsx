@@ -1,6 +1,7 @@
 /**
  * PurchaseReturnApprovalsPage - Purchase Return Approvals
  * Shows purchase returns for approval/rejection with filters
+ * Refactored to use common purchasing components for better code reuse
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
@@ -9,7 +10,6 @@ import {
   Box,
   TextField,
   Typography,
-  Chip,
   Table,
   TableHead,
   TableBody,
@@ -21,9 +21,9 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Autocomplete,
   IconButton,
   Tooltip,
+  Chip,
 } from "@mui/material";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -31,6 +31,7 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 
+// Import tijaero components
 import {
   MasterDetailLayout,
   SearchableList,
@@ -38,35 +39,29 @@ import {
   DetailPanelHeader,
   FormSection,
   EmptyState,
+  TFilterPanel,
+  TBranchFilter,
+  TStatusFilter,
+  RETURN_STATUS_FILTER_OPTIONS,
+  getStatusProps,
   SortOption,
   showSuccessToast,
   showErrorToast,
+  modernTableStyles,
 } from "@/components/tijaero";
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
-import { productsApi } from "@/modules/inventory/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData, ProductRef } from "@/hooks";
+// OPTIMIZED: Removed productsApi, branchApi imports - using aggregated endpoint
 import { PurchasingReturn, PurchasingReturnWithItems, GoodReceivedNote } from "@/modules/purchasing/types";
-import { Product } from "@/modules/inventory/types";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "added_date", label: "Date" },
   { value: "purchasing_return_no", label: "Return Number" },
 ];
 
-const STATUS_OPTIONS = [
-  { value: "pending", label: "Pending", color: "warning" as const },
-  { value: "approved", label: "Approved", color: "info" as const },
-  { value: "rejected", label: "Rejected", color: "error" as const },
-  { value: "draft", label: "Draft", color: "default" as const },
-];
-
-const getStatusChip = (
-  status?: string
-): { label: string; color: "default" | "success" | "warning" | "error" | "info" } => {
-  const opt = STATUS_OPTIONS.find((s) => s.value === (status || "").toLowerCase());
-  return opt ? { label: opt.label, color: opt.color } : { label: status || "Unknown", color: "default" };
-};
+// Status options are now imported from common components (RETURN_STATUS_OPTIONS)
+// getStatusChipProps is now imported from common components
 
 export default function PurchaseReturnApprovalsPage() {
   const queryClient = useQueryClient();
@@ -75,7 +70,7 @@ export default function PurchaseReturnApprovalsPage() {
   const [selectedReturn, setSelectedReturn] = useState<PurchasingReturnWithItems | null>(null);
 
   // Filter states
-  const [filterStatus, setFilterStatus] = useState<string | null>("pending");
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // Dialogs
@@ -95,18 +90,10 @@ export default function PurchaseReturnApprovalsPage() {
     queryFn: () => goodReceivedNotesApi.getAll(),
   });
 
-  // Fetch products
-  const { data: products = [] } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-  });
-
-  // Fetch branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Single API call for products and branches (was 2 calls)
+  const { data: refData } = useReferenceData(["products", "branches"]);
+  const products = refData?.products || [];
+  const branches = refData?.branches || [];
 
   // Create lookup maps
   const grnMap = useMemo(() => {
@@ -116,7 +103,7 @@ export default function PurchaseReturnApprovalsPage() {
   }, [grns]);
 
   const productMap = useMemo(() => {
-    const map = new Map<number, Product>();
+    const map = new Map<number, ProductRef>();
     products.forEach((p) => map.set(p.id, p));
     return map;
   }, [products]);
@@ -241,33 +228,22 @@ export default function PurchaseReturnApprovalsPage() {
       selectedItem={selectedReturn}
       emptyMessage="No returns found"
       listHeader={
-        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
-          <Autocomplete
-            size="small"
-            options={STATUS_OPTIONS}
-            getOptionLabel={(option) => option.label}
-            value={STATUS_OPTIONS.find((s) => s.value === filterStatus) || null}
-            onChange={(_, newValue) => setFilterStatus(newValue?.value || null)}
-            renderInput={(params) => (
-              <TextField {...params} placeholder="Filter by Status" size="small" />
-            )}
-            sx={{ mb: 1 }}
+        <TFilterPanel>
+          <TStatusFilter
+            options={RETURN_STATUS_FILTER_OPTIONS}
+            value={filterStatus}
+            onChange={setFilterStatus}
           />
-          <Autocomplete
-            size="small"
-            options={branches}
-            getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-            value={branches.find((b) => b.branch_code === filterBranch) || null}
-            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
-            renderInput={(params) => (
-              <TextField {...params} placeholder="Filter by Branch" size="small" />
-            )}
+          <TBranchFilter
+            branches={branches}
+            value={filterBranch}
+            onChange={setFilterBranch}
           />
-        </Box>
+        </TFilterPanel>
       }
       renderItem={(ret, isSelected) => {
         const returnGrn = grnMap.get(ret.goodreceivednote_id);
-        const statusChip = getStatusChip(ret.status);
+        const statusChip = getStatusProps(ret.status || "draft", "purchaseReturn");
         return (
           <SelectableListItem
             key={ret.id}
@@ -349,7 +325,7 @@ export default function PurchaseReturnApprovalsPage() {
         chips={
           selectedReturn
             ? (() => {
-                const s = getStatusChip(selectedReturn.status);
+                const s = getStatusProps(selectedReturn.status || "draft", "purchaseReturn");
                 return [{ label: s.label, color: s.color }];
               })()
             : []
@@ -433,10 +409,10 @@ export default function PurchaseReturnApprovalsPage() {
 
             {/* Return Items */}
             <FormSection title="Return Items" columns={1}>
-              <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%" }}>
+              <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
                 <Table size="small">
                   <TableHead>
-                    <TableRow sx={{ bgcolor: "grey.100" }}>
+                    <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Barcode</TableCell>
                       <TableCell>Product</TableCell>
                       <TableCell align="right">Purchase Price</TableCell>
@@ -447,7 +423,10 @@ export default function PurchaseReturnApprovalsPage() {
                     {selectedReturn.items?.map((item, index) => {
                       const product = productMap.get(item.product_id);
                       return (
-                        <TableRow key={index}>
+                        <TableRow key={index} sx={{ 
+                          ...modernTableStyles.bodyRow,
+                          ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                        }}>
                           <TableCell>{item.barcode}</TableCell>
                           <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                           <TableCell align="right">Rs. {Number(item.purchasing_price).toLocaleString()}</TableCell>
@@ -455,7 +434,7 @@ export default function PurchaseReturnApprovalsPage() {
                         </TableRow>
                       );
                     })}
-                    <TableRow sx={{ bgcolor: "grey.50" }}>
+                    <TableRow sx={modernTableStyles.footerRow}>
                       <TableCell colSpan={3} align="right">
                         <strong>Total Return Amount:</strong>
                       </TableCell>

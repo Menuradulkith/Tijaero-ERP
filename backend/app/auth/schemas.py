@@ -112,7 +112,10 @@ class UserList(BaseModel):
     username: str
     email: str
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
+    gender: str
+    birthdate: date
     is_active: bool
     is_superuser: bool
     is_staff: bool

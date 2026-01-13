@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from datetime import date, datetime
@@ -64,11 +64,12 @@ class PurchasingOrderRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, order: schemas.PurchasingOrderCreate) -> models.PurchasingOrder:
+    def create(self, order: schemas.PurchasingOrderCreate, initial_status: str = "pending") -> models.PurchasingOrder:
         # Exclude items - they're handled separately
         order_data = order.model_dump(exclude={'items'})
         db_order = models.PurchasingOrder(
             **order_data,
+            status=initial_status,
             created_date=date.today(),
             added_date=datetime.now()
         )
@@ -91,6 +92,14 @@ class PurchasingOrderRepository:
     
     def get_by_id(self, order_id: int) -> Optional[models.PurchasingOrder]:
         return self.db.query(models.PurchasingOrder).filter(
+            models.PurchasingOrder.id == order_id
+        ).first()
+    
+    def get_by_id_with_items(self, order_id: int) -> Optional[models.PurchasingOrder]:
+        """Get purchase order with items eagerly loaded to prevent N+1 queries"""
+        return self.db.query(models.PurchasingOrder).options(
+            joinedload(models.PurchasingOrder.items)
+        ).filter(
             models.PurchasingOrder.id == order_id
         ).first()
     
@@ -142,6 +151,15 @@ class PurchasingOrderRepository:
             self.db.commit()
             return True
         return False
+    
+    def count_daily_orders_by_branch(self, branch_code: str, target_date: date) -> int:
+        """Count the number of POs created for a branch on a specific date"""
+        return self.db.query(models.PurchasingOrder).filter(
+            and_(
+                models.PurchasingOrder.branch_code == branch_code,
+                func.date(models.PurchasingOrder.added_date) == target_date
+            )
+        ).count()
 
 class PurchasingReturnRepository:
     def __init__(self, db: Session):
@@ -168,7 +186,9 @@ class PurchasingReturnRepository:
         return db_return
     
     def get_by_id(self, return_id: int) -> Optional[models.PurchasingReturn]:
-        return self.db.query(models.PurchasingReturn).filter(
+        return self.db.query(models.PurchasingReturn).options(
+            joinedload(models.PurchasingReturn.items).joinedload(models.PurchasingReturnItems.product)
+        ).filter(
             models.PurchasingReturn.id == return_id
         ).first()
     

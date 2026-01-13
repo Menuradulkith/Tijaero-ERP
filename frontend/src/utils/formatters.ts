@@ -70,3 +70,79 @@ export function formatRelativeTime(date: Date | string): string {
   const diffInYears = Math.floor(diffInMonths / 12);
   return `${diffInYears} year${diffInYears === 1 ? "" : "s"} ago`;
 }
+
+/**
+ * Format a date as YYYY-MM-DD
+ * @param date - The date to format (Date object, ISO string, or null/undefined)
+ * @returns Formatted date string (e.g., "2026-01-11") or empty string if invalid
+ */
+export function formatDate(date: Date | string | null | undefined): string {
+  if (!date) return "";
+  try {
+    const d = typeof date === "string" ? new Date(date) : date;
+    if (isNaN(d.getTime())) return "";
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Format a datetime as YYYY-MM-DD HH:MM:SS (without microseconds)
+ * @param date - The datetime to format (Date object, ISO string, or null/undefined)
+ * @returns Formatted datetime string (e.g., "2026-01-11 04:14:33") or empty string if invalid
+ */
+export function formatDateTime(date: Date | string | null | undefined): string {
+  if (!date) return "";
+  try {
+    const d = typeof date === "string" ? new Date(date) : date;
+    if (isNaN(d.getTime())) return "";
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hours = String(d.getHours()).padStart(2, "0");
+    const minutes = String(d.getMinutes()).padStart(2, "0");
+    const seconds = String(d.getSeconds()).padStart(2, "0");
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Format a datetime as human-readable date with time (e.g., "Jan 11, 2026 4:14 AM")
+ * @param date - The datetime to format (Date object, ISO string, or null/undefined)
+ * @returns Formatted datetime string or empty string if invalid
+ */
+export function formatDateTimeReadable(date: Date | string | null | undefined): string {
+  if (!date) return "";
+  try {
+    const d = typeof date === "string" ? new Date(date) : date;
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString(ERP_LOCALE, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Strip microseconds from a datetime string
+ * Converts "2026-01-11 04:14:33.356044" to "2026-01-11 04:14:33"
+ * @param dateStr - The datetime string that may contain microseconds
+ * @returns Datetime string without microseconds
+ */
+export function stripMicroseconds(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  // Remove the microseconds part (everything after the seconds)
+  return dateStr.replace(/\.\d+$/, "");
+}

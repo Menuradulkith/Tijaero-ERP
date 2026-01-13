@@ -47,6 +47,26 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { salesApi } from "../api";
 // import { employeesApi } from "@/modules/employees/api";
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  DetailPanelHeader,
+  ActionToolbar,
+  FormSection,
+  EmptyState,
+  useMasterDetailState,
+  SortOption,
+  TConfirmDialog,
+  useTConfirmDialog,
+  showSuccessToast,
+  showErrorToast,
+  CUSTOMER_PAYMENT_METHOD,
+} from "@/components/tijaero";
+import { salesApi } from "../api";
+import { customersApi } from "@/modules/customers/api";
+import { useReferenceData } from "@/hooks";
+// OPTIMIZED: Removed productsApi, branchApi imports - using aggregated endpoint
+import { Invoice, InvoiceCreate } from "../types";
 import { usePermission } from "@/auth/permissions";
 import { branchApi } from "@/modules/branches/api";
 import { format } from "date-fns";
@@ -123,27 +143,16 @@ export default function SalesPage() {
     queryFn: () => salesApi.getAll(),
   });
 
+  // Fetch customers separately (has complex operations like credit check)
   const { data: customers } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
   });
 
-  const { data: products } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-  });
-
-  // const { data: _employees } = useQuery({
-  //   queryKey: ["employees"],
-  //   queryFn: () => employeesApi.getAll(),
-  // });
-
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Single API call for products and branches (was 2 calls)
+  const { data: refData } = useReferenceData(["products", "branches"]);
+  const products = refData?.products || [];
+  const branches = refData?.branches || [];
 
   // Get branch name by code
   const getBranchName = (branchCode: string) => {
@@ -578,13 +587,9 @@ export default function SalesPage() {
           value={state.formData.payment_method}
           onChange={(e) => state.setFormData({ ...state.formData, payment_method: e.target.value })}
         >
-          <MenuItem value="cash">Cash</MenuItem>
-          <MenuItem value="card_visa">Visa</MenuItem>
-          <MenuItem value="card_mastercard">Mastercard</MenuItem>
-          <MenuItem value="card_amex">Amex</MenuItem>
-          <MenuItem value="cheque">Cheque</MenuItem>
-          <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-          <MenuItem value="credit">Credit</MenuItem>
+          {CUSTOMER_PAYMENT_METHOD.map((option) => (
+            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+          ))}
         </TextField>
       </FormSection>
 
@@ -632,7 +637,7 @@ export default function SalesPage() {
                       onChange={(_, newValue) => {
                         updateLineItem(index, "product_id", newValue?.id || 0);
                         if (newValue) {
-                          updateLineItem(index, "selling_price", newValue.cost_price);
+                          updateLineItem(index, "selling_price", newValue.cost_price || 0);
                         }
                       }}
                       renderInput={(params) => <TextField {...params} placeholder="Select product" />}
