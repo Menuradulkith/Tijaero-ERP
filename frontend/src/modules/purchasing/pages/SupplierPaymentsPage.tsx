@@ -209,25 +209,25 @@ export default function SupplierPaymentsPage() {
     }
   }, []);
 
-  // Load credit status for selected supplier
+  // Load non-credit status for selected supplier (for supplier payments)
   const loadSupplierCredit = useCallback(async (supplierId: number) => {
     try {
       setLoadingCredit(true);
-      const status = await supplierCreditApi.getCreditStatus(supplierId);
+      const status = await supplierCreditApi.getNonCreditStatus(supplierId);
       setSupplierCreditStatus(status);
     } catch (err) {
-      console.error("Failed to load credit status:", err);
+      console.error("Failed to load non-credit status:", err);
       setSupplierCreditStatus(null);
     } finally {
       setLoadingCredit(false);
     }
   }, []);
 
-  // Transform credit data to open documents
+  // Transform non-credit data to open documents
   const openDocuments = useMemo((): OpenDocument[] => {
     if (!supplierCreditStatus) return [];
 
-    // Combine unpaid GRNs and credit POs with remaining amounts
+    // Combine unpaid GRNs and non-credit POs with remaining amounts
     const docs: OpenDocument[] = [];
 
     // Add unpaid GRNs
@@ -251,9 +251,14 @@ export default function SupplierPaymentsPage() {
       }
     });
 
-    // Add credit POs with GRN and remaining amounts
-    supplierCreditStatus.credit_purchase_orders?.forEach((po) => {
-      if (po.has_grn && po.remaining_amount > 0 && !po.is_settled) {
+    // Add non-credit POs with GRN and remaining amounts (completed or partially_completed)
+    supplierCreditStatus.non_credit_purchase_orders?.forEach((po) => {
+      if (
+        (po.status === "completed" || po.status === "partially_completed") &&
+        po.has_grn &&
+        po.remaining_amount > 0 &&
+        !po.is_paid
+      ) {
         // Check if we already added this as a GRN
         const existingGRN = docs.find((d) => d.type === "grn" && d.id === po.grn_id);
         if (!existingGRN) {
@@ -265,7 +270,7 @@ export default function SupplierPaymentsPage() {
             date: po.po_date,
             due_date: po.due_date,
             total_amount: po.total_amount,
-            paid_amount: po.settled_amount,
+            paid_amount: po.paid_amount,
             remaining_amount: po.remaining_amount,
             days_overdue: po.days_overdue,
             is_overdue: po.is_overdue,

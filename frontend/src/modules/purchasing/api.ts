@@ -369,6 +369,25 @@ export interface SupplierCreditStatus {
     is_overdue: boolean;
     branch_code: string;
   }[];
+  non_credit_purchase_orders?: {
+    po_id: number;
+    po_no: string;
+    invoice_no: string;
+    po_date: string;
+    status: string;
+    payment_method: string;
+    total_amount: number;
+    paid_amount: number;
+    remaining_amount: number;
+    is_paid: boolean;
+    has_grn: boolean;
+    grn_id: number | null;
+    grn_no: string | null;
+    due_date: string;
+    days_overdue: number;
+    is_overdue: boolean;
+    branch_code: string;
+  }[];
 }
 
 export interface SupplierCreditCheckResult {
@@ -487,6 +506,13 @@ export const supplierCreditApi = {
   getCreditStatus: async (supplierId: number) => {
     const response = await apiClient.get<SupplierCreditStatus>(
       `/purchasing/suppliers/${supplierId}/credit-status`
+    );
+    return response.data;
+  },
+
+  getNonCreditStatus: async (supplierId: number) => {
+    const response = await apiClient.get<SupplierCreditStatus>(
+      `/purchasing/suppliers/${supplierId}/non-credit-status`
     );
     return response.data;
   },

@@ -224,11 +224,12 @@ export default function CreditSettlementPage() {
     return filtered;
   }, [suppliers, showOnlyWithCredit, searchQuery, sortField, branches]);
 
-  // Get payable POs (approved with GRN, not fully settled)
+  // Get payable POs (completed or partially_completed with GRN, not fully settled)
   const payablePOs = useMemo(() => {
     if (!supplierCreditStatus?.credit_purchase_orders) return [];
+    // Status is "completed" or "partially_completed" when GRN is created
     let pos = supplierCreditStatus.credit_purchase_orders.filter(
-      (po) => po.status === "approved" && po.has_grn && !po.is_settled
+      (po) => (po.status === "completed" || po.status === "partially_completed") && po.has_grn && !po.is_settled
     );
     
     // Apply branch filter if set

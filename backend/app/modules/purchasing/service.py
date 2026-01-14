@@ -181,6 +181,20 @@ class PurchasingOrderService:
         return self.repo.get_all(filters)
     
     def update_order(self, order_id: int, order_update: schemas.PurchasingOrderUpdate) -> models.PurchasingOrder:
+        # Check if PO is partially_completed or completed (has GRN)
+        existing_po = self.repo.get_by_id(order_id)
+        if not existing_po:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase order with id {order_id} not found"
+            )
+        
+        if existing_po.status in ["partially_completed", "completed"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot edit purchase order with status '{existing_po.status}'. Purchase orders that have received goods (GRN created) cannot be edited."
+            )
+        
         # If updating suppliers, verify they are active
         if order_update.first_suppliers_id is not None:
             first_supplier = self.supplier_repo.get_by_id(order_update.first_suppliers_id)
@@ -671,8 +685,9 @@ class GoodReceivedNoteService:
                 detail="GRN number conflict. Please retry."
             )
 
-        # Mark PO as completed after successful GRN creation
-        po.status = "completed"
+        # Determine if PO is fully or partially completed
+        po_status = self._determine_po_completion_status(po.id)
+        po.status = po_status
         self.db.commit()
         
         # Update supplier credit balance
@@ -680,6 +695,44 @@ class GoodReceivedNoteService:
         credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
         
         return created_grn
+    
+    def _determine_po_completion_status(self, po_id: int) -> str:
+        """Determine if PO is fully completed or partially completed based on received items."""
+        # Get all PO items with their quantities
+        po_items = self.db.query(models.PurchasingOrderItems).filter(
+            models.PurchasingOrderItems.purchasingorders_id == po_id
+        ).all()
+        
+        if not po_items:
+            return "completed"
+        
+        # Count total ordered vs received for each item
+        all_fully_received = True
+        any_received = False
+        
+        for po_item in po_items:
+            ordered_qty = po_item.quantity
+            
+            # Count received items (GoodReceivedItems with active=True)
+            received_qty = self.db.query(models.GoodReceivedItems).filter(
+                models.GoodReceivedItems.purchasing_order_items_id == po_item.id,
+                models.GoodReceivedItems.active == True
+            ).count()
+            
+            if received_qty > 0:
+                any_received = True
+            
+            if received_qty < ordered_qty:
+                all_fully_received = False
+        
+        # If all items fully received -> completed
+        # If some items received but not all -> partially_completed
+        if all_fully_received and any_received:
+            return "completed"
+        elif any_received:
+            return "partially_completed"
+        else:
+            return "approved"  # No items received yet
     
     def get_by_id(self, grn_id: int) -> models.GoodReceivedNote:
         grn = self.repo.get_by_id(grn_id)
@@ -694,6 +747,25 @@ class GoodReceivedNoteService:
         return self.repo.get_all(filters)
     
     def update(self, grn_id: int, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
+        # Check if GRN's PO is fully completed
+        existing_grn = self.repo.get_by_id(grn_id)
+        if not existing_grn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"GRN with id {grn_id} not found"
+            )
+        
+        # Get PO status
+        po = self.db.query(models.PurchasingOrder).filter(
+            models.PurchasingOrder.id == existing_grn.purchasingorders_id
+        ).first()
+        
+        if po and po.status == "completed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot edit GRN for fully completed purchase orders. Only partially received GRNs can be edited."
+            )
+        
         updated = self.repo.update(grn_id, grn)
         if not updated:
             raise HTTPException(
