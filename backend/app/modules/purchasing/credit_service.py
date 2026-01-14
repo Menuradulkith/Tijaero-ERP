@@ -146,6 +146,40 @@ class SupplierCreditService:
             "credit_purchase_orders": credit_purchase_orders
         }
     
+    def get_supplier_non_credit_status(self, db: Session, supplier_id: int) -> Dict[str, Any]:
+        """
+        Get non-credit purchase orders status for a supplier.
+        
+        Returns POs with payment methods other than 'Credit' that have outstanding amounts.
+        Used for Supplier Payments page.
+        
+        Returns:
+            Dictionary with non-credit POs that have GRN created but not fully paid
+        """
+        supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier {supplier_id} not found"
+            )
+        
+        # Get non-credit purchase orders (Cash, Bank Transfer, Cheque, etc.)
+        non_credit_pos = self._get_non_credit_purchase_orders(db, supplier_id)
+        
+        # Calculate total outstanding for non-credit POs
+        total_outstanding = sum(po["remaining_amount"] for po in non_credit_pos)
+        overdue_pos = [po for po in non_credit_pos if po["is_overdue"]]
+        
+        return {
+            "supplier_id": supplier_id,
+            "supplier_name": supplier.full_name,
+            "company_name": supplier.company_name,
+            "total_outstanding": total_outstanding,
+            "overdue_count": len(overdue_pos),
+            "total_overdue_amount": sum(po["remaining_amount"] for po in overdue_pos),
+            "non_credit_purchase_orders": non_credit_pos
+        }
+    
     def _get_credit_purchase_orders(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
         """
         Get all credit purchase orders for a supplier with their settlement status.
@@ -156,7 +190,7 @@ class SupplierCreditService:
         
         # Get all credit POs for this supplier (case-insensitive payment method check)
         # Include all active statuses, exclude rejected/cancelled
-        valid_statuses = ['draft', 'pending', 'pending_approval', 'approved', 'completed']
+        valid_statuses = ['draft', 'pending', 'pending_approval', 'approved', 'completed', 'partially_completed']
         credit_pos = db.query(PurchasingOrder).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) == "credit",
@@ -217,6 +251,81 @@ class SupplierCreditService:
         
         return result
     
+    def _get_non_credit_purchase_orders(self, db: Session, supplier_id: int) -> List[Dict]:
+        """
+        Get all non-credit purchase orders for a supplier with their payment status.
+        Only includes POs with payment_method != 'Credit' (Cash, Bank Transfer, Cheque, etc.).
+        Only includes completed or partially_completed POs (those with GRN created).
+        Used for Supplier Payments page.
+        """
+        from app.modules.purchasing.models import PurchasingOrderItems
+        
+        # Get non-credit POs with GRN created (completed or partially_completed)
+        # Only these have actual payment obligations
+        non_credit_pos = db.query(PurchasingOrder).filter(
+            PurchasingOrder.first_suppliers_id == supplier_id,
+            func.lower(PurchasingOrder.payment_method) != "credit",
+            PurchasingOrder.status.in_(['completed', 'partially_completed'])
+        ).order_by(PurchasingOrder.purchasing_order_date.desc()).all()
+        
+        result = []
+        for po in non_credit_pos:
+            # Calculate PO total from items
+            po_total = db.query(
+                func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+            ).filter(
+                PurchasingOrderItems.purchasingorders_id == po.id
+            ).scalar() or Decimal("0")
+            
+            # Check if this PO has a GRN (goods received)
+            grn = db.query(GoodReceivedNote).filter(
+                GoodReceivedNote.purchasingorders_id == po.id
+            ).first()
+            
+            # Get payments for this PO (through GRN)
+            # Query SupplierPayment table for payments against this GRN
+            from app.modules.purchasing.models import SupplierPayment
+            
+            total_paid = Decimal("0")
+            if grn:
+                total_paid = db.query(
+                    func.coalesce(func.sum(SupplierPayment.amount_paid), 0)
+                ).filter(
+                    SupplierPayment.good_received_note_id == grn.id
+                ).scalar() or Decimal("0")
+            
+            remaining = float(po_total) - float(total_paid)
+            is_paid = remaining <= 0
+            
+            # Calculate due date (use 0 credit days for non-credit purchases)
+            po_date = po.purchasing_order_date
+            if isinstance(po_date, str):
+                po_date = datetime.strptime(po_date, "%Y-%m-%d").date()
+            due_date = self.calculate_due_date(po_date, 0)  # Immediate payment for non-credit
+            days_overdue = (date.today() - due_date).days
+            
+            result.append({
+                "po_id": po.id,
+                "po_no": po.purchasing_order_no,
+                "invoice_no": po.purchasing_invoice_no,
+                "po_date": po.purchasing_order_date,
+                "status": po.status,
+                "payment_method": po.payment_method,
+                "total_amount": float(po_total),
+                "paid_amount": float(total_paid),
+                "remaining_amount": remaining,
+                "is_paid": is_paid,
+                "has_grn": grn is not None,
+                "grn_id": grn.id if grn else None,
+                "grn_no": grn.good_received_no if grn else None,
+                "due_date": due_date,
+                "days_overdue": days_overdue,
+                "is_overdue": days_overdue > 0 and not is_paid,
+                "branch_code": po.branch_code
+            })
+        
+        return result
+    
     def _calculate_outstanding_payable(self, db: Session, supplier_id: int) -> Decimal:
         """
         Calculate total ACTUAL outstanding payable to a supplier.
@@ -226,19 +335,19 @@ class SupplierCreditService:
         
         Outstanding = GRN Values (goods received) - Settlements - Approved Returns
         
-        - Only includes POs with status='completed' (GRN created)
+        - Only includes POs with status='completed' or 'partially_completed' (GRN created)
         - Only includes payment_method='Credit' POs
         - Subtracts approved purchase returns
         - Subtracts settled amounts
         """
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        # Get only COMPLETED Credit POs (GRN has been created)
-        # 'completed' status means GRN was created, actual liability exists
+        # Get COMPLETED and PARTIALLY_COMPLETED Credit POs (GRN has been created)
+        # Both 'completed' and 'partially_completed' mean GRN was created, actual liability exists
         completed_credit_po_ids = db.query(PurchasingOrder.id).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) == "credit",
-            PurchasingOrder.status == 'completed'  # Only completed POs (GRN created)
+            PurchasingOrder.status.in_(['completed', 'partially_completed'])  # POs with GRN created
         ).all()
         completed_credit_po_ids = [p[0] for p in completed_credit_po_ids]
         
@@ -298,7 +407,7 @@ class SupplierCreditService:
         These are potential future liabilities, not actual outstanding yet.
         
         - Includes: draft, pending, pending_approval, approved status POs
-        - Excludes: completed (GRN created), rejected, cancelled status POs
+        - Excludes: completed, partially_completed (GRN created), rejected, cancelled status POs
         - Only includes payment_method='Credit' POs
         """
         from app.modules.purchasing.models import PurchasingOrderItems

@@ -436,6 +436,22 @@ def get_supplier_credit_status(
     return supplier_credit_service.get_supplier_credit_status(db, supplier_id)
 
 
+@router.get("/suppliers/{supplier_id}/non-credit-status")
+def get_supplier_non_credit_status(
+    supplier_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get non-credit purchase orders status for a supplier.
+    
+    Returns POs with payment methods other than 'Credit' (Cash, Bank Transfer, Cheque, etc.)
+    that have been completed or partially completed (GRN created) but not fully paid.
+    
+    Used for the Supplier Payments page to show outstanding non-credit payments.
+    """
+    return supplier_credit_service.get_supplier_non_credit_status(db, supplier_id)
+
+
 @router.post("/suppliers/{supplier_id}/credit-check")
 def check_supplier_credit(
     supplier_id: int,
