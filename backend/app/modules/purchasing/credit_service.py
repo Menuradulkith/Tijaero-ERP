@@ -94,7 +94,13 @@ class SupplierCreditService:
         Get complete credit status for a supplier.
         
         Returns:
-            Dictionary with credit limit, outstanding payables, available credit, and overdue info
+            Dictionary with credit limit, outstanding payables, pending credits, available credit, and overdue info
+            
+        Key Concepts:
+        - outstanding_payable: Actual liability (GRN created, goods received)
+        - pending_credits: Potential liability (PO created, but GRN not yet created)
+        - total_exposure: outstanding_payable + pending_credits
+        - available_credit: max_credit_limit - total_exposure
         """
         supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
         if not supplier:
@@ -103,8 +109,14 @@ class SupplierCreditService:
                 detail=f"Supplier {supplier_id} not found"
             )
         
-        # Calculate total outstanding (what you owe the supplier)
+        # Calculate actual outstanding (goods received but not paid)
         outstanding = self._calculate_outstanding_payable(db, supplier_id)
+        
+        # Calculate pending credits (POs created but goods not received)
+        pending_credits = self._calculate_pending_credits(db, supplier_id)
+        
+        # Total exposure = actual outstanding + pending credits
+        total_exposure = float(outstanding) + float(pending_credits)
         
         # Get overdue GRNs
         overdue_grns = self._get_overdue_grns(db, supplier_id, supplier.credit_days)
@@ -122,9 +134,11 @@ class SupplierCreditService:
             "credit_days": supplier.credit_days,
             "max_credit_limit": supplier.max_credit_limit,
             "initial_credit_amount": supplier.initial_credit_amount or supplier.max_credit_limit,
-            "left_credit_amount": supplier.left_credit_amount or (supplier.max_credit_limit - int(outstanding)),
-            "outstanding_payable": float(outstanding),
-            "available_credit": max(0, supplier.max_credit_limit - float(outstanding)),
+            "left_credit_amount": supplier.left_credit_amount or (supplier.max_credit_limit - int(total_exposure)),
+            "outstanding_payable": float(outstanding),  # Actual liability (GRN created)
+            "pending_credits": float(pending_credits),  # Potential liability (PO created, no GRN)
+            "total_exposure": total_exposure,  # Total = outstanding + pending
+            "available_credit": max(0, supplier.max_credit_limit - total_exposure),
             "overdue_count": len(overdue_grns),
             "total_overdue_amount": sum(grn["remaining_amount"] for grn in overdue_grns),
             "overdue_grns": overdue_grns,
@@ -205,41 +219,37 @@ class SupplierCreditService:
     
     def _calculate_outstanding_payable(self, db: Session, supplier_id: int) -> Decimal:
         """
-        Calculate total outstanding payable to a supplier.
+        Calculate total ACTUAL outstanding payable to a supplier.
         
-        NEW LOGIC:
-        Outstanding = Credit POs (active statuses) - Settlements - Approved Returns
+        IMPORTANT: Outstanding only includes GRN-confirmed amounts (goods received).
+        POs that haven't had GRN created are "pending credits" not actual outstanding.
         
-        Credit is reserved when PO is created (not when GRN is posted).
-        - Includes: draft, pending, pending_approval, approved, completed status POs
-        - Excludes: rejected, cancelled status POs
+        Outstanding = GRN Values (goods received) - Settlements - Approved Returns
+        
+        - Only includes POs with status='completed' (GRN created)
         - Only includes payment_method='Credit' POs
         - Subtracts approved purchase returns
         - Subtracts settled amounts
-        
-        Note: 'completed' status means GRN was created, but payment still pending!
         """
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        # Get all CREDIT POs for this supplier
-        # Include all active statuses including 'completed' (GRN created but not paid)
-        # Exclude rejected/cancelled POs
-        valid_statuses = ['draft', 'pending', 'pending_approval', 'approved', 'completed']
-        credit_po_ids = db.query(PurchasingOrder.id).filter(
+        # Get only COMPLETED Credit POs (GRN has been created)
+        # 'completed' status means GRN was created, actual liability exists
+        completed_credit_po_ids = db.query(PurchasingOrder.id).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) == "credit",
-            PurchasingOrder.status.in_(valid_statuses)
+            PurchasingOrder.status == 'completed'  # Only completed POs (GRN created)
         ).all()
-        credit_po_ids = [p[0] for p in credit_po_ids]
+        completed_credit_po_ids = [p[0] for p in completed_credit_po_ids]
         
-        if not credit_po_ids:
+        if not completed_credit_po_ids:
             return Decimal("0")
         
-        # Calculate total PO value for approved/pending credit POs
-        total_po_value = db.query(
+        # Calculate total PO value for completed credit POs (actual GRN value)
+        total_grn_value = db.query(
             func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
         ).filter(
-            PurchasingOrderItems.purchasingorders_id.in_(credit_po_ids)
+            PurchasingOrderItems.purchasingorders_id.in_(completed_credit_po_ids)
         ).scalar() or Decimal("0")
         
         # Get all settled amounts for this supplier
@@ -256,9 +266,9 @@ class SupplierCreditService:
         # Only count approved returns, not pending/rejected
         from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
         
-        # Get GRN IDs for the credit POs
+        # Get GRN IDs for the completed credit POs
         grn_ids = db.query(GoodReceivedNote.id).filter(
-            GoodReceivedNote.purchasingorders_id.in_(credit_po_ids)
+            GoodReceivedNote.purchasingorders_id.in_(completed_credit_po_ids)
         ).all()
         grn_ids = [g[0] for g in grn_ids]
         
@@ -278,7 +288,41 @@ class SupplierCreditService:
                     PurchasingReturnItems.purchasingreturn_id.in_(approved_return_ids)
                 ).scalar() or Decimal("0")
         
-        return total_po_value - total_settled - total_returns
+        return total_grn_value - total_settled - total_returns
+    
+    def _calculate_pending_credits(self, db: Session, supplier_id: int) -> Decimal:
+        """
+        Calculate total PENDING credits for a supplier.
+        
+        Pending credits = POs created with Credit payment but GRN not yet created.
+        These are potential future liabilities, not actual outstanding yet.
+        
+        - Includes: draft, pending, pending_approval, approved status POs
+        - Excludes: completed (GRN created), rejected, cancelled status POs
+        - Only includes payment_method='Credit' POs
+        """
+        from app.modules.purchasing.models import PurchasingOrderItems
+        
+        # Get all PENDING Credit POs (GRN not yet created)
+        pending_statuses = ['draft', 'pending', 'pending_approval', 'approved']
+        pending_credit_po_ids = db.query(PurchasingOrder.id).filter(
+            PurchasingOrder.first_suppliers_id == supplier_id,
+            func.lower(PurchasingOrder.payment_method) == "credit",
+            PurchasingOrder.status.in_(pending_statuses)  # POs without GRN
+        ).all()
+        pending_credit_po_ids = [p[0] for p in pending_credit_po_ids]
+        
+        if not pending_credit_po_ids:
+            return Decimal("0")
+        
+        # Calculate total PO value for pending credit POs
+        total_pending = db.query(
+            func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+        ).filter(
+            PurchasingOrderItems.purchasingorders_id.in_(pending_credit_po_ids)
+        ).scalar() or Decimal("0")
+        
+        return total_pending
     
     def _get_overdue_grns(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
         """Get list of overdue GRNs for a supplier"""
@@ -457,6 +501,12 @@ class SupplierCreditService:
         - If payment method is not Credit, always allowed
         - If credit will exceed limit, PO is allowed but requires approval
         
+        Credit Check Logic:
+        - outstanding_payable: GRN created, goods received (actual liability)
+        - pending_credits: PO created, but GRN not yet created (pending liability)
+        - new_po_value: The value of this new PO
+        - projected_exposure = outstanding + pending + new_po_value
+        
         Returns:
             POCreditCheckResponse-compatible dict
         """
@@ -470,8 +520,9 @@ class SupplierCreditService:
                     "allowed": True,
                     "requires_approval": False,
                     "current_outstanding": 0,
+                    "pending_credits": 0,
                     "po_value": float(po_value),
-                    "projected_outstanding": 0,
+                    "projected_exposure": 0,
                     "max_credit_limit": 0,
                     "available_credit": 0,
                     "will_exceed_limit": False,
@@ -487,9 +538,11 @@ class SupplierCreditService:
         # Get supplier credit status
         status = self.get_supplier_credit_status(db, supplier_id)
         
-        projected_outstanding = status["outstanding_payable"] + float(po_value)
-        will_exceed = projected_outstanding > status["max_credit_limit"]
-        excess_amount = max(0, projected_outstanding - status["max_credit_limit"])
+        # Calculate projected exposure including this new PO
+        # total_exposure already includes outstanding + pending_credits
+        projected_exposure = status["total_exposure"] + float(po_value)
+        will_exceed = projected_exposure > status["max_credit_limit"]
+        excess_amount = max(0, projected_exposure - status["max_credit_limit"])
         
         # Determine warning level
         warning_level = "none"
@@ -497,15 +550,16 @@ class SupplierCreditService:
             warning_level = "error"
         elif status["overdue_count"] > 0:
             warning_level = "warning"
-        elif projected_outstanding > status["max_credit_limit"] * 0.8:
+        elif projected_exposure > status["max_credit_limit"] * 0.8:
             warning_level = "warning"  # Over 80% usage
         
         credit_check = {
             "allowed": True,  # PO is always allowed (soft check)
             "requires_approval": will_exceed,
-            "current_outstanding": status["outstanding_payable"],
+            "current_outstanding": status["outstanding_payable"],  # GRN-based actual liability
+            "pending_credits": status["pending_credits"],  # Existing pending POs
             "po_value": float(po_value),
-            "projected_outstanding": projected_outstanding,
+            "projected_exposure": projected_exposure,  # Total after this PO
             "max_credit_limit": status["max_credit_limit"],
             "available_credit": status["available_credit"],
             "will_exceed_limit": will_exceed,
@@ -516,14 +570,18 @@ class SupplierCreditService:
             "warning_level": warning_level
         }
         
-        # Set message
+        # Set message with breakdown
         messages = []
         if will_exceed:
             messages.append(f"Credit limit will be exceeded by Rs. {excess_amount:,.2f}")
         if status["overdue_count"] > 0:
             messages.append(f"Warning: {status['overdue_count']} overdue payment(s) to this supplier")
         
+        # Add breakdown info
+        breakdown = f"Outstanding: Rs. {status['outstanding_payable']:,.2f}, Pending POs: Rs. {status['pending_credits']:,.2f}, This PO: Rs. {float(po_value):,.2f}"
+        
         credit_check["message"] = ". ".join(messages) if messages else "Credit check passed"
+        credit_check["breakdown"] = breakdown
         
         return {
             "can_save": True,  # Soft check - always allow saving
@@ -544,9 +602,11 @@ class SupplierCreditService:
         """
         Credit check for GRN posting.
         
-        Since PO already reserves credit when created, GRN check is informational only.
-        - If PO was approved, GRN should not block (PO already counted in outstanding)
-        - Only blocks if somehow creating GRN without approved PO
+        NEW LOGIC:
+        - GRN posting moves credit from 'pending' to 'outstanding'
+        - Since PO was already checked and counted in pending_credits, GRN should NOT block
+        - GRN just converts pending credit → actual outstanding
+        - This is always allowed (informational only)
         
         Returns:
             GRNCreditCheckResponse-compatible dict
@@ -554,67 +614,57 @@ class SupplierCreditService:
         # Get supplier credit status
         status = self.get_supplier_credit_status(db, supplier_id)
         
-        # If we have a PO ID, check if it's already in outstanding
-        po_already_counted = False
+        # Check if this PO is already in pending_credits
+        po_in_pending = False
         if po_id:
             po = db.query(PurchasingOrder).filter(PurchasingOrder.id == po_id).first()
             if po and po.status in ['approved', 'pending', 'pending_approval', 'draft']:
-                # PO is already counted in outstanding, don't count it again
-                po_already_counted = True
+                # PO is in pending_credits, GRN will move it to outstanding
+                po_in_pending = True
         
-        # Calculate projected outstanding
-        # If PO already counted, don't add grn_value again
-        if po_already_counted:
-            projected_outstanding = status["outstanding_payable"]  # Already includes this PO
-        else:
-            projected_outstanding = status["outstanding_payable"] + float(grn_value)
-            
-        will_exceed = projected_outstanding > status["max_credit_limit"]
-        excess_amount = max(0, projected_outstanding - status["max_credit_limit"])
+        # After GRN:
+        # - outstanding_payable will increase by grn_value
+        # - pending_credits will decrease by grn_value (PO moves from pending to outstanding)
+        # - total_exposure stays the same!
         
-        # Determine warning level
-        warning_level = "none"
-        if will_exceed:
-            warning_level = "error"
-        elif status["overdue_count"] > 0:
-            warning_level = "warning"
+        # Calculate what outstanding will be after GRN
+        new_outstanding = status["outstanding_payable"] + float(grn_value)
+        
+        # But pending will decrease, so total exposure remains same
+        # GRN doesn't change total_exposure, it just converts pending → outstanding
         
         credit_check = {
-            "allowed": not will_exceed or allow_override or po_already_counted,
+            "allowed": True,  # GRN is always allowed (soft check was done at PO creation)
             "requires_approval": False,
             "current_outstanding": status["outstanding_payable"],
-            "po_value": float(grn_value),
-            "projected_outstanding": projected_outstanding,
+            "pending_credits": status["pending_credits"],
+            "grn_value": float(grn_value),
+            "new_outstanding_after_grn": new_outstanding,
             "max_credit_limit": status["max_credit_limit"],
             "available_credit": status["available_credit"],
-            "will_exceed_limit": will_exceed,
-            "excess_amount": excess_amount,
+            "total_exposure": status["total_exposure"],  # Stays same after GRN
+            "will_exceed_limit": False,  # GRN doesn't change exposure
+            "excess_amount": 0,
             "overdue_count": status["overdue_count"],
             "has_overdue": status["overdue_count"] > 0,
             "message": "",
-            "warning_level": warning_level
+            "warning_level": "none"
         }
         
-        # Set message
+        # Set informational message
         messages = []
-        if will_exceed and not po_already_counted:
-            if allow_override:
-                messages.append(f"Credit limit exceeded (override applied). Excess: Rs. {excess_amount:,.2f}")
-            else:
-                messages.append(f"Cannot post GRN: Credit limit exceeded by Rs. {excess_amount:,.2f}")
-        elif po_already_counted:
-            messages.append("PO already approved - credit was reserved at PO creation")
+        if po_in_pending:
+            messages.append(f"GRN will convert Rs. {float(grn_value):,.2f} from pending to outstanding")
+        else:
+            messages.append("Creating GRN for order")
         if status["overdue_count"] > 0:
-            messages.append(f"Warning: {status['overdue_count']} overdue payment(s)")
+            messages.append(f"Note: {status['overdue_count']} overdue payment(s) to this supplier")
         
-        credit_check["message"] = ". ".join(messages) if messages else "Credit check passed"
-        
-        # Allow posting if PO already counted or credit check passes
-        can_post = not will_exceed or allow_override or po_already_counted
+        credit_check["message"] = ". ".join(messages)
         
         return {
-            "can_post": can_post,
-            "requires_override": will_exceed and not allow_override and not po_already_counted,
+            "can_post": True,  # Always allow - credit was checked at PO creation
+            "requires_override": False,
             "credit_check": credit_check,
             "message": credit_check["message"]
         }

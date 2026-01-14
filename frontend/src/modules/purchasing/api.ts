@@ -394,9 +394,10 @@ export interface POCreditCheckResult {
   credit_check: {
     allowed: boolean;
     requires_approval: boolean;
-    current_outstanding: number;
+    current_outstanding: number;  // GRN-based actual liability
+    pending_credits: number;      // PO-based pending liability
     po_value: number;
-    projected_outstanding: number;
+    projected_exposure: number;   // Total after this PO
     max_credit_limit: number;
     available_credit: number;
     will_exceed_limit: boolean;
@@ -405,21 +406,29 @@ export interface POCreditCheckResult {
     has_overdue: boolean;
     message: string;
     warning_level: string;
+    breakdown?: string;           // Human-readable breakdown
   };
 }
 
-// GRN Credit Check Result (hard check - may block posting)
+// GRN Credit Check Result (informational - GRN always allowed)
 export interface GRNCreditCheckResult {
   can_post: boolean;
   requires_override: boolean;
   message: string;
   credit_check: {
     current_outstanding: number;
-    grn_amount: number;
-    new_total: number;
+    pending_credits: number;
+    grn_value: number;
+    new_outstanding_after_grn: number;
+    total_exposure: number;
     max_credit_limit: number;
     available_credit: number;
+    will_exceed_limit: boolean;
     excess_amount: number;
+    overdue_count: number;
+    has_overdue: boolean;
+    message: string;
+    warning_level: string;
   };
 }
 
@@ -524,6 +533,84 @@ export const supplierCreditApi = {
   getGrnPaymentHistory: async (grnId: number) => {
     const response = await apiClient.get<GrnPaymentHistory>(
       `/purchasing/grn/${grnId}/payment-history`
+    );
+    return response.data;
+  },
+};
+
+
+// ==================== SUPPLIER PAYMENTS API (Non-Credit) ====================
+
+import {
+  SupplierPayment,
+  SupplierPaymentCreate,
+  SupplierPaymentUpdate,
+} from "./types";
+
+export const supplierPaymentsApi = {
+  getAll: async (params?: {
+    supplier_id?: number;
+    branch_code?: string;
+    payment_method?: string;
+    payment_for?: string;
+    status?: string;
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<SupplierPayment[]>(
+      "/purchasing/supplier-payments",
+      { params }
+    );
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<SupplierPayment>(
+      `/purchasing/supplier-payments/${id}`
+    );
+    return response.data;
+  },
+
+  create: async (data: SupplierPaymentCreate) => {
+    const response = await apiClient.post<SupplierPayment>(
+      "/purchasing/supplier-payments",
+      data
+    );
+    return response.data;
+  },
+
+  update: async (id: number, data: SupplierPaymentUpdate) => {
+    const response = await apiClient.patch<SupplierPayment>(
+      `/purchasing/supplier-payments/${id}`,
+      data
+    );
+    return response.data;
+  },
+
+  verify: async (id: number) => {
+    const response = await apiClient.post<SupplierPayment>(
+      `/purchasing/supplier-payments/${id}/verify`
+    );
+    return response.data;
+  },
+
+  cancel: async (id: number) => {
+    const response = await apiClient.post<SupplierPayment>(
+      `/purchasing/supplier-payments/${id}/cancel`
+    );
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/purchasing/supplier-payments/${id}`);
+  },
+
+  getBySupplier: async (supplierId: number, skip = 0, limit = 100) => {
+    const response = await apiClient.get<SupplierPayment[]>(
+      `/purchasing/suppliers/${supplierId}/payments`,
+      { params: { skip, limit } }
     );
     return response.data;
   },

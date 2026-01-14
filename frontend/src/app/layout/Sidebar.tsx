@@ -14,6 +14,7 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
+import PaymentIcon from "@mui/icons-material/Payment";
 import PeopleIcon from "@mui/icons-material/People";
 import PersonIcon from "@mui/icons-material/Person";
 import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
@@ -93,6 +94,7 @@ const menuItems: MenuItem[] = [
       { text: "Purchase Returns", icon: <AssignmentReturnIcon />, path: "/purchasing/returns" },
       { text: "Return Approvals", icon: <FactCheckIcon />, path: "/purchasing/return-approvals" },
       { text: "Credit Settlements", icon: <CreditScoreIcon />, path: "/purchasing/settlements" },
+      { text: "Supplier Payments", icon: <PaymentIcon />, path: "/purchasing/payments" },
     ],
   },
   {

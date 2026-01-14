@@ -340,3 +340,126 @@ class SupplierCreditsSettleRepository:
             return True
         return False
 
+
+class SupplierPaymentRepository:
+    """Repository for supplier direct payments (non-credit payments)"""
+    
+    def __init__(self, db: Session):
+        self.db = db
+    
+    def _generate_payment_no(self) -> str:
+        """Generate unique payment number: SP-YYYYMMDD-XXX"""
+        today = date.today()
+        prefix = f"SP-{today.strftime('%Y%m%d')}"
+        
+        # Count existing payments for today
+        count = self.db.query(models.SupplierPayment).filter(
+            models.SupplierPayment.payment_no.like(f"{prefix}%")
+        ).count()
+        
+        return f"{prefix}-{(count + 1):03d}"
+    
+    def create(self, payment: schemas.SupplierPaymentCreate, created_by: int = None) -> models.SupplierPayment:
+        payment_no = self._generate_payment_no()
+        
+        db_payment = models.SupplierPayment(
+            payment_no=payment_no,
+            supplier_id=payment.supplier_id,
+            purchasing_order_id=payment.purchasing_order_id,
+            payment_date=payment.payment_date,
+            payment_method=payment.payment_method,
+            payment_amount=payment.payment_amount,
+            reference_number=payment.reference_number,
+            bank_name=payment.bank_name,
+            branch_code=payment.branch_code,
+            payment_for=payment.payment_for,
+            invoice_reference=payment.invoice_reference,
+            remarks=payment.remarks,
+            status="pending",
+            created_date=datetime.now(),
+            created_by=created_by
+        )
+        self.db.add(db_payment)
+        self.db.commit()
+        self.db.refresh(db_payment)
+        return db_payment
+    
+    def get_by_id(self, payment_id: int) -> Optional[models.SupplierPayment]:
+        return self.db.query(models.SupplierPayment).filter(
+            models.SupplierPayment.id == payment_id
+        ).first()
+    
+    def get_all(self, filters: schemas.SupplierPaymentListFilter) -> List[models.SupplierPayment]:
+        query = self.db.query(models.SupplierPayment)
+        
+        if filters.supplier_id:
+            query = query.filter(models.SupplierPayment.supplier_id == filters.supplier_id)
+        if filters.branch_code:
+            query = query.filter(models.SupplierPayment.branch_code == filters.branch_code)
+        if filters.payment_method:
+            query = query.filter(models.SupplierPayment.payment_method == filters.payment_method)
+        if filters.payment_for:
+            query = query.filter(models.SupplierPayment.payment_for == filters.payment_for)
+        if filters.status:
+            query = query.filter(models.SupplierPayment.status == filters.status)
+        if filters.date_from:
+            query = query.filter(models.SupplierPayment.payment_date >= filters.date_from)
+        if filters.date_to:
+            query = query.filter(models.SupplierPayment.payment_date <= filters.date_to)
+        
+        return query.order_by(
+            models.SupplierPayment.payment_date.desc(),
+            models.SupplierPayment.created_date.desc()
+        ).offset(filters.skip).limit(filters.limit).all()
+    
+    def get_by_supplier(self, supplier_id: int, skip: int = 0, limit: int = 100) -> List[models.SupplierPayment]:
+        return self.db.query(models.SupplierPayment).filter(
+            models.SupplierPayment.supplier_id == supplier_id
+        ).order_by(
+            models.SupplierPayment.payment_date.desc()
+        ).offset(skip).limit(limit).all()
+    
+    def update(self, payment_id: int, payment_update: schemas.SupplierPaymentUpdate) -> Optional[models.SupplierPayment]:
+        db_payment = self.get_by_id(payment_id)
+        if db_payment:
+            update_data = payment_update.model_dump(exclude_unset=True)
+            for field, value in update_data.items():
+                setattr(db_payment, field, value)
+            self.db.commit()
+            self.db.refresh(db_payment)
+        return db_payment
+    
+    def verify(self, payment_id: int, verified_by: int) -> Optional[models.SupplierPayment]:
+        db_payment = self.get_by_id(payment_id)
+        if db_payment and db_payment.status == "pending":
+            db_payment.status = "verified"
+            db_payment.verified_by = verified_by
+            db_payment.verified_date = datetime.now()
+            self.db.commit()
+            self.db.refresh(db_payment)
+        return db_payment
+    
+    def cancel(self, payment_id: int) -> Optional[models.SupplierPayment]:
+        db_payment = self.get_by_id(payment_id)
+        if db_payment and db_payment.status == "pending":
+            db_payment.status = "cancelled"
+            self.db.commit()
+            self.db.refresh(db_payment)
+        return db_payment
+    
+    def delete(self, payment_id: int) -> bool:
+        db_payment = self.get_by_id(payment_id)
+        if db_payment and db_payment.status == "pending":
+            self.db.delete(db_payment)
+            self.db.commit()
+            return True
+        return False
+    
+    def get_total_by_supplier(self, supplier_id: int, status: str = "verified") -> float:
+        """Get total payments made to a supplier"""
+        result = self.db.query(func.sum(models.SupplierPayment.payment_amount)).filter(
+            models.SupplierPayment.supplier_id == supplier_id,
+            models.SupplierPayment.status == status
+        ).scalar()
+        return float(result) if result else 0.0
+

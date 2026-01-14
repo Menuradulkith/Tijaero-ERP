@@ -373,3 +373,64 @@ class GRNCreditCheckResponse(BaseModel):
     requires_override: bool
     credit_check: CreditCheckResult
     message: str
+
+
+# ==================== SUPPLIER PAYMENT SCHEMAS ====================
+
+class SupplierPaymentBase(BaseModel):
+    supplier_id: int
+    purchasing_order_id: Optional[int] = None
+    payment_date: date
+    payment_method: str  # Cash, Bank Transfer, Cheque
+    payment_amount: Decimal
+    reference_number: Optional[str] = None
+    bank_name: Optional[str] = None
+    branch_code: str
+    payment_for: str  # Purchase, Advance, Refund, Other
+    invoice_reference: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class SupplierPaymentCreate(SupplierPaymentBase):
+    pass
+
+
+class SupplierPaymentUpdate(BaseModel):
+    payment_date: Optional[date] = None
+    payment_method: Optional[str] = None
+    payment_amount: Optional[Decimal] = None
+    reference_number: Optional[str] = None
+    bank_name: Optional[str] = None
+    payment_for: Optional[str] = None
+    invoice_reference: Optional[str] = None
+    remarks: Optional[str] = None
+    status: Optional[str] = None
+
+
+class SupplierPayment(SupplierPaymentBase):
+    id: int
+    payment_no: str
+    status: str
+    verified_by: Optional[int] = None
+    verified_date: Optional[datetime] = None
+    created_date: datetime
+    created_by: Optional[int] = None
+    
+    # Loaded from relationships
+    supplier_name: Optional[str] = None
+    po_no: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class SupplierPaymentListFilter(BaseModel):
+    supplier_id: Optional[int] = None
+    branch_code: Optional[str] = None
+    payment_method: Optional[str] = None
+    payment_for: Optional[str] = None
+    status: Optional[str] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    skip: int = 0
+    limit: int = 100

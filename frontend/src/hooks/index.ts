@@ -13,9 +13,6 @@ export { useMediaQuery } from './useMediaQuery';
 export { usePagination } from './usePagination';
 export { useToggle } from './useToggle';
 
-export { useCopyToClipboard } from './useCopyToClipboard';
-export { useDocumentTitle } from './useDocumentTitle';
-
 // Optimized data fetching hooks
 export { 
   useReferenceData, 

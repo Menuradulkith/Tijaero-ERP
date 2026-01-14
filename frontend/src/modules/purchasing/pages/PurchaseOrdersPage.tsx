@@ -149,8 +149,9 @@ export default function PurchaseOrdersPage() {
   const [creditWarning, setCreditWarning] = useState<{
     show: boolean;
     message: string;
+    breakdown: string;
     requiresApproval: boolean;
-  }>({ show: false, message: "", requiresApproval: false });
+  }>({ show: false, message: "", breakdown: "", requiresApproval: false });
   
   // Mark field as touched when user leaves it
   const handleBlur = (fieldName: string) => {
@@ -236,7 +237,7 @@ export default function PurchaseOrdersPage() {
     setLineItems([]);
     setFormStep(0);
     setTouched({}); // Reset validation state
-    setCreditWarning({ show: false, message: "", requiresApproval: false }); // Clear credit warning
+    setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false }); // Clear credit warning
   }, [handleCancelBase]);
 
   // Handler that wraps hook's handler (which already handles unsaved changes confirm)
@@ -305,7 +306,7 @@ export default function PurchaseOrdersPage() {
     setLineItems([]);
     setFormStep(0);
     setTouched({}); // Reset validation state
-    setCreditWarning({ show: false, message: "", requiresApproval: false }); // Clear credit warning
+    setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false }); // Clear credit warning
   }, [handleNewOrderBase, setFormData]);
 
   // Handle new order - don't check daily limit here, check when branch is selected
@@ -368,17 +369,18 @@ export default function PurchaseOrdersPage() {
           setCreditWarning({
             show: true,
             message: creditCheck.message,
+            breakdown: creditCheck.credit_check?.breakdown || "",
             requiresApproval: true,
           });
         } else {
-          setCreditWarning({ show: false, message: "", requiresApproval: false });
+          setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
         }
       } catch (error) {
         console.error("Credit check failed:", error);
-        setCreditWarning({ show: false, message: "", requiresApproval: false });
+        setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
       }
     } else {
-      setCreditWarning({ show: false, message: "", requiresApproval: false });
+      setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
     }
   }, []);
   
@@ -411,7 +413,7 @@ export default function PurchaseOrdersPage() {
       
       setIsCreating(false);
       setIsEditing(false);
-      setCreditWarning({ show: false, message: "", requiresApproval: false });
+      setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
       setTimeout(() => handleSelectOrderWithItems(newOrder), 0);
     },
     onError: (error: any) => {
@@ -525,8 +527,9 @@ export default function PurchaseOrdersPage() {
                   Supplier: {supplierName}<br />
                   Credit Limit: Rs. {creditCheck.credit_check.max_credit_limit.toLocaleString()}<br />
                   Current Outstanding: Rs. {creditCheck.credit_check.current_outstanding.toLocaleString()}<br />
+                  Pending POs: Rs. {(creditCheck.credit_check.pending_credits || 0).toLocaleString()}<br />
                   This Order: Rs. {creditCheck.credit_check.po_value.toLocaleString()}<br />
-                  New Total: Rs. {creditCheck.credit_check.projected_outstanding.toLocaleString()}<br />
+                  Total Exposure: Rs. {creditCheck.credit_check.projected_exposure.toLocaleString()}<br />
                   Excess: Rs. {creditCheck.credit_check.excess_amount.toLocaleString()}
                 </div>
                 <div style={{ fontSize: '13px', color: '#666' }}>
@@ -1051,6 +1054,11 @@ export default function PurchaseOrdersPage() {
                     <Typography variant="body2">
                       {creditWarning.message}
                     </Typography>
+                    {creditWarning.breakdown && (
+                      <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic', color: 'text.secondary' }}>
+                        {creditWarning.breakdown}
+                      </Typography>
+                    )}
                     {creditWarning.requiresApproval && (
                       <Typography variant="body2" sx={{ mt: 1, fontWeight: 500 }}>
                         This purchase order will be set to "Pending Approval" status and require manager approval.

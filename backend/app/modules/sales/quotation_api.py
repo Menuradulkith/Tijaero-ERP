@@ -206,13 +206,13 @@ def create_proforma(
     "/{quote_id}",
     response_model=SalesQuoteWithItems,
     summary="Update Quote",
-    dependencies=[Depends(require_permission(*Permissions.SALES_EDIT))]
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
 )
 def update_quote(
     quote_id: int,
     quote_data: SalesQuoteUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_EDIT))
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
 ):
     """Update an existing quote. Only draft quotes can be edited."""
     return sales_quote_service.update_quote(db, quote_id, quote_data)
@@ -240,13 +240,13 @@ def delete_quote(
     "/{quote_id}/status",
     response_model=SalesQuote,
     summary="Update Quote Status",
-    dependencies=[Depends(require_permission(*Permissions.SALES_EDIT))]
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
 )
 def update_quote_status(
     quote_id: int,
     status_update: SalesQuoteStatusUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_EDIT))
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
 ):
     """Update quote status."""
     return sales_quote_service.update_status(db, quote_id, status_update)
@@ -256,12 +256,12 @@ def update_quote_status(
     "/{quote_id}/submit",
     response_model=SalesQuote,
     summary="Submit for Approval",
-    dependencies=[Depends(require_permission(*Permissions.SALES_EDIT))]
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
 )
 def submit_for_approval(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_EDIT))
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
 ):
     """Submit quote for approval."""
     return sales_quote_service.submit_for_approval(db, quote_id)
@@ -302,12 +302,12 @@ def reject_quote(
     "/{quote_id}/send",
     response_model=SalesQuote,
     summary="Mark as Sent",
-    dependencies=[Depends(require_permission(*Permissions.SALES_EDIT))]
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
 )
 def mark_as_sent(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_EDIT))
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
 ):
     """Mark quote as sent to customer."""
     return sales_quote_service.mark_as_sent(db, quote_id)
@@ -317,12 +317,12 @@ def mark_as_sent(
     "/{quote_id}/accept",
     response_model=SalesQuote,
     summary="Mark as Accepted",
-    dependencies=[Depends(require_permission(*Permissions.SALES_EDIT))]
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
 )
 def mark_as_accepted(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_EDIT))
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
 ):
     """Mark quote as accepted by customer."""
     return sales_quote_service.mark_as_accepted(db, quote_id)
@@ -429,17 +429,11 @@ def create_revision(
 @router.post(
     "/mark-expired",
     summary="Mark Expired Quotes",
-    dependencies=[Depends(require_permission(*Permissions.SALES_EDIT))]
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
 )
 def mark_expired_quotes(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_EDIT))
-):
-    """Mark all expired quotes as expired. Can be called by a scheduled job."""
-    count = sales_quote_service.mark_expired_quotes(db)
-    return {"message": f"Marked {count} quotes as expired"}
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_EDIT))
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
 ):
     """Mark all expired quotes as expired. Can be called by a scheduled job."""
     count = sales_quote_service.mark_expired_quotes(db)

@@ -878,3 +878,187 @@ class SupplierCreditsSettleService:
         credit_service.update_supplier_credit_balance(self.db, supplier_id)
         
         return result
+
+
+class SupplierPaymentService:
+    """Service for handling direct supplier payments (non-credit)"""
+    
+    def __init__(self, db: Session):
+        self.repo = repository.SupplierPaymentRepository(db)
+        self.supplier_repo = repository.SupplierRepository(db)
+        self.order_repo = repository.PurchasingOrderRepository(db)
+        self.db = db
+    
+    def create_payment(self, payment: schemas.SupplierPaymentCreate, created_by: int = None) -> models.SupplierPayment:
+        # Verify supplier exists
+        supplier = self.supplier_repo.get_by_id(payment.supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {payment.supplier_id} not found"
+            )
+        
+        # Verify PO exists if provided
+        if payment.purchasing_order_id:
+            order = self.order_repo.get_by_id(payment.purchasing_order_id)
+            if not order:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Purchase order with id {payment.purchasing_order_id} not found"
+                )
+            
+            # Verify PO belongs to this supplier
+            if order.first_suppliers_id != payment.supplier_id and order.second_suppliers_id != payment.supplier_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Purchase order does not belong to this supplier"
+                )
+        
+        return self.repo.create(payment, created_by)
+    
+    def get_payment(self, payment_id: int) -> schemas.SupplierPayment:
+        payment = self.repo.get_by_id(payment_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Payment with id {payment_id} not found"
+            )
+        
+        # Enrich with supplier name and PO number
+        supplier_name = None
+        po_no = None
+        
+        if payment.supplier:
+            supplier_name = payment.supplier.full_name
+        
+        if payment.purchasing_order:
+            po_no = payment.purchasing_order.purchasing_order_no
+        
+        return schemas.SupplierPayment(
+            id=payment.id,
+            payment_no=payment.payment_no,
+            supplier_id=payment.supplier_id,
+            purchasing_order_id=payment.purchasing_order_id,
+            payment_date=payment.payment_date,
+            payment_method=payment.payment_method,
+            payment_amount=payment.payment_amount,
+            reference_number=payment.reference_number,
+            bank_name=payment.bank_name,
+            branch_code=payment.branch_code,
+            payment_for=payment.payment_for,
+            invoice_reference=payment.invoice_reference,
+            remarks=payment.remarks,
+            status=payment.status,
+            verified_by=payment.verified_by,
+            verified_date=payment.verified_date,
+            created_date=payment.created_date,
+            created_by=payment.created_by,
+            supplier_name=supplier_name,
+            po_no=po_no
+        )
+    
+    def list_payments(self, filters: schemas.SupplierPaymentListFilter) -> List[schemas.SupplierPayment]:
+        payments = self.repo.get_all(filters)
+        
+        result = []
+        for payment in payments:
+            supplier_name = None
+            po_no = None
+            
+            if payment.supplier:
+                supplier_name = payment.supplier.full_name
+            
+            if payment.purchasing_order:
+                po_no = payment.purchasing_order.purchasing_order_no
+            
+            result.append(schemas.SupplierPayment(
+                id=payment.id,
+                payment_no=payment.payment_no,
+                supplier_id=payment.supplier_id,
+                purchasing_order_id=payment.purchasing_order_id,
+                payment_date=payment.payment_date,
+                payment_method=payment.payment_method,
+                payment_amount=payment.payment_amount,
+                reference_number=payment.reference_number,
+                bank_name=payment.bank_name,
+                branch_code=payment.branch_code,
+                payment_for=payment.payment_for,
+                invoice_reference=payment.invoice_reference,
+                remarks=payment.remarks,
+                status=payment.status,
+                verified_by=payment.verified_by,
+                verified_date=payment.verified_date,
+                created_date=payment.created_date,
+                created_by=payment.created_by,
+                supplier_name=supplier_name,
+                po_no=po_no
+            ))
+        
+        return result
+    
+    def update_payment(self, payment_id: int, payment_update: schemas.SupplierPaymentUpdate) -> models.SupplierPayment:
+        payment = self.repo.get_by_id(payment_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Payment with id {payment_id} not found"
+            )
+        
+        if payment.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot update payment with status '{payment.status}'"
+            )
+        
+        return self.repo.update(payment_id, payment_update)
+    
+    def verify_payment(self, payment_id: int, verified_by: int) -> models.SupplierPayment:
+        payment = self.repo.get_by_id(payment_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Payment with id {payment_id} not found"
+            )
+        
+        if payment.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot verify payment with status '{payment.status}'"
+            )
+        
+        return self.repo.verify(payment_id, verified_by)
+    
+    def cancel_payment(self, payment_id: int) -> models.SupplierPayment:
+        payment = self.repo.get_by_id(payment_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Payment with id {payment_id} not found"
+            )
+        
+        if payment.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot cancel payment with status '{payment.status}'"
+            )
+        
+        return self.repo.cancel(payment_id)
+    
+    def delete_payment(self, payment_id: int) -> bool:
+        payment = self.repo.get_by_id(payment_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Payment with id {payment_id} not found"
+            )
+        
+        if payment.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete payment with status '{payment.status}'. Only pending payments can be deleted."
+            )
+        
+        return self.repo.delete(payment_id)
+    
+    def get_supplier_payments(self, supplier_id: int, skip: int = 0, limit: int = 100) -> List[models.SupplierPayment]:
+        return self.repo.get_by_supplier(supplier_id, skip, limit)
