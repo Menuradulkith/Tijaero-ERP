@@ -138,6 +138,8 @@ export const STATUS_MAPS = {
     converted: { label: "Converted", color: "success" as StatusColor },
     cancelled: { label: "Cancelled", color: "default" as StatusColor },
     revised: { label: "Revised", color: "default" as StatusColor },
+  },
+  
   // Purchase return status
   purchaseReturn: {
     draft: { label: "Draft", color: "default" as StatusColor },

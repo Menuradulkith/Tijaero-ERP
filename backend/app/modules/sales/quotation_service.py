@@ -621,9 +621,3 @@ class SalesQuoteService:
 
 # Singleton instance
 sales_quote_service = SalesQuoteService()
-        """Get quotes expiring within given days"""
-        return self.repository.get_expiring_quotes(db, days)
-
-
-# Singleton instance
-sales_quote_service = SalesQuoteService()

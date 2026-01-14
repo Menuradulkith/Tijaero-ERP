@@ -84,6 +84,7 @@ class Supplier(Base, TimestampMixin):
     purchasing_orders_first = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.first_suppliers_id", back_populates="first_supplier")
     purchasing_orders_second = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.second_suppliers_id", back_populates="second_supplier")
     credit_settlements = relationship("SupplierCreditsSettle", back_populates="supplier")
+    payments = relationship("SupplierPayment", back_populates="supplier")
 
 class PurchasingOrder(Base):
     __tablename__ = "purchasing_orders"
@@ -110,6 +111,7 @@ class PurchasingOrder(Base):
     approval = relationship("Approvals", back_populates="purchasing_orders")
     items = relationship("PurchasingOrderItems", back_populates="purchasing_order")
     good_received_notes = relationship("GoodReceivedNote", back_populates="purchasing_order")
+    payments = relationship("SupplierPayment", back_populates="purchasing_order")
 
 class PurchasingOrderItems(Base):
     __tablename__ = "purchasing_order_items"
@@ -199,4 +201,32 @@ class SupplierCreditsSettleTransaction(Base):
     # Relationships
     good_received_note = relationship("GoodReceivedNote", back_populates="credit_settle_transactions")
     credit_settle = relationship("SupplierCreditsSettle", back_populates="transactions")
+
+
+class SupplierPayment(Base):
+    """Supplier Payment - Direct payments to suppliers (non-credit payments like cash, bank, cheque)"""
+    __tablename__ = "supplier_payments"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    payment_no = Column(String(200), unique=True, nullable=False)
+    supplier_id = Column(Integer, ForeignKey("supplier.id"), nullable=False)
+    purchasing_order_id = Column(Integer, ForeignKey("purchasing_orders.id"), nullable=True)  # Optional PO reference
+    payment_date = Column(Date, nullable=False)
+    payment_method = Column(String(30), nullable=False)  # Cash, Bank Transfer, Cheque
+    payment_amount = Column(Numeric(60, 2), nullable=False)
+    reference_number = Column(String(300))  # Cheque no, transaction ref, etc.
+    bank_name = Column(String(255))  # For bank/cheque payments
+    branch_code = Column(String(200), nullable=False)
+    payment_for = Column(String(100), nullable=False)  # Purchase, Advance, Refund, Other
+    invoice_reference = Column(String(200))  # External invoice reference if any
+    remarks = Column(Text)
+    status = Column(String(30), nullable=False, default="pending")  # pending, verified, cancelled
+    verified_by = Column(Integer, nullable=True)  # User ID who verified (no FK - users may not exist)
+    verified_date = Column(TIMESTAMP, nullable=True)
+    created_date = Column(TIMESTAMP, nullable=False)
+    created_by = Column(Integer, nullable=True)  # User ID who created (no FK - users may not exist)
+    
+    # Relationships
+    supplier = relationship("Supplier", back_populates="payments")
+    purchasing_order = relationship("PurchasingOrder", back_populates="payments")
 

@@ -12,9 +12,9 @@ import {
     TConfirmDialog,
     useMasterDetailState,
     useTConfirmDialog,
+    CUSTOMER_PAYMENT_METHOD,
 } from "@/components/tijaero";
 import { customersApi } from "@/modules/customers/api";
-import { productsApi } from "@/modules/inventory/api";
 import {
     Add as AddIcon,
     CheckCircle as ApproveIcon,
@@ -46,33 +46,12 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { salesApi } from "../api";
-// import { employeesApi } from "@/modules/employees/api";
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
-  SortOption,
-  TConfirmDialog,
-  useTConfirmDialog,
-  showSuccessToast,
-  showErrorToast,
-  CUSTOMER_PAYMENT_METHOD,
-} from "@/components/tijaero";
-import { salesApi } from "../api";
-import { customersApi } from "@/modules/customers/api";
 import { useReferenceData } from "@/hooks";
-// OPTIMIZED: Removed productsApi, branchApi imports - using aggregated endpoint
 import { Invoice, InvoiceCreate } from "../types";
 import { usePermission } from "@/auth/permissions";
-import { branchApi } from "@/modules/branches/api";
 import { format } from "date-fns";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import SaleReturnDialog from "../components/SaleReturnDialog";
-import { Invoice, InvoiceCreate } from "../types";
 
 // Sort options
 const sortOptions: SortOption[] = [

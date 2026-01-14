@@ -507,3 +507,105 @@ def get_grn_payment_history(
     Shows all payments made against this GRN and remaining amount due.
     """
     return supplier_credit_service.get_grn_payment_history(db, grn_id)
+
+
+# ==================== SUPPLIER PAYMENT ENDPOINTS (Non-Credit) ====================
+
+@router.post("/supplier-payments", response_model=schemas.SupplierPayment, status_code=status.HTTP_201_CREATED)
+def create_supplier_payment(
+    payment: schemas.SupplierPaymentCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new supplier payment (cash, bank transfer, cheque - non-credit)"""
+    payment_service = service.SupplierPaymentService(db)
+    return payment_service.create_payment(payment)
+
+
+@router.get("/supplier-payments/{payment_id}", response_model=schemas.SupplierPayment)
+def get_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
+    """Get supplier payment by ID"""
+    payment_service = service.SupplierPaymentService(db)
+    return payment_service.get_payment(payment_id)
+
+
+@router.get("/supplier-payments", response_model=List[schemas.SupplierPayment])
+def list_supplier_payments(
+    supplier_id: Optional[int] = None,
+    branch_code: Optional[str] = None,
+    payment_method: Optional[str] = None,
+    payment_for: Optional[str] = None,
+    status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    """List all supplier payments with optional filters"""
+    from datetime import date as date_type
+    
+    payment_service = service.SupplierPaymentService(db)
+    filters = schemas.SupplierPaymentListFilter(
+        supplier_id=supplier_id,
+        branch_code=branch_code,
+        payment_method=payment_method,
+        payment_for=payment_for,
+        status=status,
+        date_from=date_type.fromisoformat(date_from) if date_from else None,
+        date_to=date_type.fromisoformat(date_to) if date_to else None,
+        skip=skip,
+        limit=limit
+    )
+    return payment_service.list_payments(filters)
+
+
+@router.patch("/supplier-payments/{payment_id}", response_model=schemas.SupplierPayment)
+def update_supplier_payment(
+    payment_id: int,
+    payment_update: schemas.SupplierPaymentUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update a supplier payment (only pending payments can be updated)"""
+    payment_service = service.SupplierPaymentService(db)
+    return payment_service.update_payment(payment_id, payment_update)
+
+
+@router.post("/supplier-payments/{payment_id}/verify", response_model=schemas.SupplierPayment)
+def verify_supplier_payment(
+    payment_id: int,
+    db: Session = Depends(get_db)
+):
+    """Verify a supplier payment (mark as verified)"""
+    payment_service = service.SupplierPaymentService(db)
+    # TODO: Get verified_by from current user
+    return payment_service.verify_payment(payment_id, verified_by=1)
+
+
+@router.post("/supplier-payments/{payment_id}/cancel", response_model=schemas.SupplierPayment)
+def cancel_supplier_payment(
+    payment_id: int,
+    db: Session = Depends(get_db)
+):
+    """Cancel a supplier payment (only pending payments can be cancelled)"""
+    payment_service = service.SupplierPaymentService(db)
+    return payment_service.cancel_payment(payment_id)
+
+
+@router.delete("/supplier-payments/{payment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
+    """Delete a supplier payment (only pending payments can be deleted)"""
+    payment_service = service.SupplierPaymentService(db)
+    payment_service.delete_payment(payment_id)
+    return None
+
+
+@router.get("/suppliers/{supplier_id}/payments", response_model=List[schemas.SupplierPayment])
+def get_supplier_payments(
+    supplier_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    """Get all payments for a specific supplier"""
+    payment_service = service.SupplierPaymentService(db)
+    return payment_service.get_supplier_payments(supplier_id, skip, limit)

@@ -7,6 +7,7 @@ import PurchasingDashboard from "./pages/PurchasingDashboard";
 import CreditSettlementPage from "./pages/CreditSettlementPage";
 import POApprovalsPage from "./pages/POApprovalsPage";
 import PurchaseReturnApprovalsPage from "./pages/PurchaseReturnApprovalsPage";
+import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
 
 export default function PurchasingRoutes() {
   return (
@@ -19,6 +20,7 @@ export default function PurchasingRoutes() {
       <Route path="returns" element={<PurchaseReturnsPage />} />
       <Route path="return-approvals" element={<PurchaseReturnApprovalsPage />} />
       <Route path="settlements" element={<CreditSettlementPage />} />
+      <Route path="payments" element={<SupplierPaymentsPage />} />
     </Routes>
   );
 }

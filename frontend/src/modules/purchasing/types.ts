@@ -357,3 +357,60 @@ export interface DailyPOLimitCheck {
   can_create: boolean;
   message: string;
 }
+
+
+// ==================== SUPPLIER PAYMENT TYPES ====================
+
+export type SupplierPaymentStatus = "pending" | "verified" | "cancelled";
+export type SupplierPaymentFor = "Purchase" | "Advance" | "Refund" | "Other";
+export type SupplierPaymentMethod = "Cash" | "Bank Transfer" | "Cheque";
+
+export interface SupplierPayment {
+  id: number;
+  payment_no: string;
+  supplier_id: number;
+  purchasing_order_id?: number;
+  payment_date: string;
+  payment_method: SupplierPaymentMethod | string;
+  payment_amount: number;
+  reference_number?: string;
+  bank_name?: string;
+  branch_code: string;
+  payment_for: SupplierPaymentFor | string;
+  invoice_reference?: string;
+  remarks?: string;
+  status: SupplierPaymentStatus;
+  verified_by?: number;
+  verified_date?: string;
+  created_date: string;
+  created_by?: number;
+  // Loaded from relationships
+  supplier_name?: string;
+  po_no?: string;
+}
+
+export interface SupplierPaymentCreate {
+  supplier_id: number;
+  purchasing_order_id?: number;
+  payment_date: string;
+  payment_method: string;
+  payment_amount: number;
+  reference_number?: string;
+  bank_name?: string;
+  branch_code: string;
+  payment_for: string;
+  invoice_reference?: string;
+  remarks?: string;
+}
+
+export interface SupplierPaymentUpdate {
+  payment_date?: string;
+  payment_method?: string;
+  payment_amount?: number;
+  reference_number?: string;
+  bank_name?: string;
+  payment_for?: string;
+  invoice_reference?: string;
+  remarks?: string;
+  status?: string;
+}

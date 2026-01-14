@@ -38,6 +38,7 @@ const allPages = [
   { text: "Good Received Notes", path: "/purchasing/grn", keywords: ["GRN", "receive"] },
   { text: "Purchase Returns", path: "/purchasing/returns", keywords: ["return goods"] },
   { text: "Credit Settlements", path: "/purchasing/settlements", keywords: ["credits", "payment"] },
+  { text: "Supplier Payments", path: "/purchasing/payments", keywords: ["cash", "bank", "cheque", "pay supplier"] },
   { text: "Products", path: "/inventory", keywords: ["items", "stock"] },
   { text: "Categories", path: "/inventory/categories", keywords: ["groups"] },
   { text: "Brands", path: "/inventory/brands", keywords: ["manufacturers"] },
