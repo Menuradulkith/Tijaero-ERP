@@ -6,7 +6,6 @@ import AssessmentIcon from "@mui/icons-material/Assessment";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import BusinessIcon from "@mui/icons-material/Business";
 import CategoryIcon from "@mui/icons-material/Category";
-import CreditScoreIcon from "@mui/icons-material/CreditScore";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import GroupIcon from "@mui/icons-material/Group";
@@ -93,7 +92,6 @@ const menuItems: MenuItem[] = [
       { text: "Good Received Notes", icon: <LocalShippingOutlinedIcon />, path: "/purchasing/grn" },
       { text: "Purchase Returns", icon: <AssignmentReturnIcon />, path: "/purchasing/returns" },
       { text: "Return Approvals", icon: <FactCheckIcon />, path: "/purchasing/return-approvals" },
-      { text: "Credit Settlements", icon: <CreditScoreIcon />, path: "/purchasing/settlements" },
       { text: "Supplier Payments", icon: <PaymentIcon />, path: "/purchasing/payments" },
     ],
   },

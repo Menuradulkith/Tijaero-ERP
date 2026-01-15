@@ -452,6 +452,25 @@ def get_supplier_non_credit_status(
     return supplier_credit_service.get_supplier_non_credit_status(db, supplier_id)
 
 
+@router.get("/suppliers/{supplier_id}/payment-status")
+def get_supplier_payment_status(
+    supplier_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get complete payment status for a supplier - ALL outstanding documents.
+    
+    This is the unified API for the Supplier Payments page that shows
+    both credit and non-credit POs in a single view.
+    
+    Returns:
+    - Supplier info and credit details
+    - All outstanding purchase orders (both credit and non-credit)
+    - Outstanding amounts by payment type
+    """
+    return supplier_credit_service.get_supplier_payment_status(db, supplier_id)
+
+
 @router.post("/suppliers/{supplier_id}/credit-check")
 def check_supplier_credit(
     supplier_id: int,

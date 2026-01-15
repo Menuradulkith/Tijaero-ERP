@@ -146,6 +146,83 @@ class SupplierCreditService:
             "credit_purchase_orders": credit_purchase_orders
         }
     
+    def get_supplier_payment_status(self, db: Session, supplier_id: int) -> Dict[str, Any]:
+        """
+        Get complete payment status for a supplier - ALL outstanding documents.
+        
+        This is the unified API for the Supplier Payments page that shows
+        both credit and non-credit POs in a single view.
+        
+        Returns:
+            Dictionary with:
+            - Supplier info and credit details
+            - All outstanding purchase orders (both credit and non-credit)
+            - Outstanding amounts by payment type
+        """
+        supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier {supplier_id} not found"
+            )
+        
+        # Get credit purchase orders
+        credit_pos = self._get_credit_purchase_orders(db, supplier_id, supplier.credit_days)
+        
+        # Get non-credit purchase orders
+        non_credit_pos = self._get_non_credit_purchase_orders(db, supplier_id)
+        
+        # Calculate totals
+        credit_outstanding = sum(po["remaining_amount"] for po in credit_pos if not po["is_settled"])
+        non_credit_outstanding = sum(po["remaining_amount"] for po in non_credit_pos if not po["is_paid"])
+        total_outstanding = credit_outstanding + non_credit_outstanding
+        
+        credit_overdue = [po for po in credit_pos if po["is_overdue"] and not po["is_settled"]]
+        non_credit_overdue = [po for po in non_credit_pos if po["is_overdue"] and not po["is_paid"]]
+        total_overdue = len(credit_overdue) + len(non_credit_overdue)
+        total_overdue_amount = sum(po["remaining_amount"] for po in credit_overdue) + sum(po["remaining_amount"] for po in non_credit_overdue)
+        
+        # Combine all POs for unified view
+        all_purchase_orders = []
+        
+        # Add credit POs with payment_type marker
+        for po in credit_pos:
+            if po["has_grn"] and not po["is_settled"]:
+                all_purchase_orders.append({
+                    **po,
+                    "payment_type": "credit",
+                    "paid_amount": po["settled_amount"],
+                    "is_paid": po["is_settled"],
+                })
+        
+        # Add non-credit POs with payment_type marker
+        for po in non_credit_pos:
+            if not po["is_paid"]:
+                all_purchase_orders.append({
+                    **po,
+                    "payment_type": "non_credit",
+                })
+        
+        # Sort by due date (oldest first)
+        all_purchase_orders.sort(key=lambda x: x["due_date"])
+        
+        return {
+            "supplier_id": supplier_id,
+            "supplier_name": supplier.full_name,
+            "company_name": supplier.company_name,
+            "credit_days": supplier.credit_days,
+            "max_credit_limit": supplier.max_credit_limit,
+            "left_credit_amount": supplier.left_credit_amount or supplier.max_credit_limit,
+            "credit_outstanding": credit_outstanding,
+            "non_credit_outstanding": non_credit_outstanding,
+            "total_outstanding": total_outstanding,
+            "overdue_count": total_overdue,
+            "total_overdue_amount": total_overdue_amount,
+            "credit_purchase_orders": credit_pos,
+            "non_credit_purchase_orders": non_credit_pos,
+            "all_purchase_orders": all_purchase_orders,
+        }
+    
     def get_supplier_non_credit_status(self, db: Session, supplier_id: int) -> Dict[str, Any]:
         """
         Get non-credit purchase orders status for a supplier.
