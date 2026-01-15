@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import date, datetime
 
-# Category Schemas
 class CategoryBase(BaseModel):
     name: str = Field(..., max_length=255)
     category_code: str = Field(..., max_length=255)
@@ -29,7 +28,6 @@ class Category(CategoryBase):
     class Config:
         from_attributes = True
 
-# Brand Schemas
 class BrandBase(BaseModel):
     brand_name: str = Field(..., max_length=255)
     brand_code: str = Field(..., max_length=4)
@@ -49,7 +47,6 @@ class Brand(BrandBase):
     class Config:
         from_attributes = True
 
-# Product Schemas
 class ProductBase(BaseModel):
     name: str = Field(..., max_length=255)
     item_code: str = Field(..., max_length=255)
@@ -58,7 +55,7 @@ class ProductBase(BaseModel):
     description: Optional[str] = None
     website_active: bool = False
     website_price: Optional[float] = None
-    selling_price: Optional[float] = None  # Selling price for sales stock
+    selling_price: Optional[float] = None
     active: bool = True
     cost_price: float = Field(..., ge=0)
     category_id: int
@@ -74,7 +71,7 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     website_active: Optional[bool] = None
     website_price: Optional[float] = None
-    selling_price: Optional[float] = None  # Selling price for sales stock
+    selling_price: Optional[float] = None
     active: Optional[bool] = None
     cost_price: Optional[float] = Field(None, ge=0)
     category_id: Optional[int] = None
@@ -97,7 +94,6 @@ class ProductWithDetails(Product):
     class Config:
         from_attributes = True
 
-# Minimum Price Schemas
 class MinimumPriceBase(BaseModel):
     minimum_price: float = Field(..., ge=0)
 

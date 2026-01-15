@@ -23,13 +23,12 @@ class BankDeposits(Base):
     created_date = Column(TIMESTAMP, nullable=False)
     branch_code = Column(String(200), nullable=False)
     bank_name = Column(String(20))
-    user_id = Column(Integer, nullable=True)  # Made nullable, no FK for now
+    user_id = Column(Integer, nullable=True)
     payment_for = Column(Text)
     invoice_no = Column(String(200))
     verified = Column(Boolean, default=False)
     returned = Column(Boolean)
 
-    # Relationships
     invoices = relationship("Invoice", back_populates="bank_transfer")
 
 
@@ -45,7 +44,6 @@ class CardPayments(Base):
     invoice_no = Column(String(200))
     deposited = Column(Boolean, nullable=False, default=True)
 
-    # Relationships
     invoices = relationship("Invoice", back_populates="card_payment")
 
 
@@ -64,7 +62,6 @@ class ChequePayments(Base):
     payment_for = Column(Text)
     invoice_no = Column(String(200))
 
-    # Relationships
     invoices = relationship("Invoice", back_populates="cheque_payment")
 
 
@@ -76,10 +73,10 @@ class CreditPayments(Base):
     amount = Column(Numeric(60, 2), nullable=True)
     credit_terms = Column(String(100), nullable=True)
     due_date = Column(Date, nullable=True)
-    status = Column(String(30), default="pending")  # pending, paid, overdue
+    status = Column(String(30), default="pending")
     created_date = Column(TIMESTAMP, nullable=True)
 
-    # Relationships
+
     invoices = relationship("Invoice", back_populates="credit_payment")
 
 
@@ -88,25 +85,23 @@ class Vouchers(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     voucher_number = Column(String(50), nullable=True)
-    voucher_type = Column(String(30), nullable=True)  # payment, receipt, journal
+    voucher_type = Column(String(30), nullable=True)
     amount = Column(Numeric(60, 2), nullable=True)
     description = Column(Text, nullable=True)
     branch_code = Column(String(200), nullable=True)
     created_date = Column(TIMESTAMP, nullable=True)
-    status = Column(String(30), default="active")  # active, used, cancelled
+    status = Column(String(30), default="active")
 
-    # Relationships
     invoices = relationship("Invoice", back_populates="voucher")
 
 
 class PettyCash(Base):
-    """Petty cash transactions for small expenses"""
 
     __tablename__ = "petty_cash"
 
     id = Column(Integer, primary_key=True, index=True)
     transaction_no = Column(String(50), unique=True, nullable=True)
-    transaction_type = Column(String(20), nullable=False)  # in, out
+    transaction_type = Column(String(20), nullable=False)
     amount = Column(Numeric(60, 2), nullable=False)
     description = Column(Text, nullable=True)
     branch_code = Column(String(200), nullable=False)

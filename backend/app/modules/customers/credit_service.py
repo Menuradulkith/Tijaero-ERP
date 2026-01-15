@@ -1,19 +1,3 @@
-"""
-Credit Management Service for Customers
-
-Handles the complete credit cycle:
-1. Credit Days - Calculate due dates based on credit_days
-2. Credit Limit - Validate and track available credit (left_credit_amount)
-3. Credit Settle - Process payments against credit invoices
-
-Key Fields:
-- customers.credit_days: Number of days allowed for payment
-- customers.max_credit_limit: Maximum allowed outstanding credit
-- customers.left_credit_amount: Remaining available credit
-- customers.initial_credit_amount: Original credit limit
-- invoices.credit_amount: Credit portion of an invoice
-"""
-
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from fastapi import HTTPException, status
@@ -31,25 +15,12 @@ from app.modules.customers import schemas
 
 
 class CustomerCreditService:
-    """Service for managing customer credit operations"""
-    
-    # ==================== CREDIT DAYS ====================
+
     
     def calculate_due_date(self, invoice_date: date, credit_days: int) -> date:
-        """
-        Calculate the due date for a credit invoice.
-        
-        Args:
-            invoice_date: The date the invoice was created
-            credit_days: Number of days allowed for payment
-            
-        Returns:
-            The due date for payment
-        """
         return invoice_date + timedelta(days=credit_days)
     
     def get_invoice_due_date(self, db: Session, invoice_id: int) -> date:
-        """Get the due date for a specific invoice"""
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
         if not invoice:
             raise HTTPException(
@@ -67,35 +38,22 @@ class CustomerCreditService:
         return self.calculate_due_date(invoice.created_date, customer.credit_days)
     
     def get_days_overdue(self, invoice_date: date, credit_days: int) -> int:
-        """
-        Calculate how many days an invoice is overdue.
-        
-        Returns:
-            Positive number if overdue, negative if not yet due, 0 if due today
-        """
         due_date = self.calculate_due_date(invoice_date, credit_days)
         return (date.today() - due_date).days
     
-    # ==================== CREDIT LIMIT ====================
+
     
     def get_customer_credit_status(self, db: Session, customer_id: int) -> Dict[str, Any]:
-        """
-        Get complete credit status for a customer.
-        
-        Returns:
-            Dictionary with credit limit, outstanding, available credit, and overdue info
-        """
+
         customer = db.query(Customer).filter(Customer.id == customer_id).first()
         if not customer:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Customer {customer_id} not found"
             )
-        
-        # Calculate total outstanding credit (unpaid credit invoices)
+
         outstanding = self._calculate_outstanding_credit(db, customer_id)
         
-        # Get overdue invoices
         overdue_invoices = self._get_overdue_invoices(db, customer_id, customer.credit_days)
         
         return {
@@ -113,14 +71,11 @@ class CustomerCreditService:
         }
     
     def _calculate_outstanding_credit(self, db: Session, customer_id: int) -> Decimal:
-        """Calculate total outstanding credit for a customer"""
-        # Get all credit invoices
         total_credit = db.query(func.coalesce(func.sum(Invoice.credit_amount), 0)).filter(
             Invoice.customer_id == customer_id,
             Invoice.credit_amount > 0
         ).scalar() or Decimal("0")
-        
-        # Get all settled amounts
+
         total_settled = db.query(
             func.coalesce(func.sum(CustomerCreditsSettleTransaction.payment_amount), 0)
         ).join(
@@ -133,10 +88,8 @@ class CustomerCreditService:
         return total_credit - total_settled
     
     def _get_overdue_invoices(self, db: Session, customer_id: int, credit_days: int) -> List[Dict]:
-        """Get list of overdue invoices for a customer"""
         cutoff_date = date.today() - timedelta(days=credit_days)
         
-        # Get invoices with credit that are past due date
         invoices = db.query(Invoice).filter(
             Invoice.customer_id == customer_id,
             Invoice.credit_amount > 0,
@@ -161,7 +114,6 @@ class CustomerCreditService:
         return overdue_list
     
     def _get_invoice_remaining_credit(self, db: Session, invoice_id: int, credit_amount: Decimal) -> Decimal:
-        """Get remaining unpaid credit amount for an invoice"""
         paid = db.query(
             func.coalesce(func.sum(CustomerCreditsSettleTransaction.payment_amount), 0)
         ).filter(
@@ -177,17 +129,7 @@ class CustomerCreditService:
         credit_amount: Decimal,
         allow_over_limit: bool = False
     ) -> Dict[str, Any]:
-        """
-        Validate if a credit sale can be made for a customer.
-        
-        Args:
-            customer_id: The customer ID
-            credit_amount: The credit amount for the new sale
-            allow_over_limit: If True, return warning instead of blocking
-            
-        Returns:
-            Dictionary with validation result and details
-        """
+
         status = self.get_customer_credit_status(db, customer_id)
         
         new_outstanding = status["outstanding_credit"] + float(credit_amount)
@@ -217,10 +159,7 @@ class CustomerCreditService:
         return result
     
     def update_customer_credit_balance(self, db: Session, customer_id: int):
-        """
-        Recalculate and update customer's left_credit_amount.
-        Call this after any credit transaction.
-        """
+
         customer = db.query(Customer).filter(Customer.id == customer_id).first()
         if not customer:
             return
@@ -228,20 +167,14 @@ class CustomerCreditService:
         outstanding = self._calculate_outstanding_credit(db, customer_id)
         customer.left_credit_amount = int(customer.max_credit_limit - outstanding)
         db.commit()
-    
-    # ==================== CREDIT SETTLE ====================
+
     
     def create_credit_settlement(
         self, 
         db: Session, 
         settlement_data: schemas.CustomerCreditsSettleCreate
     ) -> CustomerCreditsSettle:
-        """
-        Create a credit settlement record with transactions.
-        
-        This records payments received from a customer against their credit invoices.
-        """
-        # Validate customer exists
+
         customer = db.query(Customer).filter(
             Customer.id == settlement_data.customer_id
         ).first()
@@ -250,8 +183,7 @@ class CustomerCreditService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Customer {settlement_data.customer_id} not found"
             )
-        
-        # Validate all invoice IDs in transactions
+
         for trans in settlement_data.transactions:
             invoice = db.query(Invoice).filter(Invoice.id == trans.invoice_id).first()
             if not invoice:
@@ -264,16 +196,14 @@ class CustomerCreditService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invoice {trans.invoice_id} does not belong to customer {settlement_data.customer_id}"
                 )
-            
-            # Check if payment amount exceeds remaining credit
+
             remaining = self._get_invoice_remaining_credit(db, invoice.id, invoice.credit_amount)
             if trans.payment_amount > remaining:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Payment amount {trans.payment_amount} exceeds remaining credit {remaining} for invoice {invoice.invoice_no}"
                 )
-        
-        # Create settlement header
+
         settlement = CustomerCreditsSettle(
             customer_credits_settle_no=settlement_data.customer_credits_settle_no,
             branch_code=settlement_data.branch_code,
@@ -282,8 +212,7 @@ class CustomerCreditService:
         )
         db.add(settlement)
         db.flush()
-        
-        # Create transaction records
+
         for trans in settlement_data.transactions:
             transaction = CustomerCreditsSettleTransaction(
                 payment_method=trans.payment_method,
@@ -298,15 +227,14 @@ class CustomerCreditService:
             db.add(transaction)
         
         db.commit()
-        
-        # Update customer's available credit
+
         self.update_customer_credit_balance(db, settlement_data.customer_id)
         
         db.refresh(settlement)
         return settlement
     
     def get_settlement(self, db: Session, settlement_id: int) -> CustomerCreditsSettle:
-        """Get a credit settlement by ID"""
+
         settlement = db.query(CustomerCreditsSettle).filter(
             CustomerCreditsSettle.id == settlement_id
         ).first()
@@ -322,7 +250,6 @@ class CustomerCreditService:
         db: Session, 
         settlement_id: int
     ) -> schemas.CustomerCreditsSettleWithTransactions:
-        """Get settlement with all transaction details"""
         settlement = self.get_settlement(db, settlement_id)
         transactions = db.query(CustomerCreditsSettleTransaction).filter(
             CustomerCreditsSettleTransaction.customer_credit_settle_id == settlement_id
@@ -347,7 +274,7 @@ class CustomerCreditService:
         skip: int = 0,
         limit: int = 100
     ) -> List[CustomerCreditsSettle]:
-        """Get all settlements for a customer"""
+
         return db.query(CustomerCreditsSettle).filter(
             CustomerCreditsSettle.customer_id == customer_id
         ).order_by(
@@ -359,7 +286,6 @@ class CustomerCreditService:
         db: Session, 
         invoice_id: int
     ) -> Dict[str, Any]:
-        """Get payment history for a specific invoice"""
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
         if not invoice:
             raise HTTPException(
@@ -400,19 +326,8 @@ class CustomerCreditService:
             ]
         }
     
-    # ==================== AGING REPORTS ====================
-    
     def get_aging_report(self, db: Session, customer_id: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Generate aging report for receivables.
-        
-        Categories:
-        - Current (not yet due)
-        - 1-30 days overdue
-        - 31-60 days overdue
-        - 61-90 days overdue
-        - Over 90 days overdue
-        """
+
         query = db.query(Invoice).filter(Invoice.credit_amount > 0)
         if customer_id:
             query = query.filter(Invoice.customer_id == customer_id)
@@ -454,8 +369,7 @@ class CustomerCreditService:
             aging[bucket]["amount"] += remaining
             aging["total"]["count"] += 1
             aging["total"]["amount"] += remaining
-        
-        # Convert Decimal to float for JSON serialization
+
         for key in aging:
             aging[key]["amount"] = float(aging[key]["amount"])
         
@@ -468,15 +382,13 @@ class CustomerCreditService:
         from_date: Optional[date] = None,
         to_date: Optional[date] = None
     ) -> Dict[str, Any]:
-        """Generate a customer statement showing all credit transactions"""
         customer = db.query(Customer).filter(Customer.id == customer_id).first()
         if not customer:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Customer {customer_id} not found"
             )
-        
-        # Get credit invoices
+
         invoice_query = db.query(Invoice).filter(
             Invoice.customer_id == customer_id,
             Invoice.credit_amount > 0
@@ -487,8 +399,7 @@ class CustomerCreditService:
             invoice_query = invoice_query.filter(Invoice.created_date <= to_date)
         
         invoices = invoice_query.order_by(Invoice.created_date).all()
-        
-        # Get settlements
+
         settle_query = db.query(CustomerCreditsSettle).filter(
             CustomerCreditsSettle.customer_id == customer_id
         )
@@ -498,12 +409,10 @@ class CustomerCreditService:
             settle_query = settle_query.filter(CustomerCreditsSettle.created_date <= to_date)
         
         settlements = settle_query.order_by(CustomerCreditsSettle.created_date).all()
-        
-        # Build statement lines
+
         lines = []
         running_balance = Decimal("0")
-        
-        # Add invoice lines
+
         for invoice in invoices:
             due_date = self.calculate_due_date(invoice.created_date, customer.credit_days)
             running_balance += invoice.credit_amount
@@ -517,8 +426,7 @@ class CustomerCreditService:
                 "balance": float(running_balance),
                 "due_date": due_date
             })
-        
-        # Add settlement lines
+
         for settlement in settlements:
             transactions = db.query(CustomerCreditsSettleTransaction).filter(
                 CustomerCreditsSettleTransaction.customer_credit_settle_id == settlement.id
@@ -537,11 +445,9 @@ class CustomerCreditService:
                 "balance": float(running_balance),
                 "due_date": None
             })
-        
-        # Sort by date
+
         lines.sort(key=lambda x: x["date"])
-        
-        # Recalculate running balance in order
+
         running_balance = Decimal("0")
         for line in lines:
             if line["type"] == "INVOICE":
@@ -561,6 +467,4 @@ class CustomerCreditService:
             "statement_lines": lines
         }
 
-
-# Singleton instance
 customer_credit_service = CustomerCreditService()

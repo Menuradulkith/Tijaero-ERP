@@ -15,14 +15,11 @@ def get_branches(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Get all branches with pagination
-    """
+
     skip = (page - 1) * size
     branches = service.branch_service.get_all_branches(db, skip=skip, limit=size)
     total = service.branch_service.get_total_count(db)
     
-    # Convert SQLAlchemy models to Pydantic schemas
     branch_schemas = [schemas.Branch.model_validate(branch) for branch in branches]
     
     return {
@@ -50,9 +47,7 @@ def create_branch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Create a new branch
-    """
+
     return service.branch_service.create_branch(db, branch)
 
 @router.put("/{branch_id}", response_model=schemas.Branch)
@@ -62,9 +57,7 @@ def update_branch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Update an existing branch
-    """
+
     return service.branch_service.update_branch(db, branch_id, branch)
 
 @router.delete("/{branch_id}", status_code=200)
@@ -73,7 +66,5 @@ def delete_branch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Delete a branch if not assigned to users or other entities
-    """
+
     return service.branch_service.delete_branch(db, branch_id)

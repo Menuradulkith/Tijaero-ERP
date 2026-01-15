@@ -19,8 +19,7 @@ class Attendance(Base):
     early_mins = Column(Integer, nullable=False, default=0)
     absent_mins = Column(Integer, nullable=False, default=0)
     leave_mins = Column(Integer, nullable=False, default=0)
-    
-    # Relationships
+
     employee = relationship("Employee", back_populates="attendance_records")
 
 class Leaves(Base):
@@ -35,7 +34,6 @@ class Leaves(Base):
     approval_id = Column(Integer, ForeignKey("approvals.id"), nullable=False)
     leave_duration = Column(Float, nullable=False)
     leave_time = Column(String(10), nullable=False, default="FULL DAY")
-    
-    # Relationships
+
     employee = relationship("Employee", back_populates="leaves")
     approval = relationship("Approvals", back_populates="leaves")

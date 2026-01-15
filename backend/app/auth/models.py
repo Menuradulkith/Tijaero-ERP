@@ -15,7 +15,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
-# Forward references to avoid circular imports
 if TYPE_CHECKING:
     from app.modules.common.models import Country
     from app.modules.employees.models import Employee
@@ -73,14 +72,13 @@ class User(Base, TimestampMixin):
     is_active = Column(Boolean, nullable=False)
     date_joined = Column(Date, nullable=False)
     birthdate = Column(Date, nullable=False)
-    employee_id = Column(String(255), nullable=False)  # Removed FK constraint
+    employee_id = Column(String(255), nullable=False)
     verify = Column(Boolean, nullable=False)
     blocked = Column(Boolean, nullable=False)
     occupation = Column(String(30), nullable=False)
     country_id = Column(Integer, ForeignKey("country.id"))
     profile_picture_id = Column(Integer)
 
-    # Relationships - using string references to avoid circular imports
     groups = relationship(
         "Group", secondary=user_groups, back_populates="users", lazy="selectin"
     )
@@ -142,7 +140,6 @@ class Branch(Base, TimestampMixin):
 
 
 class LoginShortcode(Base):
-    """Login shortcodes for quick user authentication (e.g., barcode/PIN login)"""
 
     __tablename__ = "login_shortcodes"
 

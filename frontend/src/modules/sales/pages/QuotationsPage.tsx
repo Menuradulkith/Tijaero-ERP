@@ -4,64 +4,66 @@
 
 import { usePermission } from "@/auth/permissions";
 import {
-    ActionToolbar,
-    DetailPanelHeader,
-    EmptyState,
-    FormSection,
-    MasterDetailLayout,
-    SearchableList,
-    SelectableListItem,
-    showErrorToast,
-    showSuccessToast,
-    SortOption,
-    TCurrency,
-    TDate,
-    TStatusChip,
-    useMasterDetailState,
-    useTConfirmDialog
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  showErrorToast,
+  showSuccessToast,
+  SortOption,
+  TBranchFilter,
+  TCurrency,
+  TDate,
+  TFilterPanel,
+  TStatusChip,
+  useMasterDetailState,
+  useTConfirmDialog
 } from "@/components/tijaero";
 import { branchApi } from "@/modules/branches/api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
 import {
-    Add as AddIcon,
-    CheckCircle as ApproveIcon,
-    Cancel as CancelIcon,
-    Transform as ConvertIcon,
-    Delete as DeleteIcon,
-    Print as PrintIcon,
-    Description as QuoteIcon,
-    Refresh as ReviseIcon,
-    Send as SendIcon
+  Add as AddIcon,
+  CheckCircle as ApproveIcon,
+  Cancel as CancelIcon,
+  Transform as ConvertIcon,
+  Delete as DeleteIcon,
+  Print as PrintIcon,
+  Description as QuoteIcon,
+  Refresh as ReviseIcon,
+  Send as SendIcon
 } from "@mui/icons-material";
 import {
-    Autocomplete,
-    Box,
-    Button,
-    Chip,
-    Divider,
-    IconButton,
-    InputAdornment,
-    MenuItem,
-    Paper,
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableRow,
-    TextField,
-    Typography
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
+  Divider,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { addDays, format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { quotationApi } from "../quotation-api";
 import {
-    QUOTE_TYPE_LABELS,
-    QuoteType,
-    SalesQuote,
-    SalesQuoteCreate,
-    SalesQuoteItemCreate
+  QUOTE_TYPE_LABELS,
+  QuoteType,
+  SalesQuote,
+  SalesQuoteCreate,
+  SalesQuoteItemCreate
 } from "../quotation-types";
 
 // Configuration
@@ -112,6 +114,9 @@ export default function QuotationsPage() {
 
   // Line items state
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
+
+  // Filter states
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // Permissions
   const canCreate = usePermission("sales", "create");
@@ -172,11 +177,16 @@ export default function QuotationsPage() {
   // Filter and sort
   const filteredQuotes = useMemo(() => {
     const quotes = quotesData?.items || [];
-    const filtered = quotes.filter(
+    let filtered = quotes.filter(
       (quote) =>
         quote.quote_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
         quote.branch_code.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    // Apply branch filter
+    if (filterBranch) {
+      filtered = filtered.filter(quote => quote.branch_code === filterBranch);
+    }
 
     filtered.sort((a, b) => {
       if (sortField === "quote_no") {
@@ -192,7 +202,7 @@ export default function QuotationsPage() {
     });
 
     return filtered;
-  }, [quotesData?.items, searchQuery, sortField]);
+  }, [quotesData?.items, searchQuery, sortField, filterBranch]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -615,7 +625,7 @@ export default function QuotationsPage() {
         <Button
           size="small"
           startIcon={<PrintIcon />}
-          onClick={() => {}}
+          onClick={() => { }}
         >
           Print
         </Button>
@@ -634,19 +644,19 @@ export default function QuotationsPage() {
             isCreating
               ? "Create New Quote"
               : isEditing && selectedQuote
-              ? `Edit ${selectedQuote.quote_no}`
-              : selectedQuote
-              ? selectedQuote.quote_no
-              : "Select a Quote"
+                ? `Edit ${selectedQuote.quote_no}`
+                : selectedQuote
+                  ? selectedQuote.quote_no
+                  : "Select a Quote"
           }
           chips={
             selectedQuote && !isCreating && !isEditing
               ? [
-                  {
-                    label: selectedQuote.status.toUpperCase(),
-                    color: selectedQuote.status === 'draft' ? 'default' : selectedQuote.status === 'approved' ? 'success' : 'info'
-                  }
-                ]
+                {
+                  label: selectedQuote.status.toUpperCase(),
+                  color: selectedQuote.status === 'draft' ? 'default' : selectedQuote.status === 'approved' ? 'success' : 'info'
+                }
+              ]
               : undefined
           }
         />
@@ -1051,18 +1061,27 @@ export default function QuotationsPage() {
             onSortChange={(value) => setSortField(value as string)}
             isLoading={isLoading}
             listHeader={
-              canCreate ? (
-                <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}>
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    startIcon={<AddIcon />}
-                    onClick={handleCreateNew}
-                  >
-                    New Quote
-                  </Button>
-                </Box>
-              ) : undefined
+              <Box>
+                <TFilterPanel>
+                  <TBranchFilter
+                    branches={branches}
+                    value={filterBranch}
+                    onChange={setFilterBranch}
+                  />
+                </TFilterPanel>
+                {canCreate && (
+                  <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={handleCreateNew}
+                    >
+                      New Quote
+                    </Button>
+                  </Box>
+                )}
+              </Box>
             }
           >
             {filteredQuotes.length === 0 ? (

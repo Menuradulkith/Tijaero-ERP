@@ -21,17 +21,12 @@ def balance_sheet(db: Session = Depends(get_db)):
     return financial_reports.get_balance_sheet(db)
 
 
-# ==================== Document Reports ====================
-
 @router.get("/documents/purchase-order/{po_id}", response_class=HTMLResponse)
 def get_purchase_order_report(
     po_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    Generate HTML report for a Purchase Order.
-    Returns HTML that can be viewed in browser or printed to PDF.
-    """
+
     service = get_document_report_service(db)
     return service.generate_purchase_order_report(po_id)
 
@@ -41,10 +36,7 @@ def get_grn_report(
     grn_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    Generate HTML report for a Good Received Note (GRN).
-    Returns HTML that can be viewed in browser or printed to PDF.
-    """
+
     service = get_document_report_service(db)
     return service.generate_grn_report(grn_id)
 
@@ -54,9 +46,6 @@ def get_purchase_return_report(
     return_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    Generate HTML report for a Purchase Return.
-    Returns HTML that can be viewed in browser or printed to PDF.
-    """
+
     service = get_document_report_service(db)
     return service.generate_purchase_return_report(return_id)

@@ -36,7 +36,7 @@ export const STATUS_MAPS = {
     true: { label: "Active", color: "success" as StatusColor },
     false: { label: "Inactive", color: "default" as StatusColor },
   },
-  
+
   // Order/Document status
   orderStatus: {
     draft: { label: "Draft", color: "default" as StatusColor },
@@ -48,7 +48,7 @@ export const STATUS_MAPS = {
     completed: { label: "Completed", color: "success" as StatusColor },
     closed: { label: "Closed", color: "default" as StatusColor },
   },
-  
+
   // Purchase order status
   purchaseStatus: {
     draft: { label: "Draft", color: "default" as StatusColor },
@@ -60,7 +60,7 @@ export const STATUS_MAPS = {
     received: { label: "Received", color: "success" as StatusColor },
     cancelled: { label: "Cancelled", color: "default" as StatusColor },
   },
-  
+
   // Payment status
   paymentStatus: {
     unpaid: { label: "Unpaid", color: "error" as StatusColor },
@@ -69,7 +69,7 @@ export const STATUS_MAPS = {
     overdue: { label: "Overdue", color: "error" as StatusColor },
     refunded: { label: "Refunded", color: "info" as StatusColor },
   },
-  
+
   // Verification status
   verificationStatus: {
     unverified: { label: "Unverified", color: "warning" as StatusColor },
@@ -77,7 +77,7 @@ export const STATUS_MAPS = {
     pending: { label: "Pending", color: "info" as StatusColor },
     failed: { label: "Failed", color: "error" as StatusColor },
   },
-  
+
   // Priority levels
   priority: {
     low: { label: "Low", color: "default" as StatusColor },
@@ -86,7 +86,7 @@ export const STATUS_MAPS = {
     urgent: { label: "Urgent", color: "error" as StatusColor },
     critical: { label: "Critical", color: "error" as StatusColor },
   },
-  
+
   // Stock status
   stockStatus: {
     in_stock: { label: "In Stock", color: "success" as StatusColor },
@@ -94,7 +94,7 @@ export const STATUS_MAPS = {
     out_of_stock: { label: "Out of Stock", color: "error" as StatusColor },
     reserved: { label: "Reserved", color: "info" as StatusColor },
   },
-  
+
   // Employee status
   employeeStatus: {
     active: { label: "Active", color: "success" as StatusColor },
@@ -102,7 +102,7 @@ export const STATUS_MAPS = {
     suspended: { label: "Suspended", color: "error" as StatusColor },
     terminated: { label: "Terminated", color: "default" as StatusColor },
   },
-  
+
   // Yes/No boolean
   yesNo: {
     true: { label: "Yes", color: "success" as StatusColor },
@@ -110,7 +110,7 @@ export const STATUS_MAPS = {
     yes: { label: "Yes", color: "success" as StatusColor },
     no: { label: "No", color: "default" as StatusColor },
   },
-  
+
   // Purchase order (alias for purchaseStatus)
   purchaseOrder: {
     draft: { label: "Draft", color: "default" as StatusColor },
@@ -125,7 +125,7 @@ export const STATUS_MAPS = {
     completed: { label: "Completed", color: "success" as StatusColor },
     closed: { label: "Closed", color: "default" as StatusColor },
   },
-  
+
   // Quote/Proforma status
   quoteStatus: {
     draft: { label: "Draft", color: "default" as StatusColor },
@@ -139,7 +139,7 @@ export const STATUS_MAPS = {
     cancelled: { label: "Cancelled", color: "default" as StatusColor },
     revised: { label: "Revised", color: "default" as StatusColor },
   },
-  
+
   // Purchase return status
   purchaseReturn: {
     draft: { label: "Draft", color: "default" as StatusColor },
@@ -147,7 +147,14 @@ export const STATUS_MAPS = {
     approved: { label: "Approved", color: "info" as StatusColor },
     rejected: { label: "Rejected", color: "error" as StatusColor },
   },
-  
+
+  // Sales return status
+  salesReturn: {
+    pending: { label: "Pending", color: "warning" as StatusColor },
+    approved: { label: "Approved", color: "success" as StatusColor },
+    rejected: { label: "Rejected", color: "error" as StatusColor },
+  },
+
   // GRN (Goods Received Note) status
   grn: {
     draft: { label: "Draft", color: "default" as StatusColor },
@@ -155,7 +162,7 @@ export const STATUS_MAPS = {
     partial: { label: "Partial", color: "warning" as StatusColor },
     complete: { label: "Complete", color: "info" as StatusColor },
   },
-  
+
   // Sales order status
   salesOrder: {
     draft: { label: "Draft", color: "default" as StatusColor },
@@ -166,7 +173,7 @@ export const STATUS_MAPS = {
     delivered: { label: "Delivered", color: "success" as StatusColor },
     cancelled: { label: "Cancelled", color: "error" as StatusColor },
   },
-  
+
   // Invoice status
   invoice: {
     draft: { label: "Draft", color: "default" as StatusColor },
@@ -176,7 +183,7 @@ export const STATUS_MAPS = {
     overdue: { label: "Overdue", color: "error" as StatusColor },
     cancelled: { label: "Cancelled", color: "default" as StatusColor },
   },
-  
+
   // Service job status
   serviceJob: {
     accepted_by_technician: { label: "Accepted by Technician", color: "info" as StatusColor },
@@ -235,7 +242,7 @@ export function getStatusProps(
   const statusKey = String(status).toLowerCase().replace(/\s+/g, "_");
   const map = STATUS_MAPS[statusMap] || STATUS_MAPS.activeInactive;
   const entry = (map as Record<string, StatusMapEntry>)[statusKey];
-  
+
   return {
     label: entry?.label || fallbackLabel || String(status),
     color: entry?.color || "default",
@@ -254,13 +261,13 @@ export const TStatusChip: React.FC<TStatusChipProps> = ({
 }) => {
   // Normalize status to string
   const statusKey = String(status).toLowerCase().replace(/\s+/g, "_");
-  
+
   // Get the map to use
   const map = customMap || STATUS_MAPS[statusMap] || STATUS_MAPS.activeInactive;
-  
+
   // Find the status entry
   const entry = (map as Record<string, StatusMapEntry>)[statusKey];
-  
+
   // Determine label and color
   const label = entry?.label || fallbackLabel || String(status);
   const color = entry?.color || "default";

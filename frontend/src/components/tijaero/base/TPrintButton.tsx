@@ -22,9 +22,9 @@
  * ```
  */
 
-import React from "react";
-import { IconButton, Tooltip } from "@mui/material";
 import PrintIcon from "@mui/icons-material/Print";
+import { IconButton, Tooltip } from "@mui/material";
+import React from "react";
 
 /** Supported document types for printing */
 export type TPrintDocumentType =

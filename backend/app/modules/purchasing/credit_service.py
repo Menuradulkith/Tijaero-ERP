@@ -1,18 +1,3 @@
-"""
-Credit Management Service for Suppliers
-
-Handles the complete credit cycle for purchases:
-1. Credit Days - Calculate due dates based on supplier's credit_days
-2. Credit Limit - Validate and track available credit from suppliers
-3. Credit Settle - Process payments to suppliers against credit purchases
-
-Key Fields:
-- supplier.credit_days: Number of days supplier gives you to pay
-- supplier.max_credit_limit: Maximum credit the supplier extends to you
-- supplier.left_credit_amount: Remaining credit available from supplier
-- supplier.initial_credit_amount: Original credit limit
-"""
-
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from fastapi import HTTPException, status
@@ -32,33 +17,19 @@ from app.modules.purchasing import schemas
 
 
 class SupplierCreditService:
-    """Service for managing supplier credit operations (payables)"""
-    
-    # ==================== CREDIT DAYS ====================
+
     
     def calculate_due_date(self, grn_date: date, credit_days: int) -> date:
-        """
-        Calculate the due date for a credit purchase.
-        
-        Args:
-            grn_date: The date goods were received (GRN date)
-            credit_days: Number of days the supplier allows for payment
-            
-        Returns:
-            The due date for payment
-        """
         return grn_date + timedelta(days=credit_days)
     
     def get_grn_due_date(self, db: Session, grn_id: int) -> date:
-        """Get the due date for a specific GRN"""
         grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
         if not grn:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"GRN {grn_id} not found"
             )
-        
-        # Get supplier from the purchasing order
+
         po = db.query(PurchasingOrder).filter(
             PurchasingOrder.id == grn.purchasingorders_id
         ).first()
@@ -78,53 +49,25 @@ class SupplierCreditService:
         return self.calculate_due_date(grn.good_received_date, supplier.credit_days)
     
     def get_days_overdue(self, grn_date: date, credit_days: int) -> int:
-        """
-        Calculate how many days a payment is overdue.
-        
-        Returns:
-            Positive number if overdue, negative if not yet due, 0 if due today
-        """
         due_date = self.calculate_due_date(grn_date, credit_days)
         return (date.today() - due_date).days
     
-    # ==================== CREDIT LIMIT ====================
     
     def get_supplier_credit_status(self, db: Session, supplier_id: int) -> Dict[str, Any]:
-        """
-        Get complete credit status for a supplier.
-        
-        Returns:
-            Dictionary with credit limit, outstanding payables, pending credits, available credit, and overdue info
-            
-        Key Concepts:
-        - outstanding_payable: Actual liability (GRN created, goods received)
-        - pending_credits: Potential liability (PO created, but GRN not yet created)
-        - total_exposure: outstanding_payable + pending_credits
-        - available_credit: max_credit_limit - total_exposure
-        """
+
         supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
         if not supplier:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier {supplier_id} not found"
             )
-        
-        # Calculate actual outstanding (goods received but not paid)
+
         outstanding = self._calculate_outstanding_payable(db, supplier_id)
-        
-        # Calculate pending credits (POs created but goods not received)
         pending_credits = self._calculate_pending_credits(db, supplier_id)
-        
-        # Total exposure = actual outstanding + pending credits
         total_exposure = float(outstanding) + float(pending_credits)
         
-        # Get overdue GRNs
         overdue_grns = self._get_overdue_grns(db, supplier_id, supplier.credit_days)
-        
-        # Get all unpaid GRNs (for settlement)
         unpaid_grns = self._get_unpaid_grns(db, supplier_id, supplier.credit_days)
-        
-        # Get credit purchase orders (unsettled)
         credit_purchase_orders = self._get_credit_purchase_orders(db, supplier_id, supplier.credit_days)
         
         return {
@@ -135,9 +78,9 @@ class SupplierCreditService:
             "max_credit_limit": supplier.max_credit_limit,
             "initial_credit_amount": supplier.initial_credit_amount or supplier.max_credit_limit,
             "left_credit_amount": supplier.left_credit_amount or (supplier.max_credit_limit - int(total_exposure)),
-            "outstanding_payable": float(outstanding),  # Actual liability (GRN created)
-            "pending_credits": float(pending_credits),  # Potential liability (PO created, no GRN)
-            "total_exposure": total_exposure,  # Total = outstanding + pending
+            "outstanding_payable": float(outstanding),
+            "pending_credits": float(pending_credits),
+            "total_exposure": total_exposure,
             "available_credit": max(0, supplier.max_credit_limit - total_exposure),
             "overdue_count": len(overdue_grns),
             "total_overdue_amount": sum(grn["remaining_amount"] for grn in overdue_grns),
@@ -147,15 +90,7 @@ class SupplierCreditService:
         }
     
     def get_supplier_non_credit_status(self, db: Session, supplier_id: int) -> Dict[str, Any]:
-        """
-        Get non-credit purchase orders status for a supplier.
-        
-        Returns POs with payment methods other than 'Credit' that have outstanding amounts.
-        Used for Supplier Payments page.
-        
-        Returns:
-            Dictionary with non-credit POs that have GRN created but not fully paid
-        """
+ 
         supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
         if not supplier:
             raise HTTPException(
@@ -163,10 +98,8 @@ class SupplierCreditService:
                 detail=f"Supplier {supplier_id} not found"
             )
         
-        # Get non-credit purchase orders (Cash, Bank Transfer, Cheque, etc.)
         non_credit_pos = self._get_non_credit_purchase_orders(db, supplier_id)
         
-        # Calculate total outstanding for non-credit POs
         total_outstanding = sum(po["remaining_amount"] for po in non_credit_pos)
         overdue_pos = [po for po in non_credit_pos if po["is_overdue"]]
         
@@ -181,15 +114,8 @@ class SupplierCreditService:
         }
     
     def _get_credit_purchase_orders(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
-        """
-        Get all credit purchase orders for a supplier with their settlement status.
-        Only includes POs with payment_method='Credit'.
-        Excludes rejected/cancelled POs.
-        """
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        # Get all credit POs for this supplier (case-insensitive payment method check)
-        # Include all active statuses, exclude rejected/cancelled
         valid_statuses = ['draft', 'pending', 'pending_approval', 'approved', 'completed', 'partially_completed']
         credit_pos = db.query(PurchasingOrder).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
@@ -199,19 +125,16 @@ class SupplierCreditService:
         
         result = []
         for po in credit_pos:
-            # Calculate PO total from items
             po_total = db.query(
                 func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
             ).filter(
                 PurchasingOrderItems.purchasingorders_id == po.id
             ).scalar() or Decimal("0")
-            
-            # Check if this PO has a GRN (goods received)
+
             grn = db.query(GoodReceivedNote).filter(
                 GoodReceivedNote.purchasingorders_id == po.id
             ).first()
-            
-            # Get settlements for this PO (through GRN)
+
             total_settled = Decimal("0")
             if grn:
                 total_settled = db.query(
@@ -222,8 +145,7 @@ class SupplierCreditService:
             
             remaining = float(po_total) - float(total_settled)
             is_settled = remaining <= 0
-            
-            # Calculate due date based on PO date
+
             po_date = po.purchasing_order_date
             if isinstance(po_date, str):
                 po_date = datetime.strptime(po_date, "%Y-%m-%d").date()
@@ -252,16 +174,8 @@ class SupplierCreditService:
         return result
     
     def _get_non_credit_purchase_orders(self, db: Session, supplier_id: int) -> List[Dict]:
-        """
-        Get all non-credit purchase orders for a supplier with their payment status.
-        Only includes POs with payment_method != 'Credit' (Cash, Bank Transfer, Cheque, etc.).
-        Only includes completed or partially_completed POs (those with GRN created).
-        Used for Supplier Payments page.
-        """
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        # Get non-credit POs with GRN created (completed or partially_completed)
-        # Only these have actual payment obligations
         non_credit_pos = db.query(PurchasingOrder).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) != "credit",

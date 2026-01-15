@@ -1,63 +1,72 @@
+import { usePermission } from "@/auth/permissions";
 import {
-    ActionToolbar,
-    DetailPanelHeader,
-    EmptyState,
-    FormSection,
-    MasterDetailLayout,
-    SearchableList,
-    SelectableListItem,
-    showErrorToast,
-    showSuccessToast,
-    SortOption,
-    TConfirmDialog,
-    useMasterDetailState,
-    useTConfirmDialog,
-    CUSTOMER_PAYMENT_METHOD,
+  ActionToolbar,
+  CUSTOMER_PAYMENT_METHOD,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  showErrorToast,
+  showSuccessToast,
+  SortOption,
+  TBranchFilter,
+  TConfirmDialog,
+  TFilterPanel,
+  TStatusFilter,
+  useMasterDetailState,
+  useTConfirmDialog,
 } from "@/components/tijaero";
+import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
 import {
-    Add as AddIcon,
-    CheckCircle as ApproveIcon,
-    Delete as DeleteIcon,
-    Print as PrintIcon,
-    Receipt as ReceiptIcon,
-    AssignmentReturn as ReturnIcon,
-    Visibility as ViewIcon,
+  Add as AddIcon,
+  CheckCircle as ApproveIcon,
+  Delete as DeleteIcon,
+  Print as PrintIcon,
+  Receipt as ReceiptIcon,
+  AssignmentReturn as ReturnIcon,
+  Visibility as ViewIcon,
 } from "@mui/icons-material";
 import {
-    Autocomplete,
-    Box,
-    Button,
-    Chip,
-    Divider,
-    IconButton,
-    InputAdornment,
-    MenuItem,
-    Paper,
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableRow,
-    TextField,
-    Tooltip,
-    Typography,
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
+  Divider,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { salesApi } from "../api";
-import { useReferenceData } from "@/hooks";
-import { Invoice, InvoiceCreate } from "../types";
-import { usePermission } from "@/auth/permissions";
 import { format } from "date-fns";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { salesApi } from "../api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
-import SaleReturnDialog from "../components/SaleReturnDialog";
+import { Invoice, InvoiceCreate } from "../types";
 
 // Sort options
 const sortOptions: SortOption[] = [
   { value: "created_date", label: "Date (Newest)" },
   { value: "invoice_no", label: "Invoice No" },
   { value: "total", label: "Total Amount" },
+];
+
+// Status filter options
+const INVOICE_STATUS_OPTIONS = [
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
 ];
 
 // Line item type
@@ -91,14 +100,20 @@ const emptyInvoiceForm: Partial<InvoiceCreate> = {
 
 export default function SalesPage() {
   const queryClient = useQueryClient();
-  
+
   // Line items state (separate from main form for complex management)
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
-  
+
   // Dialog states
   const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState(false);
-  const [saleReturnOpen, setSaleReturnOpen] = useState(false);
   const [selectedInvoiceForView, setSelectedInvoiceForView] = useState<Invoice | null>(null);
+
+  // Filter states
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+  // Navigation
+  const navigate = useNavigate();
 
   // Permissions
   const canCreate = usePermission("sales", "create");
@@ -171,6 +186,17 @@ export default function SalesPage() {
         invoice.branch_code.toLowerCase().includes(state.searchQuery.toLowerCase())
     );
 
+    // Apply branch filter
+    if (filterBranch) {
+      filtered = filtered.filter(invoice => invoice.branch_code === filterBranch);
+    }
+
+    // Apply status filter
+    if (filterStatus) {
+      const isApproved = filterStatus === "approved";
+      filtered = filtered.filter(invoice => invoice.approval === isApproved);
+    }
+
     filtered.sort((a, b) => {
       if (state.sortField === "invoice_no") {
         return a.invoice_no.localeCompare(b.invoice_no);
@@ -183,7 +209,7 @@ export default function SalesPage() {
     });
 
     return filtered;
-  }, [invoices, state.searchQuery, state.sortField]);
+  }, [invoices, state.searchQuery, state.sortField, filterBranch, filterStatus]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -341,12 +367,9 @@ export default function SalesPage() {
     }
   };
 
-  // Handle process return
+  // Handle process return - navigate to Sale Returns page
   const handleProcessReturn = () => {
-    if (state.selectedItem) {
-      setSelectedInvoiceForView(state.selectedItem);
-      setSaleReturnOpen(true);
-    }
+    navigate("/sales/returns");
   };
 
   // Handle approve
@@ -424,16 +447,16 @@ export default function SalesPage() {
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary">Status</Typography>
-          <Chip 
-            label={state.selectedItem?.status ? "Active" : "Inactive"} 
+          <Chip
+            label={state.selectedItem?.status ? "Active" : "Inactive"}
             size="small"
             color={state.selectedItem?.status ? "success" : "default"}
           />
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary">Approval</Typography>
-          <Chip 
-            label={state.selectedItem?.approval ? "Approved" : "Pending"} 
+          <Chip
+            label={state.selectedItem?.approval ? "Approved" : "Pending"}
             size="small"
             color={state.selectedItem?.approval ? "success" : "warning"}
             variant="outlined"
@@ -500,27 +523,27 @@ export default function SalesPage() {
       {state.selectedItem && (state.selectedItem.payment_adjustments !== 0 ||
         state.selectedItem.cupon_amount !== 0 ||
         state.selectedItem.credit_note_amount !== 0) && (
-        <FormSection title="Adjustments">
-          {state.selectedItem.payment_adjustments !== 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Payment Adjustments</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
-            </Box>
-          )}
-          {state.selectedItem.cupon_amount !== 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Coupon Amount</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cupon_amount.toFixed(2)}</Typography>
-            </Box>
-          )}
-          {state.selectedItem.credit_note_amount !== 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Credit Note</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
-            </Box>
-          )}
-        </FormSection>
-      )}
+          <FormSection title="Adjustments">
+            {state.selectedItem.payment_adjustments !== 0 && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">Payment Adjustments</Typography>
+                <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
+              </Box>
+            )}
+            {state.selectedItem.cupon_amount !== 0 && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">Coupon Amount</Typography>
+                <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cupon_amount.toFixed(2)}</Typography>
+              </Box>
+            )}
+            {state.selectedItem.credit_note_amount !== 0 && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">Credit Note</Typography>
+                <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
+              </Box>
+            )}
+          </FormSection>
+        )}
 
       {state.selectedItem?.remarks && (
         <FormSection title="Remarks" isLast>
@@ -668,181 +691,185 @@ export default function SalesPage() {
 
   return (
     <>
-    <MasterDetailLayout title="Sales Orders" onRefresh={refetch}>
-      <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
-        {/* Master List */}
-        <SearchableList
-          searchValue={state.searchQuery}
-          onSearchChange={state.setSearchQuery}
-          searchPlaceholder="Search by invoice no..."
-          sortOptions={sortOptions}
-          currentSort={state.sortField}
-          onSortChange={state.setSortField}
-          isLoading={isLoading}
-          emptyMessage="No sales orders found"
-        >
-          {filteredInvoices.map((invoice) => {
-            const isSelected = state.selectedItem?.id === invoice.id;
-            return (
-              <SelectableListItem
-                key={invoice.id}
-                isSelected={isSelected}
-                onClick={() => handleSelectInvoice(invoice)}
-                primaryText={
-                  <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                    {/* Invoice No */}
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span>{invoice.invoice_no}</span>
-                      {isSelected && (
-                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                          (Invoice No)
-                        </Typography>
-                      )}
-                    </Box>
-                    {/* Total */}
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography
-                        component="span"
-                        variant="caption"
-                        fontWeight={600}
-                        sx={{ color: isSelected ? "inherit" : "success.main" }}
-                      >
-                        Rs. {calculateTotal(invoice).toFixed(2)}
-                      </Typography>
-                      {isSelected && (
-                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                          (Total)
-                        </Typography>
-                      )}
-                    </Box>
-                    {/* Date & Branch - only when selected */}
-                    {isSelected && (
-                      <>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <Typography component="span" variant="caption">
-                            {format(new Date(invoice.created_date), "MMM dd, yyyy")}
-                          </Typography>
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                            (Date)
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <Typography component="span" variant="caption">
-                            {invoice.branch_code}
-                          </Typography>
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                            (Branch)
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <Typography component="span" variant="caption" sx={{ textTransform: "capitalize" }}>
-                            {invoice.payment_method?.replace(/_/g, " ")}
-                          </Typography>
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                            (Payment)
-                          </Typography>
-                        </Box>
-                        {/* Status Chips - shown below all fields when selected */}
-                        <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                          <Chip
-                            label={invoice.status ? "Active" : "Inactive"}
-                            size="small"
-                            color={invoice.status ? "success" : "default"}
-                            sx={{ height: 18, fontSize: "0.65rem" }}
-                          />
-                          <Chip
-                            label={invoice.approval ? "Approved" : "Pending"}
-                            size="small"
-                            color={invoice.approval ? "info" : "warning"}
-                            variant="outlined"
-                            sx={{ height: 18, fontSize: "0.65rem" }}
-                          />
-                        </Box>
-                      </>
-                    )}
-                  </Box>
-                }
-                secondaryText={!isSelected ? `${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${invoice.branch_code}` : undefined}
-                isFavorite={state.favorites.includes(invoice.id)}
-                onToggleFavorite={() => state.toggleFavorite(invoice.id)}
-              />
-            );
-          })}
-        </SearchableList>
-
-        {/* Detail Panel */}
-        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <DetailPanelHeader
-            icon={<ReceiptIcon color="primary" />}
-            breadcrumbs={[{ label: "Sales", href: "/sales" }, { label: "Sales Orders" }]}
-            title={
-              state.isCreating
-                ? "Create New Sales Order"
-                : state.selectedItem
-                ? state.selectedItem.invoice_no
-                : "Select a Sales Order"
+      <MasterDetailLayout title="Sales Orders" onRefresh={refetch}>
+        <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
+          {/* Master List */}
+          <SearchableList
+            searchValue={state.searchQuery}
+            onSearchChange={state.setSearchQuery}
+            searchPlaceholder="Search by invoice no..."
+            sortOptions={sortOptions}
+            currentSort={state.sortField}
+            onSortChange={state.setSortField}
+            isLoading={isLoading}
+            emptyMessage="No sales orders found"
+            listHeader={
+              <TFilterPanel>
+                <TStatusFilter
+                  options={INVOICE_STATUS_OPTIONS}
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                />
+                <TBranchFilter
+                  branches={branches}
+                  value={filterBranch}
+                  onChange={setFilterBranch}
+                />
+              </TFilterPanel>
             }
-            chips={
-              state.selectedItem && !state.isCreating
-                ? [
+          >
+            {filteredInvoices.map((invoice) => {
+              const isSelected = state.selectedItem?.id === invoice.id;
+              return (
+                <SelectableListItem
+                  key={invoice.id}
+                  isSelected={isSelected}
+                  onClick={() => handleSelectInvoice(invoice)}
+                  primaryText={
+                    <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                      {/* Invoice No */}
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span>{invoice.invoice_no}</span>
+                        {isSelected && (
+                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            (Invoice No)
+                          </Typography>
+                        )}
+                      </Box>
+                      {/* Total */}
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          fontWeight={600}
+                          sx={{ color: isSelected ? "inherit" : "success.main" }}
+                        >
+                          Rs. {calculateTotal(invoice).toFixed(2)}
+                        </Typography>
+                        {isSelected && (
+                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            (Total)
+                          </Typography>
+                        )}
+                      </Box>
+                      {/* Date & Branch - only when selected */}
+                      {isSelected && (
+                        <>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Typography component="span" variant="caption">
+                              {format(new Date(invoice.created_date), "MMM dd, yyyy")}
+                            </Typography>
+                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                              (Date)
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Typography component="span" variant="caption">
+                              {invoice.branch_code}
+                            </Typography>
+                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                              (Branch)
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Typography component="span" variant="caption" sx={{ textTransform: "capitalize" }}>
+                              {invoice.payment_method?.replace(/_/g, " ")}
+                            </Typography>
+                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                              (Payment)
+                            </Typography>
+                          </Box>
+                          {/* Status Chips - shown below all fields when selected */}
+                          <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                            <Chip
+                              label={invoice.status ? "Active" : "Inactive"}
+                              size="small"
+                              color={invoice.status ? "success" : "default"}
+                              sx={{ height: 18, fontSize: "0.65rem" }}
+                            />
+                            <Chip
+                              label={invoice.approval ? "Approved" : "Pending"}
+                              size="small"
+                              color={invoice.approval ? "info" : "warning"}
+                              variant="outlined"
+                              sx={{ height: 18, fontSize: "0.65rem" }}
+                            />
+                          </Box>
+                        </>
+                      )}
+                    </Box>
+                  }
+                  secondaryText={!isSelected ? `${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${invoice.branch_code}` : undefined}
+                  isFavorite={state.favorites.includes(invoice.id)}
+                  onToggleFavorite={() => state.toggleFavorite(invoice.id)}
+                />
+              );
+            })}
+          </SearchableList>
+
+          {/* Detail Panel */}
+          <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <DetailPanelHeader
+              icon={<ReceiptIcon color="primary" />}
+              breadcrumbs={[{ label: "Sales", href: "/sales" }, { label: "Sales Orders" }]}
+              title={
+                state.isCreating
+                  ? "Create New Sales Order"
+                  : state.selectedItem
+                    ? state.selectedItem.invoice_no
+                    : "Select a Sales Order"
+              }
+              chips={
+                state.selectedItem && !state.isCreating
+                  ? [
                     { label: state.selectedItem.status ? "Active" : "Inactive", color: state.selectedItem.status ? "success" : "default" },
                     { label: state.selectedItem.payment_method, color: "default", variant: "outlined" },
                   ]
-                : undefined
-            }
-          />
+                  : undefined
+              }
+            />
 
-          <ActionToolbar
-            canCreate={canCreate}
-            canDelete={canDelete}
-            canUpdate={false}
-            isEditing={false}
-            isCreating={state.isCreating}
-            hasSelection={!!state.selectedItem}
-            onAdd={handleCreate}
-            onDelete={handleDelete}
-            onSave={handleSave}
-            onCancel={handleCancel}
-            isSaving={createMutation.isPending}
-            saveDisabled={!state.formData.invoice_no || lineItems.length === 0}
-            customActions={customActions}
-          />
+            <ActionToolbar
+              canCreate={canCreate}
+              canDelete={canDelete}
+              canUpdate={false}
+              isEditing={false}
+              isCreating={state.isCreating}
+              hasSelection={!!state.selectedItem}
+              onAdd={handleCreate}
+              onDelete={handleDelete}
+              onSave={handleSave}
+              onCancel={handleCancel}
+              isSaving={createMutation.isPending}
+              saveDisabled={!state.formData.invoice_no || lineItems.length === 0}
+              customActions={customActions}
+            />
 
-          <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
-            {!state.selectedItem && !state.isCreating ? (
-              <EmptyState message="Select a sales order from the list or create a new one" />
-            ) : state.isCreating ? (
-              renderCreateForm()
-            ) : (
-              renderViewInvoice()
-            )}
+            <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+              {!state.selectedItem && !state.isCreating ? (
+                <EmptyState message="Select a sales order from the list or create a new one" />
+              ) : state.isCreating ? (
+                renderCreateForm()
+              ) : (
+                renderViewInvoice()
+              )}
+            </Box>
           </Box>
         </Box>
-      </Box>
-    </MasterDetailLayout>
-    <TConfirmDialog {...deleteDialog.dialogProps} />
-    <TConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
-    <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
-    
-    {/* Invoice Details Dialog */}
-    <InvoiceDetailsDialog
-      open={invoiceDetailsOpen}
-      invoice={selectedInvoiceForView}
-      onClose={() => {
-        setInvoiceDetailsOpen(false);
-        setSelectedInvoiceForView(null);
-      }}
-    />
+      </MasterDetailLayout>
+      <TConfirmDialog {...deleteDialog.dialogProps} />
+      <TConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
+      <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
 
-    {/* Sale Return Dialog */}
-    <SaleReturnDialog
-      open={saleReturnOpen}
-      onClose={() => {
-        setSaleReturnOpen(false);
-        setSelectedInvoiceForView(null);
-      }}
-      preselectedInvoice={selectedInvoiceForView}
-    />
+      {/* Invoice Details Dialog */}
+      <InvoiceDetailsDialog
+        open={invoiceDetailsOpen}
+        invoice={selectedInvoiceForView}
+        onClose={() => {
+          setInvoiceDetailsOpen(false);
+          setSelectedInvoiceForView(null);
+        }}
+      />
     </>
   );
 }

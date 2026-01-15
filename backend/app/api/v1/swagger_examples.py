@@ -1,11 +1,6 @@
-"""
-OpenAPI examples for Swagger documentation
-"""
-
 from app.auth.schemas import UserCreate, Token
 from app.modules.customers.schemas import CustomerCreate
 
-# Authentication Examples
 login_example = {
     "username": "admin",
     "password": "admin123"
@@ -23,7 +18,6 @@ token_response_example = {
     "token_type": "bearer"
 }
 
-# Customer Examples
 customer_create_example = {
     "name": "Acme Corporation",
     "email": "contact@acme.com",
@@ -43,7 +37,7 @@ customer_response_example = {
     "tax_id": "12-3456789"
 }
 
-# Sales Order Examples
+
 sales_order_create_example = {
     "customer_id": 1,
     "order_date": "2024-01-15",
@@ -61,7 +55,6 @@ sales_order_create_example = {
     ]
 }
 
-# Product Examples
 product_create_example = {
     "sku": "WIDGET-001",
     "name": "Premium Widget",
@@ -70,7 +63,6 @@ product_create_example = {
     "stock_quantity": 150.0
 }
 
-# Employee Examples
 employee_create_example = {
     "first_name": "John",
     "last_name": "Doe",
@@ -80,27 +72,23 @@ employee_create_example = {
     "salary": 75000.00
 }
 
-# Purchase Order Examples
 purchase_order_create_example = {
     "supplier_id": 1,
     "order_date": "2024-01-15"
 }
 
-# Support Ticket Examples
 support_ticket_create_example = {
     "subject": "Unable to process payment",
     "description": "Customer reports error when trying to complete checkout process",
     "priority": "high"
 }
 
-# Warehouse Examples
 warehouse_create_example = {
     "code": "WH-001",
     "name": "Main Warehouse",
     "location": "123 Storage Lane, Industrial Park"
 }
 
-# Journal Entry Examples
 journal_entry_create_example = {
     "entry_date": "2024-01-15",
     "description": "Monthly sales revenue recognition"

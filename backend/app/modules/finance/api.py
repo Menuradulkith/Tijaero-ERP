@@ -7,19 +7,16 @@ from . import schemas, service
 
 router = APIRouter(prefix="/finance", tags=["finance"])
 
-# Bank Deposits
 @router.post("/bank-deposits", response_model=schemas.BankDeposit, status_code=status.HTTP_201_CREATED)
 def create_bank_deposit(
     deposit: schemas.BankDepositCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a new bank deposit record"""
     deposit_service = service.BankDepositService(db)
     return deposit_service.create_deposit(deposit)
 
 @router.get("/bank-deposits/{deposit_id}", response_model=schemas.BankDeposit)
 def get_bank_deposit(deposit_id: int, db: Session = Depends(get_db)):
-    """Get bank deposit by ID"""
     deposit_service = service.BankDepositService(db)
     return deposit_service.get_deposit(deposit_id)
 
@@ -33,7 +30,6 @@ def list_bank_deposits(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
-    """List all bank deposits with optional filters"""
     deposit_service = service.BankDepositService(db)
     filters = schemas.PaymentListFilter(
         branch_code=branch_code,
@@ -47,23 +43,19 @@ def list_bank_deposits(
 
 @router.patch("/bank-deposits/{deposit_id}/verify", response_model=schemas.BankDeposit)
 def verify_bank_deposit(deposit_id: int, db: Session = Depends(get_db)):
-    """Verify a bank deposit"""
     deposit_service = service.BankDepositService(db)
     return deposit_service.verify_deposit(deposit_id)
 
-# Card Payments
 @router.post("/card-payments", response_model=schemas.CardPayment, status_code=status.HTTP_201_CREATED)
 def create_card_payment(
     payment: schemas.CardPaymentCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a new card payment record"""
     payment_service = service.CardPaymentService(db)
     return payment_service.create_payment(payment)
 
 @router.get("/card-payments/{payment_id}", response_model=schemas.CardPayment)
 def get_card_payment(payment_id: int, db: Session = Depends(get_db)):
-    """Get card payment by ID"""
     payment_service = service.CardPaymentService(db)
     return payment_service.get_payment(payment_id)
 
@@ -75,7 +67,6 @@ def list_card_payments(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
-    """List all card payments with optional filters"""
     payment_service = service.CardPaymentService(db)
     filters = schemas.PaymentListFilter(
         date_from=date.fromisoformat(date_from) if date_from else None,
@@ -85,19 +76,16 @@ def list_card_payments(
     )
     return payment_service.list_payments(filters)
 
-# Cheque Payments
 @router.post("/cheque-payments", response_model=schemas.ChequePayment, status_code=status.HTTP_201_CREATED)
 def create_cheque_payment(
     payment: schemas.ChequePaymentCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a new cheque payment record"""
     payment_service = service.ChequePaymentService(db)
     return payment_service.create_payment(payment)
 
 @router.get("/cheque-payments/{payment_id}", response_model=schemas.ChequePayment)
 def get_cheque_payment(payment_id: int, db: Session = Depends(get_db)):
-    """Get cheque payment by ID"""
     payment_service = service.ChequePaymentService(db)
     return payment_service.get_payment(payment_id)
 
@@ -109,7 +97,6 @@ def list_cheque_payments(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
-    """List all cheque payments with optional filters"""
     payment_service = service.ChequePaymentService(db)
     filters = schemas.PaymentListFilter(
         date_from=date.fromisoformat(date_from) if date_from else None,
@@ -119,19 +106,16 @@ def list_cheque_payments(
     )
     return payment_service.list_payments(filters)
 
-# Expenses
 @router.post("/expenses", response_model=schemas.Expense, status_code=status.HTTP_201_CREATED)
 def create_expense(
     expense: schemas.ExpenseCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a new expense record"""
     expense_service = service.ExpenseService(db)
     return expense_service.create_expense(expense)
 
 @router.get("/expenses/{expense_id}", response_model=schemas.Expense)
 def get_expense(expense_id: int, db: Session = Depends(get_db)):
-    """Get expense by ID"""
     expense_service = service.ExpenseService(db)
     return expense_service.get_expense(expense_id)
 
@@ -144,7 +128,6 @@ def list_expenses(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
-    """List all expenses with optional filters"""
     expense_service = service.ExpenseService(db)
     filters = schemas.ExpenseListFilter(
         branch_code=branch_code,
@@ -155,41 +138,36 @@ def list_expenses(
     )
     return expense_service.list_expenses(filters)
 
-# Customer Advance Payments
 @router.post("/advance-payments", response_model=schemas.CustomerAdvancePayment, status_code=status.HTTP_201_CREATED)
 def create_advance_payment(
     advance: schemas.CustomerAdvancePaymentCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a customer advance payment"""
+    advance_service = service.CustomerAdvancePaymentService(db)
+    return advance_service.create_advance_payment(advance)
     advance_service = service.CustomerAdvancePaymentService(db)
     return advance_service.create_advance_payment(advance)
 
 @router.get("/advance-payments/{advance_id}", response_model=schemas.CustomerAdvancePayment)
 def get_advance_payment(advance_id: int, db: Session = Depends(get_db)):
-    """Get advance payment by ID"""
     advance_service = service.CustomerAdvancePaymentService(db)
     return advance_service.get_advance_payment(advance_id)
 
 @router.get("/customers/{customer_id}/advance-payments", response_model=List[schemas.CustomerAdvancePayment])
 def get_customer_advances(customer_id: int, db: Session = Depends(get_db)):
-    """Get all advance payments for a customer"""
     advance_service = service.CustomerAdvancePaymentService(db)
     return advance_service.get_customer_advances(customer_id)
 
-# Customer Credit Notes
 @router.post("/credit-notes", response_model=schemas.CustomerCreditNote, status_code=status.HTTP_201_CREATED)
 def create_credit_note(
     credit_note: schemas.CustomerCreditNoteCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a customer credit note"""
     credit_note_service = service.CustomerCreditNoteService(db)
     return credit_note_service.create_credit_note(credit_note)
 
 @router.get("/credit-notes/{credit_note_id}", response_model=schemas.CustomerCreditNote)
 def get_credit_note(credit_note_id: int, db: Session = Depends(get_db)):
-    """Get credit note by ID"""
     credit_note_service = service.CustomerCreditNoteService(db)
     return credit_note_service.get_credit_note(credit_note_id)
 

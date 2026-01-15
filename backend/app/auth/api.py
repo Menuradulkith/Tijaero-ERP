@@ -21,14 +21,6 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    """
-    Login with username and password to receive JWT token.
-    
-    - **username**: User's username
-    - **password**: User's password
-    
-    Returns JWT access token for subsequent API calls.
-    """
     user = service.auth_service.authenticate_user(db, form_data.username, form_data.password)
     access_token = create_access_token(data={"sub": str(user.id)})
     return {"access_token": access_token, "token_type": "bearer"}
@@ -45,12 +37,5 @@ def login(
     }
 )
 def register(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
-    """
-    Register a new user account.
-    
-    - **email**: Valid email address
-    - **username**: Unique username
-    - **password**: Strong password
-    - **is_active**: Account active status (default: true)
-    """
+
     return service.auth_service.create_user(db, user_in)

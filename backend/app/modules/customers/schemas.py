@@ -76,8 +76,6 @@ class CustomerList(BaseModel):
     class Config:
         from_attributes = True
 
-
-# Customer Advance Payments Schemas
 class CustomerAdvancePaymentsBase(BaseModel):
     advance_payments_no: str
     payment_method: str
@@ -106,8 +104,6 @@ class CustomerAdvancePayments(CustomerAdvancePaymentsBase):
     class Config:
         from_attributes = True
 
-
-# Customer Credit Notes Schemas
 class CustomerCreditNotesBase(BaseModel):
     customer_id: int
     amount: Decimal

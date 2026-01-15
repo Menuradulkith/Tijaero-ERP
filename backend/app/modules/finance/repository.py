@@ -4,7 +4,6 @@ from typing import List, Optional
 from datetime import date, datetime
 from . import models, schemas
 
-# Import customer-related models from customers module
 from app.modules.customers.models import (
     CustomerAdvancePayments,
     CustomerCreditNotes,
