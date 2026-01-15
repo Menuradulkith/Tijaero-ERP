@@ -184,20 +184,16 @@ class SupplierCreditService:
         
         result = []
         for po in non_credit_pos:
-            # Calculate PO total from items
             po_total = db.query(
                 func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
             ).filter(
                 PurchasingOrderItems.purchasingorders_id == po.id
             ).scalar() or Decimal("0")
-            
-            # Check if this PO has a GRN (goods received)
+
             grn = db.query(GoodReceivedNote).filter(
                 GoodReceivedNote.purchasingorders_id == po.id
             ).first()
-            
-            # Get payments for this PO (through GRN)
-            # Query SupplierPayment table for payments against this GRN
+
             from app.modules.purchasing.models import SupplierPayment
             
             total_paid = Decimal("0")
@@ -210,12 +206,11 @@ class SupplierCreditService:
             
             remaining = float(po_total) - float(total_paid)
             is_paid = remaining <= 0
-            
-            # Calculate due date (use 0 credit days for non-credit purchases)
+
             po_date = po.purchasing_order_date
             if isinstance(po_date, str):
                 po_date = datetime.strptime(po_date, "%Y-%m-%d").date()
-            due_date = self.calculate_due_date(po_date, 0)  # Immediate payment for non-credit
+            due_date = self.calculate_due_date(po_date, 0)
             days_overdue = (date.today() - due_date).days
             
             result.append({
@@ -241,41 +236,24 @@ class SupplierCreditService:
         return result
     
     def _calculate_outstanding_payable(self, db: Session, supplier_id: int) -> Decimal:
-        """
-        Calculate total ACTUAL outstanding payable to a supplier.
-        
-        IMPORTANT: Outstanding only includes GRN-confirmed amounts (goods received).
-        POs that haven't had GRN created are "pending credits" not actual outstanding.
-        
-        Outstanding = GRN Values (goods received) - Settlements - Approved Returns
-        
-        - Only includes POs with status='completed' or 'partially_completed' (GRN created)
-        - Only includes payment_method='Credit' POs
-        - Subtracts approved purchase returns
-        - Subtracts settled amounts
-        """
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        # Get COMPLETED and PARTIALLY_COMPLETED Credit POs (GRN has been created)
-        # Both 'completed' and 'partially_completed' mean GRN was created, actual liability exists
         completed_credit_po_ids = db.query(PurchasingOrder.id).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) == "credit",
-            PurchasingOrder.status.in_(['completed', 'partially_completed'])  # POs with GRN created
+            PurchasingOrder.status.in_(['completed', 'partially_completed'])
         ).all()
         completed_credit_po_ids = [p[0] for p in completed_credit_po_ids]
         
         if not completed_credit_po_ids:
             return Decimal("0")
         
-        # Calculate total PO value for completed credit POs (actual GRN value)
         total_grn_value = db.query(
             func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
         ).filter(
             PurchasingOrderItems.purchasingorders_id.in_(completed_credit_po_ids)
         ).scalar() or Decimal("0")
-        
-        # Get all settled amounts for this supplier
+
         total_settled = db.query(
             func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
         ).join(
@@ -285,11 +263,8 @@ class SupplierCreditService:
             SupplierCreditsSettle.suppliers_id == supplier_id
         ).scalar() or Decimal("0")
         
-        # Get total APPROVED purchase returns value (reduces what we owe)
-        # Only count approved returns, not pending/rejected
         from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
         
-        # Get GRN IDs for the completed credit POs
         grn_ids = db.query(GoodReceivedNote.id).filter(
             GoodReceivedNote.purchasingorders_id.in_(completed_credit_po_ids)
         ).all()
@@ -297,10 +272,9 @@ class SupplierCreditService:
         
         total_returns = Decimal("0")
         if grn_ids:
-            # Only include approved returns
             approved_return_ids = db.query(PurchasingReturn.id).filter(
                 PurchasingReturn.goodreceivednote_id.in_(grn_ids),
-                PurchasingReturn.status == "approved"  # Only approved returns
+                PurchasingReturn.status == "approved"
             ).all()
             approved_return_ids = [r[0] for r in approved_return_ids]
             
@@ -314,31 +288,19 @@ class SupplierCreditService:
         return total_grn_value - total_settled - total_returns
     
     def _calculate_pending_credits(self, db: Session, supplier_id: int) -> Decimal:
-        """
-        Calculate total PENDING credits for a supplier.
-        
-        Pending credits = POs created with Credit payment but GRN not yet created.
-        These are potential future liabilities, not actual outstanding yet.
-        
-        - Includes: draft, pending, pending_approval, approved status POs
-        - Excludes: completed, partially_completed (GRN created), rejected, cancelled status POs
-        - Only includes payment_method='Credit' POs
-        """
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        # Get all PENDING Credit POs (GRN not yet created)
         pending_statuses = ['draft', 'pending', 'pending_approval', 'approved']
         pending_credit_po_ids = db.query(PurchasingOrder.id).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) == "credit",
-            PurchasingOrder.status.in_(pending_statuses)  # POs without GRN
+            PurchasingOrder.status.in_(pending_statuses)
         ).all()
         pending_credit_po_ids = [p[0] for p in pending_credit_po_ids]
         
         if not pending_credit_po_ids:
             return Decimal("0")
-        
-        # Calculate total PO value for pending credit POs
+
         total_pending = db.query(
             func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
         ).filter(
@@ -348,10 +310,8 @@ class SupplierCreditService:
         return total_pending
     
     def _get_overdue_grns(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
-        """Get list of overdue GRNs for a supplier"""
         cutoff_date = date.today() - timedelta(days=credit_days)
         
-        # Get PO IDs for this supplier
         po_ids = db.query(PurchasingOrder.id).filter(
             PurchasingOrder.first_suppliers_id == supplier_id
         ).all()
@@ -360,7 +320,6 @@ class SupplierCreditService:
         if not po_ids:
             return []
         
-        # Get GRNs that are past due date
         grns = db.query(GoodReceivedNote).filter(
             GoodReceivedNote.purchasingorders_id.in_(po_ids),
             GoodReceivedNote.good_received_date < cutoff_date
@@ -384,8 +343,7 @@ class SupplierCreditService:
         return overdue_list
 
     def _get_unpaid_grns(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
-        """Get list of ALL unpaid GRNs for a supplier (including not yet due)"""
-        # Get PO IDs for this supplier
+
         po_ids = db.query(PurchasingOrder.id).filter(
             PurchasingOrder.first_suppliers_id == supplier_id
         ).all()
@@ -393,8 +351,7 @@ class SupplierCreditService:
         
         if not po_ids:
             return []
-        
-        # Get all GRNs for this supplier
+
         grns = db.query(GoodReceivedNote).filter(
             GoodReceivedNote.purchasingorders_id.in_(po_ids)
         ).order_by(GoodReceivedNote.good_received_date).all()
@@ -419,17 +376,13 @@ class SupplierCreditService:
         return unpaid_list
     
     def _get_grn_remaining_payable(self, db: Session, grn_id: int) -> Decimal:
-        """
-        Get remaining unpaid amount for a specific GRN.
-        Remaining = GRN Value - Settlements - Returns
-        """
+
         grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
         if not grn:
             return Decimal("0")
         
         from app.modules.purchasing.models import PurchasingOrderItems
-        
-        # Get total value of received items for this GRN
+
         total = db.query(
             func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
         ).join(
@@ -438,15 +391,13 @@ class SupplierCreditService:
         ).filter(
             PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id
         ).scalar() or Decimal("0")
-        
-        # Get paid amount
+
         paid = db.query(
             func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
         ).filter(
             SupplierCreditsSettleTransaction.good_received_id == grn_id
         ).scalar() or Decimal("0")
-        
-        # Get returns for this GRN
+
         from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
         
         return_ids = db.query(PurchasingReturn.id).filter(
@@ -471,17 +422,7 @@ class SupplierCreditService:
         purchase_amount: Decimal,
         allow_over_limit: bool = False
     ) -> Dict[str, Any]:
-        """
-        Validate if a credit purchase can be made from a supplier.
-        
-        Args:
-            supplier_id: The supplier ID
-            purchase_amount: The credit amount for the new purchase
-            allow_over_limit: If True, return warning instead of blocking
-            
-        Returns:
-            Dictionary with validation result and details
-        """
+
         status = self.get_supplier_credit_status(db, supplier_id)
         
         new_outstanding = status["outstanding_payable"] + float(purchase_amount)
@@ -517,23 +458,7 @@ class SupplierCreditService:
         po_value: Decimal,
         payment_method: str = "Credit"
     ) -> Dict[str, Any]:
-        """
-        Soft check for Purchase Order creation.
-        
-        This is called when creating a PO to determine if it needs approval.
-        - If payment method is not Credit, always allowed
-        - If credit will exceed limit, PO is allowed but requires approval
-        
-        Credit Check Logic:
-        - outstanding_payable: GRN created, goods received (actual liability)
-        - pending_credits: PO created, but GRN not yet created (pending liability)
-        - new_po_value: The value of this new PO
-        - projected_exposure = outstanding + pending + new_po_value
-        
-        Returns:
-            POCreditCheckResponse-compatible dict
-        """
-        # If not a credit purchase, always allow
+
         if payment_method.lower() != "credit":
             return {
                 "can_save": True,
@@ -558,31 +483,26 @@ class SupplierCreditService:
                 "message": "PO can be saved (non-credit purchase)"
             }
         
-        # Get supplier credit status
         status = self.get_supplier_credit_status(db, supplier_id)
-        
-        # Calculate projected exposure including this new PO
-        # total_exposure already includes outstanding + pending_credits
         projected_exposure = status["total_exposure"] + float(po_value)
         will_exceed = projected_exposure > status["max_credit_limit"]
         excess_amount = max(0, projected_exposure - status["max_credit_limit"])
-        
-        # Determine warning level
+
         warning_level = "none"
         if will_exceed:
             warning_level = "error"
         elif status["overdue_count"] > 0:
             warning_level = "warning"
         elif projected_exposure > status["max_credit_limit"] * 0.8:
-            warning_level = "warning"  # Over 80% usage
+            warning_level = "warning"
         
         credit_check = {
-            "allowed": True,  # PO is always allowed (soft check)
+            "allowed": True,
             "requires_approval": will_exceed,
-            "current_outstanding": status["outstanding_payable"],  # GRN-based actual liability
-            "pending_credits": status["pending_credits"],  # Existing pending POs
+            "current_outstanding": status["outstanding_payable"],
+            "pending_credits": status["pending_credits"],
             "po_value": float(po_value),
-            "projected_exposure": projected_exposure,  # Total after this PO
+            "projected_exposure": projected_exposure,
             "max_credit_limit": status["max_credit_limit"],
             "available_credit": status["available_credit"],
             "will_exceed_limit": will_exceed,
@@ -593,21 +513,21 @@ class SupplierCreditService:
             "warning_level": warning_level
         }
         
-        # Set message with breakdown
+
         messages = []
         if will_exceed:
             messages.append(f"Credit limit will be exceeded by Rs. {excess_amount:,.2f}")
         if status["overdue_count"] > 0:
             messages.append(f"Warning: {status['overdue_count']} overdue payment(s) to this supplier")
         
-        # Add breakdown info
+
         breakdown = f"Outstanding: Rs. {status['outstanding_payable']:,.2f}, Pending POs: Rs. {status['pending_credits']:,.2f}, This PO: Rs. {float(po_value):,.2f}"
         
         credit_check["message"] = ". ".join(messages) if messages else "Credit check passed"
         credit_check["breakdown"] = breakdown
         
         return {
-            "can_save": True,  # Soft check - always allow saving
+            "can_save": True,
             "requires_approval": will_exceed,
             "suggested_status": "pending_approval" if will_exceed else "pending",
             "credit_check": credit_check,
@@ -622,42 +542,21 @@ class SupplierCreditService:
         po_id: Optional[int] = None,
         allow_override: bool = False
     ) -> Dict[str, Any]:
-        """
-        Credit check for GRN posting.
-        
-        NEW LOGIC:
-        - GRN posting moves credit from 'pending' to 'outstanding'
-        - Since PO was already checked and counted in pending_credits, GRN should NOT block
-        - GRN just converts pending credit → actual outstanding
-        - This is always allowed (informational only)
-        
-        Returns:
-            GRNCreditCheckResponse-compatible dict
-        """
-        # Get supplier credit status
+
         status = self.get_supplier_credit_status(db, supplier_id)
         
-        # Check if this PO is already in pending_credits
         po_in_pending = False
         if po_id:
             po = db.query(PurchasingOrder).filter(PurchasingOrder.id == po_id).first()
             if po and po.status in ['approved', 'pending', 'pending_approval', 'draft']:
-                # PO is in pending_credits, GRN will move it to outstanding
                 po_in_pending = True
         
-        # After GRN:
-        # - outstanding_payable will increase by grn_value
-        # - pending_credits will decrease by grn_value (PO moves from pending to outstanding)
-        # - total_exposure stays the same!
-        
-        # Calculate what outstanding will be after GRN
+
         new_outstanding = status["outstanding_payable"] + float(grn_value)
-        
-        # But pending will decrease, so total exposure remains same
-        # GRN doesn't change total_exposure, it just converts pending → outstanding
+
         
         credit_check = {
-            "allowed": True,  # GRN is always allowed (soft check was done at PO creation)
+            "allowed": True, 
             "requires_approval": False,
             "current_outstanding": status["outstanding_payable"],
             "pending_credits": status["pending_credits"],
@@ -665,8 +564,8 @@ class SupplierCreditService:
             "new_outstanding_after_grn": new_outstanding,
             "max_credit_limit": status["max_credit_limit"],
             "available_credit": status["available_credit"],
-            "total_exposure": status["total_exposure"],  # Stays same after GRN
-            "will_exceed_limit": False,  # GRN doesn't change exposure
+            "total_exposure": status["total_exposure"],
+            "will_exceed_limit": False,
             "excess_amount": 0,
             "overdue_count": status["overdue_count"],
             "has_overdue": status["overdue_count"] > 0,
@@ -674,7 +573,6 @@ class SupplierCreditService:
             "warning_level": "none"
         }
         
-        # Set informational message
         messages = []
         if po_in_pending:
             messages.append(f"GRN will convert Rs. {float(grn_value):,.2f} from pending to outstanding")
@@ -686,17 +584,14 @@ class SupplierCreditService:
         credit_check["message"] = ". ".join(messages)
         
         return {
-            "can_post": True,  # Always allow - credit was checked at PO creation
+            "can_post": True,
             "requires_override": False,
             "credit_check": credit_check,
             "message": credit_check["message"]
         }
     
     def update_supplier_credit_balance(self, db: Session, supplier_id: int):
-        """
-        Recalculate and update supplier's left_credit_amount.
-        Call this after any credit transaction.
-        """
+
         supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
         if not supplier:
             return
@@ -705,19 +600,11 @@ class SupplierCreditService:
         supplier.left_credit_amount = int(supplier.max_credit_limit - outstanding)
         db.commit()
     
-    # ==================== CREDIT SETTLE ====================
-    
     def create_credit_settlement(
         self, 
         db: Session, 
         settlement_data: schemas.SupplierCreditsSettleCreate
     ) -> SupplierCreditsSettle:
-        """
-        Create a credit settlement record with transactions.
-        
-        This records payments made to a supplier against credit purchases.
-        """
-        # Validate supplier exists
         supplier = db.query(Supplier).filter(
             Supplier.id == settlement_data.suppliers_id
         ).first()
@@ -737,8 +624,7 @@ class SupplierCreditService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"GRN {trans.good_received_id} not found"
                 )
-            
-            # Verify GRN belongs to this supplier
+
             po = db.query(PurchasingOrder).filter(
                 PurchasingOrder.id == grn.purchasingorders_id
             ).first()
@@ -747,16 +633,14 @@ class SupplierCreditService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"GRN {trans.good_received_id} does not belong to supplier {settlement_data.suppliers_id}"
                 )
-            
-            # Check if payment amount exceeds remaining payable
+
             remaining = self._get_grn_remaining_payable(db, grn.id)
             if trans.payment_amount > remaining:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Payment amount {trans.payment_amount} exceeds remaining payable {remaining} for GRN {grn.good_received_no}"
                 )
-        
-        # Create settlement header
+
         settlement = SupplierCreditsSettle(
             supplier_credits_settle_no=settlement_data.supplier_credits_settle_no,
             branch_code=settlement_data.branch_code,
@@ -765,8 +649,7 @@ class SupplierCreditService:
         )
         db.add(settlement)
         db.flush()
-        
-        # Create transaction records
+
         for trans in settlement_data.transactions:
             transaction = SupplierCreditsSettleTransaction(
                 payment_method=trans.payment_method,
@@ -781,15 +664,13 @@ class SupplierCreditService:
             db.add(transaction)
         
         db.commit()
-        
-        # Update supplier's available credit
+
         self.update_supplier_credit_balance(db, settlement_data.suppliers_id)
         
         db.refresh(settlement)
         return settlement
     
     def get_settlement(self, db: Session, settlement_id: int) -> SupplierCreditsSettle:
-        """Get a credit settlement by ID"""
         settlement = db.query(SupplierCreditsSettle).filter(
             SupplierCreditsSettle.id == settlement_id
         ).first()
@@ -849,14 +730,12 @@ class SupplierCreditService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"GRN {grn_id} not found"
             )
-        
-        # Get PO and supplier info
+
         po = db.query(PurchasingOrder).filter(
             PurchasingOrder.id == grn.purchasingorders_id
         ).first()
         supplier = db.query(Supplier).filter(Supplier.id == po.first_suppliers_id).first()
-        
-        # Get total payable
+
         from app.modules.purchasing.models import PurchasingOrderItems
         total_amount = db.query(
             func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
@@ -896,25 +775,12 @@ class SupplierCreditService:
                 for t in transactions
             ]
         }
-    
-    # ==================== AGING REPORTS ====================
+
     
     def get_aging_report(self, db: Session, supplier_id: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Generate aging report for payables.
-        
-        Categories:
-        - Current (not yet due)
-        - 1-30 days overdue
-        - 31-60 days overdue
-        - 61-90 days overdue
-        - Over 90 days overdue
-        """
-        # Get all GRNs
         grn_query = db.query(GoodReceivedNote)
         
         if supplier_id:
-            # Filter by supplier through PO
             po_ids = db.query(PurchasingOrder.id).filter(
                 PurchasingOrder.first_suppliers_id == supplier_id
             ).all()
@@ -937,7 +803,6 @@ class SupplierCreditService:
             if remaining <= 0:
                 continue
             
-            # Get supplier credit days
             po = db.query(PurchasingOrder).filter(
                 PurchasingOrder.id == grn.purchasingorders_id
             ).first()
@@ -965,8 +830,6 @@ class SupplierCreditService:
             aging[bucket]["amount"] += remaining
             aging["total"]["count"] += 1
             aging["total"]["amount"] += remaining
-        
-        # Convert Decimal to float for JSON serialization
         for key in aging:
             aging[key]["amount"] = float(aging[key]["amount"])
         
@@ -979,21 +842,18 @@ class SupplierCreditService:
         from_date: Optional[date] = None,
         to_date: Optional[date] = None
     ) -> Dict[str, Any]:
-        """Generate a supplier statement showing all credit transactions"""
         supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
         if not supplier:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier {supplier_id} not found"
             )
-        
-        # Get PO IDs for this supplier
+
         po_ids = db.query(PurchasingOrder.id).filter(
             PurchasingOrder.first_suppliers_id == supplier_id
         ).all()
         po_ids = [p[0] for p in po_ids]
         
-        # Get GRNs (purchases)
         grn_query = db.query(GoodReceivedNote).filter(
             GoodReceivedNote.purchasingorders_id.in_(po_ids)
         )
@@ -1003,8 +863,7 @@ class SupplierCreditService:
             grn_query = grn_query.filter(GoodReceivedNote.good_received_date <= to_date)
         
         grns = grn_query.order_by(GoodReceivedNote.good_received_date).all()
-        
-        # Get settlements (payments)
+
         settle_query = db.query(SupplierCreditsSettle).filter(
             SupplierCreditsSettle.suppliers_id == supplier_id
         )
@@ -1014,14 +873,12 @@ class SupplierCreditService:
             settle_query = settle_query.filter(SupplierCreditsSettle.created_date <= to_date)
         
         settlements = settle_query.order_by(SupplierCreditsSettle.created_date).all()
-        
-        # Build statement lines
+
         from app.modules.purchasing.models import PurchasingOrderItems
         
         lines = []
         running_balance = Decimal("0")
-        
-        # Add GRN lines (purchases = what you owe)
+
         for grn in grns:
             total = db.query(
                 func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
@@ -1037,13 +894,12 @@ class SupplierCreditService:
                 "type": "PURCHASE",
                 "reference": grn.good_received_no,
                 "description": f"GRN {grn.good_received_no} - Invoice: {grn.supplier_invoice_no}",
-                "debit": float(total),  # What you owe
+                "debit": float(total),
                 "credit": 0,
                 "balance": float(running_balance),
                 "due_date": due_date
             })
-        
-        # Add settlement lines (payments = reducing what you owe)
+
         for settlement in settlements:
             transactions = db.query(SupplierCreditsSettleTransaction).filter(
                 SupplierCreditsSettleTransaction.supplier_credit_settle_id == settlement.id
@@ -1062,11 +918,8 @@ class SupplierCreditService:
                 "balance": float(running_balance),
                 "due_date": None
             })
-        
-        # Sort by date
+
         lines.sort(key=lambda x: x["date"])
-        
-        # Recalculate running balance in order
         running_balance = Decimal("0")
         for line in lines:
             if line["type"] == "PURCHASE":
@@ -1087,6 +940,4 @@ class SupplierCreditService:
             "statement_lines": lines
         }
 
-
-# Singleton instance
 supplier_credit_service = SupplierCreditService()
