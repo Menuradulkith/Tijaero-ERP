@@ -390,6 +390,80 @@ export interface SupplierCreditStatus {
   }[];
 }
 
+// Unified Payment Status for consolidated Supplier Payments page
+export interface SupplierPaymentStatusData {
+  supplier_id: number;
+  supplier_name: string;
+  company_name: string | null;
+  credit_days: number;
+  max_credit_limit: number;
+  left_credit_amount: number;
+  credit_outstanding: number;
+  non_credit_outstanding: number;
+  total_outstanding: number;
+  overdue_count: number;
+  total_overdue_amount: number;
+  credit_purchase_orders: {
+    po_id: number;
+    po_no: string;
+    invoice_no: string;
+    po_date: string;
+    status: string;
+    total_amount: number;
+    settled_amount: number;
+    remaining_amount: number;
+    is_settled: boolean;
+    has_grn: boolean;
+    grn_id: number | null;
+    grn_no: string | null;
+    due_date: string;
+    days_overdue: number;
+    is_overdue: boolean;
+    branch_code: string;
+  }[];
+  non_credit_purchase_orders: {
+    po_id: number;
+    po_no: string;
+    invoice_no: string;
+    po_date: string;
+    status: string;
+    payment_method: string;
+    total_amount: number;
+    paid_amount: number;
+    remaining_amount: number;
+    is_paid: boolean;
+    has_grn: boolean;
+    grn_id: number | null;
+    grn_no: string | null;
+    due_date: string;
+    days_overdue: number;
+    is_overdue: boolean;
+    branch_code: string;
+  }[];
+  all_purchase_orders: {
+    po_id: number;
+    po_no: string;
+    invoice_no: string;
+    po_date: string;
+    status: string;
+    payment_method?: string;
+    payment_type: "credit" | "non_credit";
+    total_amount: number;
+    settled_amount?: number;
+    paid_amount: number;
+    remaining_amount: number;
+    is_settled?: boolean;
+    is_paid: boolean;
+    has_grn: boolean;
+    grn_id: number | null;
+    grn_no: string | null;
+    due_date: string;
+    days_overdue: number;
+    is_overdue: boolean;
+    branch_code: string;
+  }[];
+}
+
 export interface SupplierCreditCheckResult {
   allowed: boolean;
   current_outstanding: number;
@@ -513,6 +587,13 @@ export const supplierCreditApi = {
   getNonCreditStatus: async (supplierId: number) => {
     const response = await apiClient.get<SupplierCreditStatus>(
       `/purchasing/suppliers/${supplierId}/non-credit-status`
+    );
+    return response.data;
+  },
+
+  getPaymentStatus: async (supplierId: number) => {
+    const response = await apiClient.get<SupplierPaymentStatusData>(
+      `/purchasing/suppliers/${supplierId}/payment-status`
     );
     return response.data;
   },
