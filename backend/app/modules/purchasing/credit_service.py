@@ -613,8 +613,6 @@ class SupplierCreditService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier {settlement_data.suppliers_id} not found"
             )
-        
-        # Validate all GRN IDs in transactions
         for trans in settlement_data.transactions:
             grn = db.query(GoodReceivedNote).filter(
                 GoodReceivedNote.id == trans.good_received_id
