@@ -14,7 +14,6 @@ def generate_sales_report(
     request: schemas.SalesReportRequest,
     db: Session = Depends(get_db)
 ):
-    """Generate comprehensive sales report"""
     reporting_service = service.ReportingService(db)
     return reporting_service.get_sales_report(request)
 
@@ -24,7 +23,6 @@ def generate_finance_report(
     request: schemas.FinanceReportRequest,
     db: Session = Depends(get_db)
 ):
-    """Generate comprehensive finance report"""
     reporting_service = service.ReportingService(db)
     return reporting_service.get_finance_report(request)
 
@@ -34,7 +32,6 @@ def generate_inventory_report(
     request: schemas.InventoryReportRequest,
     db: Session = Depends(get_db)
 ):
-    """Generate inventory report"""
     reporting_service = service.ReportingService(db)
     return reporting_service.get_inventory_report(request)
 
@@ -44,7 +41,6 @@ def generate_hr_report(
     request: schemas.HRReportRequest,
     db: Session = Depends(get_db)
 ):
-    """Generate HR report"""
     reporting_service = service.ReportingService(db)
     return reporting_service.get_hr_report(request)
 
@@ -54,7 +50,6 @@ def generate_warehouse_report(
     request: schemas.WarehouseReportRequest,
     db: Session = Depends(get_db)
 ):
-    """Generate warehouse report"""
     reporting_service = service.ReportingService(db)
     return reporting_service.get_warehouse_report(request)
 
@@ -64,14 +59,12 @@ def generate_support_report(
     request: schemas.SupportReportRequest,
     db: Session = Depends(get_db)
 ):
-    """Generate support report"""
     reporting_service = service.ReportingService(db)
     return reporting_service.get_support_report(request)
 
 
 @router.get("/dashboard", response_model=schemas.DashboardMetrics)
 def get_dashboard_metrics(db: Session = Depends(get_db)):
-    """Get overall dashboard metrics"""
     reporting_service = service.ReportingService(db)
     return reporting_service.get_dashboard_metrics()
 
@@ -81,7 +74,6 @@ def get_quick_stats(
     period: str = Query("today", regex="^(today|week|month|year)$"),
     db: Session = Depends(get_db)
 ):
-    """Get quick statistics for different time periods"""
     reporting_service = service.ReportingService(db)
     
     today = date.today()
@@ -128,18 +120,12 @@ def get_quick_stats(
     }
 
 
-# ==================== Document Reports ====================
-# These endpoints generate printable HTML reports for documents
-
 @router.get("/documents/purchase-order/{po_id}", response_class=HTMLResponse)
 def get_purchase_order_report(
     po_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    Generate HTML report for a Purchase Order.
-    Returns HTML that can be viewed in browser or printed to PDF.
-    """
+
     from app.reporting.document_reports import get_document_report_service
     report_service = get_document_report_service(db)
     return report_service.generate_purchase_order_report(po_id)
@@ -150,10 +136,7 @@ def get_grn_report(
     grn_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    Generate HTML report for a Good Received Note (GRN).
-    Returns HTML that can be viewed in browser or printed to PDF.
-    """
+
     from app.reporting.document_reports import get_document_report_service
     report_service = get_document_report_service(db)
     return report_service.generate_grn_report(grn_id)
@@ -164,10 +147,7 @@ def get_purchase_return_report(
     return_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    Generate HTML report for a Purchase Return.
-    Returns HTML that can be viewed in browser or printed to PDF.
-    """
+
     from app.reporting.document_reports import get_document_report_service
     report_service = get_document_report_service(db)
     return report_service.generate_purchase_return_report(return_id)

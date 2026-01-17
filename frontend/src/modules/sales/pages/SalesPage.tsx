@@ -1,3 +1,4 @@
+import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
 import {
   ActionToolbar,
@@ -6,6 +7,7 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
+  modernTableStyles,
   SearchableList,
   SelectableListItem,
   showErrorToast,
@@ -29,11 +31,13 @@ import {
   AssignmentReturn as ReturnIcon,
   Visibility as ViewIcon,
 } from "@mui/icons-material";
+import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
   Autocomplete,
   Box,
   Button,
   Chip,
+  CircularProgress,
   Divider,
   IconButton,
   InputAdornment,
@@ -50,7 +54,7 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { salesApi } from "../api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
@@ -76,6 +80,7 @@ interface ItemFormData {
   selling_price: number;
   minimum_selling_price: number;
   warrenty_month: string;
+  barcode?: string; // Track which items were added via barcode
 }
 
 // Initial form data
@@ -107,6 +112,12 @@ export default function SalesPage() {
   // Dialog states
   const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState(false);
   const [selectedInvoiceForView, setSelectedInvoiceForView] = useState<Invoice | null>(null);
+
+  // Barcode scanning state
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const [isValidatingBarcode, setIsValidatingBarcode] = useState(false);
+  const [barcodeError, setBarcodeError] = useState<string | null>(null);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -282,6 +293,8 @@ export default function SalesPage() {
     state.setSelectedItem(null);
     state.setIsCreating(true);
     setLineItems([]);
+    setBarcodeInput("");
+    setBarcodeError(null);
     state.setFormData({
       invoice_no: `INV-${Date.now()}`,
       branch_code: "MAIN",
@@ -358,6 +371,55 @@ export default function SalesPage() {
     updated[index] = { ...updated[index], [field]: value };
     setLineItems(updated);
   };
+
+  // Barcode validation handler
+  const handleValidateBarcode = useCallback(async (barcode: string) => {
+    if (!barcode.trim()) {
+      setBarcodeError("Please enter a barcode");
+      return;
+    }
+
+    // Check if this exact barcode has already been scanned
+    const existingItem = lineItems.find(item => item.barcode === barcode.trim());
+
+    if (existingItem) {
+      setBarcodeError("This barcode has already been scanned");
+      return;
+    }
+
+    setIsValidatingBarcode(true);
+    setBarcodeError(null);
+
+    try {
+      const response = await apiClient.get(`/inventory/sales-stock/barcode/${barcode.trim()}`);
+      const stockItem = response.data;
+
+      if (stockItem.status !== "available") {
+        setBarcodeError("This item is not available for sale");
+        return;
+      }
+
+      // Add to line items
+      const newItem: ItemFormData = {
+        product_id: stockItem.product_id,
+        quantity: 1,
+        selling_price: stockItem.minimum_selling_price || 0,
+        minimum_selling_price: stockItem.minimum_selling_price || 0,
+        warrenty_month: stockItem.warranty_month?.toString() || "0",
+        barcode: barcode.trim(), // Store the barcode
+      };
+      setLineItems(prev => [...prev, newItem]);
+
+      setBarcodeInput("");
+      barcodeInputRef.current?.focus();
+      showSuccessToast(`Added: ${stockItem.product?.product_name || "Product"}`);
+    } catch (error: any) {
+      console.error("Barcode validation error:", error);
+      setBarcodeError(error.response?.data?.detail || "Barcode not found in available stock");
+    } finally {
+      setIsValidatingBarcode(false);
+    }
+  }, [lineItems, products]);
 
   // Handle view invoice details
   const handleViewDetails = () => {
@@ -606,86 +668,195 @@ export default function SalesPage() {
         />
       </FormSection>
 
-      {/* Line Items Section */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-          <Typography variant="subtitle2" fontWeight={600}>Line Items</Typography>
-          <Button size="small" startIcon={<AddIcon />} onClick={addLineItem}>Add Item</Button>
+      {/* Barcode Scanner Section */}
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 2,
+          mb: 2,
+          bgcolor: "warning.50",
+          borderColor: "warning.main",
+          borderWidth: 2,
+        }}
+      >
+        <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+          <QrCodeScannerIcon color="warning" />
+          Scan Barcode to Add Products
+        </Typography>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+          <TextField
+            inputRef={barcodeInputRef}
+            size="small"
+            fullWidth
+            placeholder="Scan or type barcode and press Enter..."
+            value={barcodeInput}
+            onChange={(e) => {
+              setBarcodeInput(e.target.value);
+              if (barcodeError) setBarcodeError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleValidateBarcode(barcodeInput);
+              }
+            }}
+            disabled={isValidatingBarcode}
+            error={!!barcodeError}
+            helperText={barcodeError || "Press Enter to add item"}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <QrCodeScannerIcon fontSize="small" color="action" />
+                </InputAdornment>
+              ),
+              endAdornment: isValidatingBarcode ? (
+                <InputAdornment position="end">
+                  <CircularProgress size={20} />
+                </InputAdornment>
+              ) : null,
+            }}
+            autoFocus
+          />
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => handleValidateBarcode(barcodeInput)}
+            disabled={isValidatingBarcode || !barcodeInput.trim()}
+            sx={{ minWidth: 100 }}
+          >
+            {isValidatingBarcode ? <CircularProgress size={20} /> : "Add"}
+          </Button>
         </Box>
-        {lineItems.length === 0 ? (
-          <Typography color="text.secondary" align="center" sx={{ py: 2 }}>
-            No items added. Click "Add Item" to add products.
-          </Typography>
-        ) : (
+      </Paper>
+
+      {/* Line Items Section */}
+      <Box sx={{ mb: 3 }}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+          <Typography variant="subtitle1" fontWeight="bold">Line Items</Typography>
+          <IconButton size="small" onClick={addLineItem} color="primary" title="Add manual item">
+            <AddIcon />
+          </IconButton>
+        </Box>
+
+        <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
           <Table size="small">
             <TableHead>
-              <TableRow>
+              <TableRow sx={modernTableStyles.headerRow}>
+                <TableCell>Barcode</TableCell>
                 <TableCell>Product</TableCell>
-                <TableCell align="right">Qty</TableCell>
-                <TableCell align="right">Price</TableCell>
-                <TableCell align="right">Total</TableCell>
-                <TableCell align="center">Action</TableCell>
+                <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
+                <TableCell align="right" sx={{ width: 120 }}>Min Price</TableCell>
+                <TableCell align="right" sx={{ width: 120 }}>Selling Price</TableCell>
+                <TableCell align="right" sx={{ width: 120 }}>Line Total</TableCell>
+                <TableCell sx={{ width: 50 }} />
               </TableRow>
             </TableHead>
             <TableBody>
-              {lineItems.map((item, index) => (
-                <TableRow key={index}>
-                  <TableCell>
-                    <Autocomplete
-                      size="small"
-                      options={products || []}
-                      getOptionLabel={(option) => `${option.item_code} - ${option.name}`}
-                      value={products?.find((p) => p.id === item.product_id) || null}
-                      onChange={(_, newValue) => {
-                        updateLineItem(index, "product_id", newValue?.id || 0);
-                        if (newValue) {
-                          updateLineItem(index, "selling_price", newValue.cost_price || 0);
-                        }
-                      }}
-                      renderInput={(params) => <TextField {...params} placeholder="Select product" />}
-                      sx={{ minWidth: 200 }}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <TextField
-                      size="small"
-                      type="number"
-                      value={item.quantity}
-                      onChange={(e) => updateLineItem(index, "quantity", parseInt(e.target.value) || 1)}
-                      sx={{ width: 80 }}
-                      inputProps={{ min: 1 }}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <TextField
-                      size="small"
-                      type="number"
-                      value={item.selling_price}
-                      onChange={(e) => updateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)}
-                      sx={{ width: 100 }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography fontWeight={500}>Rs. {(item.quantity * item.selling_price).toFixed(2)}</Typography>
-                  </TableCell>
-                  <TableCell align="center">
-                    <IconButton size="small" color="error" onClick={() => removeLineItem(index)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
+              {lineItems.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} sx={modernTableStyles.emptyCell}>
+                    Scan barcodes above to add items
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                lineItems.map((item, index) => (
+                  <TableRow key={index} sx={{
+                    ...modernTableStyles.bodyRow,
+                    ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                  }}>
+                    {/* Barcode Column */}
+                    <TableCell>
+                      <Typography variant="body2" color={item.barcode ? "success.main" : "text.secondary"} fontWeight={item.barcode ? 500 : 400}>
+                        {item.barcode || "-"}
+                      </Typography>
+                    </TableCell>
+                    {/* Product Column */}
+                    <TableCell>
+                      <Autocomplete
+                        size="small"
+                        options={products || []}
+                        getOptionLabel={(option) => `${option.item_code} - ${option.name}`}
+                        value={products?.find((p) => p.id === item.product_id) || null}
+                        onChange={async (_, newValue) => {
+                          updateLineItem(index, "product_id", newValue?.id || 0);
+                          if (newValue) {
+                            // Auto-fill selling price from product
+                            updateLineItem(index, "selling_price", newValue.selling_price || newValue.cost_price || 0);
+
+                            // Fetch minimum selling price from sales_stock for this product
+                            try {
+                              const response = await apiClient.get(`/inventory/sales-stock`, {
+                                params: { product_id: newValue.id, limit: 1 }
+                              });
+                              if (response.data && response.data.length > 0) {
+                                const stockItem = response.data[0];
+                                // Get min price from the product relationship in stock item
+                                const minPrice = stockItem.product?.selling_price || newValue.cost_price || 0;
+                                updateLineItem(index, "minimum_selling_price", minPrice);
+                              } else {
+                                // Fallback: use cost_price as min price if no stock found
+                                updateLineItem(index, "minimum_selling_price", newValue.cost_price || 0);
+                              }
+                            } catch (error) {
+                              console.error("Error fetching min price:", error);
+                              // Fallback: use cost_price as min price
+                              updateLineItem(index, "minimum_selling_price", newValue.cost_price || 0);
+                            }
+                          }
+                        }}
+                        renderInput={(params) => <TextField {...params} placeholder="Select product" />}
+                        sx={{ minWidth: 200 }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={item.quantity}
+                        onChange={(e) => updateLineItem(index, "quantity", parseInt(e.target.value) || 1)}
+                        sx={{ width: 80 }}
+                        inputProps={{ min: 1 }}
+                      />
+                    </TableCell>
+                    {/* Min Price Column */}
+                    <TableCell align="right">
+                      <Typography variant="body2" color="text.secondary">
+                        Rs. {(item.minimum_selling_price || 0).toFixed(2)}
+                      </Typography>
+                    </TableCell>
+                    {/* Selling Price Column */}
+                    <TableCell align="right">
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={item.selling_price}
+                        onChange={(e) => updateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)}
+                        sx={{ width: 100 }}
+                        InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight={500}>Rs. {(item.quantity * item.selling_price).toFixed(2)}</Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <IconButton size="small" color="error" onClick={() => removeLineItem(index)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
-        )}
+        </Paper>
+
         <Divider sx={{ my: 2 }} />
         <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
           <Typography variant="h6" fontWeight={700} color="success.main">
             Total: Rs. {calculateLineItemsTotal().toFixed(2)}
           </Typography>
         </Box>
-      </Paper>
+      </Box>
     </>
   );
 

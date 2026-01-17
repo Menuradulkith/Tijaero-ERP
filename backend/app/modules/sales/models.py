@@ -98,7 +98,7 @@ class InvoiceItems(Base, TimestampMixin):
     quantity = Column(Integer, nullable=False)
     minimum_selling_price = Column(Numeric(60, 2), nullable=False)
 
-    # Relationships
+
     invoice = relationship("Invoice", back_populates="items")
     product = relationship("Product", back_populates="invoice_items")
     barcodes = relationship("InvoiceItemsBarcode", back_populates="invoice_item")
@@ -115,7 +115,6 @@ class InvoiceItemsBarcode(Base):
     )
     invoice_items_id = Column(Integer, ForeignKey("invoice_items.id"), nullable=False)
 
-    # Relationships
     good_received_item = relationship(
         "GoodReceivedItems", back_populates="invoice_barcodes"
     )

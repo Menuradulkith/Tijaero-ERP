@@ -3,6 +3,7 @@ from sqlalchemy import func
 from fastapi import HTTPException, status
 from app.modules.sales import repository, schemas
 from app.modules.sales.models import Invoice, InvoiceItems, SaleReturn, SaleReturnItems
+from app.modules.inventory.models import SalesStock
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
@@ -94,7 +95,100 @@ class SalesService:
             "sale_returns_count": sale_returns_count
         }
     
+    def get_available_products_from_stock(self, db: Session):
+        """
+        Get all products that have available items in sales stock.
+        
+        Returns:
+            List of products with their available quantity in sales stock
+        """
+        from app.modules.products.models import Product
+        from sqlalchemy import distinct
+        
+        # Query to get products with available stock and their quantities
+        products_with_stock = db.query(
+            Product.id,
+            Product.product_code,
+            Product.product_name,
+            Product.description,
+            Product.category_id,
+            Product.brand_id,
+            Product.unit_of_measure,
+            Product.reorder_level,
+            Product.status,
+            func.count(SalesStock.id).label('available_quantity')
+        ).join(
+            SalesStock, SalesStock.product_id == Product.id
+        ).filter(
+            SalesStock.status == 'available',
+            SalesStock.is_active == True,
+            Product.status == True
+        ).group_by(
+            Product.id,
+            Product.product_code,
+            Product.product_name,
+            Product.description,
+            Product.category_id,
+            Product.brand_id,
+            Product.unit_of_measure,
+            Product.reorder_level,
+            Product.status
+        ).all()
+        
+        # Convert to list of dictionaries
+        result = []
+        for row in products_with_stock:
+            result.append({
+                "id": row.id,
+                "product_code": row.product_code,
+                "product_name": row.product_name,
+                "description": row.description,
+                "category_id": row.category_id,
+                "brand_id": row.brand_id,
+                "unit_of_measure": row.unit_of_measure,
+                "reorder_level": row.reorder_level,
+                "status": row.status,
+                "available_quantity": row.available_quantity
+            })
+        
+        return result
+    
+    def validate_product_availability(self, db: Session, product_id: int, requested_quantity: int):
+        """
+        Validate if a product is available in sales stock with sufficient quantity.
+        
+        Args:
+            db: Database session
+            product_id: ID of the product to check
+            requested_quantity: Quantity requested for the invoice
+            
+        Raises:
+            HTTPException: If product is not available or insufficient quantity
+        """
+        # Count available stock items for this product
+        available_count = db.query(func.count(SalesStock.id)).filter(
+            SalesStock.product_id == product_id,
+            SalesStock.status == 'available',
+            SalesStock.is_active == True
+        ).scalar() or 0
+        
+        if available_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Product ID {product_id} is not available in sales stock"
+            )
+        
+        if available_count < requested_quantity:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient stock for product ID {product_id}. Requested: {requested_quantity}, Available: {available_count}"
+            )
+    
     def create_invoice(self, db: Session, invoice_data: schemas.InvoiceCreate, user_id: int):
+        # Validate all products are available in sales stock before creating invoice
+        for item_data in invoice_data.items:
+            self.validate_product_availability(db, item_data.product_id, item_data.quantity)
+        
         # Create invoice
         invoice_dict = invoice_data.model_dump(exclude={'items'})
         invoice_dict['created_date'] = date.today()

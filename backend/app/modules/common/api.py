@@ -13,7 +13,7 @@ router = APIRouter(prefix="/common", tags=["common"])
 def get_reference_data(
     include: str = Query(
         "branches",
-        description="Comma-separated list of data to include: branches,categories,brands,locations,products,countries,suppliers,customers"
+        description="Comma-separated list of data to include: branches,categories,brands,locations,products,countries,suppliers,customers,sales_stock"
     ),
     products_limit: int = Query(500, ge=1, le=2000, description="Max products to return"),
     db: Session = Depends(get_db)
@@ -79,6 +79,12 @@ def get_reference_data(
         from app.modules.customers.service import customer_service
         customers = customer_service.get_all_customers(db, skip=0, limit=500)
         result["customers"] = [{"id": c.id, "customer_name": c.customer_name} for c in customers]
+
+    if "sales_stock" in includes:
+        from app.modules.sales.service import sales_service
+        # Use the sales service to get available products from stock
+        # This returns products grouped with their available quantities
+        result["sales_stock"] = sales_service.get_available_products_from_stock(db)
     
     return result
 

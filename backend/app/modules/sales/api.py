@@ -8,6 +8,20 @@ from app.modules.sales import schemas, service
 
 router = APIRouter()
 
+# Available Products endpoint for sales stock
+@router.get(
+    "/available-products",
+    response_model=List[Dict[str, Any]],
+    summary="Get Products Available in Sales Stock",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_available_products(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get products that are available in sales stock with quantities."""
+    return service.sales_service.get_available_products_from_stock(db)
+
 # Statistics endpoint
 @router.get(
     "/statistics",

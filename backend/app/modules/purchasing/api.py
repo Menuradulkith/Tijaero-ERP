@@ -248,6 +248,7 @@ def create_grn(
     grn: schemas.GoodReceivedNoteCreate,
     allow_credit_override: bool = Query(False, description="Allow GRN creation even if credit limit exceeded (requires authorization)"),
     db: Session = Depends(get_db)
+):
 
     grn_service = service.GoodReceivedNoteService(db)
     return grn_service.create(grn, allow_credit_override=allow_credit_override)
