@@ -22,15 +22,13 @@ from fastapi import APIRouter
 
 api_router = APIRouter()
 
-# Auth
+
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 
-# Core modules
-api_router.include_router(users_router)  # Has its own prefix
-api_router.include_router(groups_router)  # Has its own prefix
-api_router.include_router(permissions_router)  # Has its own prefix
+api_router.include_router(users_router)
+api_router.include_router(groups_router)
+api_router.include_router(permissions_router)
 
-# Business modules
 api_router.include_router(customers_router, prefix="/customers", tags=["customers"])
 api_router.include_router(inventory_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(products_router, prefix="/inventory", tags=["inventory"])
@@ -38,16 +36,15 @@ api_router.include_router(sales_router, prefix="/sales", tags=["sales"])
 api_router.include_router(
     quotation_router, prefix="/sales/quotes", tags=["sales-quotes"]
 )
-api_router.include_router(purchasing_router)  # Has its own prefix
-api_router.include_router(finance_router)  # Has its own prefix
-api_router.include_router(hr_router)  # Has its own prefix
-api_router.include_router(warehouse_router)  # Has its own prefix
-api_router.include_router(support_router)  # Has its own prefix
-api_router.include_router(reporting_router)  # Has its own prefix
-api_router.include_router(settings_router)  # Has its own prefix
-api_router.include_router(common_router)  # Has its own prefix
+api_router.include_router(purchasing_router)
+api_router.include_router(finance_router)
+api_router.include_router(hr_router)
+api_router.include_router(warehouse_router)
+api_router.include_router(support_router)
+api_router.include_router(reporting_router)
+api_router.include_router(settings_router)
+api_router.include_router(common_router)
 api_router.include_router(employees_router, prefix="/employees", tags=["employees"])
 api_router.include_router(branches_router, prefix="/branches", tags=["branches"])
 
-# Health check
 api_router.include_router(health.router, prefix="/health", tags=["health"])

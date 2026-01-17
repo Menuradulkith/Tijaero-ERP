@@ -23,7 +23,6 @@ class Employee(Base, TimestampMixin):
     )
     employee_id = Column(Text, unique=True, nullable=False)
 
-    # Relationships - using lazy loading to avoid circular imports
     user = relationship("User", foreign_keys=[user_id], lazy="select", viewonly=True)
     invoices = relationship(
         "Invoice", back_populates="sale_rep", lazy="select", viewonly=True
@@ -71,7 +70,6 @@ class EmployeePayroll(Base):
     etf_employer = Column(Numeric(60, 2))
     less_salary_advance_repayment = Column(Numeric(60, 2))
 
-    # Relationships
     employee = relationship("Employee", back_populates="payrolls")
 
 
@@ -88,7 +86,6 @@ class EmployeeSalaryProfile(Base):
     add_2_name = Column(String(100))
     add_2_value = Column(Numeric(60, 2))
 
-    # Relationships
     employee = relationship("Employee", back_populates="salary_profile")
 
 
@@ -101,7 +98,6 @@ class EmployeePromotions(Base):
     appointed_date = Column(Date, nullable=False)
     remark = Column(Text)
 
-    # Relationships
     employee = relationship("Employee", back_populates="promotions", lazy="select")
 
 
@@ -114,7 +110,6 @@ class EmployeesAssets(Base):
     assign_reason = Column(Text)
     revoke_assignment = Column(Boolean, nullable=False, default=False)
 
-    # Relationships
     employee = relationship("Employee", back_populates="assets", lazy="select")
     asset = relationship(
         "CompanyAssets",

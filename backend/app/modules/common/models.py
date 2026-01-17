@@ -27,8 +27,7 @@ class Country(Base):
     geonameid = Column(Integer)
     neighbours = Column(String(255))
     equivalent_fips_code = Column(String(4))
-    
-    # Relationships
+
     users = relationship("User", back_populates="country")
     customers = relationship("Customer", back_populates="country")
     suppliers = relationship("Supplier", back_populates="country")
@@ -44,7 +43,6 @@ class Approvals(Base, TimestampMixin):
     next_user_to_approve = Column(Integer)
     remark = Column(String(255))
     
-    # Relationships
     invoices = relationship("Invoice", back_populates="approval_record")
     purchasing_orders = relationship("PurchasingOrder", back_populates="approval")
     purchasing_returns = relationship("PurchasingReturn", back_populates="approval")
@@ -61,8 +59,7 @@ class Locations(Base, TimestampMixin):
     name = Column(String(200), nullable=False)
     branch_code = Column(String(255), ForeignKey("branches.branch_code"), nullable=False)
     created_date = Column(TIMESTAMP, nullable=False)
-    
-    # Relationships
+
     branch = relationship("Branch")
     good_received_notes = relationship("GoodReceivedNote", back_populates="location")
     sale_returns = relationship("SaleReturn", back_populates="location")

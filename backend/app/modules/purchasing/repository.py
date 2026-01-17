@@ -65,7 +65,6 @@ class PurchasingOrderRepository:
         self.db = db
     
     def create(self, order: schemas.PurchasingOrderCreate, initial_status: str = "pending") -> models.PurchasingOrder:
-        # Exclude items - they're handled separately
         order_data = order.model_dump(exclude={'items'})
         db_order = models.PurchasingOrder(
             **order_data,
@@ -76,7 +75,6 @@ class PurchasingOrderRepository:
         self.db.add(db_order)
         self.db.flush()
         
-        # Add items
         for item in order.items:
             db_item = models.PurchasingOrderItems(
                 **item.model_dump(),
@@ -127,21 +125,16 @@ class PurchasingOrderRepository:
         if db_order:
             update_data = order_update.model_dump(exclude_unset=True)
             
-            # Handle items separately
             items_data = update_data.pop('items', None)
             
-            # Update order fields
             for field, value in update_data.items():
                 setattr(db_order, field, value)
             
-            # Update items if provided
             if items_data is not None:
-                # Delete existing items
                 self.db.query(models.PurchasingOrderItems).filter(
                     models.PurchasingOrderItems.purchasingorders_id == order_id
                 ).delete()
-                
-                # Add new items with required date fields
+
                 for item in items_data:
                     db_item = models.PurchasingOrderItems(
                         **item,
@@ -158,7 +151,6 @@ class PurchasingOrderRepository:
     def delete(self, order_id: int) -> bool:
         db_order = self.get_by_id(order_id)
         if db_order:
-            # Check if there are any GRNs associated with this order
             grn_count = self.db.query(models.GoodReceivedNote).filter(
                 models.GoodReceivedNote.purchasingorders_id == order_id
             ).count()
@@ -166,7 +158,6 @@ class PurchasingOrderRepository:
             if grn_count > 0:
                 raise ValueError(f"Cannot delete purchase order: {grn_count} Good Received Note(s) are associated with this order")
             
-            # Delete related items first
             self.db.query(models.PurchasingOrderItems).filter(
                 models.PurchasingOrderItems.purchasingorders_id == order_id
             ).delete()
@@ -176,7 +167,6 @@ class PurchasingOrderRepository:
         return False
     
     def count_daily_orders_by_branch(self, branch_code: str, target_date: date) -> int:
-        """Count the number of POs created for a branch on a specific date"""
         return self.db.query(models.PurchasingOrder).filter(
             and_(
                 models.PurchasingOrder.branch_code == branch_code,
@@ -194,7 +184,6 @@ class PurchasingReturnRepository:
         self.db.add(db_return)
         self.db.flush()
         
-        # Add items
         for item in return_data.items:
             db_item = models.PurchasingReturnItems(
                 **item.model_dump(),
@@ -286,7 +275,6 @@ class SupplierCreditsSettleRepository:
         self.db = db
     
     def create(self, settle: schemas.SupplierCreditsSettleCreate) -> models.SupplierCreditsSettle:
-        # Create the main settlement record
         settle_data = settle.model_dump(exclude={"transactions"})
         db_settle = models.SupplierCreditsSettle(
             **settle_data,
@@ -294,8 +282,7 @@ class SupplierCreditsSettleRepository:
         )
         self.db.add(db_settle)
         self.db.flush()
-        
-        # Create transaction records
+
         for transaction in settle.transactions:
             db_transaction = models.SupplierCreditsSettleTransaction(
                 **transaction.model_dump(),
@@ -331,7 +318,6 @@ class SupplierCreditsSettleRepository:
     def delete(self, settle_id: int) -> bool:
         db_settle = self.get_by_id(settle_id)
         if db_settle:
-            # Delete transactions first
             self.db.query(models.SupplierCreditsSettleTransaction).filter(
                 models.SupplierCreditsSettleTransaction.supplier_credit_settle_id == settle_id
             ).delete()
@@ -342,17 +328,14 @@ class SupplierCreditsSettleRepository:
 
 
 class SupplierPaymentRepository:
-    """Repository for supplier direct payments (non-credit payments)"""
     
     def __init__(self, db: Session):
         self.db = db
     
     def _generate_payment_no(self) -> str:
-        """Generate unique payment number: SP-YYYYMMDD-XXX"""
         today = date.today()
         prefix = f"SP-{today.strftime('%Y%m%d')}"
         
-        # Count existing payments for today
         count = self.db.query(models.SupplierPayment).filter(
             models.SupplierPayment.payment_no.like(f"{prefix}%")
         ).count()
@@ -456,7 +439,6 @@ class SupplierPaymentRepository:
         return False
     
     def get_total_by_supplier(self, supplier_id: int, status: str = "verified") -> float:
-        """Get total payments made to a supplier"""
         result = self.db.query(func.sum(models.SupplierPayment.payment_amount)).filter(
             models.SupplierPayment.supplier_id == supplier_id,
             models.SupplierPayment.status == status

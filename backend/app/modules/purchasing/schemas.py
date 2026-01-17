@@ -3,7 +3,6 @@ from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
-# Supplier Schemas
 class SupplierBase(BaseModel):
     title: str
     full_name: str
@@ -70,7 +69,6 @@ class Supplier(SupplierBase):
     class Config:
         from_attributes = True
 
-# Purchase Order Schemas
 class PurchasingOrderItemBase(BaseModel):
     product_id: int
     quantity: int
@@ -138,13 +136,12 @@ class PurchasingOrder(PurchasingOrderBase):
 class PurchasingOrderWithItems(PurchasingOrder):
     items: List[PurchasingOrderItem] = []
 
-# Purchase Return Schemas
 class PurchasingReturnItemBase(BaseModel):
     product_id: int
     purchasing_price: Decimal
     return_price: Decimal
     barcode: str
-    sales_stock_id: Optional[int] = None  # Link to the stock item being returned
+    sales_stock_id: Optional[int] = None 
 
 class PurchasingReturnItemCreate(PurchasingReturnItemBase):
     pass
@@ -154,25 +151,25 @@ class PurchasingReturnItem(PurchasingReturnItemBase):
     purchasingreturn_id: int
     branch_code: str
     added_date: datetime
-    product_name: Optional[str] = None  # Loaded from product relationship
+    product_name: Optional[str] = None 
     
     class Config:
         from_attributes = True
 
 class PurchasingReturnBase(BaseModel):
-    purchasing_return_no: Optional[str] = None  # Auto-generated if not provided
+    purchasing_return_no: Optional[str] = None 
     branch_code: str
     remark: Optional[str] = None
     goodreceivednote_id: int
 
 class PurchasingReturnCreate(PurchasingReturnBase):
     items: List[PurchasingReturnItemCreate]
-    require_approval: bool = False  # Whether to submit for approval or approve immediately
+    require_approval: bool = False 
 
 class PurchasingReturn(PurchasingReturnBase):
     id: int
     added_date: date
-    status: str = "draft"  # draft, pending, approved, rejected
+    status: str = "draft" 
     approved_date: Optional[datetime] = None
     approval_id: Optional[int] = None
     
@@ -182,8 +179,6 @@ class PurchasingReturn(PurchasingReturnBase):
 class PurchasingReturnWithItems(PurchasingReturn):
     items: List[PurchasingReturnItem] = []
 
-
-# Barcode Validation Schemas for Purchase Return
 class BarcodeValidationRequest(BaseModel):
     barcode: str
     grn_id: int
@@ -197,15 +192,14 @@ class BarcodeValidationResponse(BaseModel):
     product_id: Optional[int] = None
     product_name: Optional[str] = None
     purchasing_price: Optional[Decimal] = None
-    status: Optional[str] = None  # Current stock status
+    status: Optional[str] = None 
 
 
 class PurchaseReturnApprovalRequest(BaseModel):
     return_id: int
-    approve: bool  # True to approve, False to reject
+    approve: bool 
     remarks: Optional[str] = None
 
-# List and Filter Schemas
 class SupplierListFilter(BaseModel):
     active: Optional[bool] = None
     country_id: Optional[int] = None
@@ -223,7 +217,6 @@ class PurchaseOrderListFilter(BaseModel):
     skip: int = 0
     limit: int = 100
 
-# Good Received Note Schemas
 class GoodReceivedNoteBase(BaseModel):
     good_received_no: str
     good_received_date: date
@@ -245,7 +238,6 @@ class GoodReceivedNote(GoodReceivedNoteBase):
     class Config:
         from_attributes = True
 
-# Good Received Items Schemas
 class GoodReceivedItemBase(BaseModel):
     good_received_note: str
     barcode: str
@@ -266,7 +258,6 @@ class GoodReceivedItem(GoodReceivedItemBase):
 
 
 class GoodReceivedItemWithDetails(GoodReceivedItem):
-    """Enhanced GRN item with product name and saved-to info"""
     product_id: Optional[int] = None
     product_name: Optional[str] = None
     saved_to_sales_stock: bool = False
@@ -282,8 +273,6 @@ class GoodReceivedNoteListFilter(BaseModel):
     skip: int = 0
     limit: int = 100
 
-
-# Supplier Credits Settle Schemas
 class SupplierCreditsSettleTransactionBase(BaseModel):
     payment_method: str
     cheque_date: date
@@ -299,7 +288,6 @@ class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase):
     id: int
     supplier_credit_settle_id: int
     created_date: datetime
-    # GRN details for display
     grn_no: Optional[str] = None
     po_no: Optional[str] = None
     invoice_no: Optional[str] = None
@@ -328,8 +316,6 @@ class SupplierCreditsSettle(SupplierCreditsSettleBase):
 class SupplierCreditsSettleWithTransactions(SupplierCreditsSettle):
     transactions: List[SupplierCreditsSettleTransaction] = []
 
-
-# Daily PO Limit Check Schema
 class DailyPOLimitCheck(BaseModel):
     branch_code: str
     date: date
@@ -339,10 +325,7 @@ class DailyPOLimitCheck(BaseModel):
     can_create: bool
     message: str
 
-
-# Credit Check Schemas for PO and GRN
 class CreditCheckResult(BaseModel):
-    """Result of credit limit check"""
     allowed: bool
     requires_approval: bool = False
     current_outstanding: float
@@ -355,38 +338,33 @@ class CreditCheckResult(BaseModel):
     overdue_count: int
     has_overdue: bool
     message: str
-    warning_level: str = "none"  # none, warning, error
-
+    warning_level: str = "none" 
 
 class POCreditCheckResponse(BaseModel):
-    """Response for PO credit validation"""
     can_save: bool
     requires_approval: bool
-    suggested_status: str  # 'pending', 'pending_approval'
+    suggested_status: str
     credit_check: CreditCheckResult
     message: str
 
 
 class GRNCreditCheckResponse(BaseModel):
-    """Response for GRN credit validation"""
     can_post: bool
     requires_override: bool
     credit_check: CreditCheckResult
     message: str
 
 
-# ==================== SUPPLIER PAYMENT SCHEMAS ====================
-
 class SupplierPaymentBase(BaseModel):
     supplier_id: int
     purchasing_order_id: Optional[int] = None
     payment_date: date
-    payment_method: str  # Cash, Bank Transfer, Cheque
+    payment_method: str 
     payment_amount: Decimal
     reference_number: Optional[str] = None
     bank_name: Optional[str] = None
     branch_code: str
-    payment_for: str  # Purchase, Advance, Refund, Other
+    payment_for: str 
     invoice_reference: Optional[str] = None
     remarks: Optional[str] = None
 
@@ -416,7 +394,6 @@ class SupplierPayment(SupplierPaymentBase):
     created_date: datetime
     created_by: Optional[int] = None
     
-    # Loaded from relationships
     supplier_name: Optional[str] = None
     po_no: Optional[str] = None
     

@@ -20,7 +20,6 @@ def list_employees(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.USER_VIEW))
 ):
-    """Get list of all employees with pagination."""
     return service.employee_service.get_all_employees(db, skip, limit)
 
 @router.get(
@@ -34,7 +33,6 @@ def get_employee(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.USER_VIEW))
 ):
-    """Get employee information by employee ID."""
     return service.employee_service.get_employee(db, employee_id)
 
 @router.post(
@@ -49,7 +47,6 @@ def create_employee(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.USER_CREATE))
 ):
-    """Create a new employee."""
     return service.employee_service.create_employee(db, employee)
 
 @router.put(
@@ -64,7 +61,6 @@ def update_employee(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.USER_UPDATE))
 ):
-    """Update employee information."""
     return service.employee_service.update_employee(db, employee_id, employee)
 
 @router.delete(
@@ -78,5 +74,4 @@ def delete_employee(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.USER_DELETE))
 ):
-    """Delete an employee by ID."""
     return service.employee_service.delete_employee(db, employee_id)

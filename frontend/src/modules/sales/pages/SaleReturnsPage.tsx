@@ -1,347 +1,863 @@
-import { usePermission } from "@/auth/permissions";
-import {
-  ActionToolbar,
-  DetailPanelHeader,
-  EmptyState,
-  FormSection,
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  SortOption,
-  useMasterDetailState,
-} from "@/components/tijaero";
-import { useReferenceData } from "@/hooks";
-// OPTIMIZED: Removed branchApi, customersApi imports - using aggregated endpoint
-import {
-  AssignmentReturn as ReturnIcon,
-} from "@mui/icons-material";
-import {
-  Autocomplete,
-  Box,
-  Chip,
-  TextField,
-  Typography,
-} from "@mui/material";
-import { useQuery } from "@tanstack/react-query";
-import { format } from "date-fns";
-import { useEffect, useMemo, useState } from "react";
-import { saleReturnsApi, salesApi } from "../api";
-import SaleReturnDialog from "../components/SaleReturnDialog";
-import { SaleReturn } from "../types";
+/**
+ * SaleReturnsPage - Using Tijaero-style reusable components
+ * Refactored to match PurchaseReturnsPage with inline form creation (no popup dialog)
+ */
 
-// Sort options
-const sortOptions: SortOption[] = [
-  { value: "added_date", label: "Date (Newest)" },
-  { value: "sale_return_no", label: "Return No" },
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import DeleteIcon from "@mui/icons-material/Delete";
+import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import {
+    Alert,
+    Autocomplete,
+    Box,
+    Button,
+    IconButton,
+    InputAdornment,
+    Paper,
+    Step,
+    StepLabel,
+    Stepper,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+    TextField,
+    Typography
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import toast from "react-hot-toast";
+
+// Import tijaero components
+import {
+    ActionToolbar,
+    DetailPanelHeader,
+    EmptyState,
+    FormSection,
+    MasterDetailLayout,
+    SearchableList,
+    SelectableListItem,
+    SortOption,
+    TBranchFilter,
+    TFilterPanel,
+    TStatusChip,
+    TStatusFilter,
+    getStatusProps,
+    modernTableStyles,
+    useMasterDetailState,
+} from "@/components/tijaero";
+
+import { useReferenceData } from "@/hooks";
+import { saleReturnsApi, salesApi } from "../api";
+import {
+    Invoice,
+    SaleReturn,
+    SaleReturnCreate,
+    SaleReturnItemCreate,
+    SaleReturnWithItems,
+} from "../types";
+
+const SORT_OPTIONS: SortOption[] = [
+    { value: "added_date", label: "Date" },
+    { value: "sale_return_no", label: "Return Number" },
 ];
 
+// Status filter options for sale returns
+const SALE_RETURN_STATUS_OPTIONS = [
+    { value: "pending", label: "Pending" },
+    { value: "approved", label: "Approved" },
+];
+
+const FORM_STEPS = ["Return Information", "Return Items"];
+
+const generateReturnNo = () => `SR-${Date.now().toString(36).toUpperCase()}`;
+
+const INITIAL_FORM_DATA: SaleReturnCreate = {
+    sale_return_no: "",
+    branch_code: "MAIN",
+    invoice_id: 0,
+    good_received_locations_id: 1,
+    payment_method: "cash",
+    remark: "",
+    items: [],
+};
+
+interface ReturnLineItem extends SaleReturnItemCreate {
+    _id: string;
+    added_date?: string;
+}
+
+const PAYMENT_OPTIONS = [
+    { value: "cash", label: "Cash Refund" },
+    { value: "bank_transfer", label: "Bank Transfer" },
+    { value: "credit", label: "Store Credit" },
+    { value: "cheque", label: "Cheque" },
+];
+
+const resetFormFromReturn = (ret: SaleReturn | SaleReturnWithItems): SaleReturnCreate => ({
+    sale_return_no: ret.sale_return_no,
+    branch_code: ret.branch_code,
+    invoice_id: ret.invoice_id,
+    good_received_locations_id: ret.good_received_locations_id,
+    payment_method: ret.payment_method,
+    remark: ret.remark || "",
+    items: "items" in ret && ret.items ? ret.items.map(item => ({
+        barcode: item.barcode,
+        return_price: item.return_price,
+        sold_price: item.sold_price,
+        branch_code: item.branch_code,
+        invoice_item_id: item.invoice_item_id,
+    })) : [],
+});
+
 export default function SaleReturnsPage() {
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [filterBranch, setFilterBranch] = useState<string | null>(null);
-  const [filterCustomer, setFilterCustomer] = useState<number | null>(null);
+    const queryClient = useQueryClient();
+    const [lineItems, setLineItems] = useState<ReturnLineItem[]>([]);
+    const [formStep, setFormStep] = useState(0);
 
-  // Permissions
-  const canCreate = usePermission("sales", "create");
+    // Confirm dialog for unsaved changes
+    const confirmDialog = useConfirmDialog();
 
-  // Main state
-  const state = useMasterDetailState<SaleReturn, null>({
-    initialFormData: null,
-    initialSortField: "added_date",
-  });
+    // Validation state
+    const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  // Queries
-  const { data: saleReturns, isLoading, refetch } = useQuery({
-    queryKey: ["sale-returns"],
-    queryFn: () => saleReturnsApi.getAll(),
-  });
+    const handleBlur = (fieldName: string) => {
+        setTouched(prev => ({ ...prev, [fieldName]: true }));
+    };
 
-  const { data: invoices } = useQuery({
-    queryKey: ["sales"],
-    queryFn: () => salesApi.getAll(),
-  });
+    // Filter states
+    const [filterBranch, setFilterBranch] = useState<string | null>(null);
+    const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
-  // OPTIMIZED: Single API call for branches and customers (was 2 calls)
-  const { data: refData } = useReferenceData(["branches", "customers"]);
-  const branches = refData?.branches || [];
-  const customers = refData?.customers || [];
+    // Barcode input state
+    const [barcodeInput, setBarcodeInput] = useState("");
+    const barcodeInputRef = useRef<HTMLInputElement>(null);
 
-  // Filter and sort
-  const filteredReturns = useMemo(() => {
-    if (!saleReturns) return [];
-
-    let filtered = saleReturns.filter(
-      (ret) =>
-        ret.sale_return_no.toLowerCase().includes(state.searchQuery.toLowerCase()) ||
-        ret.branch_code.toLowerCase().includes(state.searchQuery.toLowerCase())
-    );
-
-    // Apply branch filter
-    if (filterBranch) {
-      filtered = filtered.filter((ret) => ret.branch_code === filterBranch);
-    }
-
-    // Apply customer filter (via invoice)
-    if (filterCustomer && invoices) {
-      const customerInvoiceIds = invoices
-        .filter((inv) => inv.customer_id === filterCustomer)
-        .map((inv) => inv.id);
-      filtered = filtered.filter((ret) => customerInvoiceIds.includes(ret.invoice_id));
-    }
-
-    filtered.sort((a, b) => {
-      if (state.sortField === "sale_return_no") {
-        return a.sale_return_no.localeCompare(b.sale_return_no);
-      }
-      return new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
+    const {
+        searchQuery,
+        setSearchQuery,
+        sortField,
+        setSortField,
+        selectedItem: selectedReturn,
+        isEditing,
+        setIsEditing,
+        isCreating,
+        setIsCreating,
+        favorites,
+        toggleFavorite,
+        formData,
+        setFormData,
+        handleSelectItem: handleSelectReturn,
+        handleNew: handleNewReturnBase,
+        handleCancel: handleCancelBase,
+        handleStartEdit: handleStartEditBase,
+    } = useMasterDetailState<SaleReturn, SaleReturnCreate>({
+        initialFormData: INITIAL_FORM_DATA,
+        resetFormFromItem: resetFormFromReturn,
+        favoritesKey: "sale_returns_favorites",
+        defaultSortField: "added_date",
+        confirmUnsavedChanges: () => confirmDialog.confirm({
+            title: "Discard Changes",
+            message: "You have unsaved changes. Discard them?",
+            confirmText: "Discard",
+            cancelText: "Keep Editing",
+            confirmColor: "warning",
+        }),
     });
 
-    return filtered;
-  }, [saleReturns, state.searchQuery, state.sortField, filterBranch, filterCustomer, invoices]);
+    const handleNewReturn = useCallback(() => {
+        handleNewReturnBase();
+        setFormData(prev => ({
+            ...prev,
+            sale_return_no: generateReturnNo(),
+        }));
+        setLineItems([]);
+        setFormStep(0);
+        setBarcodeInput("");
+        setTouched({});
+    }, [handleNewReturnBase, setFormData]);
 
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredReturns.length > 0 && !state.selectedItem && !state.isCreating) {
-      state.setSelectedItem(filteredReturns[0]);
-    }
-  }, [filteredReturns, state.selectedItem, state.isCreating]);
+    const handleStartEdit = useCallback(() => {
+        handleStartEditBase();
+        setFormStep(0);
+        setBarcodeInput("");
+        setTouched({});
+        // @ts-ignore
+        if (selectedReturn?.items) {
+            // @ts-ignore
+            setLineItems(selectedReturn.items.map((item: any, idx: number) => ({
+                _id: `existing-${idx}`,
+                barcode: item.barcode,
+                return_price: item.return_price,
+                sold_price: item.sold_price,
+                branch_code: item.branch_code,
+                invoice_item_id: item.invoice_item_id,
+            })));
+        }
+    }, [handleStartEditBase, selectedReturn]);
 
-  // Get invoice for a return
-  const getInvoiceNo = (invoiceId: number) => {
-    return invoices?.find((i) => i.id === invoiceId)?.invoice_no || `#${invoiceId}`;
-  };
+    const handleCancel = useCallback((items: SaleReturn[]) => {
+        handleCancelBase(items);
+        setLineItems([]);
+        setFormStep(0);
+        setBarcodeInput("");
+        setTouched({});
+    }, [handleCancelBase]);
 
-  const handleSelectReturn = (returnItem: SaleReturn) => {
-    state.setSelectedItem(returnItem);
-  };
+    const handleSelectReturnWithItems = useCallback(async (ret: SaleReturn) => {
+        const selected = await handleSelectReturn(ret);
+        if (!selected) return;
 
-  const handleCreate = () => {
-    setDialogOpen(true);
-  };
+        setTouched({});
+        setBarcodeInput("");
+        try {
+            const detailedReturn = await saleReturnsApi.getById(ret.id);
+            if (detailedReturn.items) {
+                setLineItems(detailedReturn.items.map((item: any, idx: number) => ({
+                    _id: `existing-${idx}`,
+                    barcode: item.barcode,
+                    return_price: item.return_price,
+                    sold_price: item.sold_price,
+                    branch_code: item.branch_code,
+                    invoice_item_id: item.invoice_item_id,
+                    added_date: item.added_date,
+                })));
+            } else {
+                setLineItems([]);
+            }
+        } catch {
+            setLineItems([]);
+        }
+    }, [handleSelectReturn]);
 
-  // Render view return details
-  const renderViewReturn = () => (
-    <>
-      <FormSection title="Return Details">
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Return No
-          </Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {state.selectedItem?.sale_return_no}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Branch
-          </Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {state.selectedItem?.branch_code}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Date
-          </Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {state.selectedItem && format(new Date(state.selectedItem.added_date), "MMMM dd, yyyy")}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Original Invoice
-          </Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {state.selectedItem && getInvoiceNo(state.selectedItem.invoice_id)}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Payment Method
-          </Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {state.selectedItem?.payment_method}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Approval Status
-          </Typography>
-          <Chip
-            label={state.selectedItem?.approval_id ? "Approved" : "Pending"}
-            size="small"
-            color={state.selectedItem?.approval_id ? "success" : "warning"}
-          />
-        </Box>
-      </FormSection>
+    const { data: returns, isLoading, refetch } = useQuery({
+        queryKey: ["sale-returns"],
+        queryFn: () => saleReturnsApi.getAll(),
+    });
 
-      {state.selectedItem?.remark && (
-        <FormSection title="Remarks" isLast>
-          <Typography variant="body2" color="text.secondary" sx={{ gridColumn: "1 / -1" }}>
-            {state.selectedItem.remark}
-          </Typography>
-        </FormSection>
-      )}
-    </>
-  );
+    const { data: invoices } = useQuery({
+        queryKey: ["sales"],
+        queryFn: () => salesApi.getAll(),
+    });
 
-  return (
-    <>
-      <MasterDetailLayout title="Sale Returns" onRefresh={refetch}>
-        <Box
-          sx={{
-            flex: 1,
-            display: "flex",
-            flexDirection: { xs: "column", md: "row" },
-            overflow: "hidden",
-          }}
-        >
-          {/* Master List */}
-          <SearchableList
-            searchValue={state.searchQuery}
-            onSearchChange={state.setSearchQuery}
-            searchPlaceholder="Search by return no..."
-            sortOptions={sortOptions}
-            currentSort={state.sortField}
-            onSortChange={state.setSortField}
+    // Use aggregated endpoint for branches
+    const { data: refData } = useReferenceData(["branches"]);
+    const branches = refData?.branches || [];
+
+    const filteredReturns = useMemo(() => {
+        if (!returns) return [];
+
+        let filtered = returns.filter(
+            (ret) =>
+                ret.sale_return_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                String(ret.id).includes(searchQuery)
+        );
+
+        // Apply branch filter
+        if (filterBranch) {
+            filtered = filtered.filter(ret => ret.branch_code === filterBranch);
+        }
+
+        // Apply status filter
+        if (filterStatus) {
+            const isApproved = filterStatus === "approved";
+            filtered = filtered.filter(ret =>
+                isApproved ? ret.approval_id !== null : ret.approval_id === null
+            );
+        }
+
+        filtered.sort((a, b) => {
+            if (sortField === "added_date") {
+                return new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
+            }
+            const fieldA = a[sortField as keyof SaleReturn] || "";
+            const fieldB = b[sortField as keyof SaleReturn] || "";
+            return String(fieldA).localeCompare(String(fieldB));
+        });
+
+        return filtered;
+    }, [returns, searchQuery, sortField, filterBranch, filterStatus]);
+
+
+    useEffect(() => {
+        if (filteredReturns.length > 0 && !selectedReturn && !isCreating) {
+            handleSelectReturnWithItems(filteredReturns[0]);
+        }
+    }, [filteredReturns, selectedReturn, isCreating]);
+
+    const createMutation = useMutation({
+        mutationFn: saleReturnsApi.create,
+        onSuccess: (newReturn) => {
+            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
+            queryClient.invalidateQueries({ queryKey: ["sales"] });
+            toast.success("Sale return created successfully");
+            setIsCreating(false);
+            setIsEditing(false);
+            setTimeout(() => handleSelectReturnWithItems(newReturn), 0);
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.detail || "Failed to create sale return");
+        },
+    });
+
+    // Helper functions
+    const getInvoiceNo = useCallback((invoiceId: number) => {
+        const invoice = invoices?.find((i) => i.id === invoiceId);
+        return invoice ? invoice.invoice_no : `INV-${invoiceId}`;
+    }, [invoices]);
+
+    const getStatus = useCallback((ret: SaleReturn) => {
+        return ret.approval_id ? "approved" : "pending";
+    }, []);
+
+    const getBranchDisplay = (branchCode: string) => {
+        const branch = branches.find((b) => b.branch_code === branchCode);
+        return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
+    };
+
+    const calculateTotal = () => {
+        return lineItems.reduce((sum, item) => sum + (Number(item.return_price) || 0), 0);
+    };
+
+    // Line item handlers
+    const handleAddLineItem = () => {
+        const newItem: ReturnLineItem = {
+            _id: `new-${Date.now()}`,
+            barcode: barcodeInput.trim() || "",
+            return_price: 0,
+            sold_price: 0,
+            branch_code: formData.branch_code,
+        };
+        setLineItems([...lineItems, newItem]);
+        setBarcodeInput("");
+        barcodeInputRef.current?.focus();
+    };
+
+    const handleRemoveLineItem = (id: string) => {
+        setLineItems(prev => prev.filter(item => item._id !== id));
+    };
+
+    const handleUpdateLineItem = (id: string, field: keyof ReturnLineItem, value: any) => {
+        setLineItems(lineItems.map(item =>
+            item._id === id ? { ...item, [field]: value } : item
+        ));
+    };
+
+    const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter" && barcodeInput.trim()) {
+            e.preventDefault();
+            handleAddLineItem();
+        }
+    };
+
+    const handleSave = useCallback(() => {
+        const dataToSave: SaleReturnCreate = {
+            ...formData,
+            items: lineItems.map(({ _id, added_date, ...item }) => item),
+        };
+
+        if (isCreating) {
+            createMutation.mutate(dataToSave);
+        }
+    }, [isCreating, formData, lineItems, createMutation]);
+
+    // Validation
+    const getFieldError = (fieldName: string): string | undefined => {
+        if (!touched[fieldName] && !isCreating) return undefined;
+
+        switch (fieldName) {
+            case 'sale_return_no':
+                if (!formData.sale_return_no) return 'Return number is required';
+                break;
+            case 'invoice_id':
+                if (!formData.invoice_id || formData.invoice_id === 0) return 'Invoice selection is required';
+                break;
+            case 'branch_code':
+                if (!formData.branch_code) return 'Branch is required';
+                break;
+            case 'lineItems':
+                if (lineItems.length === 0) return 'At least one item is required';
+                break;
+        }
+        return undefined;
+    };
+
+    const hasError = (fieldName: string): boolean => {
+        return !!getFieldError(fieldName);
+    };
+
+    // Step 1 validation
+    const isStep1Valid = formData.sale_return_no && formData.invoice_id > 0;
+
+    // Full form validation
+    const isFormValid = isStep1Valid && lineItems.length > 0;
+    const isSaving = createMutation.isPending;
+
+    const handleNextStep = useCallback(() => {
+        if (formStep < FORM_STEPS.length - 1) {
+            setFormStep(prev => prev + 1);
+        }
+    }, [formStep]);
+
+    const handlePreviousStep = useCallback(() => {
+        if (formStep > 0) {
+            setFormStep(prev => prev - 1);
+        }
+    }, [formStep]);
+
+    const masterPanel = (
+        <SearchableList<SaleReturn>
+            items={filteredReturns}
             isLoading={isLoading}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            placeholder="Search returns..."
+            sortOptions={SORT_OPTIONS}
+            sortField={sortField}
+            onSortChange={setSortField}
+            selectedItem={selectedReturn}
+            onSelectItem={handleSelectReturnWithItems}
             emptyMessage="No sale returns found"
             listHeader={
-              <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
-                <Autocomplete
-                  size="small"
-                  options={branches}
-                  getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-                  value={branches.find(b => b.branch_code === filterBranch) || null}
-                  onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
-                  renderInput={(params) => (
-                    <TextField {...params} placeholder="Filter by Branch" size="small" />
-                  )}
-                  sx={{ mb: 1 }}
-                />
-                <Autocomplete
-                  size="small"
-                  options={customers || []}
-                  getOptionLabel={(option) => option.customer_name}
-                  value={customers?.find((c) => c.id === filterCustomer) || null}
-                  onChange={(_, newValue) => setFilterCustomer(newValue?.id || null)}
-                  renderInput={(params) => (
-                    <TextField {...params} placeholder="Filter by Customer" size="small" />
-                  )}
-                />
-              </Box>
+                <TFilterPanel>
+                    <TStatusFilter
+                        options={SALE_RETURN_STATUS_OPTIONS}
+                        value={filterStatus}
+                        onChange={setFilterStatus}
+                    />
+                    <TBranchFilter
+                        branches={branches}
+                        value={filterBranch}
+                        onChange={setFilterBranch}
+                    />
+                </TFilterPanel>
             }
-          >
-            {filteredReturns.map((returnItem) => {
-              const isSelected = state.selectedItem?.id === returnItem.id;
-              return (
+            renderItem={(ret, isSelected) => (
                 <SelectableListItem
-                  key={returnItem.id}
-                  isSelected={isSelected}
-                  onClick={() => handleSelectReturn(returnItem)}
-                  primaryText={
-                    <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                      {/* Return No */}
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span>{returnItem.sale_return_no}</span>
-                        {isSelected && (
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                            (Return No)
-                          </Typography>
-                        )}
-                      </Box>
-                      {/* Additional fields when selected */}
-                      {isSelected && (
-                        <>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <Typography component="span" variant="caption">
-                              {format(new Date(returnItem.added_date), "MMM dd, yyyy")}
-                            </Typography>
-                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                              (Date)
-                            </Typography>
-                          </Box>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <Typography component="span" variant="caption">
-                              {getInvoiceNo(returnItem.invoice_id)}
-                            </Typography>
-                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                              (Invoice)
-                            </Typography>
-                          </Box>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <Typography component="span" variant="caption" sx={{ textTransform: "capitalize" }}>
-                              {returnItem.payment_method}
-                            </Typography>
-                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                              (Payment)
-                            </Typography>
-                          </Box>
-                          {/* Status Chips - shown below all fields when selected */}
-                          <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                            <Chip
-                              label={returnItem.approval_id ? "Approved" : "Pending"}
-                              size="small"
-                              color={returnItem.approval_id ? "success" : "warning"}
-                              sx={{ height: 18, fontSize: "0.65rem" }}
-                            />
-                          </Box>
-                        </>
-                      )}
-                    </Box>
-                  }
-                  secondaryText={!isSelected ? `${format(new Date(returnItem.added_date), "MMM dd, yyyy")} • Invoice: ${getInvoiceNo(returnItem.invoice_id)}` : undefined}
-                  isFavorite={state.favorites.includes(returnItem.id)}
-                  onToggleFavorite={() => state.toggleFavorite(returnItem.id)}
+                    key={ret.id}
+                    id={ret.id}
+                    isSelected={isSelected}
+                    onClick={() => handleSelectReturnWithItems(ret)}
+                    primaryText={
+                        <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                            {/* Return Number */}
+                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span>{ret.sale_return_no || `RET-${ret.id}`}</span>
+                                {isSelected && (
+                                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                                        (Return No)
+                                    </Typography>
+                                )}
+                            </Box>
+                            {/* Additional fields when selected */}
+                            {isSelected && (
+                                <>
+                                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <Typography component="span" variant="caption">
+                                            {getInvoiceNo(ret.invoice_id)}
+                                        </Typography>
+                                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                                            (Invoice)
+                                        </Typography>
+                                    </Box>
+                                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <Typography component="span" variant="caption">
+                                            {getBranchDisplay(ret.branch_code)}
+                                        </Typography>
+                                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                                            (Branch)
+                                        </Typography>
+                                    </Box>
+                                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <Typography component="span" variant="caption">
+                                            {new Date(ret.added_date || "").toLocaleDateString()}
+                                        </Typography>
+                                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                                            (Date)
+                                        </Typography>
+                                    </Box>
+                                    {/* Status Chips */}
+                                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                                        <TStatusChip status={getStatus(ret)} statusMap="salesReturn" size="small" />
+                                    </Box>
+                                </>
+                            )}
+                        </Box>
+                    }
+                    secondaryText={!isSelected ? `Invoice: ${getInvoiceNo(ret.invoice_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
+                    isFavorite={favorites.includes(ret.id)}
+                    onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
+                    statusChip={!isSelected ? { label: getStatusProps(getStatus(ret), "salesReturn").label, color: getStatusProps(getStatus(ret), "salesReturn").color } : undefined}
                 />
-              );
-            })}
-          </SearchableList>
+            )}
+        />
+    );
 
-          {/* Detail Panel */}
-          <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    const detailPanel = (
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <DetailPanelHeader
-              icon={<ReturnIcon color="warning" />}
-              breadcrumbs={[{ label: "Sales", href: "/sales" }, { label: "Sale Returns" }]}
-              title={
-                state.selectedItem
-                  ? state.selectedItem.sale_return_no
-                  : "Select a Return"
-              }
-              chips={
-                state.selectedItem
-                  ? [
-                      {
-                        label: state.selectedItem.approval_id ? "Approved" : "Pending",
-                        color: state.selectedItem.approval_id ? "success" : "warning",
-                      },
-                    ]
-                  : undefined
-              }
+                breadcrumbs={[
+                    { label: "Sales", href: "/sales" },
+                    { label: "Sale Returns", href: "/sales/returns" },
+                    ...(selectedReturn || isCreating
+                        ? [{ label: isCreating ? "New Return" : selectedReturn?.sale_return_no || `RET-${selectedReturn?.id}` }]
+                        : []),
+                ]}
+                title={selectedReturn ? (selectedReturn.sale_return_no || `RET-${selectedReturn.id}`) : ""}
+                titleIcon={<AssignmentReturnIcon color="warning" />}
+                isCreating={isCreating}
+                createTitle="New Sale Return"
+                noSelectionTitle="Select a Return"
+                isFavorite={selectedReturn ? favorites.includes(selectedReturn.id) : false}
+                onToggleFavorite={selectedReturn ? (e) => toggleFavorite(selectedReturn.id, e) : undefined}
             />
 
             <ActionToolbar
-              canCreate={canCreate}
-              canDelete={false}
-              canUpdate={false}
-              isEditing={false}
-              isCreating={false}
-              hasSelection={!!state.selectedItem}
-              onAdd={handleCreate}
-              saveDisabled={true}
+                hasSelectedItem={!!selectedReturn}
+                isCreating={isCreating}
+                isEditing={isEditing}
+                isSaving={isSaving}
+                isFormValid={!!isFormValid}
+                canDelete={false}
+                onNew={handleNewReturn}
+                onSave={handleSave}
+                onCancel={() => handleCancel(filteredReturns)}
+                onEdit={handleStartEdit}
             />
 
             <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
-              {!state.selectedItem ? (
-                <EmptyState message="Select a sale return from the list or create a new one" />
-              ) : (
-                renderViewReturn()
-              )}
-            </Box>
-          </Box>
-        </Box>
-      </MasterDetailLayout>
+                {!selectedReturn && !isCreating ? (
+                    <EmptyState message="Select a sale return from the list or create a new one" />
+                ) : (
+                    <>
+                        {/* Stepper for create mode only */}
+                        {isCreating && (
+                            <Stepper activeStep={formStep} sx={{ mb: 3 }}>
+                                {FORM_STEPS.map((label) => (
+                                    <Step key={label}>
+                                        <StepLabel>{label}</StepLabel>
+                                    </Step>
+                                ))}
+                            </Stepper>
+                        )}
 
-      <SaleReturnDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
-    </>
-  );
+                        {/* Step 1: Return Information */}
+                        {(formStep === 0 || !isCreating) && (
+                            <>
+                                <FormSection title="Return Information" columns={3}>
+                                    <TextField
+                                        label="Return Number"
+                                        size="small"
+                                        value={formData.sale_return_no}
+                                        onChange={(e) => setFormData({ ...formData, sale_return_no: e.target.value })}
+                                        onBlur={() => handleBlur('sale_return_no')}
+                                        disabled={!isEditing && !isCreating}
+                                        required
+                                        error={hasError('sale_return_no')}
+                                        helperText={getFieldError('sale_return_no')}
+                                    />
+                                    <Autocomplete
+                                        size="small"
+                                        options={invoices || []}
+                                        getOptionLabel={(option: Invoice) => `${option.invoice_no} - ${format(new Date(option.created_date), "MMM dd, yyyy")}`}
+                                        value={invoices?.find((i: Invoice) => i.id === formData.invoice_id) || null}
+                                        onChange={(_, newValue: Invoice | null) => {
+                                            if (newValue) {
+                                                setFormData({
+                                                    ...formData,
+                                                    invoice_id: newValue.id,
+                                                    branch_code: newValue.branch_code
+                                                });
+                                            } else {
+                                                setFormData({ ...formData, invoice_id: 0 });
+                                            }
+                                            handleBlur('invoice_id');
+                                        }}
+                                        disabled={!isEditing && !isCreating}
+                                        renderInput={(params) => (
+                                            <TextField
+                                                {...params}
+                                                label="Original Invoice"
+                                                required
+                                                error={hasError('invoice_id')}
+                                                helperText={getFieldError('invoice_id')}
+                                            />
+                                        )}
+                                    />
+                                    <TextField
+                                        label="Branch"
+                                        size="small"
+                                        value={getBranchDisplay(formData.branch_code)}
+                                        disabled
+                                        helperText="Auto-filled from Invoice"
+                                    />
+                                </FormSection>
+
+                                <FormSection title="Payment & Remarks" columns={2}>
+                                    <Autocomplete
+                                        size="small"
+                                        options={PAYMENT_OPTIONS}
+                                        getOptionLabel={(option) => option.label}
+                                        value={PAYMENT_OPTIONS.find((p) => p.value === formData.payment_method) || null}
+                                        onChange={(_, newValue) => setFormData({ ...formData, payment_method: newValue?.value || "cash" })}
+                                        disabled={!isEditing && !isCreating}
+                                        renderInput={(params) => (
+                                            <TextField {...params} label="Refund Method" />
+                                        )}
+                                    />
+                                    <TextField
+                                        label="Remarks"
+                                        size="small"
+                                        value={formData.remark}
+                                        onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
+                                        disabled={!isEditing && !isCreating}
+                                        multiline
+                                        rows={2}
+                                        placeholder="Enter reason for return..."
+                                    />
+                                </FormSection>
+
+                                {/* View mode: Show date and status */}
+                                {!isCreating && !isEditing && selectedReturn && (
+                                    <FormSection title="Status" columns={3}>
+                                        <Box>
+                                            <Typography variant="caption" color="text.secondary">Date</Typography>
+                                            <Typography variant="body2" fontWeight={500}>
+                                                {format(new Date(selectedReturn.added_date), "MMMM dd, yyyy")}
+                                            </Typography>
+                                        </Box>
+                                        <Box>
+                                            <Typography variant="caption" color="text.secondary">Status</Typography>
+                                            <Box sx={{ mt: 0.5 }}>
+                                                <TStatusChip status={getStatus(selectedReturn)} statusMap="salesReturn" size="small" />
+                                            </Box>
+                                        </Box>
+                                    </FormSection>
+                                )}
+
+                                {/* Next/Cancel buttons for step 1 in create mode */}
+                                {isCreating && (
+                                    <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
+                                        <Button
+                                            variant="outlined"
+                                            onClick={() => handleCancel(filteredReturns)}
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            variant="contained"
+                                            color="warning"
+                                            onClick={handleNextStep}
+                                            disabled={!isStep1Valid}
+                                            endIcon={<ArrowForwardIcon />}
+                                        >
+                                            Next
+                                        </Button>
+                                    </Box>
+                                )}
+                            </>
+                        )}
+
+                        {/* Step 2: Return Items */}
+                        {(formStep === 1 || !isCreating) && (
+                            <>
+                                {/* Back button in create mode only */}
+                                {isCreating && (
+                                    <Button
+                                        variant="text"
+                                        onClick={handlePreviousStep}
+                                        startIcon={<ArrowBackIcon />}
+                                        sx={{ mb: 2 }}
+                                    >
+                                        Back to Return Information
+                                    </Button>
+                                )}
+
+                                {/* Barcode Scanner Section */}
+                                {(isEditing || isCreating) && (
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            p: 2,
+                                            mb: 2,
+                                            bgcolor: "warning.50",
+                                            borderColor: "warning.main",
+                                            borderWidth: 2,
+                                        }}
+                                    >
+                                        <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                                            <QrCodeScannerIcon color="warning" />
+                                            Scan Barcode to Add Return Items
+                                        </Typography>
+                                        <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+                                            <TextField
+                                                inputRef={barcodeInputRef}
+                                                size="small"
+                                                fullWidth
+                                                placeholder="Scan or type barcode and press Enter..."
+                                                value={barcodeInput}
+                                                onChange={(e) => setBarcodeInput(e.target.value)}
+                                                onKeyDown={handleBarcodeKeyDown}
+                                                disabled={formData.invoice_id === 0}
+                                                helperText={formData.invoice_id === 0 ? "Please select an invoice first" : "Press Enter to add item"}
+                                                InputProps={{
+                                                    startAdornment: (
+                                                        <InputAdornment position="start">
+                                                            <QrCodeScannerIcon fontSize="small" color="action" />
+                                                        </InputAdornment>
+                                                    ),
+                                                }}
+                                                autoFocus
+                                            />
+                                            <Button
+                                                variant="contained"
+                                                color="warning"
+                                                onClick={handleAddLineItem}
+                                                disabled={!barcodeInput.trim() || formData.invoice_id === 0}
+                                                sx={{ minWidth: 100 }}
+                                            >
+                                                Add
+                                            </Button>
+                                        </Box>
+                                    </Paper>
+                                )}
+
+                                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: isCreating ? 0 : 2 }}>
+                                    <Typography variant="subtitle1" fontWeight="bold">Return Items</Typography>
+                                    {(isEditing || isCreating) && (
+                                        <IconButton size="small" onClick={handleAddLineItem} color="warning" title="Add manual item">
+                                            <AddIcon />
+                                        </IconButton>
+                                    )}
+                                </Box>
+
+                                {/* Warning for empty items */}
+                                {(isEditing || isCreating) && lineItems.length === 0 && (
+                                    <Alert severity="warning" sx={{ mb: 2 }}>
+                                        At least one item is required to save the return. Scan barcodes to add items.
+                                    </Alert>
+                                )}
+
+                                <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow sx={modernTableStyles.headerRow}>
+                                                <TableCell>Barcode</TableCell>
+                                                <TableCell>Branch Code</TableCell>
+                                                <TableCell>Added Date</TableCell>
+                                                <TableCell align="right" sx={{ width: 120 }}>Sold Price</TableCell>
+                                                <TableCell align="right" sx={{ width: 120 }}>Return Price</TableCell>
+                                                {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {lineItems.length === 0 ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={isEditing || isCreating ? 6 : 5} sx={modernTableStyles.emptyCell}>
+                                                        {(isEditing || isCreating)
+                                                            ? "Scan barcodes above to add items"
+                                                            : "No items in this return"}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ) : (
+                                                lineItems.map((item, index) => (
+                                                    <TableRow key={item._id} sx={{
+                                                        ...modernTableStyles.bodyRow,
+                                                        ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                                                    }}>
+                                                        <TableCell>
+                                                            {(isEditing || isCreating) ? (
+                                                                <TextField
+                                                                    size="small"
+                                                                    fullWidth
+                                                                    value={item.barcode}
+                                                                    onChange={(e) => handleUpdateLineItem(item._id, "barcode", e.target.value)}
+                                                                    placeholder="Barcode"
+                                                                />
+                                                            ) : (
+                                                                <Typography variant="body2">{item.barcode}</Typography>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {item.branch_code || formData.branch_code}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {item.added_date ? new Date(item.added_date).toLocaleDateString() : (isCreating ? "New" : "-")}
+                                                        </TableCell>
+                                                        <TableCell align="right">
+                                                            {(isEditing || isCreating) ? (
+                                                                <TextField
+                                                                    size="small"
+                                                                    type="number"
+                                                                    value={item.sold_price}
+                                                                    onChange={(e) => handleUpdateLineItem(item._id, "sold_price", parseFloat(e.target.value) || 0)}
+                                                                    sx={{ width: 100 }}
+                                                                    inputProps={{ min: 0, step: 0.01 }}
+                                                                />
+                                                            ) : (
+                                                                `Rs. ${(Number(item.sold_price) || 0).toFixed(2)}`
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell align="right">
+                                                            {(isEditing || isCreating) ? (
+                                                                <TextField
+                                                                    size="small"
+                                                                    type="number"
+                                                                    value={item.return_price}
+                                                                    onChange={(e) => handleUpdateLineItem(item._id, "return_price", parseFloat(e.target.value) || 0)}
+                                                                    sx={{ width: 100 }}
+                                                                    inputProps={{ min: 0, step: 0.01 }}
+                                                                />
+                                                            ) : (
+                                                                `Rs. ${(Number(item.return_price) || 0).toFixed(2)}`
+                                                            )}
+                                                        </TableCell>
+                                                        {(isEditing || isCreating) && (
+                                                            <TableCell>
+                                                                <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
+                                                                    <DeleteIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </TableCell>
+                                                        )}
+                                                    </TableRow>
+                                                ))
+                                            )}
+                                            <TableRow sx={{ bgcolor: "action.hover" }}>
+                                                <TableCell colSpan={isEditing || isCreating ? 4 : 4} align="right">
+                                                    <Typography fontWeight="bold">Total Return:</Typography>
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                    <Typography fontWeight="bold">Rs. {(calculateTotal() || 0).toFixed(2)}</Typography>
+                                                </TableCell>
+                                                {(isEditing || isCreating) && <TableCell />}
+                                            </TableRow>
+                                        </TableBody>
+                                    </Table>
+                                </Paper>
+                            </>
+                        )}
+                    </>
+                )}
+            </Box>
+        </Box>
+    );
+
+    return (
+        <>
+            <MasterDetailLayout
+                title="Sale Returns"
+                onRefresh={refetch}
+                isLoading={isLoading}
+                masterPanel={masterPanel}
+                detailPanel={detailPanel}
+            />
+            <ConfirmDialog {...confirmDialog.dialogProps} />
+        </>
+    );
 }

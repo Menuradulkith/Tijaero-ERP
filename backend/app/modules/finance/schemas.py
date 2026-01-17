@@ -3,7 +3,6 @@ from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
-# Bank Deposit Schemas (existing table)
 class BankDepositBase(BaseModel):
     deposits_amount: Decimal
     remarks: Optional[str] = None
@@ -25,7 +24,6 @@ class BankDeposit(BankDepositBase):
     class Config:
         from_attributes = True
 
-# Card Payment Schemas (existing table)
 class CardPaymentBase(BaseModel):
     card_type: str
     amount: Decimal
@@ -44,7 +42,6 @@ class CardPayment(CardPaymentBase):
     class Config:
         from_attributes = True
 
-# Cheque Payment Schemas (existing table)
 class ChequePaymentBase(BaseModel):
     cheque_number: int
     branch_code: int
@@ -67,7 +64,6 @@ class ChequePayment(ChequePaymentBase):
         from_attributes = True
         populate_by_name = True
 
-# Advance Payment Schemas (existing table)
 class CustomerAdvancePaymentBase(BaseModel):
     customer_id: int
     payment_method: str
@@ -88,7 +84,6 @@ class CustomerAdvancePayment(CustomerAdvancePaymentBase):
     class Config:
         from_attributes = True
 
-# Credit Note Schemas (existing table)
 class CustomerCreditNoteBase(BaseModel):
     customer_id: int
     amount: Decimal
@@ -105,7 +100,6 @@ class CustomerCreditNote(CustomerCreditNoteBase):
     class Config:
         from_attributes = True
 
-# Expense Schemas (existing table)
 class ExpenseBase(BaseModel):
     expenses_no: str
     expenses_method: str
@@ -124,7 +118,6 @@ class Expense(ExpenseBase):
     class Config:
         from_attributes = True
 
-# Credit Settlement Schemas (existing tables)
 class CustomerCreditsSettleTransactionBase(BaseModel):
     payment_method: str
     cheque_date: date
@@ -162,7 +155,6 @@ class CustomerCreditsSettle(CustomerCreditsSettleBase):
 class CustomerCreditsSettleWithTransactions(CustomerCreditsSettle):
     transactions: List[CustomerCreditsSettleTransaction] = []
 
-# Supplier Credit Settlement Schemas (existing tables)
 class SupplierCreditsSettleTransactionBase(BaseModel):
     payment_method: str
     cheque_date: date
@@ -182,7 +174,6 @@ class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase):
     class Config:
         from_attributes = True
 
-# Filter Schemas
 class ExpenseListFilter(BaseModel):
     branch_code: Optional[str] = None
     date_from: Optional[date] = None

@@ -17,7 +17,6 @@ class EmployeeService:
         return repository.employee_repository.get_all(db, skip, limit)
     
     def create_employee(self, db: Session, employee: schemas.EmployeeCreate) -> schemas.Employee:
-        # Check if employee_id already exists
         existing = repository.employee_repository.get_by_employee_id(db, employee.employee_id)
         if existing:
             raise HTTPException(

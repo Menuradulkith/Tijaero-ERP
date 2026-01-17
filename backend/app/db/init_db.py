@@ -1,7 +1,6 @@
 from app.db.base import Base
 from app.db.session import engine
 
-# Import all models to register them with SQLAlchemy
 from app.auth.models import User, Group, Permission, Branch
 from app.modules.common.models import Country, Approvals, Locations
 from app.modules.customers.models import (

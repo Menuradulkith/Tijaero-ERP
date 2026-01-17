@@ -17,16 +17,14 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
-        extra = "ignore"  # Ignore extra environment variables
+        extra = "ignore" 
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Parse CORS origins if it's a JSON string
         if isinstance(self.BACKEND_CORS_ORIGINS, str):
             try:
                 self.BACKEND_CORS_ORIGINS = json.loads(self.BACKEND_CORS_ORIGINS)
             except json.JSONDecodeError:
-                # If not valid JSON, split by comma
                 self.BACKEND_CORS_ORIGINS = [
                     origin.strip() 
                     for origin in self.BACKEND_CORS_ORIGINS.split(",")
