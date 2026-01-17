@@ -20,6 +20,7 @@ import {
   Autocomplete,
 } from "@mui/material";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
+import { formatCurrency, formatAmount } from "@/utils/formatters";
 import { salesApi } from "../api";
 import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed customersApi, productsApi, branchApi imports - using aggregated endpoint
@@ -284,9 +285,9 @@ export default function SalesOrderDialog({
               <TableRow>
                 <TableCell>Product</TableCell>
                 <TableCell>Quantity</TableCell>
-                <TableCell>Price</TableCell>
+                <TableCell>Price (Rs.)</TableCell>
                 <TableCell>Warranty (months)</TableCell>
-                <TableCell>Total</TableCell>
+                <TableCell>Total (Rs.)</TableCell>
                 {!isView && <TableCell>Action</TableCell>}
               </TableRow>
             </TableHead>
@@ -365,10 +366,9 @@ export default function SalesOrderDialog({
                     />
                   </TableCell>
                   <TableCell>
-                    $
-                    {(
+                    {formatAmount(
                       items[index]?.quantity * items[index]?.selling_price || 0
-                    ).toFixed(2)}
+                    )}
                   </TableCell>
                   {!isView && (
                     <TableCell>
@@ -388,7 +388,7 @@ export default function SalesOrderDialog({
 
           <Box sx={{ mt: 2, textAlign: "right" }}>
             <Typography variant="h6">
-              Total: Rs. {calculateTotal().toFixed(2)}
+              Total: {formatCurrency(calculateTotal())}
             </Typography>
           </Box>
         </DialogContent>

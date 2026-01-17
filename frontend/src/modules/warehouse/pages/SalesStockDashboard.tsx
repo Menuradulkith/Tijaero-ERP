@@ -746,8 +746,8 @@ export default function SalesStockDashboard() {
                   <TableCell>Status</TableCell>
                   <TableCell>GRN No</TableCell>
                   <TableCell>Received Date</TableCell>
-                  <TableCell align="right">Cost Price</TableCell>
-                  <TableCell align="right">Selling Price</TableCell>
+                  <TableCell align="right">Cost Price (Rs.)</TableCell>
+                  <TableCell align="right">Selling Price (Rs.)</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -777,10 +777,10 @@ export default function SalesStockDashboard() {
                       <TableCell>{stock.grn_no || "-"}</TableCell>
                       <TableCell>{format(parseISO(stock.added_date), "dd MMM yyyy")}</TableCell>
                       <TableCell align="right">
-                        {stock.cost_price ? `Rs. ${stock.cost_price.toFixed(2)}` : "-"}
+                        {stock.cost_price ? stock.cost_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
                       </TableCell>
                       <TableCell align="right">
-                        {stock.selling_price ? `Rs. ${stock.selling_price.toFixed(2)}` : "-"}
+                        {stock.selling_price ? stock.selling_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
                       </TableCell>
                     </TableRow>
                   );

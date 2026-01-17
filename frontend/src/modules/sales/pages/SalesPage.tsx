@@ -14,6 +14,7 @@ import {
     useTConfirmDialog,
     CUSTOMER_PAYMENT_METHOD,
 } from "@/components/tijaero";
+import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 import { customersApi } from "@/modules/customers/api";
 import {
     Add as AddIcon,
@@ -446,43 +447,43 @@ export default function SalesPage() {
           {state.selectedItem && state.selectedItem.cash_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Cash</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cash_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.cash_amount)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.card_visa_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Visa</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_visa_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.card_visa_amount)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.card_mastercard_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Mastercard</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_mastercard_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.card_mastercard_amount)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.card_amex_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Amex</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_amex_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.card_amex_amount)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.cheque_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Cheque</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cheque_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.cheque_amount)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.bank_transfer_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Bank Transfer</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.bank_transfer_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.bank_transfer_amount)}</Typography>
             </Box>
           )}
           {state.selectedItem && state.selectedItem.credit_amount > 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Credit</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.credit_amount)}</Typography>
             </Box>
           )}
         </Box>
@@ -491,7 +492,7 @@ export default function SalesPage() {
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="subtitle2" fontWeight={600}>Total Amount</Typography>
             <Typography variant="h6" fontWeight={700} color="success.main">
-              Rs. {state.selectedItem && calculateTotal(state.selectedItem).toFixed(2)}
+              {state.selectedItem && formatCurrency(calculateTotal(state.selectedItem))}
             </Typography>
           </Box>
         </Box>
@@ -504,19 +505,19 @@ export default function SalesPage() {
           {state.selectedItem.payment_adjustments !== 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Payment Adjustments</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.payment_adjustments)}</Typography>
             </Box>
           )}
           {state.selectedItem.cupon_amount !== 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Coupon Amount</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cupon_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.cupon_amount)}</Typography>
             </Box>
           )}
           {state.selectedItem.credit_note_amount !== 0 && (
             <Box>
               <Typography variant="caption" color="text.secondary">Credit Note</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatCurrency(state.selectedItem.credit_note_amount)}</Typography>
             </Box>
           )}
         </FormSection>
@@ -599,8 +600,8 @@ export default function SalesPage() {
               <TableRow>
                 <TableCell>Product</TableCell>
                 <TableCell align="right">Qty</TableCell>
-                <TableCell align="right">Price</TableCell>
-                <TableCell align="right">Total</TableCell>
+                <TableCell align="right">Price (Rs.)</TableCell>
+                <TableCell align="right">Total (Rs.)</TableCell>
                 <TableCell align="center">Action</TableCell>
               </TableRow>
             </TableHead>
@@ -640,11 +641,11 @@ export default function SalesPage() {
                       value={item.selling_price}
                       onChange={(e) => updateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)}
                       sx={{ width: 100 }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment> }}
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Typography fontWeight={500}>Rs. {(item.quantity * item.selling_price).toFixed(2)}</Typography>
+                    <Typography fontWeight={500}>{formatAmount(item.quantity * item.selling_price)}</Typography>
                   </TableCell>
                   <TableCell align="center">
                     <IconButton size="small" color="error" onClick={() => removeLineItem(index)}>
@@ -659,7 +660,7 @@ export default function SalesPage() {
         <Divider sx={{ my: 2 }} />
         <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
           <Typography variant="h6" fontWeight={700} color="success.main">
-            Total: Rs. {calculateLineItemsTotal().toFixed(2)}
+            Total: {formatCurrency(calculateLineItemsTotal())}
           </Typography>
         </Box>
       </Paper>
@@ -707,7 +708,7 @@ export default function SalesPage() {
                         fontWeight={600}
                         sx={{ color: isSelected ? "inherit" : "success.main" }}
                       >
-                        Rs. {calculateTotal(invoice).toFixed(2)}
+                        {formatCurrency(calculateTotal(invoice))}
                       </Typography>
                       {isSelected && (
                         <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>

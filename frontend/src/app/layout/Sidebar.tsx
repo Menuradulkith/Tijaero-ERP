@@ -93,6 +93,7 @@ const menuItems: MenuItem[] = [
       { text: "Purchase Returns", icon: <AssignmentReturnIcon />, path: "/purchasing/returns" },
       { text: "Return Approvals", icon: <FactCheckIcon />, path: "/purchasing/return-approvals" },
       { text: "Supplier Payments", icon: <PaymentIcon />, path: "/purchasing/payments" },
+      { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/purchasing/payment-approvals" },
     ],
   },
   {

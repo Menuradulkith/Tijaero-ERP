@@ -70,7 +70,7 @@ export default function PurchaseReturnApprovalsPage() {
   const [selectedReturn, setSelectedReturn] = useState<PurchasingReturnWithItems | null>(null);
 
   // Filter states
-  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>("pending"); // Default to pending
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // Dialogs
@@ -415,8 +415,8 @@ export default function PurchaseReturnApprovalsPage() {
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Barcode</TableCell>
                       <TableCell>Product</TableCell>
-                      <TableCell align="right">Purchase Price</TableCell>
-                      <TableCell align="right">Return Price</TableCell>
+                      <TableCell align="right">Purchase Price (Rs.)</TableCell>
+                      <TableCell align="right">Return Price (Rs.)</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -429,8 +429,8 @@ export default function PurchaseReturnApprovalsPage() {
                         }}>
                           <TableCell>{item.barcode}</TableCell>
                           <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
-                          <TableCell align="right">Rs. {Number(item.purchasing_price).toLocaleString()}</TableCell>
-                          <TableCell align="right">Rs. {Number(item.return_price).toLocaleString()}</TableCell>
+                          <TableCell align="right">{Number(item.purchasing_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                          <TableCell align="right">{Number(item.return_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                         </TableRow>
                       );
                     })}
@@ -440,7 +440,7 @@ export default function PurchaseReturnApprovalsPage() {
                       </TableCell>
                       <TableCell align="right">
                         <strong>
-                          Rs. {selectedReturn.items?.reduce((sum, item) => sum + Number(item.return_price), 0).toLocaleString() || "0"}
+                          {(selectedReturn.items?.reduce((sum, item) => sum + Number(item.return_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </strong>
                       </TableCell>
                     </TableRow>

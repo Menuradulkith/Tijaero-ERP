@@ -163,7 +163,7 @@ export default function SalesReportPage() {
                   <TableRow>
                     <TableCell>Product Name</TableCell>
                     <TableCell align="right">Quantity Sold</TableCell>
-                    <TableCell align="right">Revenue</TableCell>
+                    <TableCell align="right">Revenue (Rs.)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -174,7 +174,7 @@ export default function SalesReportPage() {
                         {product.quantity_sold}
                       </TableCell>
                       <TableCell align="right">
-                        Rs. {product.revenue.toFixed(2)}
+                        {product.revenue.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -193,7 +193,7 @@ export default function SalesReportPage() {
                   <TableRow>
                     <TableCell>Branch Code</TableCell>
                     <TableCell align="right">Orders</TableCell>
-                    <TableCell align="right">Revenue</TableCell>
+                    <TableCell align="right">Revenue (Rs.)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -202,7 +202,7 @@ export default function SalesReportPage() {
                       <TableCell>{branch.branch_code}</TableCell>
                       <TableCell align="right">{branch.orders}</TableCell>
                       <TableCell align="right">
-                        Rs. {branch.revenue.toFixed(2)}
+                        {branch.revenue.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                     </TableRow>
                   ))}

@@ -22,6 +22,18 @@ export function formatCurrency(value: number): string {
 }
 
 /**
+ * Format a number as amount without currency symbol (for use with column headers that include currency)
+ * @param value - The numeric value to format
+ * @returns Formatted amount string (e.g., "12,345.60")
+ */
+export function formatAmount(value: number): string {
+  return new Intl.NumberFormat(ERP_LOCALE, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+/**
  * Format a number with comma separators
  * @param value - The numeric value to format
  * @returns Formatted number string (e.g., "1,234")

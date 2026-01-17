@@ -9,6 +9,7 @@
 
 import { useMemo, useCallback, useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   TextField,
@@ -79,8 +80,9 @@ import {
   modernTableStyles,
 } from "@/components/tijaero";
 
-import { goodReceivedNotesApi, goodReceivedItemsApi, purchaseOrdersApi } from "@/modules/purchasing/api";
+import { goodReceivedNotesApi, goodReceivedItemsApi, purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
+import { Supplier } from "@/modules/purchasing/types";
 import { locationsApi } from "@/modules/common/api";
 import { salesStockApi, companyAssetsApi, productsApi } from "@/modules/inventory/api";
 import { Product } from "@/modules/inventory/types";
@@ -160,6 +162,7 @@ const resetFormFromGRN = (grn: GoodReceivedNote): GoodReceivedNoteCreate => ({
 
 export default function GoodReceivedNotesPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [lineItems, setLineItems] = useState<GRNLineItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [formStep, setFormStep] = useState(0);
@@ -197,6 +200,8 @@ export default function GoodReceivedNotesPage() {
   
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   const {
     searchQuery,
@@ -215,7 +220,7 @@ export default function GoodReceivedNotesPage() {
     handleSelectItem: handleSelectGRN,
     handleNew: handleNewGRNBase,
     handleCancel: handleCancelBase,
-    handleStartEdit: handleStartEditBase,
+    // handleStartEdit removed - GRNs are not editable after creation
   } = useMasterDetailState<GoodReceivedNote, GoodReceivedNoteCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromGRN,
@@ -232,6 +237,19 @@ export default function GoodReceivedNotesPage() {
 
   // OPTIMIZED: Fetch locations and branches in a single call
   const { data: refData } = useReferenceData(["locations", "branches"]);
+
+  // Load suppliers for filter
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      try {
+        const data = await suppliersApi.getAll();
+        setSuppliers(data || []);
+      } catch (err) {
+        console.error("Failed to load suppliers:", err);
+      }
+    };
+    loadSuppliers();
+  }, []);
   
   // Filter locations for the selected branch from the aggregated data
   const locations = useMemo(() => {
@@ -299,10 +317,7 @@ export default function GoodReceivedNotesPage() {
     return Object.values(groups).sort((a, b) => a.product_name.localeCompare(b.product_name));
   }, [lineItems, isCreating]);
 
-  const handleStartEdit = useCallback(() => {
-    handleStartEditBase();
-    setFormStep(0);
-  }, [handleStartEditBase]);
+  // handleStartEdit removed - GRNs are not editable after creation
 
   const handleCancel = useCallback((items: GoodReceivedNote[]) => {
     handleCancelBase(items);
@@ -335,14 +350,32 @@ export default function GoodReceivedNotesPage() {
     if (!grns) return [];
 
     let filtered = grns.filter(
-      (grn) =>
-        grn.good_received_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        String(grn.id).includes(searchQuery)
+      (grn) => {
+        const grnMatch = grn.good_received_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          String(grn.id).includes(searchQuery);
+        
+        // Also search by PO number
+        const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === grn.purchasingorders_id);
+        const poNumber = po?.purchasing_order_no || "";
+        const poMatch = poNumber.toLowerCase().includes(searchQuery.toLowerCase());
+        
+        return grnMatch || poMatch;
+      }
     );
 
     // Apply branch filter
     if (filterBranch) {
       filtered = filtered.filter(grn => grn.branch_code === filterBranch);
+    }
+
+    // Apply supplier filter (through PO)
+    if (filterSupplier && purchaseOrders) {
+      const poIdsForSupplier = new Set(
+        purchaseOrders
+          .filter((po: PurchasingOrder) => po.first_suppliers_id === filterSupplier || po.second_suppliers_id === filterSupplier)
+          .map((po: PurchasingOrder) => po.id)
+      );
+      filtered = filtered.filter(grn => poIdsForSupplier.has(grn.purchasingorders_id));
     }
 
     filtered.sort((a, b) => {
@@ -355,7 +388,7 @@ export default function GoodReceivedNotesPage() {
     });
 
     return filtered;
-  }, [grns, searchQuery, sortField, filterBranch]);
+  }, [grns, searchQuery, sortField, filterBranch, filterSupplier, purchaseOrders]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -476,8 +509,7 @@ export default function GoodReceivedNotesPage() {
       
       return { grn: newGRN, grnItemCount, salesStockCount, companyAssetCount };
     },
-    onSuccess: ({ grn: newGRN, grnItemCount, salesStockCount, companyAssetCount }) => {
-      queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
+    onSuccess: async ({ grn: newGRN, grnItemCount, salesStockCount, companyAssetCount }) => {
       const messages = [`${grnItemCount} items received`];
       if (salesStockCount > 0) messages.push(`${salesStockCount} to Sales Stock`);
       if (companyAssetCount > 0) messages.push(`${companyAssetCount} to Company Assets`);
@@ -487,7 +519,29 @@ export default function GoodReceivedNotesPage() {
       setLineItems([]);
       setProductGroups([]);
       setCreditLimitDialog({ open: false, errorMessage: "", pendingData: null });
-      setTimeout(() => handleSelectGRNWithItems(newGRN), 0);
+      
+      // Refetch the GRN list to get the complete data
+      await queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
+      await queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      
+      // Wait for refetch to complete
+      await refetch();
+      
+      // Navigate to supplier payments page for non-credit orders
+      // Credit orders will use the Credit Settlement page instead
+      const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === newGRN.purchasingorders_id);
+      if (po && po.payment_method?.toLowerCase() !== "credit") {
+        setTimeout(() => {
+          navigate("/purchasing/supplier-payments");
+        }, 1500); // Delay to show success message
+      } else {
+        // For credit orders, refetch and select the newly created GRN with full data
+        setTimeout(async () => {
+          const refreshedGRNs = await goodReceivedNotesApi.getById(newGRN.id);
+          handleSelectGRNWithItems(refreshedGRNs);
+        }, 100);
+      }
     },
     onError: (error: any, variables) => {
       const errorDetail = error.response?.data?.detail || error.message || "Failed to create GRN";
@@ -506,18 +560,19 @@ export default function GoodReceivedNotesPage() {
     },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<GoodReceivedNoteCreate> }) =>
-      goodReceivedNotesApi.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
-      toast.success("GRN updated successfully");
-      setIsEditing(false);
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to update GRN");
-    },
-  });
+  // updateMutation removed - GRNs are not editable after creation
+  // const updateMutation = useMutation({
+  //   mutationFn: ({ id, data }: { id: number; data: Partial<GoodReceivedNoteCreate> }) =>
+  //     goodReceivedNotesApi.update(id, data),
+  //   onSuccess: () => {
+  //     queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
+  //     toast.success("GRN updated successfully");
+  //     setIsEditing(false);
+  //   },
+  //   onError: (error: any) => {
+  //     toast.error(error.response?.data?.detail || "Failed to update GRN");
+  //   },
+  // });
 
   const handleAddLineItem = () => {
     const newItem: GRNLineItem = {
@@ -547,10 +602,9 @@ export default function GoodReceivedNotesPage() {
   const handleSave = useCallback((allowCreditOverride = false) => {
     if (isCreating) {
       createMutation.mutate({ data: formData, allowCreditOverride });
-    } else if (selectedGRN) {
-      updateMutation.mutate({ id: selectedGRN.id, data: formData });
     }
-  }, [isCreating, selectedGRN, formData, createMutation, updateMutation]);
+    // Update removed - GRNs are not editable after creation
+  }, [isCreating, formData, createMutation]);
   
   // Button click handler that calls handleSave with default parameters
   const handleSaveClick = useCallback(() => {
@@ -578,6 +632,13 @@ export default function GoodReceivedNotesPage() {
     return location ? location.name : `Location ${locationId}`;
   };
 
+  const getSupplierName = useCallback((poId: number) => {
+    const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === poId);
+    if (!po) return "N/A";
+    const supplier = suppliers.find(s => s.id === po.first_suppliers_id);
+    return supplier ? supplier.full_name : "Unknown Supplier";
+  }, [purchaseOrders, suppliers]);
+
   const getBranchDisplay = (branchCode: string) => {
     const branch = branchesData?.items?.find((b) => b.branch_code === branchCode);
     return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
@@ -602,7 +663,9 @@ export default function GoodReceivedNotesPage() {
         purchasingorders_id: poId,
         branch_code: selectedPO.branch_code,
         good_received_date: selectedPO.good_received_note_date?.split("T")[0] || new Date().toISOString().split("T")[0],
-        good_received_locations_id: selectedLocationId
+        good_received_locations_id: selectedLocationId,
+        // Auto-fill supplier invoice number from PO's purchasing_invoice_no
+        supplier_invoice_no: selectedPO.purchasing_invoice_no || "",
       });
       
       // Load PO items when PO is selected
@@ -616,12 +679,36 @@ export default function GoodReceivedNotesPage() {
           const allProducts = await productsApi.getAll(0, 1000, true);
           setProducts(allProducts);
           
-          // Create line items from PO items - one for each quantity
+          // For partially completed POs, fetch already received items to exclude them
+          const receivedCountMap = new Map<number, number>(); // po_item_id -> count of received items
+          
+          if (selectedPO.status === "partially_completed") {
+            try {
+              // Get all GRN items for this PO
+              const receivedItems = await goodReceivedItemsApi.getByPO(poId);
+              
+              // Count how many items have been received for each PO item
+              receivedItems.forEach((grnItem) => {
+                if (grnItem.purchasing_order_items_id && grnItem.active) {
+                  const count = receivedCountMap.get(grnItem.purchasing_order_items_id) || 0;
+                  receivedCountMap.set(grnItem.purchasing_order_items_id, count + 1);
+                }
+              });
+            } catch (error) {
+              console.error("Failed to fetch received items:", error);
+              // Continue with all items if we can't fetch received items
+            }
+          }
+          
+          // Create line items from PO items - one for each quantity (excluding received items)
           const newLineItems: GRNLineItem[] = [];
           poWithItems.items?.forEach((poItem: PurchasingOrderItem) => {
             const product = allProducts.find((p: Product) => p.id === poItem.product_id);
-            // Create one line item for each quantity
-            for (let i = 0; i < poItem.quantity; i++) {
+            const receivedCount = receivedCountMap.get(poItem.id) || 0;
+            const remainingQty = poItem.quantity - receivedCount;
+            
+            // Only create line items for unreceived quantities
+            for (let i = 0; i < remainingQty; i++) {
               newLineItems.push({
                 _id: `po-${poItem.id}-${i}`,
                 good_received_note: formData.good_received_no,
@@ -1084,7 +1171,7 @@ export default function GoodReceivedNotesPage() {
     }
   }, [formStep]);
 
-  const isSaving = createMutation.isPending || updateMutation.isPending;
+  const isSaving = createMutation.isPending; // updateMutation removed - GRNs not editable
 
   const masterPanel = (
     <SearchableList<GoodReceivedNote>
@@ -1105,6 +1192,22 @@ export default function GoodReceivedNotesPage() {
             branches={branches}
             value={filterBranch}
             onChange={setFilterBranch}
+          />
+          <Autocomplete
+            size="small"
+            options={suppliers}
+            getOptionLabel={(option) => option.full_name || ''}
+            value={suppliers.find(s => s.id === filterSupplier) || null}
+            onChange={(_, newValue) => setFilterSupplier(newValue?.id || null)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Filter by Supplier"
+                placeholder="All Suppliers"
+                sx={{ minWidth: 200 }}
+              />
+            )}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
           />
         </TFilterPanel>
       }
@@ -1146,10 +1249,10 @@ export default function GoodReceivedNotesPage() {
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      {new Date(grn.good_received_date || "").toLocaleDateString()}
+                      {new Date(grn.supplier_invoice_date || grn.good_received_date || "").toLocaleDateString()}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Date)
+                      (Invoice Date)
                     </Typography>
                   </Box>
                   {/* Status Chips - shown below all fields when selected */}
@@ -1165,7 +1268,7 @@ export default function GoodReceivedNotesPage() {
               )}
             </Box>
           }
-          secondaryText={!isSelected ? `PO: ${getOrderNumber(grn.purchasingorders_id)} • ${getLocationName(grn.good_received_locations_id)} • ${new Date(grn.good_received_date || "").toLocaleDateString()}` : undefined}
+          secondaryText={!isSelected ? `PO: ${getOrderNumber(grn.purchasingorders_id)} • ${getLocationName(grn.good_received_locations_id)} • ${new Date(grn.supplier_invoice_date || grn.good_received_date || "").toLocaleDateString()}` : undefined}
           isFavorite={favorites.includes(grn.id)}
           onToggleFavorite={(e) => toggleFavorite(grn.id, e)}
           statusChip={!isSelected ? { label: "Received", color: "success" } : undefined}
@@ -1202,7 +1305,8 @@ export default function GoodReceivedNotesPage() {
         onNew={handleNewGRN}
         onSave={handleSaveClick}
         onCancel={() => handleCancel(filteredGRNs)}
-        onEdit={handleStartEdit}
+        // onEdit disabled - GRNs are not editable after creation
+        // onEdit={handleStartEdit}
         endActions={
           selectedGRN && !isCreating && !isEditing ? (
             <Tooltip title="Print / Preview Report">
@@ -1255,8 +1359,13 @@ export default function GoodReceivedNotesPage() {
                   <Autocomplete
                     size="small"
                     options={purchaseOrders?.filter((order: PurchasingOrder) => {
-                      if (order.status !== "approved") return false;
+                      // Allow approved and partially_completed POs
+                      // partially_completed means some items received, but more can be received
+                      if (order.status !== "approved" && order.status !== "partially_completed") return false;
                       const isCurrent = order.id === formData.purchasingorders_id;
+                      // For partially_completed, always allow (to receive remaining items)
+                      // For approved, check if no GRN exists yet
+                      if (order.status === "partially_completed") return true;
                       return isCurrent || !poIdsWithGrn.has(order.id);
                     }) || []}
                     getOptionLabel={(option: PurchasingOrder) => option.purchasing_order_no || ""}
@@ -1269,7 +1378,7 @@ export default function GoodReceivedNotesPage() {
                     renderInput={(params) => (
                       <TextField
                         {...params}
-                        label="Purchase Order (Approved Only)"
+                        label="Purchase Order (Approved / Partially Completed)"
                         required
                         error={hasError('purchasingorders_id')}
                         helperText={getFieldError('purchasingorders_id')}
@@ -1320,6 +1429,13 @@ export default function GoodReceivedNotesPage() {
                   <MenuItem value={1}>Default Location</MenuItem>
                 )}
               </TextField>
+              <TextField
+                label="Supplier Name"
+                size="small"
+                value={getSupplierName(formData.purchasingorders_id)}
+                disabled
+                helperText="Auto-filled from Purchase Order"
+              />
             </FormSection>
 
             <FormSection title="Supplier Invoice" columns={2}>

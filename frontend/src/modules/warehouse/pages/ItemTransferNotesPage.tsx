@@ -853,7 +853,7 @@ export default function ItemTransferNotesPage() {
                           <TableCell>Barcode</TableCell>
                           <TableCell>Product</TableCell>
                           <TableCell>Branch Code</TableCell>
-                          <TableCell align="right">Cost Price</TableCell>
+                          <TableCell align="right">Cost Price (Rs.)</TableCell>
                           <TableCell align="center">Status</TableCell>
                         </TableRow>
                       </TableHead>
@@ -879,7 +879,7 @@ export default function ItemTransferNotesPage() {
                             </TableCell>
                             <TableCell>{item.product_name || `Product #${item.product_id}`}</TableCell>
                             <TableCell>{item.branch_code || formData.branch_code || "-"}</TableCell>
-                            <TableCell align="right">{item.cost_price ? `Rs. ${item.cost_price.toFixed(2)}` : '-'}</TableCell>
+                            <TableCell align="right">{item.cost_price ? item.cost_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</TableCell>
                             <TableCell align="center">
                               {item.item_recieved ? (
                                 <Chip label="Received" size="small" color="success" />
@@ -901,7 +901,7 @@ export default function ItemTransferNotesPage() {
                           <TableCell>Barcode</TableCell>
                           <TableCell>Product</TableCell>
                           <TableCell>Branch Code</TableCell>
-                          <TableCell align="right">Cost Price</TableCell>
+                          <TableCell align="right">Cost Price (Rs.)</TableCell>
                           <TableCell sx={{ width: 50 }} />
                         </TableRow>
                       </TableHead>
@@ -938,7 +938,7 @@ export default function ItemTransferNotesPage() {
                               </TableCell>
                               <TableCell>{validatedItem?.branch_code || item.branch_code || formData.branch_code || "-"}</TableCell>
                               <TableCell align="right">
-                                {item.cost_price || validatedItem?.cost_price ? `Rs. ${(item.cost_price || validatedItem?.cost_price || 0).toFixed(2)}` : '-'}
+                                {item.cost_price || validatedItem?.cost_price ? (item.cost_price || validatedItem?.cost_price || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                               </TableCell>
                               <TableCell>
                                 <IconButton size="small" onClick={() => handleRemoveValidatedItem(item.barcode)} color="error">

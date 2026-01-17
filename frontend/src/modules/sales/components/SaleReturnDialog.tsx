@@ -21,6 +21,7 @@ import {
   Alert,
 } from "@mui/material";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
+import { formatCurrency } from "@/utils/formatters";
 import { saleReturnsApi, salesApi } from "../api";
 import { Invoice, SaleReturnCreate } from "../types";
 import { useReferenceData } from "@/hooks";
@@ -268,8 +269,8 @@ export default function SaleReturnDialog({
               <TableHead>
                 <TableRow>
                   <TableCell>Barcode/Serial</TableCell>
-                  <TableCell>Sold Price</TableCell>
-                  <TableCell>Return Price</TableCell>
+                  <TableCell>Sold Price (Rs.)</TableCell>
+                  <TableCell>Return Price (Rs.)</TableCell>
                   <TableCell>Invoice Item</TableCell>
                   <TableCell>Action</TableCell>
                 </TableRow>
@@ -365,7 +366,7 @@ export default function SaleReturnDialog({
 
           <Box sx={{ mt: 2, textAlign: "right" }}>
             <Typography variant="h6" color="error.main">
-              Total Refund: Rs. {calculateTotal().toFixed(2)}
+              Total Refund: {formatCurrency(calculateTotal())}
             </Typography>
           </Box>
         </DialogContent>

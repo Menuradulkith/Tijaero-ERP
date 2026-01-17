@@ -67,6 +67,7 @@ import WarningIcon from "@mui/icons-material/Warning";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import toast from "react-hot-toast";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 
 import {
   MasterDetailLayout,
@@ -82,6 +83,7 @@ import {
   supplierCreditsSettleApi,
   supplierCreditApi,
   supplierPaymentsApi,
+  supplierAdvancePaymentsApi,
   SupplierPaymentStatusData,
 } from "@/modules/purchasing/api";
 import { branchApi } from "@/modules/branches/api";
@@ -92,6 +94,9 @@ import {
   SupplierPaymentCreate,
   SupplierPayment,
   SupplierCreditsSettle,
+  SupplierAdvancePayment,
+  SupplierAdvancePaymentCreate,
+  SupplierAdvanceBalanceSummary,
 } from "@/modules/purchasing/types";
 
 // Configuration
@@ -143,7 +148,7 @@ interface PaymentLine {
 const STEPS = ["Select Documents", "Payment Details", "Review & Post"];
 
 // View mode enum
-type ViewMode = "overview" | "documents" | "payment" | "review" | "history";
+type ViewMode = "overview" | "documents" | "payment" | "review" | "history" | "advances";
 
 export default function SupplierPaymentsPage() {
   // Data state
@@ -190,6 +195,18 @@ export default function SupplierPaymentsPage() {
   // Payment history state
   const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Advance payments state
+  const [advancePayments, setAdvancePayments] = useState<SupplierAdvancePayment[]>([]);
+  const [advanceBalance, setAdvanceBalance] = useState<SupplierAdvanceBalanceSummary | null>(null);
+  const [loadingAdvances, setLoadingAdvances] = useState(false);
+  const [showAdvanceForm, setShowAdvanceForm] = useState(false);
+  const [advanceFormData, setAdvanceFormData] = useState<Partial<SupplierAdvancePaymentCreate>>({
+    payment_method: "Bank Transfer",
+    payment_date: new Date().toISOString().split("T")[0],
+    original_amount: 0,
+  });
+  const [savingAdvance, setSavingAdvance] = useState(false);
 
   const confirmDialog = useConfirmDialog();
 
@@ -241,23 +258,55 @@ export default function SupplierPaymentsPage() {
     try {
       setLoadingHistory(true);
       
-      // Load both credit settlements and non-credit payments
+      // Load both credit settlements and non-credit payments (all statuses for history)
       const [creditSettlements, nonCreditPayments] = await Promise.all([
         supplierCreditsSettleApi.getBySupplier(supplierId).catch(() => []),
+        // Get ALL payment statuses for history - no status filter
         supplierPaymentsApi.getAll({ supplier_id: supplierId }).catch(() => []),
       ]);
 
+      // Fetch full details for each credit settlement to get transaction info
+      const settlementsWithDetails = await Promise.all(
+        (creditSettlements || []).map(async (s: SupplierCreditsSettle) => {
+          try {
+            const fullSettlement = await supplierCreditsSettleApi.getById(s.id);
+            const totalAmount = fullSettlement.transactions?.reduce((sum, t) => sum + (t.payment_amount || 0), 0) || 0;
+            const poNos = [...new Set(fullSettlement.transactions?.map(t => t.po_no).filter(Boolean))].join(", ");
+            const grnNos = [...new Set(fullSettlement.transactions?.map(t => t.grn_no).filter(Boolean))].join(", ");
+            const paymentMethods = [...new Set(fullSettlement.transactions?.map(t => t.payment_method).filter(Boolean))].join(", ");
+            
+            return {
+              type: "credit_settlement",
+              id: s.id,
+              settle_no: s.supplier_credits_settle_no,
+              date: s.created_date,
+              total_amount: totalAmount,
+              po_no: poNos || undefined,
+              grn_no: grnNos || undefined,
+              payment_method: paymentMethods || undefined,
+              transactions: fullSettlement.transactions || [],
+              branch_code: s.branch_code,
+              status: fullSettlement.status,
+            };
+          } catch (err) {
+            console.error(`Failed to load details for settlement ${s.id}:`, err);
+            return {
+              type: "credit_settlement",
+              id: s.id,
+              settle_no: s.supplier_credits_settle_no,
+              date: s.created_date,
+              total_amount: 0,
+              transactions: [],
+              branch_code: s.branch_code,
+              status: s.status || "pending",
+            };
+          }
+        })
+      );
+
       // Combine and sort by date
       const combined: any[] = [
-        ...(creditSettlements || []).map((s: SupplierCreditsSettle) => ({
-          type: "credit_settlement",
-          id: s.id,
-          settle_no: s.supplier_credits_settle_no,
-          date: s.created_date,
-          total_amount: 0, // We don't have transaction details from getBySupplier
-          transactions: [],
-          branch_code: s.branch_code,
-        })),
+        ...settlementsWithDetails,
         ...(nonCreditPayments || []).map((p: SupplierPayment) => ({
           type: "payment",
           id: p.id,
@@ -284,6 +333,96 @@ export default function SupplierPaymentsPage() {
       setLoadingHistory(false);
     }
   }, []);
+
+  // Load advance payments for selected supplier
+  const loadAdvancePayments = useCallback(async (supplierId: number) => {
+    try {
+      setLoadingAdvances(true);
+      
+      // Load both advance payments list and balance summary
+      const [advances, balance] = await Promise.all([
+        supplierAdvancePaymentsApi.getBySupplier(supplierId).catch(() => []),
+        supplierAdvancePaymentsApi.getSupplierBalance(supplierId).catch(() => null),
+      ]);
+
+      setAdvancePayments(advances || []);
+      setAdvanceBalance(balance);
+    } catch (err) {
+      console.error("Failed to load advance payments:", err);
+      setAdvancePayments([]);
+      setAdvanceBalance(null);
+    } finally {
+      setLoadingAdvances(false);
+    }
+  }, []);
+
+  // Create a new advance payment
+  const handleCreateAdvance = async () => {
+    if (!selectedSupplier || !advanceFormData.original_amount || advanceFormData.original_amount <= 0) {
+      toast.error("Please enter a valid advance amount");
+      return;
+    }
+
+    if (!advanceFormData.branch_code) {
+      toast.error("Please select a branch");
+      return;
+    }
+
+    try {
+      setSavingAdvance(true);
+      
+      const data: SupplierAdvancePaymentCreate = {
+        supplier_id: selectedSupplier.id,
+        payment_date: advanceFormData.payment_date || new Date().toISOString().split("T")[0],
+        payment_method: advanceFormData.payment_method || "Bank Transfer",
+        original_amount: advanceFormData.original_amount,
+        reference_number: advanceFormData.reference_number,
+        bank_name: advanceFormData.bank_name,
+        branch_code: advanceFormData.branch_code,
+        remarks: advanceFormData.remarks,
+      };
+
+      await supplierAdvancePaymentsApi.create(data);
+      toast.success("Advance payment created successfully");
+      
+      // Reset form and reload data
+      setShowAdvanceForm(false);
+      setAdvanceFormData({
+        payment_method: "Bank Transfer",
+        payment_date: new Date().toISOString().split("T")[0],
+        original_amount: 0,
+      });
+      loadAdvancePayments(selectedSupplier.id);
+    } catch (err: any) {
+      console.error("Failed to create advance payment:", err);
+      toast.error(err?.response?.data?.detail || "Failed to create advance payment");
+    } finally {
+      setSavingAdvance(false);
+    }
+  };
+
+  // Delete an advance payment
+  const handleDeleteAdvance = async (advanceId: number) => {
+    if (!selectedSupplier) return;
+
+    const confirmed = await confirmDialog.confirm({
+      title: "Delete Advance Payment",
+      message: "Are you sure you want to delete this advance payment? This action cannot be undone.",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      await supplierAdvancePaymentsApi.delete(advanceId);
+      toast.success("Advance payment deleted");
+      loadAdvancePayments(selectedSupplier.id);
+    } catch (err: any) {
+      console.error("Failed to delete advance payment:", err);
+      toast.error(err?.response?.data?.detail || "Failed to delete advance payment");
+    }
+  };
 
   // Transform API data to unified documents
   const outstandingDocuments = useMemo((): OutstandingDocument[] => {
@@ -316,8 +455,10 @@ export default function SupplierPaymentsPage() {
       }
     });
 
-    // Add non-credit purchase orders
+    // Add non-credit purchase orders (exclude those with pending payments)
     paymentStatus.non_credit_purchase_orders?.forEach((po) => {
+      // Only show if: has GRN, not fully paid, and has remaining amount
+      // Note: is_paid already considers only verified payments, so pending payments don't affect this
       if (po.has_grn && !po.is_paid && po.remaining_amount > 0) {
         docs.push({
           id: po.po_id,
@@ -425,6 +566,13 @@ export default function SupplierPaymentsPage() {
       handleSelectSupplier(firstSupplier);
     }
   }, [filteredSuppliers.length, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload payment status when a supplier is selected (to get fresh data after navigation)
+  useEffect(() => {
+    if (selectedSupplier) {
+      loadPaymentStatus(selectedSupplier.id);
+    }
+  }, [selectedSupplier?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetPaymentForm = () => {
     setPaymentMethod("Bank Transfer");
@@ -559,7 +707,7 @@ export default function SupplierPaymentsPage() {
 
     const confirmed = await confirmDialog.confirm({
       title: "Post Payment",
-      message: `Post payment of Rs. ${totalPaymentAmount.toLocaleString()} for ${selectedSupplier.full_name}? This action cannot be undone.`,
+      message: `Post payment of ${formatCurrency(totalPaymentAmount)} for ${selectedSupplier.full_name}? This action cannot be undone.`,
       confirmText: "Post Payment",
     });
 
@@ -664,6 +812,10 @@ export default function SupplierPaymentsPage() {
         setViewMode("payment");
         setActiveStep(1);
         break;
+      case "history":
+      case "advances":
+        setViewMode("overview");
+        break;
     }
   }, [viewMode]);
 
@@ -750,7 +902,7 @@ export default function SupplierPaymentsPage() {
                     )}
                     {outstanding > 0 && (
                       <Typography variant="caption" color="warning.main">
-                        Outstanding: Rs. {outstanding.toLocaleString()}
+                        Outstanding: {formatCurrency(outstanding)}
                       </Typography>
                     )}
                   </>
@@ -826,7 +978,7 @@ export default function SupplierPaymentsPage() {
                 <TableCell>Document No.</TableCell>
                 <TableCell>PO/Invoice</TableCell>
                 <TableCell>Payment Method</TableCell>
-                <TableCell align="right">Amount</TableCell>
+                <TableCell align="right">Amount (Rs.)</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Branch</TableCell>
               </TableRow>
@@ -847,35 +999,275 @@ export default function SupplierPaymentsPage() {
                   </TableCell>
                   <TableCell>
                     {item.type === "credit_settlement" 
-                      ? "-" // Transactions not loaded in summary
+                      ? item.po_no || item.grn_no || "-"
                       : item.po_no || item.invoice_reference || "-"}
                   </TableCell>
                   <TableCell>
                     {item.type === "credit_settlement"
-                      ? "-" // Transactions not loaded in summary
+                      ? item.payment_method || "-"
                       : item.payment_method || "-"}
                   </TableCell>
                   <TableCell align="right">
                     {item.type === "credit_settlement" 
-                      ? "-" // Amount not available without transactions
-                      : `Rs. ${item.amount.toLocaleString()}`}
+                      ? (item.total_amount > 0 ? formatAmount(item.total_amount) : "-")
+                      : formatAmount(item.amount)}
                   </TableCell>
                   <TableCell>
-                    {item.type === "payment" && (
-                      <Chip
-                        label={item.status || "pending"}
-                        size="small"
-                        color={
-                          item.status === "verified"
-                            ? "success"
-                            : item.status === "cancelled"
-                            ? "error"
-                            : "default"
-                        }
-                      />
-                    )}
+                    <Chip
+                      label={item.status || "pending"}
+                      size="small"
+                      color={
+                        item.status === "verified"
+                          ? "success"
+                          : item.status === "cancelled"
+                          ? "error"
+                          : "default"
+                      }
+                    />
                   </TableCell>
                   <TableCell>{item.branch_code}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+    </Box>
+  );
+
+  // Render advance payments view
+  const renderAdvances = () => (
+    <Box sx={{ p: 2 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <AccountBalanceWalletIcon />
+          Advance Payments
+        </Typography>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <Button
+            variant="contained"
+            onClick={() => setShowAdvanceForm(true)}
+            disabled={showAdvanceForm}
+          >
+            New Advance Payment
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<ArrowBackIcon />}
+            onClick={() => setViewMode("overview")}
+          >
+            Back to Overview
+          </Button>
+        </Box>
+      </Box>
+
+      {/* Balance Summary */}
+      {advanceBalance && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Grid container spacing={2}>
+            <Grid item xs={3}>
+              <Typography variant="caption" color="text.secondary">Total Advances</Typography>
+              <Typography variant="h6">{formatCurrency(advanceBalance.total_advances)}</Typography>
+            </Grid>
+            <Grid item xs={3}>
+              <Typography variant="caption" color="text.secondary">Total Applied</Typography>
+              <Typography variant="h6">{formatCurrency(advanceBalance.total_applied)}</Typography>
+            </Grid>
+            <Grid item xs={3}>
+              <Typography variant="caption" color="text.secondary">Available Balance</Typography>
+              <Typography variant="h6" color="success.main">
+                {formatCurrency(advanceBalance.available_balance)}
+              </Typography>
+            </Grid>
+            <Grid item xs={3}>
+              <Typography variant="caption" color="text.secondary">Active Advances</Typography>
+              <Typography variant="h6">{advanceBalance.active_advance_count}</Typography>
+            </Grid>
+          </Grid>
+        </Paper>
+      )}
+
+      {/* New Advance Form */}
+      {showAdvanceForm && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle1" sx={{ mb: 2 }}>Create New Advance Payment</Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Amount"
+                type="number"
+                value={advanceFormData.original_amount || ""}
+                onChange={(e) => setAdvanceFormData({ ...advanceFormData, original_amount: parseFloat(e.target.value) || 0 })}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Payment Date"
+                type="date"
+                value={advanceFormData.payment_date || ""}
+                onChange={(e) => setAdvanceFormData({ ...advanceFormData, payment_date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                select
+                size="small"
+                label="Payment Method"
+                value={advanceFormData.payment_method || "Bank Transfer"}
+                onChange={(e) => setAdvanceFormData({ ...advanceFormData, payment_method: e.target.value })}
+              >
+                <MenuItem value="Cash">Cash</MenuItem>
+                <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
+                <MenuItem value="Cheque">Cheque</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                select
+                size="small"
+                label="Branch"
+                value={advanceFormData.branch_code || ""}
+                onChange={(e) => setAdvanceFormData({ ...advanceFormData, branch_code: e.target.value })}
+              >
+                {branches.map((b) => (
+                  <MenuItem key={b.branch_code} value={b.branch_code}>
+                    {b.branch_name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            {(advanceFormData.payment_method === "Bank Transfer" || advanceFormData.payment_method === "Cheque") && (
+              <>
+                <Grid item xs={12} sm={6} md={3}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Reference Number"
+                    value={advanceFormData.reference_number || ""}
+                    onChange={(e) => setAdvanceFormData({ ...advanceFormData, reference_number: e.target.value })}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Bank Name"
+                    value={advanceFormData.bank_name || ""}
+                    onChange={(e) => setAdvanceFormData({ ...advanceFormData, bank_name: e.target.value })}
+                  />
+                </Grid>
+              </>
+            )}
+            <Grid item xs={12} sm={6} md={6}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Remarks"
+                value={advanceFormData.remarks || ""}
+                onChange={(e) => setAdvanceFormData({ ...advanceFormData, remarks: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <Button
+                  variant="contained"
+                  onClick={handleCreateAdvance}
+                  disabled={savingAdvance}
+                >
+                  {savingAdvance ? <CircularProgress size={20} /> : "Create Advance"}
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={() => {
+                    setShowAdvanceForm(false);
+                    setAdvanceFormData({
+                      payment_method: "Bank Transfer",
+                      payment_date: new Date().toISOString().split("T")[0],
+                      original_amount: 0,
+                    });
+                  }}
+                  disabled={savingAdvance}
+                >
+                  Cancel
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
+        </Paper>
+      )}
+
+      {/* Advances List */}
+      {loadingAdvances ? (
+        <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : advancePayments.length === 0 ? (
+        <Paper sx={{ p: 4, textAlign: "center" }}>
+          <Typography variant="body2" color="text.secondary">
+            No advance payments found for this supplier
+          </Typography>
+        </Paper>
+      ) : (
+        <TableContainer component={Paper}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Advance No.</TableCell>
+                <TableCell>Date</TableCell>
+                <TableCell>Payment Method</TableCell>
+                <TableCell align="right">Original Amount (Rs.)</TableCell>
+                <TableCell align="right">Applied Amount (Rs.)</TableCell>
+                <TableCell align="right">Remaining (Rs.)</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Branch</TableCell>
+                <TableCell align="center">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {advancePayments.map((advance) => (
+                <TableRow key={advance.id} hover>
+                  <TableCell>{advance.advance_no}</TableCell>
+                  <TableCell>{new Date(advance.payment_date).toLocaleDateString()}</TableCell>
+                  <TableCell>{advance.payment_method}</TableCell>
+                  <TableCell align="right">{formatCurrency(advance.original_amount)}</TableCell>
+                  <TableCell align="right">{formatCurrency(advance.applied_amount)}</TableCell>
+                  <TableCell align="right">
+                    <Typography
+                      color={advance.remaining_amount > 0 ? "success.main" : "text.secondary"}
+                    >
+                      {formatCurrency(advance.remaining_amount)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={advance.is_fully_applied ? "Fully Applied" : "Active"}
+                      size="small"
+                      color={advance.is_fully_applied ? "default" : "success"}
+                    />
+                  </TableCell>
+                  <TableCell>{advance.branch_code}</TableCell>
+                  <TableCell align="center">
+                    {!advance.is_fully_applied && advance.applied_amount === 0 && (
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => handleDeleteAdvance(advance.id)}
+                        title="Delete"
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -928,7 +1320,7 @@ export default function SupplierPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption" color="text.secondary">Credit Limit</Typography>
                     <Typography variant="h6">
-                      Rs. {(selectedSupplier?.max_credit_limit || 0).toLocaleString()}
+                      {formatCurrency(selectedSupplier?.max_credit_limit || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -938,7 +1330,7 @@ export default function SupplierPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption" color="text.secondary">Available</Typography>
                     <Typography variant="h6" color="success.main">
-                      Rs. {(paymentStatus?.left_credit_amount || 0).toLocaleString()}
+                      {formatCurrency(paymentStatus?.left_credit_amount || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -948,7 +1340,7 @@ export default function SupplierPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption">Credit Outstanding</Typography>
                     <Typography variant="h6" color="warning.dark">
-                      Rs. {(paymentStatus?.credit_outstanding || 0).toLocaleString()}
+                      {formatCurrency(paymentStatus?.credit_outstanding || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -986,7 +1378,7 @@ export default function SupplierPaymentsPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Total Outstanding</Typography>
                   <Typography variant="h6" color="warning.dark">
-                    Rs. {totalOutstanding.toLocaleString()}
+                    {formatCurrency(totalOutstanding)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1006,7 +1398,7 @@ export default function SupplierPaymentsPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Overdue Amount</Typography>
                   <Typography variant="h6" color={overdueDocuments.length > 0 ? "error.dark" : "text.secondary"}>
-                    Rs. {overdueDocuments.reduce((sum, d) => sum + d.remaining_amount, 0).toLocaleString()}
+                    {formatCurrency(overdueDocuments.reduce((sum, d) => sum + d.remaining_amount, 0))}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1023,6 +1415,17 @@ export default function SupplierPaymentsPage() {
             Outstanding Documents
           </Typography>
           <Box sx={{ display: "flex", gap: 1 }}>
+            <Button
+              variant="outlined"
+              color="secondary"
+              startIcon={<AccountBalanceWalletIcon />}
+              onClick={() => {
+                setViewMode("advances");
+                loadAdvancePayments(selectedSupplier!.id);
+              }}
+            >
+              Advances
+            </Button>
             <Button
               variant="outlined"
               color="info"
@@ -1109,8 +1512,8 @@ export default function SupplierPaymentsPage() {
                   <TableCell>Document</TableCell>
                   <TableCell>Date</TableCell>
                   <TableCell>Due Date</TableCell>
-                  <TableCell align="right">Amount</TableCell>
-                  <TableCell align="right">Outstanding</TableCell>
+                  <TableCell align="right">Amount (Rs.)</TableCell>
+                  <TableCell align="right">Outstanding (Rs.)</TableCell>
                   <TableCell>Status</TableCell>
                 </TableRow>
               </TableHead>
@@ -1147,11 +1550,11 @@ export default function SupplierPaymentsPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      Rs. {doc.total_amount.toLocaleString()}
+                      {formatAmount(doc.total_amount)}
                     </TableCell>
                     <TableCell align="right">
                       <Typography color="warning.main" fontWeight="bold">
-                        Rs. {doc.remaining_amount.toLocaleString()}
+                        {formatAmount(doc.remaining_amount)}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -1325,7 +1728,7 @@ export default function SupplierPaymentsPage() {
                   </TableCell>
                   <TableCell align="right">
                     <Typography fontWeight="bold">
-                      Rs. {doc.remaining_amount.toLocaleString()}
+                      {formatCurrency(doc.remaining_amount)}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -1401,8 +1804,8 @@ export default function SupplierPaymentsPage() {
               <TableRow>
                 <TableCell>Document</TableCell>
                 <TableCell>Type</TableCell>
-                <TableCell align="right">Outstanding</TableCell>
-                <TableCell align="right" sx={{ width: 180 }}>Payment Amount</TableCell>
+                <TableCell align="right">Outstanding (Rs.)</TableCell>
+                <TableCell align="right" sx={{ width: 180 }}>Payment Amount (Rs.)</TableCell>
                 <TableCell sx={{ width: 50 }} />
               </TableRow>
             </TableHead>
@@ -1427,7 +1830,7 @@ export default function SupplierPaymentsPage() {
                     />
                   </TableCell>
                   <TableCell align="right">
-                    Rs. {line.document.remaining_amount.toLocaleString()}
+                    {formatAmount(line.document.remaining_amount)}
                   </TableCell>
                   <TableCell align="right">
                     <TextField
@@ -1436,7 +1839,7 @@ export default function SupplierPaymentsPage() {
                       value={line.allocated_amount}
                       onChange={(e) => handleLineAmountChange(line.id, Number(e.target.value))}
                       InputProps={{
-                        startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                        startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
                       }}
                       inputProps={{
                         min: 0,
@@ -1459,7 +1862,7 @@ export default function SupplierPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h6" color="primary.main">
-                    Rs. {totalPaymentAmount.toLocaleString()}
+                    {formatCurrency(totalPaymentAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -1614,9 +2017,9 @@ export default function SupplierPaymentsPage() {
               <TableRow>
                 <TableCell>Document</TableCell>
                 <TableCell>Type</TableCell>
-                <TableCell align="right">Outstanding</TableCell>
-                <TableCell align="right">Payment</TableCell>
-                <TableCell align="right">Remaining After</TableCell>
+                <TableCell align="right">Outstanding (Rs.)</TableCell>
+                <TableCell align="right">Payment (Rs.)</TableCell>
+                <TableCell align="right">Remaining After (Rs.)</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1640,16 +2043,16 @@ export default function SupplierPaymentsPage() {
                     />
                   </TableCell>
                   <TableCell align="right">
-                    Rs. {line.document.remaining_amount.toLocaleString()}
+                    {formatAmount(line.document.remaining_amount)}
                   </TableCell>
                   <TableCell align="right">
                     <Typography color="primary.main" fontWeight="bold">
-                      Rs. {line.allocated_amount.toLocaleString()}
+                      {formatAmount(line.allocated_amount)}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
                     <Typography color={line.document.remaining_amount - line.allocated_amount > 0 ? "warning.main" : "success.main"}>
-                      Rs. {(line.document.remaining_amount - line.allocated_amount).toLocaleString()}
+                      {formatAmount(line.document.remaining_amount - line.allocated_amount)}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -1660,7 +2063,7 @@ export default function SupplierPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h5" color="primary.main">
-                    Rs. {totalPaymentAmount.toLocaleString()}
+                    {formatCurrency(totalPaymentAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -1705,11 +2108,15 @@ export default function SupplierPaymentsPage() {
           { label: "Purchasing", href: "/purchasing" },
           { label: "Supplier Payments", href: "/purchasing/payments" },
           ...(selectedSupplier ? [{ label: selectedSupplier.full_name }] : []),
-          ...(viewMode === "history" ? [{ label: "Payment History" }] : viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
+          ...(viewMode === "history" ? [{ label: "Payment History" }] 
+            : viewMode === "advances" ? [{ label: "Advance Payments" }]
+            : viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
         ]}
         title={
           viewMode === "history"
             ? "Payment History"
+            : viewMode === "advances"
+            ? "Advance Payments"
             : viewMode === "review"
             ? "Review & Post"
             : viewMode === "payment"
@@ -1721,6 +2128,8 @@ export default function SupplierPaymentsPage() {
         titleIcon={
           viewMode === "history" ? (
             <AssessmentIcon color="info" />
+          ) : viewMode === "advances" ? (
+            <AccountBalanceWalletIcon color="secondary" />
           ) : viewMode === "review" ? (
             <CheckCircleIcon color="success" />
           ) : viewMode === "payment" || viewMode === "documents" ? (
@@ -1736,23 +2145,30 @@ export default function SupplierPaymentsPage() {
             ? [
                 { label: `${paymentHistory.length} Payment${paymentHistory.length !== 1 ? "s" : ""}`, color: "info" as const },
               ]
+            : viewMode === "advances"
+            ? [
+                { label: `${advancePayments.length} Advance${advancePayments.length !== 1 ? "s" : ""}`, color: "secondary" as const },
+                ...(advanceBalance && advanceBalance.available_balance > 0
+                  ? [{ label: formatCurrency(advanceBalance.available_balance) + " Available", color: "success" as const }]
+                  : []),
+              ]
             : selectedSupplier && viewMode === "overview"
             ? [
                 { label: `${outstandingDocuments.length} Open Docs`, variant: "outlined" as const },
                 ...(totalOutstanding > 0
-                  ? [{ label: `Rs. ${totalOutstanding.toLocaleString()} Outstanding`, color: "warning" as const }]
+                  ? [{ label: formatCurrency(totalOutstanding) + " Outstanding", color: "warning" as const }]
                   : []),
               ]
             : viewMode !== "overview"
             ? [
-                { label: `Rs. ${totalPaymentAmount.toLocaleString()}`, color: "primary" as const },
+                { label: formatCurrency(totalPaymentAmount), color: "primary" as const },
               ]
             : []
         }
       />
 
       {/* Stepper for payment workflow */}
-      {viewMode !== "overview" && viewMode !== "history" && (
+      {viewMode !== "overview" && viewMode !== "history" && viewMode !== "advances" && (
         <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: "divider" }}>
           <Stepper activeStep={activeStep} alternativeLabel>
             {STEPS.map((label, index) => (
@@ -1771,6 +2187,8 @@ export default function SupplierPaymentsPage() {
           </Box>
         ) : viewMode === "history" ? (
           renderHistory()
+        ) : viewMode === "advances" ? (
+          renderAdvances()
         ) : viewMode === "overview" ? (
           renderOverview()
         ) : viewMode === "documents" ? (

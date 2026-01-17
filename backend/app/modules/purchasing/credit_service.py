@@ -288,11 +288,14 @@ class SupplierCreditService:
                 GoodReceivedNote.purchasingorders_id == po.id
             ).first()
             
-            # Get settlements for this PO (through GRN)
+            # Get settlements for this PO (through GRN, only verified settlements)
             total_settled = Decimal("0")
             if grn:
                 total_settled = db.query(
                     func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
+                ).join(
+                    SupplierCreditsSettle,
+                    SupplierCreditsSettleTransaction.supplier_credit_settle_id == SupplierCreditsSettle.id
                 ).filter(
                     SupplierCreditsSettleTransaction.good_received_id == grn.id
                 ).scalar() or Decimal("0")
@@ -359,17 +362,20 @@ class SupplierCreditService:
                 GoodReceivedNote.purchasingorders_id == po.id
             ).first()
             
-            # Get payments for this PO (through GRN)
-            # Query SupplierPayment table for payments against this GRN
+            # Get payments for this PO
+            # Query SupplierPayment table for payments against this PO
             from app.modules.purchasing.models import SupplierPayment
             
             total_paid = Decimal("0")
-            if grn:
-                total_paid = db.query(
-                    func.coalesce(func.sum(SupplierPayment.amount_paid), 0)
-                ).filter(
-                    SupplierPayment.good_received_note_id == grn.id
-                ).scalar() or Decimal("0")
+            # Query payments by purchasing_order_id (the actual FK in SupplierPayment)
+            # Count both verified AND pending payments (pending means payment is in process)
+            # Only exclude cancelled payments
+            total_paid = db.query(
+                func.coalesce(func.sum(SupplierPayment.payment_amount), 0)
+            ).filter(
+                SupplierPayment.purchasing_order_id == po.id,
+                SupplierPayment.status.in_(["verified", "pending"])  # Count verified and pending
+            ).scalar() or Decimal("0")
             
             remaining = float(po_total) - float(total_paid)
             is_paid = remaining <= 0
@@ -438,7 +444,7 @@ class SupplierCreditService:
             PurchasingOrderItems.purchasingorders_id.in_(completed_credit_po_ids)
         ).scalar() or Decimal("0")
         
-        # Get all settled amounts for this supplier
+        # Get all settled amounts for this supplier (only verified settlements)
         total_settled = db.query(
             func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
         ).join(
@@ -602,9 +608,12 @@ class SupplierCreditService:
             PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id
         ).scalar() or Decimal("0")
         
-        # Get paid amount
+        # Get paid amount (only verified settlements)
         paid = db.query(
             func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
+        ).join(
+            SupplierCreditsSettle,
+            SupplierCreditsSettleTransaction.supplier_credit_settle_id == SupplierCreditsSettle.id
         ).filter(
             SupplierCreditsSettleTransaction.good_received_id == grn_id
         ).scalar() or Decimal("0")
@@ -708,7 +717,7 @@ class SupplierCreditService:
                     "current_outstanding": 0,
                     "pending_credits": 0,
                     "po_value": float(po_value),
-                    "projected_exposure": 0,
+                    "projected_outstanding": 0,
                     "max_credit_limit": 0,
                     "available_credit": 0,
                     "will_exceed_limit": False,
@@ -724,11 +733,13 @@ class SupplierCreditService:
         # Get supplier credit status
         status = self.get_supplier_credit_status(db, supplier_id)
         
-        # Calculate projected exposure including this new PO
-        # total_exposure already includes outstanding + pending_credits
+        # Check if PO value exceeds AVAILABLE CREDIT
+        # available_credit = max_credit_limit - total_exposure (outstanding + pending)
+        will_exceed = float(po_value) > status["available_credit"]
+        excess_amount = max(0, float(po_value) - status["available_credit"])
+        
+        # Calculate what the projected outstanding will be after this PO
         projected_exposure = status["total_exposure"] + float(po_value)
-        will_exceed = projected_exposure > status["max_credit_limit"]
-        excess_amount = max(0, projected_exposure - status["max_credit_limit"])
         
         # Determine warning level
         warning_level = "none"
@@ -736,16 +747,15 @@ class SupplierCreditService:
             warning_level = "error"
         elif status["overdue_count"] > 0:
             warning_level = "warning"
-        elif projected_exposure > status["max_credit_limit"] * 0.8:
-            warning_level = "warning"  # Over 80% usage
+        elif status["available_credit"] < status["max_credit_limit"] * 0.2:
+            warning_level = "warning"  # Less than 20% credit available
         
         credit_check = {
             "allowed": True,  # PO is always allowed (soft check)
             "requires_approval": will_exceed,
             "current_outstanding": status["outstanding_payable"],  # GRN-based actual liability
-            "pending_credits": status["pending_credits"],  # Existing pending POs
             "po_value": float(po_value),
-            "projected_exposure": projected_exposure,  # Total after this PO
+            "projected_outstanding": projected_exposure,  # Total after this PO
             "max_credit_limit": status["max_credit_limit"],
             "available_credit": status["available_credit"],
             "will_exceed_limit": will_exceed,
@@ -759,12 +769,12 @@ class SupplierCreditService:
         # Set message with breakdown
         messages = []
         if will_exceed:
-            messages.append(f"Credit limit will be exceeded by Rs. {excess_amount:,.2f}")
+            messages.append(f"PO amount (Rs. {float(po_value):,.2f}) exceeds available credit (Rs. {status['available_credit']:,.2f}) by Rs. {excess_amount:,.2f}")
         if status["overdue_count"] > 0:
             messages.append(f"Warning: {status['overdue_count']} overdue payment(s) to this supplier")
         
         # Add breakdown info
-        breakdown = f"Outstanding: Rs. {status['outstanding_payable']:,.2f}, Pending POs: Rs. {status['pending_credits']:,.2f}, This PO: Rs. {float(po_value):,.2f}"
+        breakdown = f"Credit Limit: Rs. {status['max_credit_limit']:,.2f}, Available: Rs. {status['available_credit']:,.2f}, This PO: Rs. {float(po_value):,.2f}"
         
         credit_check["message"] = ". ".join(messages) if messages else "Credit check passed"
         credit_check["breakdown"] = breakdown
@@ -823,12 +833,10 @@ class SupplierCreditService:
             "allowed": True,  # GRN is always allowed (soft check was done at PO creation)
             "requires_approval": False,
             "current_outstanding": status["outstanding_payable"],
-            "pending_credits": status["pending_credits"],
-            "grn_value": float(grn_value),
-            "new_outstanding_after_grn": new_outstanding,
+            "po_value": float(grn_value),  # Using grn_value as po_value for schema compatibility
+            "projected_outstanding": status["total_exposure"],  # Total exposure (stays same after GRN)
             "max_credit_limit": status["max_credit_limit"],
             "available_credit": status["available_credit"],
-            "total_exposure": status["total_exposure"],  # Stays same after GRN
             "will_exceed_limit": False,  # GRN doesn't change exposure
             "excess_amount": 0,
             "overdue_count": status["overdue_count"],

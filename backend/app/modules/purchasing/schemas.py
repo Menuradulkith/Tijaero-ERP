@@ -317,10 +317,14 @@ class SupplierCreditsSettleCreate(SupplierCreditsSettleBase):
 
 class SupplierCreditsSettleUpdate(BaseModel):
     branch_code: Optional[str] = None
+    status: Optional[str] = None
 
 class SupplierCreditsSettle(SupplierCreditsSettleBase):
     id: int
     created_date: datetime
+    status: str
+    verified_by: Optional[int] = None
+    verified_date: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -434,3 +438,102 @@ class SupplierPaymentListFilter(BaseModel):
     date_to: Optional[date] = None
     skip: int = 0
     limit: int = 100
+
+
+# ==================== SUPPLIER ADVANCE PAYMENT SCHEMAS ====================
+
+class SupplierAdvancePaymentBase(BaseModel):
+    supplier_id: int
+    payment_date: date
+    payment_method: str  # Cash, Bank Transfer, Cheque
+    original_amount: Decimal  # Original advance amount
+    reference_number: Optional[str] = None
+    bank_name: Optional[str] = None
+    branch_code: str
+    remarks: Optional[str] = None
+
+
+class SupplierAdvancePaymentCreate(SupplierAdvancePaymentBase):
+    pass
+
+
+class SupplierAdvancePaymentUpdate(BaseModel):
+    payment_date: Optional[date] = None
+    payment_method: Optional[str] = None
+    reference_number: Optional[str] = None
+    bank_name: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class SupplierAdvancePayment(SupplierAdvancePaymentBase):
+    id: int
+    advance_no: str
+    payment_voucher_id: Optional[int] = None
+    applied_amount: Decimal  # Amount already applied
+    remaining_amount: Decimal  # Remaining balance
+    is_fully_applied: bool  # True when fully applied
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    # Loaded from relationships
+    supplier_name: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class SupplierAdvancePaymentWithApplications(SupplierAdvancePayment):
+    applications: List["SupplierAdvanceApplication"] = []
+    
+    class Config:
+        from_attributes = True
+
+
+class SupplierAdvancePaymentListFilter(BaseModel):
+    supplier_id: Optional[int] = None
+    branch_code: Optional[str] = None
+    is_fully_applied: Optional[bool] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    skip: int = 0
+    limit: int = 100
+
+
+# ==================== SUPPLIER ADVANCE APPLICATION SCHEMAS ====================
+
+class SupplierAdvanceApplicationBase(BaseModel):
+    advance_id: int
+    grn_id: int
+    applied_amount: Decimal
+    application_date: date
+    remarks: Optional[str] = None
+
+
+class SupplierAdvanceApplicationCreate(SupplierAdvanceApplicationBase):
+    pass
+
+
+class SupplierAdvanceApplication(SupplierAdvanceApplicationBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    # Loaded from relationships
+    grn_no: Optional[str] = None
+    advance_no: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class SupplierAdvanceBalanceSummary(BaseModel):
+    """Summary of advance payment balance for a supplier"""
+    supplier_id: int
+    supplier_name: str
+    total_advances: Decimal
+    total_applied: Decimal
+    available_balance: Decimal
+    active_advance_count: int
+    advances: List[SupplierAdvancePayment] = []
+
