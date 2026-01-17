@@ -1,8 +1,4 @@
-"""
-Swagger/OpenAPI configuration and customization
-"""
 
-# Custom Swagger UI configuration
 swagger_ui_parameters = {
     "deepLinking": True,
     "displayRequestDuration": True,
@@ -14,7 +10,6 @@ swagger_ui_parameters = {
     "persistAuthorization": True,
 }
 
-# API Examples for Swagger
 examples = {
     "user_login": {
         "summary": "Login Example",
@@ -79,7 +74,6 @@ examples = {
     }
 }
 
-# Security scheme documentation
 security_schemes = {
     "Bearer": {
         "type": "http",
@@ -95,7 +89,6 @@ security_schemes = {
     }
 }
 
-# API Tags with descriptions
 tags_metadata = [
     {
         "name": "auth",

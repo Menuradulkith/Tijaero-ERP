@@ -12,11 +12,6 @@ router = APIRouter()
     }
 )
 def health_check():
-    """
-    Health check endpoint to verify API is running.
-    
-    Returns current status and timestamp.
-    """
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),

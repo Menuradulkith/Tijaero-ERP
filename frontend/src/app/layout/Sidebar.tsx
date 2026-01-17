@@ -24,19 +24,19 @@ import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import SpeedIcon from "@mui/icons-material/Speed";
 import StoreIcon from "@mui/icons-material/Store";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
-import WarehouseIcon from "@mui/icons-material/Warehouse";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import WarehouseIcon from "@mui/icons-material/Warehouse";
 import {
-    Box,
-    Divider,
-    Drawer,
-    List,
-    ListItem,
-    ListItemButton,
-    ListItemIcon,
-    ListItemText,
-    Toolbar,
-    Typography,
+  Box,
+  Divider,
+  Drawer,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Toolbar,
+  Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -76,6 +76,7 @@ const menuItems: MenuItem[] = [
       { text: "Customers", icon: <PeopleIcon />, path: "/sales/customers" },
       { text: "Quotations", icon: <ReceiptLongIcon />, path: "/sales/quotations" },
       { text: "Sales Orders", icon: <PointOfSaleIcon />, path: "/sales/orders" },
+      { text: "SO Approvals", icon: <FactCheckIcon />, path: "/sales/approvals" },
       { text: "Sales Returns", icon: <AssignmentReturnIcon />, path: "/sales/returns" },
     ],
   },
@@ -177,7 +178,7 @@ export default function Sidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  
+
   // Track which parent menu is expanded (showing sub-items)
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
 
@@ -273,7 +274,7 @@ export default function Sidebar({
               const isActive = isModuleRoot
                 ? location.pathname === subItem.path
                 : location.pathname.startsWith(subItem.path);
-              
+
               return (
                 <ListItem key={subItem.path} disablePadding>
                   <ListItemButton
@@ -302,7 +303,7 @@ export default function Sidebar({
                     >
                       {subItem.icon}
                     </ListItemIcon>
-                    <ListItemText 
+                    <ListItemText
                       primary={subItem.text}
                       primaryTypographyProps={{ fontSize: "0.875rem" }}
                     />
@@ -338,7 +339,7 @@ export default function Sidebar({
                     <ListItemIcon sx={{ color: isActive ? "white" : "inherit", minWidth: 32 }}>
                       {item.icon}
                     </ListItemIcon>
-                    <ListItemText 
+                    <ListItemText
                       primary={item.text}
                       primaryTypographyProps={{ fontSize: "0.875rem" }}
                     />

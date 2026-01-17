@@ -16,8 +16,8 @@
  * const categories = data?.categories || [];
  */
 
-import { useQuery, UseQueryOptions } from "@tanstack/react-query";
 import apiClient from "@/api/client";
+import { useQuery, UseQueryOptions } from "@tanstack/react-query";
 
 // Types for reference data items
 export interface BranchRef {
@@ -80,16 +80,30 @@ export interface CustomerRef {
   email?: string;
 }
 
+export interface SalesStockRef {
+  id: number;
+  product_code: string;
+  product_name: string;
+  description?: string;
+  category_id?: number;
+  brand_id?: number;
+  unit_of_measure?: string;
+  reorder_level?: number;
+  status: boolean;
+  available_quantity: number;
+}
+
 // All available reference data types
-export type ReferenceDataType = 
-  | "branches" 
-  | "categories" 
-  | "brands" 
-  | "locations" 
-  | "products" 
+export type ReferenceDataType =
+  | "branches"
+  | "categories"
+  | "brands"
+  | "locations"
+  | "products"
   | "countries"
   | "suppliers"
-  | "customers";
+  | "customers"
+  | "sales_stock";
 
 // Response type from the API
 export interface ReferenceDataResponse {
@@ -101,6 +115,7 @@ export interface ReferenceDataResponse {
   countries?: CountryRef[];
   suppliers?: SupplierRef[];
   customers?: CustomerRef[];
+  sales_stock?: SalesStockRef[];
 }
 
 // Options for the hook
@@ -141,10 +156,10 @@ export function useReferenceData(
   options: UseReferenceDataOptions = {}
 ) {
   const { productsLimit = 500, enabled = true, queryOptions = {} } = options;
-  
+
   // Sort include array to ensure consistent query keys
   const sortedInclude = [...include].sort();
-  
+
   return useQuery<ReferenceDataResponse, Error>({
     queryKey: ["referenceData", sortedInclude.join(","), productsLimit],
     queryFn: () => fetchReferenceData(sortedInclude, productsLimit),

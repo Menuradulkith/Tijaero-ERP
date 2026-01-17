@@ -2,7 +2,6 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import date, datetime
 
-# Branch Schemas
 class BranchBase(BaseModel):
     branch_name: str = Field(..., max_length=255)
     branch_code: str = Field(..., max_length=255)
@@ -18,7 +17,6 @@ class BranchSimple(BaseModel):
     class Config:
         from_attributes = True
 
-# Group/Role Schemas
 class PermissionBase(BaseModel):
     name: str = Field(..., max_length=255)
     resource: str
@@ -58,7 +56,6 @@ class Group(GroupBase):
     class Config:
         from_attributes = True
 
-# User Schemas
 class UserBase(BaseModel):
     email: EmailStr
     username: str = Field(..., max_length=50)
@@ -134,7 +131,6 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     user_id: Optional[int] = None
 
-# Pagination
 class PaginatedResponse(BaseModel):
     items: List
     total: int

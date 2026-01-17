@@ -21,11 +21,6 @@ def list_customers(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Get list of all customers with pagination.
-    
-    **Required Permission**: customers:view
-    """
     return service.customer_service.get_all_customers(db, skip, limit)
 
 @router.get(
@@ -42,11 +37,6 @@ def search_customers(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Search customers by name, email, or phone number.
-    
-    **Required Permission**: customers:view
-    """
     return service.customer_service.search_customers(db, q, skip, limit)
 
 @router.get(
@@ -61,11 +51,6 @@ def get_customer(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Get customer information by customer ID.
-    
-    **Required Permission**: customers:view
-    """
     return service.customer_service.get_customer(db, customer_id)
 
 @router.post(
@@ -81,18 +66,6 @@ def create_customer(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_CREATE))
 ):
-    """
-    Create a new customer with the following information:
-    
-    - **name**: Customer name (required)
-    - **email**: Customer email address (required)
-    - **phone**: Contact phone number
-    - **customer_type**: Type of customer (individual/business)
-    - **address**: Physical address
-    - **tax_id**: Tax identification number
-    
-    **Required Permission**: customers:create
-    """
     return service.customer_service.create_customer(db, customer, current_user.id)
 
 @router.put(
@@ -108,11 +81,6 @@ def update_customer(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE))
 ):
-    """
-    Update customer information.
-    
-    **Required Permission**: customers:update
-    """
     return service.customer_service.update_customer(db, customer_id, customer, current_user.id)
 
 @router.delete(
@@ -127,15 +95,9 @@ def delete_customer(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_DELETE))
 ):
-    """
-    Delete a customer by ID.
-    
-    **Required Permission**: customers:delete
-    """
+
     return service.customer_service.delete_customer(db, customer_id)
 
-
-# ==================== CREDIT MANAGEMENT ENDPOINTS ====================
 
 from app.modules.customers.credit_service import customer_credit_service
 from datetime import date
@@ -151,17 +113,7 @@ def get_customer_credit_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Get comprehensive credit summary for a customer.
-    
-    Returns:
-    - Credit limit and available credit
-    - Outstanding receivables
-    - Overdue invoices count and amount
-    - Aging breakdown
-    
-    **Required Permission**: customers:view
-    """
+
     return customer_credit_service.get_customer_credit_summary(db, customer_id)
 
 
@@ -178,16 +130,7 @@ def check_customer_credit(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Check if a customer has sufficient credit for a sale.
-    
-    Use this before creating a credit sale to validate:
-    - Customer has available credit
-    - Sale won't exceed credit limit
-    - Customer has no overdue payments
-    
-    **Required Permission**: customers:view
-    """
+
     from decimal import Decimal
     return customer_credit_service.check_credit_availability(
         db, customer_id, Decimal(str(sale_amount)), allow_over_limit
@@ -205,16 +148,7 @@ def get_customer_aging_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Get aging report showing outstanding receivables by age:
-    - Current (not yet due)
-    - 1-30 days overdue
-    - 31-60 days overdue
-    - 61-90 days overdue
-    - Over 90 days overdue
-    
-    **Required Permission**: customers:view
-    """
+
     return customer_credit_service.get_aging_report(db, customer_id)
 
 
@@ -228,11 +162,7 @@ def get_all_customers_aging_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Get aging report for all customers' outstanding receivables.
-    
-    **Required Permission**: customers:view
-    """
+
     return customer_credit_service.get_aging_report(db)
 
 
@@ -249,15 +179,9 @@ def get_customer_statement(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Get detailed statement showing all credit sales and payments.
-    
-    **Required Permission**: customers:view
-    """
+
     return customer_credit_service.get_customer_statement(db, customer_id, from_date, to_date)
 
-
-# ==================== CREDIT SETTLEMENT ENDPOINTS ====================
 
 @router.post(
     "/{customer_id}/credit-settlements",
@@ -273,14 +197,7 @@ def create_customer_credit_settlement(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE))
 ):
-    """
-    Create a credit settlement to record payment received.
-    
-    Settlement can include multiple transactions against different invoices.
-    
-    **Required Permission**: customers:update
-    """
-    # Ensure the settlement is for the correct customer
+
     if settlement.customers_id != customer_id:
         from fastapi import HTTPException, status
         raise HTTPException(
@@ -304,11 +221,7 @@ def list_customer_credit_settlements(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Get list of all credit settlements for a customer.
-    
-    **Required Permission**: customers:view
-    """
+
     return customer_credit_service.get_customer_settlements(db, customer_id, skip, limit)
 
 
@@ -325,9 +238,5 @@ def get_customer_credit_settlement(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    """
-    Get credit settlement with all payment transaction details.
-    
-    **Required Permission**: customers:view
-    """
+
     return customer_credit_service.get_settlement_with_transactions(db, settlement_id)

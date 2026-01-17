@@ -20,29 +20,26 @@ class AuthService:
         return user
     
     def create_user(self, db: Session, user_in: schemas.UserCreate) -> models.User:
-        # Check if username exists
+
         if db.query(models.User).filter(models.User.username == user_in.username).first():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Username already exists"
             )
-        
-        # Check if email exists
+
         if db.query(models.User).filter(models.User.email == user_in.email).first():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already exists"
             )
-        
-        # Check if employee_id already exists
+
         existing_employee = db.query(Employee).filter(Employee.employee_id == user_in.employee_id).first()
         if existing_employee:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Employee ID already exists"
             )
-        
-        # Create user
+
         user = models.User(
             email=user_in.email,
             username=user_in.username,
@@ -63,8 +60,7 @@ class AuthService:
         )
         db.add(user)
         db.flush()
-        
-        # Create employee record (check if one already exists for this user)
+
         existing_emp_for_user = db.query(Employee).filter(Employee.user_id == user.id).first()
         if not existing_emp_for_user:
             employee = Employee(
@@ -73,13 +69,10 @@ class AuthService:
             )
             db.add(employee)
             db.flush()
-        
-        # Assign branches
+
         if user_in.branch_ids:
             branches = db.query(models.Branch).filter(models.Branch.id.in_(user_in.branch_ids)).all()
             user.branches = branches
-        
-        # Assign groups
         if user_in.group_ids:
             groups = db.query(models.Group).filter(models.Group.id.in_(user_in.group_ids)).all()
             user.groups = groups
@@ -101,7 +94,6 @@ class AuthService:
             employee = db.query(Employee).filter(Employee.employee_id == employee_id).first()
             return employee is not None
         except (ImportError, Exception):
-            # If employees module doesn't exist or table doesn't exist, check users table
             user = db.query(models.User).filter(models.User.employee_id == employee_id).first()
             return user is not None
     
@@ -119,25 +111,21 @@ class AuthService:
         
         update_data = user_in.model_dump(exclude_unset=True)
         
-        # Handle password separately
         if "password" in update_data and update_data["password"]:
             update_data["hashed_password"] = get_password_hash(update_data.pop("password"))
         
-        # Handle branches
         if "branch_ids" in update_data:
             branch_ids = update_data.pop("branch_ids")
             if branch_ids is not None:
                 branches = db.query(models.Branch).filter(models.Branch.id.in_(branch_ids)).all()
                 user.branches = branches
         
-        # Handle groups
         if "group_ids" in update_data:
             group_ids = update_data.pop("group_ids")
             if group_ids is not None:
                 groups = db.query(models.Group).filter(models.Group.id.in_(group_ids)).all()
                 user.groups = groups
         
-        # Update other fields
         for field, value in update_data.items():
             setattr(user, field, value)
         
@@ -153,10 +141,8 @@ class AuthService:
                 detail="Cannot delete superuser"
             )
         
-        # Check for foreign key references
         errors = []
         
-        # Check employees table
         try:
             from app.modules.employees.models import Employee
             employee_count = db.query(Employee).filter(Employee.user_id == user_id).count()
@@ -165,7 +151,6 @@ class AuthService:
         except (ImportError, Exception):
             pass
         
-        # Check support tickets
         try:
             from app.modules.support.models import SupportTicket
             ticket_count = db.query(SupportTicket).filter(SupportTicket.assigned_user_id == user_id).count()
@@ -174,7 +159,6 @@ class AuthService:
         except (ImportError, Exception):
             pass
         
-        # Check warehouse approvals
         try:
             from app.modules.warehouse.models import GoodReceiveNote
             grn_count = db.query(GoodReceiveNote).filter(GoodReceiveNote.approved_user_id == user_id).count()
@@ -182,8 +166,7 @@ class AuthService:
                 errors.append(f"User has approved {grn_count} warehouse transaction(s)")
         except (ImportError, Exception):
             pass
-        
-        # Check reports
+
         try:
             from app.modules.reporting.models import ReportDefinition, ReportExecution
             report_def_count = db.query(ReportDefinition).filter(ReportDefinition.created_by == user_id).count()
@@ -194,8 +177,7 @@ class AuthService:
                 errors.append(f"User has {report_exec_count} report execution(s)")
         except (ImportError, Exception):
             pass
-        
-        # Check marketing campaigns
+
         try:
             from app.modules.marketing.models import Campaign
             campaign_count = db.query(Campaign).filter(Campaign.author_id == user_id).count()
@@ -203,8 +185,7 @@ class AuthService:
                 errors.append(f"User is author of {campaign_count} marketing campaign(s)")
         except (ImportError, Exception):
             pass
-        
-        # Check attachments (skip if table doesn't exist)
+
         try:
             from app.common.attachments import Attachment
             attachment_count = db.query(Attachment).filter(Attachment.uploaded_by == user_id).count()
@@ -212,8 +193,7 @@ class AuthService:
                 errors.append(f"User has uploaded {attachment_count} attachment(s)")
         except (ImportError, Exception):
             pass
-        
-        # Check workflow approvals (skip if table doesn't exist)
+
         try:
             from app.common.workflow import WorkflowInstance
             workflow_count = db.query(WorkflowInstance).filter(WorkflowInstance.approver_id == user_id).count()
@@ -247,7 +227,7 @@ class GroupService:
         return group
     
     def create_group(self, db: Session, group_in: schemas.GroupCreate) -> models.Group:
-        # Check if group name exists
+
         if db.query(models.Group).filter(models.Group.name == group_in.name).first():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -255,8 +235,7 @@ class GroupService:
             )
         
         group = models.Group(name=group_in.name)
-        
-        # Assign permissions
+
         if group_in.permission_ids:
             permissions = db.query(models.Permission).filter(
                 models.Permission.id.in_(group_in.permission_ids)
@@ -272,7 +251,7 @@ class GroupService:
         group = self.get_group(db, group_id)
         
         if group_in.name:
-            # Check if new name already exists
+
             existing = db.query(models.Group).filter(
                 models.Group.name == group_in.name,
                 models.Group.id != group_id
@@ -283,8 +262,7 @@ class GroupService:
                     detail="Group name already exists"
                 )
             group.name = group_in.name
-        
-        # Update permissions
+
         if group_in.permission_ids is not None:
             permissions = db.query(models.Permission).filter(
                 models.Permission.id.in_(group_in.permission_ids)
@@ -306,7 +284,6 @@ class PermissionService:
         return db.query(models.Permission).all()
     
     def create_permission(self, db: Session, permission_in: schemas.PermissionCreate) -> models.Permission:
-        # Check if permission exists
         existing = db.query(models.Permission).filter(
             models.Permission.resource == permission_in.resource,
             models.Permission.action == permission_in.action

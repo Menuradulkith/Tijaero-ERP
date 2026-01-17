@@ -5,13 +5,10 @@ from typing import Optional, Annotated
 
 
 def format_datetime(dt: datetime) -> str:
-    """Format datetime without microseconds: YYYY-MM-DD HH:MM:SS"""
     if dt is None:
         return None
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
-
-# Custom datetime type that serializes without microseconds
 FormattedDateTime = Annotated[
     datetime,
     PlainSerializer(lambda v: v.strftime("%Y-%m-%d %H:%M:%S") if v else None, return_type=str)
@@ -19,10 +16,6 @@ FormattedDateTime = Annotated[
 
 
 class TijaeroBaseSchema(BaseModel):
-    """
-    Base schema for all Tijaero ERP schemas.
-    Automatically formats datetime fields without microseconds.
-    """
     model_config = ConfigDict(
         from_attributes=True,
         json_encoders={

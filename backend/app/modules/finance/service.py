@@ -5,7 +5,6 @@ from decimal import Decimal
 from . import models, schemas, repository
 from fastapi import HTTPException, status
 
-# Import customer-related models from customers module
 from app.modules.customers.models import (
     CustomerAdvancePayments,
     CustomerCreditNotes,

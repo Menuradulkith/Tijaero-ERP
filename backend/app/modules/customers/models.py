@@ -33,8 +33,7 @@ class Customer(Base, AuditMixin):
     country_id = Column(Integer, ForeignKey("country.id"))
     initial_credit_amount = Column(Integer)
     is_customer_agent = Column(Boolean, nullable=False, default=False)
-    
-    # Relationships
+
     country = relationship("Country", back_populates="customers")
     invoices = relationship("Invoice", foreign_keys="Invoice.customer_id", back_populates="customer")
     agent_invoices = relationship("Invoice", foreign_keys="Invoice.customer_agent_id", back_populates="customer_agent")
@@ -57,8 +56,7 @@ class CustomerAdvancePayments(Base):
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
     cheque_date = Column(Date, nullable=False)
     active = Column(Boolean, nullable=False)
-    
-    # Relationships
+
     customer = relationship("Customer", back_populates="advance_payments")
     invoices = relationship("Invoice", back_populates="advance_payment")
 
@@ -73,7 +71,7 @@ class CustomerCreditNotes(Base):
     remark = Column(Text, nullable=False)
     invoice_no = Column(String(200))
     
-    # Relationships
+
     customer = relationship("Customer", back_populates="credit_notes")
     invoices = relationship("Invoice", back_populates="credit_note")
 
@@ -86,8 +84,7 @@ class CustomerCreditsSettle(Base):
     branch_code = Column(String(200), nullable=False)
     created_date = Column(TIMESTAMP, nullable=False)
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    
-    # Relationships
+
     customer = relationship("Customer", back_populates="credits_settle")
     transactions = relationship("CustomerCreditsSettleTransaction", back_populates="credit_settle")
 
@@ -105,7 +102,6 @@ class CustomerCreditsSettleTransaction(Base):
     customer_credit_settle_id = Column(Integer, ForeignKey("customer_credits_settle.id"), nullable=False)
     invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
     
-    # Relationships
     credit_settle = relationship("CustomerCreditsSettle", back_populates="transactions")
     invoice = relationship("Invoice", back_populates="credits_settle_transactions")
 
@@ -119,8 +115,7 @@ class CustomerCuponCodes(Base):
     limit_for_customer = Column(Integer, nullable=False, default=10)
     valid_until_date = Column(Date, nullable=False)
     limit_validity_product_id = Column(Integer, ForeignKey("products.id"))
-    
-    # Relationships
+
     product = relationship("Product", back_populates="cupon_codes")
     invoices = relationship("Invoice", back_populates="cupon")
 
@@ -138,7 +133,5 @@ class CustomerGiftVoucher(Base):
     claimed_invoice_no = Column(String(200))
 
 
-# NOTE: CustomerSupport, CustomerCallLog, and CSJobItem models are defined in
-# app.modules.support.models to avoid duplication.
-# Import them from there when needed:
-# from app.modules.support.models import CustomerSupport, CustomerCallLog, CSJobItem
+
+

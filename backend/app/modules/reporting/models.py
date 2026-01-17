@@ -6,7 +6,6 @@ from sqlalchemy.orm import relationship
 
 
 class Report(Base):
-    """Saved reports and report templates"""
 
     __tablename__ = "reports"
 
@@ -25,7 +24,6 @@ class Report(Base):
 
 
 class ReportExecution(Base):
-    """Track report execution history"""
 
     __tablename__ = "report_executions"
 
@@ -33,10 +31,10 @@ class ReportExecution(Base):
     report_id = Column(Integer, ForeignKey("reports.id"))
     executed_by = Column(Integer, ForeignKey("accounts_user.id"))
     execution_date = Column(DateTime, default=datetime.utcnow)
-    status = Column(String(50))  # success, failed, running
-    parameters = Column(Text)  # JSON string of parameters used
-    result_summary = Column(Text)  # JSON string of summary data
-    execution_time = Column(Integer)  # milliseconds
+    status = Column(String(50))
+    parameters = Column(Text)
+    result_summary = Column(Text)
+    execution_time = Column(Integer)
     error_message = Column(Text)
 
     report = relationship("Report", backref="executions")

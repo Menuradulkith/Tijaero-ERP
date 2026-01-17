@@ -6,7 +6,6 @@ from decimal import Decimal
 from . import models, schemas, repository
 from fastapi import HTTPException, status
 
-# Configuration - Daily PO limit per branch
 DAILY_PO_LIMIT_PER_BRANCH = 5
 
 class SupplierService:
@@ -29,7 +28,6 @@ class SupplierService:
         return self.repo.get_all(filters)
     
     def update_supplier(self, supplier_id: int, supplier_update: schemas.SupplierUpdate) -> models.Supplier:
-        # If deactivating supplier, check for pending orders or outstanding credit
         if supplier_update.active is False:
             supplier = self.repo.get_by_id(supplier_id)
             if not supplier:
@@ -38,7 +36,6 @@ class SupplierService:
                     detail=f"Supplier with id {supplier_id} not found"
                 )
             
-            # Check for pending purchase orders
             from app.db.session import SessionLocal
             db = SessionLocal()
             try:
@@ -54,7 +51,6 @@ class SupplierService:
                         detail=f"Cannot deactivate supplier '{supplier.full_name}': {pending_orders} pending purchase order(s) exist. Complete or cancel all pending orders first."
                     )
                 
-                # Check for outstanding credit
                 if supplier.left_credit_amount and supplier.left_credit_amount < supplier.initial_credit_amount:
                     outstanding = supplier.initial_credit_amount - supplier.left_credit_amount
                     raise HTTPException(
@@ -87,7 +83,6 @@ class PurchasingOrderService:
         self.supplier_repo = repository.SupplierRepository(db)
     
     def check_daily_limit(self, branch_code: str, target_date: date = None) -> schemas.DailyPOLimitCheck:
-        """Check if branch has reached daily PO limit"""
         if target_date is None:
             target_date = date.today()
         
@@ -111,7 +106,6 @@ class PurchasingOrderService:
         )
     
     def create_order(self, order: schemas.PurchasingOrderCreate) -> models.PurchasingOrder:
-        # Check daily limit for the branch
         limit_check = self.check_daily_limit(order.branch_code)
         if not limit_check.can_create:
             raise HTTPException(
@@ -119,7 +113,6 @@ class PurchasingOrderService:
                 detail=limit_check.message
             )
         
-        # Verify first supplier exists and is active
         first_supplier = self.supplier_repo.get_by_id(order.first_suppliers_id)
         if not first_supplier:
             raise HTTPException(
@@ -132,7 +125,6 @@ class PurchasingOrderService:
                 detail=f"Supplier '{first_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
             )
         
-        # Verify second supplier exists and is active
         second_supplier = self.supplier_repo.get_by_id(order.second_suppliers_id)
         if not second_supplier:
             raise HTTPException(
@@ -145,7 +137,6 @@ class PurchasingOrderService:
                 detail=f"Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
             )
         
-        # Calculate PO total for credit check
         from decimal import Decimal
         po_total = sum(
             Decimal(str(item.quantity)) * item.unit_price 
@@ -182,7 +173,6 @@ class PurchasingOrderService:
         return self.repo.get_all(filters)
     
     def update_order(self, order_id: int, order_update: schemas.PurchasingOrderUpdate) -> models.PurchasingOrder:
-        # Check if PO is partially_completed or completed (has GRN)
         existing_po = self.repo.get_by_id(order_id)
         if not existing_po:
             raise HTTPException(
@@ -284,17 +274,9 @@ class PurchasingReturnService:
         grn_id: int, 
         branch_code: str
     ) -> schemas.BarcodeValidationResponse:
-        """
-        Validate a barcode before adding to purchase return.
-        Checks:
-        1. Does this barcode exist in sales_stock?
-        2. Is it still "available" (not sold / not already returned / not transferred)?
-        3. Does it belong to the correct GRN / branch?
-        """
+
         from app.modules.inventory.models import SalesStock
         from app.modules.products.models import Product
-        
-        # Find the stock item by barcode
         stock_item = self.db.query(SalesStock).filter(
             SalesStock.barcode == barcode
         ).first()
@@ -310,8 +292,7 @@ class PurchasingReturnService:
                 purchasing_price=None,
                 status=None
             )
-        
-        # Check if already returned
+
         if stock_item.status == "returned_to_supplier":
             return schemas.BarcodeValidationResponse(
                 valid=False,
@@ -323,8 +304,7 @@ class PurchasingReturnService:
                 purchasing_price=None,
                 status=stock_item.status
             )
-        
-        # Check if pending return
+
         if stock_item.status == "return_pending":
             return schemas.BarcodeValidationResponse(
                 valid=False,
@@ -336,8 +316,7 @@ class PurchasingReturnService:
                 purchasing_price=None,
                 status=stock_item.status
             )
-        
-        # Check if sold
+
         if stock_item.status == "sold":
             return schemas.BarcodeValidationResponse(
                 valid=False,
@@ -349,8 +328,7 @@ class PurchasingReturnService:
                 purchasing_price=None,
                 status=stock_item.status
             )
-        
-        # Check if transferred or damaged
+
         if stock_item.status in ("transferred", "damaged"):
             return schemas.BarcodeValidationResponse(
                 valid=False,
@@ -362,8 +340,7 @@ class PurchasingReturnService:
                 purchasing_price=None,
                 status=stock_item.status
             )
-        
-        # Check if inactive
+
         if not stock_item.is_active:
             return schemas.BarcodeValidationResponse(
                 valid=False,
@@ -375,8 +352,7 @@ class PurchasingReturnService:
                 purchasing_price=None,
                 status=stock_item.status
             )
-        
-        # Check if belongs to correct GRN
+
         if stock_item.good_received_note_id != grn_id:
             return schemas.BarcodeValidationResponse(
                 valid=False,
@@ -388,8 +364,7 @@ class PurchasingReturnService:
                 purchasing_price=None,
                 status=stock_item.status
             )
-        
-        # Check if belongs to correct branch
+
         if stock_item.branch_code != branch_code:
             return schemas.BarcodeValidationResponse(
                 valid=False,
@@ -401,18 +376,15 @@ class PurchasingReturnService:
                 purchasing_price=None,
                 status=stock_item.status
             )
-        
-        # Get product info
+
         product = self.db.query(Product).filter(Product.id == stock_item.product_id).first()
         product_name = product.name if product else "Unknown"
-        
-        # Get purchasing price from PO item
+
         po_item = self.db.query(models.PurchasingOrderItems).filter(
             models.PurchasingOrderItems.id == stock_item.purchasing_order_items_id
         ).first()
         purchasing_price = po_item.unit_price if po_item else None
-        
-        # All checks passed
+
         return schemas.BarcodeValidationResponse(
             valid=True,
             barcode=barcode,
@@ -425,18 +397,12 @@ class PurchasingReturnService:
         )
     
     def create_return(self, return_data: schemas.PurchasingReturnCreate) -> models.PurchasingReturn:
-        """
-        Create a purchase return with validation.
-        - Validates all barcodes before creating
-        - If require_approval=True: sets status to 'pending' and marks stock as 'return_pending'
-        - If require_approval=False: sets status to 'approved' and marks stock as 'returned_to_supplier'
-        """
+
         from app.modules.purchasing.credit_service import SupplierCreditService
         from app.modules.inventory.models import SalesStock
         from datetime import datetime
         import uuid
-        
-        # Get GRN to find the supplier
+
         grn = self.db.query(models.GoodReceivedNote).filter(
             models.GoodReceivedNote.id == return_data.goodreceivednote_id
         ).first()
@@ -446,8 +412,7 @@ class PurchasingReturnService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"GRN {return_data.goodreceivednote_id} not found"
             )
-        
-        # Validate all barcodes before creating the return
+
         validated_items = []
         for item in return_data.items:
             validation = self.validate_barcode_for_return(
@@ -461,17 +426,14 @@ class PurchasingReturnService:
                     detail=f"Barcode validation failed: {validation.message}"
                 )
             validated_items.append((item, validation))
-        
-        # Generate return number if not provided
+
         return_no = return_data.purchasing_return_no
         if not return_no:
             return_no = f"PR-{uuid.uuid4().hex[:8].upper()}"
-        
-        # Determine status based on approval requirement
+
         initial_status = "pending" if return_data.require_approval else "approved"
         stock_status = "return_pending" if return_data.require_approval else "returned_to_supplier"
-        
-        # Create the return header
+
         now = datetime.now()
         db_return = models.PurchasingReturn(
             purchasing_return_no=return_no,
@@ -483,11 +445,9 @@ class PurchasingReturnService:
             goodreceivednote_id=return_data.goodreceivednote_id
         )
         self.db.add(db_return)
-        self.db.flush()  # Get the ID
+        self.db.flush() 
         
-        # Create return items and update stock
         for item, validation in validated_items:
-            # Create return item
             db_item = models.PurchasingReturnItems(
                 purchasing_price=item.purchasing_price,
                 return_price=item.return_price,
@@ -499,8 +459,7 @@ class PurchasingReturnService:
                 sales_stock_id=validation.sales_stock_id
             )
             self.db.add(db_item)
-            
-            # Update stock item
+
             stock_item = self.db.query(SalesStock).filter(
                 SalesStock.id == validation.sales_stock_id
             ).first()
@@ -513,8 +472,7 @@ class PurchasingReturnService:
         
         self.db.commit()
         self.db.refresh(db_return)
-        
-        # Update supplier credit balance if immediately approved
+
         if not return_data.require_approval:
             po = self.db.query(models.PurchasingOrder).filter(
                 models.PurchasingOrder.id == grn.purchasingorders_id
@@ -526,11 +484,7 @@ class PurchasingReturnService:
         return db_return
     
     def approve_return(self, return_id: int, approve: bool, remarks: Optional[str] = None) -> models.PurchasingReturn:
-        """
-        Approve or reject a pending purchase return.
-        - If approved: finalize stock updates, update supplier credit
-        - If rejected: revert stock status back to 'available'
-        """
+
         from app.modules.purchasing.credit_service import SupplierCreditService
         from app.modules.inventory.models import SalesStock
         from datetime import datetime
@@ -551,13 +505,11 @@ class PurchasingReturnService:
         now = datetime.now()
         
         if approve:
-            # Approve the return
             return_record.status = "approved"
             return_record.approved_date = now
             if remarks:
                 return_record.remark = (return_record.remark or "") + f" | Approval note: {remarks}"
             
-            # Finalize stock updates
             for item in return_record.items:
                 if item.sales_stock_id:
                     stock_item = self.db.query(SalesStock).filter(
@@ -567,8 +519,7 @@ class PurchasingReturnService:
                         stock_item.status = "returned_to_supplier"
                         stock_item.is_active = False
                         stock_item.returned_date = now
-            
-            # Update supplier credit
+
             grn = return_record.good_received_note
             if grn:
                 po = self.db.query(models.PurchasingOrder).filter(
@@ -578,12 +529,10 @@ class PurchasingReturnService:
                     credit_service = SupplierCreditService()
                     credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
         else:
-            # Reject the return
             return_record.status = "rejected"
             if remarks:
                 return_record.remark = (return_record.remark or "") + f" | Rejection reason: {remarks}"
-            
-            # Revert stock status
+
             for item in return_record.items:
                 if item.sales_stock_id:
                     stock_item = self.db.query(SalesStock).filter(
@@ -618,18 +567,18 @@ class GoodReceivedNoteService:
         self.db = db
     
     def create(self, grn: schemas.GoodReceivedNoteCreate, allow_credit_override: bool = False) -> models.GoodReceivedNote:
-        """
-        Create a GRN and update supplier credit.
-        When goods are received on credit, supplier.left_credit_amount decreases.
-        
-        Args:
-            grn: GRN data
-            allow_credit_override: If True, allow GRN even if credit limit exceeded
-        """
         from app.modules.purchasing.credit_service import SupplierCreditService
+        from app.modules.common.models import Locations
         from decimal import Decimal
         
-        # Get PO to find supplier and calculate value
+        # Validate Location exists
+        location = self.db.query(Locations).filter(Locations.id == grn.good_received_locations_id).first()
+        if not location:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Location with id {grn.good_received_locations_id} not found"
+            )
+        
         po = self.db.query(models.PurchasingOrder).filter(
             models.PurchasingOrder.id == grn.purchasingorders_id
         ).first()
@@ -639,8 +588,7 @@ class GoodReceivedNoteService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Purchase order {grn.purchasingorders_id} not found"
             )
-        
-        # Check if suppliers are active
+
         first_supplier = self.db.query(models.Supplier).filter(
             models.Supplier.id == po.first_suppliers_id
         ).first()
@@ -660,10 +608,9 @@ class GoodReceivedNoteService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot create GRN: Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier first."
             )
-        
-        # Hard credit check for credit purchases
+
         if po.payment_method and po.payment_method.lower() == "credit":
-            # Calculate PO value
+
             po_items = self.db.query(models.PurchasingOrderItems).filter(
                 models.PurchasingOrderItems.purchasingorders_id == po.id
             ).all()
@@ -673,13 +620,11 @@ class GoodReceivedNoteService:
                 for item in po_items
             ) if po_items else Decimal("0")
             
-            # Perform credit check - passing PO ID so it knows credit is already reserved
             credit_service = SupplierCreditService()
             credit_check = credit_service.check_grn_credit(
                 self.db, po.first_suppliers_id, po_total, po.id, allow_credit_override
             )
             
-            # Block if credit exceeded and no override
             if not credit_check["can_post"]:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -691,8 +636,6 @@ class GoodReceivedNoteService:
 
         def _new_grn_no() -> str:
             return f"GRN-{uuid.uuid4().hex[:8].upper()}"
-
-        # Ensure GRN number is present and unique (avoid 500 on collisions)
         working_grn = grn
         if not getattr(working_grn, "good_received_no", None):
             working_grn = working_grn.model_copy(update={"good_received_no": _new_grn_no()})
@@ -702,9 +645,10 @@ class GoodReceivedNoteService:
             try:
                 created_grn = self.repo.create(working_grn)
                 break
-            except IntegrityError:
+            except IntegrityError as e:
+                import logging
+                logging.error(f"IntegrityError creating GRN: {str(e)}")
                 self.db.rollback()
-                # likely UNIQUE constraint on good_received_no
                 working_grn = working_grn.model_copy(update={"good_received_no": _new_grn_no()})
 
         if created_grn is None:
@@ -713,35 +657,29 @@ class GoodReceivedNoteService:
                 detail="GRN number conflict. Please retry."
             )
 
-        # Determine if PO is fully or partially completed
         po_status = self._determine_po_completion_status(po.id)
         po.status = po_status
         self.db.commit()
         
-        # Update supplier credit balance
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
         
         return created_grn
     
     def _determine_po_completion_status(self, po_id: int) -> str:
-        """Determine if PO is fully completed or partially completed based on received items."""
-        # Get all PO items with their quantities
         po_items = self.db.query(models.PurchasingOrderItems).filter(
             models.PurchasingOrderItems.purchasingorders_id == po_id
         ).all()
         
         if not po_items:
             return "completed"
-        
-        # Count total ordered vs received for each item
+
         all_fully_received = True
         any_received = False
         
         for po_item in po_items:
             ordered_qty = po_item.quantity
             
-            # Count received items (GoodReceivedItems with active=True)
             received_qty = self.db.query(models.GoodReceivedItems).filter(
                 models.GoodReceivedItems.purchasing_order_items_id == po_item.id,
                 models.GoodReceivedItems.active == True
@@ -753,14 +691,12 @@ class GoodReceivedNoteService:
             if received_qty < ordered_qty:
                 all_fully_received = False
         
-        # If all items fully received -> completed
-        # If some items received but not all -> partially_completed
         if all_fully_received and any_received:
             return "completed"
         elif any_received:
             return "partially_completed"
         else:
-            return "approved"  # No items received yet
+            return "approved"
     
     def get_by_id(self, grn_id: int) -> models.GoodReceivedNote:
         grn = self.repo.get_by_id(grn_id)
@@ -775,7 +711,6 @@ class GoodReceivedNoteService:
         return self.repo.get_all(filters)
     
     def update(self, grn_id: int, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
-        # Check if GRN's PO is fully completed
         existing_grn = self.repo.get_by_id(grn_id)
         if not existing_grn:
             raise HTTPException(
@@ -783,7 +718,6 @@ class GoodReceivedNoteService:
                 detail=f"GRN with id {grn_id} not found"
             )
         
-        # Get PO status
         po = self.db.query(models.PurchasingOrder).filter(
             models.PurchasingOrder.id == existing_grn.purchasingorders_id
         ).first()
@@ -806,7 +740,6 @@ class GoodReceivedNoteService:
         return self.repo.get_items(grn_id)
     
     def get_items_with_details(self, grn_id: int) -> List[dict]:
-        """Get GRN items with product names and saved-to info"""
         from app.modules.inventory.models import SalesStock, CompanyAssets
         from app.modules.products.models import Product
         
@@ -817,7 +750,6 @@ class GoodReceivedNoteService:
         
         result = []
         for item in items:
-            # Get product info from PO item
             po_item = self.db.query(models.PurchasingOrderItems).filter(
                 models.PurchasingOrderItems.id == item.purchasing_order_items_id
             ).first()
@@ -828,13 +760,11 @@ class GoodReceivedNoteService:
                 product = self.db.query(Product).filter(Product.id == product_id).first()
                 product_name = product.name if product else None
             
-            # Check if saved to sales_stock
             saved_to_sales_stock = self.db.query(SalesStock).filter(
                 SalesStock.good_received_note_id == grn_id,
                 SalesStock.barcode == item.barcode
             ).first() is not None
             
-            # Check if saved to company_assets
             saved_to_company_assets = self.db.query(CompanyAssets).filter(
                 CompanyAssets.good_received_note_id == grn_id,
                 CompanyAssets.barcode == item.barcode
@@ -858,7 +788,6 @@ class GoodReceivedNoteService:
         return result
     
     def barcode_exists(self, barcode: str) -> bool:
-        """Check if barcode already exists in good_received_items table"""
         return self.db.query(models.GoodReceivedItems).filter(
             models.GoodReceivedItems.barcode == barcode
         ).first() is not None
@@ -874,7 +803,6 @@ class GoodReceivedNoteService:
         ).all()
     
     def create_item(self, item: schemas.GoodReceivedItemCreate) -> models.GoodReceivedItems:
-        # Check if barcode already exists
         if self.barcode_exists(item.barcode):
             raise ValueError(f"Barcode '{item.barcode}' already exists in Good Received Items")
         
@@ -907,16 +835,11 @@ class SupplierCreditsSettleService:
         self.db = db
     
     def create(self, settle: schemas.SupplierCreditsSettleCreate) -> models.SupplierCreditsSettle:
-        """
-        Create a credit settlement and update supplier credit.
-        When supplier is paid, supplier.left_credit_amount increases.
-        """
+
         from app.modules.purchasing.credit_service import SupplierCreditService
-        
-        # Create the settlement
+
         created_settle = self.repo.create(settle)
-        
-        # Update supplier credit balance
+
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, settle.suppliers_id)
         
@@ -940,11 +863,9 @@ class SupplierCreditsSettleService:
     def get_with_transactions(self, settle_id: int) -> schemas.SupplierCreditsSettleWithTransactions:
         settle = self.get_by_id(settle_id)
         transactions = self.repo.get_transactions(settle_id)
-        
-        # Build transactions with GRN and PO details
+
         enriched_transactions = []
         for t in transactions:
-            # Get GRN details
             grn = self.db.query(models.GoodReceivedNote).filter(
                 models.GoodReceivedNote.id == t.good_received_id
             ).first()
@@ -955,7 +876,6 @@ class SupplierCreditsSettleService:
             
             if grn:
                 grn_no = grn.good_received_no
-                # Get PO details
                 po = self.db.query(models.PurchasingOrder).filter(
                     models.PurchasingOrder.id == grn.purchasingorders_id
                 ).first()
@@ -991,10 +911,7 @@ class SupplierCreditsSettleService:
         )
     
     def delete(self, settle_id: int) -> bool:
-        """
-        Delete a credit settlement and recalculate supplier credit.
-        When settlement is deleted, supplier.left_credit_amount decreases.
-        """
+
         from app.modules.purchasing.credit_service import SupplierCreditService
         
         settle = self.repo.get_by_id(settle_id)
@@ -1007,7 +924,6 @@ class SupplierCreditsSettleService:
         supplier_id = settle.suppliers_id
         result = self.repo.delete(settle_id)
         
-        # Update supplier credit balance after deleting settlement
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, supplier_id)
         
@@ -1063,7 +979,6 @@ class SupplierCreditsSettleService:
 
 
 class SupplierPaymentService:
-    """Service for handling direct supplier payments (non-credit)"""
     
     def __init__(self, db: Session):
         self.repo = repository.SupplierPaymentRepository(db)
@@ -1072,15 +987,13 @@ class SupplierPaymentService:
         self.db = db
     
     def create_payment(self, payment: schemas.SupplierPaymentCreate, created_by: int = None) -> models.SupplierPayment:
-        # Verify supplier exists
         supplier = self.supplier_repo.get_by_id(payment.supplier_id)
         if not supplier:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier with id {payment.supplier_id} not found"
             )
-        
-        # Verify PO exists if provided
+
         if payment.purchasing_order_id:
             order = self.order_repo.get_by_id(payment.purchasing_order_id)
             if not order:
@@ -1088,8 +1001,7 @@ class SupplierPaymentService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Purchase order with id {payment.purchasing_order_id} not found"
                 )
-            
-            # Verify PO belongs to this supplier
+
             if order.first_suppliers_id != payment.supplier_id and order.second_suppliers_id != payment.supplier_id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1105,8 +1017,7 @@ class SupplierPaymentService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Payment with id {payment_id} not found"
             )
-        
-        # Enrich with supplier name and PO number
+
         supplier_name = None
         po_no = None
         

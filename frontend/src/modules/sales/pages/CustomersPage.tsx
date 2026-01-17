@@ -13,29 +13,32 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-// Tijaero Components
 import {
   ActionToolbar,
+  CIVIL_CHOICES,
   DetailPanelHeader,
   EmptyState,
   FormSection,
+  GENDER_CHOICES,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
   SortOption,
+  TBranchFilter,
   TConfirmDialog,
-  useMasterDetailState,
-  useTConfirmDialog,
+  TFilterPanel,
   TITLE_CHOICES,
-  GENDER_CHOICES,
-  CIVIL_CHOICES,
+  TStatusFilter,
+  useMasterDetailState,
+  useTConfirmDialog
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
+import { branchApi } from "@/modules/branches/api";
 import { customersApi } from "@/modules/customers/api";
 import { Customer, CustomerCreate } from "@/modules/customers/types";
 
@@ -43,6 +46,17 @@ import { Customer, CustomerCreate } from "@/modules/customers/types";
 const SORT_OPTIONS: SortOption[] = [
   { value: "customer_name", label: "Customer Name" },
   { value: "company_name", label: "Company Name" },
+];
+
+// Status filter options
+const CUSTOMER_STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
+
+const AGENT_FILTER_OPTIONS = [
+  { value: "agent", label: "Agents Only" },
+  { value: "non-agent", label: "Non-Agents" },
 ];
 
 const INITIAL_FORM_DATA: CustomerCreate = {
@@ -101,6 +115,11 @@ export default function CustomersPage() {
   const canUpdate = usePermission("customers", "update");
   const canDelete = usePermission("customers", "delete");
 
+  // Filter states
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterAgent, setFilterAgent] = useState<string | null>(null);
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
   // Use reusable state hook
   const {
     searchQuery,
@@ -133,17 +152,41 @@ export default function CustomersPage() {
     queryFn: () => customersApi.getAll(),
   });
 
+  // Fetch branches for filter
+  const { data: branchesData } = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => branchApi.getAll(1, 100),
+  });
+  const branches = branchesData?.items || [];
+
   // Filter and sort
   const filteredCustomers = useMemo(() => {
     if (!customers) return [];
 
-    const filtered = customers.filter(
+    let filtered = customers.filter(
       (customer) =>
         customer.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         customer.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         customer.mobile_contact_number?.includes(searchQuery) ||
         customer.company_name?.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    // Apply status filter
+    if (filterStatus) {
+      const isActive = filterStatus === "active";
+      filtered = filtered.filter(customer => customer.active === isActive);
+    }
+
+    // Apply agent filter
+    if (filterAgent) {
+      const isAgent = filterAgent === "agent";
+      filtered = filtered.filter(customer => customer.is_customer_agent === isAgent);
+    }
+
+    // Apply branch filter
+    if (filterBranch) {
+      filtered = filtered.filter(customer => (customer as { branch_code?: string }).branch_code === filterBranch);
+    }
 
     filtered.sort((a, b) => {
       if (sortField === "customer_name") {
@@ -155,7 +198,7 @@ export default function CustomersPage() {
     });
 
     return filtered;
-  }, [customers, searchQuery, sortField]);
+  }, [customers, searchQuery, sortField, filterStatus, filterAgent, filterBranch]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -252,6 +295,27 @@ export default function CustomersPage() {
       selectedItem={selectedCustomer}
       onSelectItem={handleSelectCustomer}
       emptyMessage="No customers found"
+      listHeader={
+        <TFilterPanel>
+          <TStatusFilter
+            options={CUSTOMER_STATUS_OPTIONS}
+            value={filterStatus}
+            onChange={setFilterStatus}
+            label="Status"
+          />
+          <TStatusFilter
+            options={AGENT_FILTER_OPTIONS}
+            value={filterAgent}
+            onChange={setFilterAgent}
+            label="Type"
+          />
+          <TBranchFilter
+            branches={branches}
+            value={filterBranch}
+            onChange={setFilterBranch}
+          />
+        </TFilterPanel>
+      }
       renderItem={(customer, isSelected) => (
         <SelectableListItem
           key={customer.id}

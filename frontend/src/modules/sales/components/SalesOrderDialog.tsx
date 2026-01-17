@@ -1,31 +1,36 @@
-import { useForm, Controller, useFieldArray } from "react-hook-form";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import apiClient from "@/api/client";
+import { useReferenceData } from "@/hooks";
+import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
+import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  TextField,
-  Grid,
+  Autocomplete,
   Box,
-  Typography,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  Grid,
   IconButton,
+  InputAdornment,
+  Paper,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
-  Divider,
-  Autocomplete,
+  TextField,
+  Typography,
 } from "@mui/material";
-import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
-import { formatCurrency, formatAmount } from "@/utils/formatters";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useRef, useState } from "react";
+import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { salesApi } from "../api";
-import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed customersApi, productsApi, branchApi imports - using aggregated endpoint
+import { showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { Invoice, InvoiceCreate } from "../types";
-import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
 interface SalesOrderDialogProps {
   open: boolean;
@@ -42,12 +47,13 @@ export default function SalesOrderDialog({
   const isView = !!invoice;
 
   // OPTIMIZED: Single API call for customers, products, branches (was 3 calls)
-  const { data: refData } = useReferenceData(["customers", "products", "branches"]);
+  const { data: refData } = useReferenceData(["customers", "products", "branches", "sales_stock"]);
   const customers = refData?.customers || [];
   const products = refData?.products || [];
+  const salesStock = refData?.sales_stock || [];
   const branches = refData?.branches || [];
 
-  const { control, handleSubmit, watch } = useForm<InvoiceCreate>({
+  const { control, handleSubmit, watch, setValue } = useForm<InvoiceCreate>({
     defaultValues: {
       invoice_no: "",
       branch_code: "MAIN",
@@ -75,6 +81,66 @@ export default function SalesOrderDialog({
 
   const items = watch("items");
   const paymentMethod = watch("payment_method");
+
+  // Barcode scanning state
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  // Barcode validation handler
+  const handleValidateBarcode = useCallback(async (barcode: string) => {
+    if (!barcode.trim()) {
+      setValidationError('Please enter a barcode');
+      return;
+    }
+
+    // Check if product with this barcode already added
+    const existingItem = items.find(item => {
+      const stock = salesStock?.find(s => s.id === item.product_id);
+      return stock && (stock.product_code === barcode.trim() ||
+        (stock as any).barcode === barcode.trim());
+    });
+
+    if (existingItem) {
+      setValidationError('This product has already been added');
+      return;
+    }
+
+    setIsValidating(true);
+    setValidationError(null);
+
+    try {
+      // Call inventory API to get barcode details
+      const response = await apiClient.get(`/inventory/sales-stock/barcode/${barcode.trim()}`);
+      const stockItem = response.data;
+
+      // Check if item is available
+      if (stockItem.status !== 'available') {
+        setValidationError('This item is not available for sale');
+        return;
+      }
+
+      // Add to items
+      append({
+        product_id: stockItem.product_id,
+        quantity: 1,
+        selling_price: 0, // User can update
+        minimum_selling_price: 0,
+        warrenty_month: stockItem.warranty_month || "0",
+      });
+
+      setBarcodeInput('');
+      barcodeInputRef.current?.focus();
+
+      showSuccessToast(`Added: ${stockItem.product?.product_name || 'Product'}`);
+    } catch (error: any) {
+      console.error('Barcode validation error:', error);
+      setValidationError(error.response?.data?.detail || 'Barcode not found in available stock');
+    } finally {
+      setIsValidating(false);
+    }
+  }, [items, salesStock, append]);
 
   const calculateTotal = () => {
     return items.reduce(
@@ -266,6 +332,69 @@ export default function SalesOrderDialog({
 
           <Divider sx={{ my: 3 }} />
 
+          {/* Barcode Scanner Section */}
+          {!isView && (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                mb: 2,
+                bgcolor: "warning.50",
+                borderColor: "warning.main",
+                borderWidth: 2,
+              }}
+            >
+              <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                <QrCodeScannerIcon color="warning" />
+                Scan Barcode to Add Products
+              </Typography>
+              <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+                <TextField
+                  inputRef={barcodeInputRef}
+                  size="small"
+                  fullWidth
+                  placeholder="Scan or type barcode and press Enter..."
+                  value={barcodeInput}
+                  onChange={(e) => {
+                    setBarcodeInput(e.target.value);
+                    if (validationError) setValidationError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleValidateBarcode(barcodeInput);
+                    }
+                  }}
+                  disabled={isValidating}
+                  error={!!validationError}
+                  helperText={validationError || "Press Enter to add item"}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <QrCodeScannerIcon fontSize="small" color="action" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: isValidating ? (
+                      <InputAdornment position="end">
+                        <CircularProgress size={20} />
+                      </InputAdornment>
+                    ) : null,
+                  }}
+                  autoFocus
+                />
+                <Button
+                  variant="contained"
+                  color="warning"
+                  onClick={() => handleValidateBarcode(barcodeInput)}
+                  disabled={isValidating || !barcodeInput.trim()}
+                  sx={{ minWidth: 100 }}
+                >
+                  {isValidating ? <CircularProgress size={20} /> : "Add"}
+                </Button>
+              </Box>
+            </Paper>
+          )}
+
           <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
             <Typography variant="h6">Items</Typography>
             {!isView && (
@@ -285,9 +414,9 @@ export default function SalesOrderDialog({
               <TableRow>
                 <TableCell>Product</TableCell>
                 <TableCell>Quantity</TableCell>
-                <TableCell>Price (Rs.)</TableCell>
+                <TableCell>Price</TableCell>
                 <TableCell>Warranty (months)</TableCell>
-                <TableCell>Total (Rs.)</TableCell>
+                <TableCell>Total</TableCell>
                 {!isView && <TableCell>Action</TableCell>}
               </TableRow>
             </TableHead>
@@ -300,14 +429,19 @@ export default function SalesOrderDialog({
                       control={control}
                       render={({ field }) => (
                         <Autocomplete
-                          options={products || []}
-                          getOptionLabel={(option) => option.name}
+                          options={salesStock || []}
+                          getOptionLabel={(option) => `${option.product_name} (${option.product_code}) - Available: ${option.available_quantity}`}
                           value={
-                            products?.find((p) => p.id === field.value) || null
+                            salesStock?.find((s) => s.id === field.value) || null
                           }
-                          onChange={(_, newValue) =>
-                            field.onChange(newValue?.id || 0)
-                          }
+                          onChange={(_, newValue) => {
+                            field.onChange(newValue?.id || 0);
+                            if (newValue) {
+                              // Auto-fill price from minimum_selling_price if available
+                              setValue(`items.${index}.selling_price`, 0);
+                              setValue(`items.${index}.warrenty_month`, "0");
+                            }
+                          }}
                           disabled={isView}
                           size="small"
                           renderInput={(params) => (
@@ -366,9 +500,10 @@ export default function SalesOrderDialog({
                     />
                   </TableCell>
                   <TableCell>
-                    {formatAmount(
+                    $
+                    {(
                       items[index]?.quantity * items[index]?.selling_price || 0
-                    )}
+                    ).toFixed(2)}
                   </TableCell>
                   {!isView && (
                     <TableCell>
@@ -388,7 +523,7 @@ export default function SalesOrderDialog({
 
           <Box sx={{ mt: 2, textAlign: "right" }}>
             <Typography variant="h6">
-              Total: {formatCurrency(calculateTotal())}
+              Total: Rs. {calculateTotal().toFixed(2)}
             </Typography>
           </Box>
         </DialogContent>

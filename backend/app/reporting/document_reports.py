@@ -1,8 +1,3 @@
-"""
-Document Reports Service
-Generates HTML/PDF reports for Purchase Orders, GRNs, and Purchase Returns
-"""
-
 from typing import Optional, Literal
 from datetime import datetime
 from pathlib import Path
@@ -21,11 +16,9 @@ from app.auth.models import Branch
 
 
 class DocumentReportService:
-    """Service for generating document reports (PO, GRN, Purchase Return)"""
     
     def __init__(self, db: Session):
         self.db = db
-        # Setup Jinja2 template environment
         template_dir = Path(__file__).parent / "templates"
         self.env = Environment(
             loader=FileSystemLoader(str(template_dir)),
@@ -33,7 +26,6 @@ class DocumentReportService:
         )
     
     def _get_company_info(self) -> dict:
-        """Get company information from settings"""
         try:
             settings = self.db.query(Settings).first()
             if settings:
@@ -45,7 +37,7 @@ class DocumentReportService:
                     "email": settings.company_email or ""
                 }
         except Exception:
-            self.db.rollback()  # Rollback failed transaction
+            self.db.rollback()
         return {
             "name": "Tijaero ERP",
             "address": "",
@@ -55,7 +47,6 @@ class DocumentReportService:
         }
     
     def _get_branch_info(self, branch_code: str) -> dict:
-        """Get branch information"""
         branch = self.db.query(Branch).filter(Branch.branch_code == branch_code).first()
         if branch:
             return {
@@ -72,7 +63,6 @@ class DocumentReportService:
         }
     
     def _get_supplier_info(self, supplier_id: int) -> dict:
-        """Get supplier information"""
         supplier = self.db.query(Supplier).filter(Supplier.id == supplier_id).first()
         if supplier:
             return {
@@ -95,8 +85,6 @@ class DocumentReportService:
         }
     
     def generate_purchase_order_report(self, po_id: int) -> str:
-        """Generate HTML report for a Purchase Order"""
-        # Fetch PO with items
         po = self.db.query(PurchasingOrder).options(
             joinedload(PurchasingOrder.items)
         ).filter(PurchasingOrder.id == po_id).first()
@@ -104,12 +92,10 @@ class DocumentReportService:
         if not po:
             raise HTTPException(status_code=404, detail=f"Purchase Order #{po_id} not found")
         
-        # Get related data
         company = self._get_company_info()
         supplier = self._get_supplier_info(po.first_suppliers_id)
         branch = self._get_branch_info(po.branch_code)
         
-        # Build items data
         items = []
         subtotal = 0
         for item in po.items:
@@ -124,8 +110,7 @@ class DocumentReportService:
                 "total": item_total
             })
             subtotal += item_total
-        
-        # Render template
+
         template = self.env.get_template("purchase_order.html")
         return template.render(
             company=company,
@@ -146,25 +131,21 @@ class DocumentReportService:
         )
     
     def generate_grn_report(self, grn_id: int) -> str:
-        """Generate HTML report for a Good Received Note"""
-        # Fetch GRN
+
         grn = self.db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
         
         if not grn:
             raise HTTPException(status_code=404, detail=f"GRN #{grn_id} not found")
-        
-        # Get PO info
+
         po = self.db.query(PurchasingOrder).filter(
             PurchasingOrder.id == grn.purchasingorders_id
         ).first() if grn.purchasingorders_id else None
         
-        # Get related data
         company = self._get_company_info()
         supplier_id = po.first_suppliers_id if po else None
         supplier = self._get_supplier_info(supplier_id) if supplier_id else {}
         branch = self._get_branch_info(grn.branch_code)
-        
-        # Get received items from SalesStock linked to this GRN
+
         from sqlalchemy.orm import joinedload
         stock_items = self.db.query(SalesStock).options(
             joinedload(SalesStock.product),
@@ -178,22 +159,21 @@ class DocumentReportService:
         total_value = 0
         
         for stock in stock_items:
-            # Get price from purchasing order item
+
             unit_price = float(stock.purchasing_order_item.unit_price) if stock.purchasing_order_item else 0
             product_name = stock.product.name if stock.product else f"Product #{stock.product_id}"
             items.append({
                 "product_id": stock.product_id,
                 "product_name": product_name,
                 "barcode": stock.barcode,
-                "quantity": 1,  # Each stock item is a single unit
+                "quantity": 1, 
                 "unit_price": unit_price,
                 "warranty_month": stock.warranty_month or "-",
                 "status": stock.status
             })
             total_quantity += 1
             total_value += unit_price
-        
-        # Render template
+
         template = self.env.get_template("grn.html")
         return template.render(
             company=company,
@@ -219,8 +199,7 @@ class DocumentReportService:
         )
     
     def generate_purchase_return_report(self, return_id: int) -> str:
-        """Generate HTML report for a Purchase Return"""
-        # Fetch return with items
+
         purchase_return = self.db.query(PurchasingReturn).options(
             joinedload(PurchasingReturn.items).joinedload(PurchasingReturnItems.product),
             joinedload(PurchasingReturn.items).joinedload(PurchasingReturnItems.sales_stock)
@@ -228,26 +207,22 @@ class DocumentReportService:
         
         if not purchase_return:
             raise HTTPException(status_code=404, detail=f"Purchase Return #{return_id} not found")
-        
-        # Get GRN
+
         grn = self.db.query(GoodReceivedNote).filter(
             GoodReceivedNote.id == purchase_return.goodreceivednote_id
         ).first() if purchase_return.goodreceivednote_id else None
-        
-        # Get PO
+
         po = None
         if grn and grn.purchasingorders_id:
             po = self.db.query(PurchasingOrder).filter(
                 PurchasingOrder.id == grn.purchasingorders_id
             ).first()
-        
-        # Get related data
+
         company = self._get_company_info()
         supplier_id = po.first_suppliers_id if po else purchase_return.supplier_id if hasattr(purchase_return, 'supplier_id') else None
         supplier = self._get_supplier_info(supplier_id) if supplier_id else {}
         branch = self._get_branch_info(purchase_return.branch_code)
-        
-        # Build items data
+
         items = []
         total_quantity = 0
         total_value = 0
@@ -270,8 +245,7 @@ class DocumentReportService:
             })
             total_quantity += 1
             total_value += unit_price
-        
-        # Render template
+
         template = self.env.get_template("purchase_return.html")
         return template.render(
             company=company,
@@ -302,5 +276,5 @@ class DocumentReportService:
 
 
 def get_document_report_service(db: Session) -> DocumentReportService:
-    """Factory function to get document report service"""
+
     return DocumentReportService(db)

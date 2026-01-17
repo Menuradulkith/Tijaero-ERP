@@ -1,8 +1,4 @@
-"""
-Common OpenAPI response schemas for Swagger documentation
-"""
 
-# Common error responses
 error_responses = {
     400: {
         "description": "Bad Request",
@@ -85,9 +81,7 @@ success_responses = {
     }
 }
 
-# Combine common responses
 def get_responses(*status_codes):
-    """Get combined response schemas for specified status codes"""
     responses = {}
     for code in status_codes:
         if code in error_responses:
