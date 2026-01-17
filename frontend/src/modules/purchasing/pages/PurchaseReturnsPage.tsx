@@ -59,7 +59,7 @@ import {
   modernTableStyles,
 } from "@/components/tijaero";
 
-import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
+import { purchaseReturnsApi, goodReceivedNotesApi, purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import { 
@@ -68,6 +68,8 @@ import {
   PurchasingReturnCreate, 
   PurchasingReturnItemCreate,
   GoodReceivedNote,
+  PurchasingOrder,
+  Supplier,
 } from "@/modules/purchasing/types";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -140,6 +142,8 @@ export default function PurchaseReturnsPage() {
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   // Barcode scanning states
   const [barcodeInput, setBarcodeInput] = useState("");
@@ -266,6 +270,24 @@ export default function PurchaseReturnsPage() {
     queryFn: () => goodReceivedNotesApi.getAll(),
   });
 
+  const { data: purchaseOrders } = useQuery({
+    queryKey: ["purchaseOrders"],
+    queryFn: () => purchaseOrdersApi.getAll(),
+  });
+
+  // Load suppliers for filter
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      try {
+        const data = await suppliersApi.getAll();
+        setSuppliers(data || []);
+      } catch (err) {
+        console.error("Failed to load suppliers:", err);
+      }
+    };
+    loadSuppliers();
+  }, []);
+
   // OPTIMIZED: Use aggregated endpoint for branches
   const { data: refData } = useReferenceData(["branches"]);
   const branches = refData?.branches || [];
@@ -289,6 +311,20 @@ export default function PurchaseReturnsPage() {
       filtered = filtered.filter(ret => ret.status === filterStatus);
     }
 
+    // Apply supplier filter (through GRN → PO → Supplier)
+    if (filterSupplier && grns && purchaseOrders) {
+      // Get GRN IDs for the selected supplier
+      const grnIdsForSupplier = new Set(
+        grns
+          .filter((grn: GoodReceivedNote) => {
+            const po = purchaseOrders.find((po: PurchasingOrder) => po.id === grn.purchasingorders_id);
+            return po && (po.first_suppliers_id === filterSupplier || po.second_suppliers_id === filterSupplier);
+          })
+          .map((grn: GoodReceivedNote) => grn.id)
+      );
+      filtered = filtered.filter(ret => grnIdsForSupplier.has(ret.goodreceivednote_id));
+    }
+
     filtered.sort((a, b) => {
       if (sortField === "added_date") {
         return new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
@@ -299,7 +335,7 @@ export default function PurchaseReturnsPage() {
     });
 
     return filtered;
-  }, [returns, searchQuery, sortField, filterBranch, filterStatus]);
+  }, [returns, searchQuery, sortField, filterBranch, filterStatus, filterSupplier, grns, purchaseOrders]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -327,6 +363,15 @@ export default function PurchaseReturnsPage() {
     const grn = grns?.find((g: GoodReceivedNote) => g.id === grnId);
     return grn ? grn.good_received_no : "Unknown";
   }, [grns]);
+
+  const getSupplierName = useCallback((grnId: number) => {
+    const grn = grns?.find((g: GoodReceivedNote) => g.id === grnId);
+    if (!grn) return "N/A";
+    const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === grn.purchasingorders_id);
+    if (!po) return "N/A";
+    const supplier = suppliers.find(s => s.id === po.first_suppliers_id);
+    return supplier ? supplier.full_name : "Unknown Supplier";
+  }, [grns, purchaseOrders, suppliers]);
 
   // getStatusColor is now imported from common components and uses RETURN_STATUS_OPTIONS
 
@@ -571,6 +616,22 @@ export default function PurchaseReturnsPage() {
             value={filterBranch}
             onChange={setFilterBranch}
           />
+          <Autocomplete
+            size="small"
+            options={suppliers}
+            getOptionLabel={(option) => option.full_name || ''}
+            value={suppliers.find(s => s.id === filterSupplier) || null}
+            onChange={(_, newValue) => setFilterSupplier(newValue?.id || null)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Filter by Supplier"
+                placeholder="All Suppliers"
+                sx={{ minWidth: 200 }}
+              />
+            )}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+          />
         </TFilterPanel>
       }
       renderItem={(ret, isSelected) => (
@@ -744,6 +805,13 @@ export default function PurchaseReturnsPage() {
                     disabled
                     helperText="Auto-filled from GRN"
                   />
+                  <TextField
+                    label="Supplier Name"
+                    size="small"
+                    value={getSupplierName(formData.goodreceivednote_id)}
+                    disabled
+                    helperText="Auto-filled from GRN"
+                  />
                 </FormSection>
 
                 <FormSection title="Remarks" columns={1}>
@@ -912,8 +980,8 @@ export default function PurchaseReturnsPage() {
                       <TableCell>Product</TableCell>
                       <TableCell>Branch Code</TableCell>
                       <TableCell>Added Date</TableCell>
-                      <TableCell align="right" sx={{ width: 120 }}>Purchase Price</TableCell>
-                      <TableCell align="right" sx={{ width: 120 }}>Return Price</TableCell>
+                      <TableCell align="right" sx={{ width: 120 }}>Purchase Price (Rs.)</TableCell>
+                      <TableCell align="right" sx={{ width: 120 }}>Return Price (Rs.)</TableCell>
                       {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
                     </TableRow>
                   </TableHead>
@@ -987,7 +1055,7 @@ export default function PurchaseReturnsPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              `Rs. ${(Number(item.purchasing_price) || 0).toFixed(2)}`
+                              (Number(item.purchasing_price) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                             )}
                           </TableCell>
                           <TableCell align="right">
@@ -1001,7 +1069,7 @@ export default function PurchaseReturnsPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              `Rs. ${(Number(item.return_price) || 0).toFixed(2)}`
+                              (Number(item.return_price) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                             )}
                           </TableCell>
                           {(isEditing || isCreating) && (
@@ -1019,7 +1087,7 @@ export default function PurchaseReturnsPage() {
                         <Typography fontWeight="bold">Total Return:</Typography>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography fontWeight="bold">Rs. {(calculateTotal() || 0).toFixed(2)}</Typography>
+                        <Typography fontWeight="bold">{(calculateTotal() || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
                       </TableCell>
                       {(isEditing || isCreating) && <TableCell />}
                     </TableRow>

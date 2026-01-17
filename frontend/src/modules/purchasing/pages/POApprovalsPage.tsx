@@ -29,6 +29,7 @@ import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
+import toast from "react-hot-toast";
 
 // Import tijaero components
 import {
@@ -74,7 +75,7 @@ export default function POApprovalsPage() {
   const confirmDialog = useConfirmDialog();
 
   // Filter states
-  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>("pending_approval");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // Dialogs
@@ -204,6 +205,81 @@ export default function POApprovalsPage() {
   const handleApprove = async () => {
     if (!selectedOrder) return;
     
+    // Check if it's a credit order and validate credit limit
+    const isCreditPayment = selectedOrder.payment_method?.toLowerCase() === "credit";
+    if (isCreditPayment && selectedOrder.first_suppliers_id) {
+      const totalAmount = (selectedOrder.items || []).reduce((sum: number, item: any) => sum + (item.quantity * item.unit_price), 0);
+      
+      try {
+        const creditCheck = await purchaseOrdersApi.checkCredit(selectedOrder.first_suppliers_id, totalAmount);
+        
+        // Show warning modal if requires approval
+        if (creditCheck.requires_approval) {
+          const supplier = supplierMap.get(selectedOrder.first_suppliers_id);
+          const supplierName = supplier?.company_name || supplier?.full_name || 'Unknown';
+          
+          const confirmed = await new Promise<boolean>((resolve) => {
+            toast((t) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ fontWeight: 'bold', color: '#f59e0b' }}>⚠️ Credit Limit Warning</div>
+                <div style={{ fontSize: '14px' }}>
+                  Supplier: {supplierName}<br />
+                  Credit Limit: Rs. {creditCheck.credit_check.max_credit_limit.toLocaleString()}<br />
+                  Current Outstanding: Rs. {creditCheck.credit_check.current_outstanding.toLocaleString()}<br />
+                  Available Credit: Rs. {creditCheck.credit_check.available_credit.toLocaleString()}<br />
+                  This Order: Rs. {creditCheck.credit_check.po_value.toLocaleString()}<br />
+                  <strong>Exceeds by: Rs. {creditCheck.credit_check.excess_amount.toLocaleString()}</strong>
+                </div>
+                <div style={{ fontSize: '13px', color: '#666' }}>
+                  {creditCheck.message}
+                </div>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <button
+                    onClick={() => { toast.dismiss(t.id); resolve(true); }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      backgroundColor: '#f59e0b',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontWeight: 500
+                    }}
+                  >
+                    Approve Anyway
+                  </button>
+                  <button
+                    onClick={() => { toast.dismiss(t.id); resolve(false); }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      backgroundColor: '#6b7280',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontWeight: 500
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ), { duration: Infinity });
+          });
+
+          if (!confirmed) {
+            return; // User cancelled
+          }
+        }
+      } catch (error) {
+        console.error("Credit check failed:", error);
+        toast.error("Failed to check credit limit. Please try again.");
+        return;
+      }
+    }
+    
     // Check if it's after 6pm (18:00)
     const currentHour = new Date().getHours();
     const isAfterHours = currentHour >= 18;
@@ -230,7 +306,7 @@ export default function POApprovalsPage() {
   };
 
   const supplier = selectedOrder ? supplierMap.get(selectedOrder.first_suppliers_id) : null;
-  const selectedIsPending = (selectedOrder?.status || "").toLowerCase() === "pending";
+  const selectedIsPending = (selectedOrder?.status || "").toLowerCase() === "pending_approval";
 
   const getSupplierName = (supplierId: number) => {
     const s = supplierMap.get(supplierId);
@@ -426,9 +502,9 @@ export default function POApprovalsPage() {
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Product</TableCell>
                       <TableCell align="right">Quantity</TableCell>
-                      <TableCell align="right">Unit Price</TableCell>
+                      <TableCell align="right">Unit Price (Rs.)</TableCell>
                       <TableCell>Remark</TableCell>
-                      <TableCell align="right">Total</TableCell>
+                      <TableCell align="right">Total (Rs.)</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -441,7 +517,7 @@ export default function POApprovalsPage() {
                         }}>
                           <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                           <TableCell align="right">{item.quantity}</TableCell>
-                          <TableCell align="right">Rs. {item.unit_price.toLocaleString()}</TableCell>
+                          <TableCell align="right">{item.unit_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                           <TableCell>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                               <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -454,7 +530,7 @@ export default function POApprovalsPage() {
                               </Tooltip>
                             </Box>
                           </TableCell>
-                          <TableCell align="right">Rs. {(item.quantity * item.unit_price).toLocaleString()}</TableCell>
+                          <TableCell align="right">{(item.quantity * item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                         </TableRow>
                       );
                     })}
@@ -463,7 +539,7 @@ export default function POApprovalsPage() {
                         <strong>Total Amount:</strong>
                       </TableCell>
                       <TableCell align="right">
-                        <strong>Rs. {selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0).toLocaleString() || "0"}</strong>
+                        <strong>{(selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                       </TableCell>
                     </TableRow>
                   </TableBody>

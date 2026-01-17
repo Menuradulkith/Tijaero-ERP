@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, Numeric, Boolean, TIMESTAMP
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, Numeric, Boolean, TIMESTAMP, text
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.common.base_models import TimestampMixin
@@ -25,6 +25,7 @@ class GoodReceivedNote(Base):
     credit_settle_transactions = relationship("SupplierCreditsSettleTransaction", back_populates="good_received_note")
     sales_stock_items = relationship("SalesStock", back_populates="good_received_note")
     company_asset_items = relationship("CompanyAssets", back_populates="good_received_note")
+    advance_applications = relationship("SupplierAdvanceApplication", back_populates="good_received_note")
 
 
 class GoodReceivedItems(Base):
@@ -81,6 +82,7 @@ class Supplier(Base, TimestampMixin):
     purchasing_orders_second = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.second_suppliers_id", back_populates="second_supplier")
     credit_settlements = relationship("SupplierCreditsSettle", back_populates="supplier")
     payments = relationship("SupplierPayment", back_populates="supplier")
+    advance_payments = relationship("SupplierAdvancePayment", back_populates="supplier")
 
 class PurchasingOrder(Base):
     __tablename__ = "purchasing_orders"
@@ -171,7 +173,11 @@ class SupplierCreditsSettle(Base):
     branch_code = Column(String(200), nullable=False)
     created_date = Column(TIMESTAMP, nullable=False)
     suppliers_id = Column(Integer, ForeignKey("supplier.id"), nullable=False)
-
+    status = Column(String(30), nullable=False, default="pending")  # pending, verified, cancelled
+    verified_by = Column(Integer, nullable=True)  # User ID who verified
+    verified_date = Column(TIMESTAMP, nullable=True)
+    
+    # Relationships
     supplier = relationship("Supplier", back_populates="credit_settlements")
     transactions = relationship("SupplierCreditsSettleTransaction", back_populates="credit_settle")
 
@@ -217,4 +223,62 @@ class SupplierPayment(Base):
     
     supplier = relationship("Supplier", back_populates="payments")
     purchasing_order = relationship("PurchasingOrder", back_populates="payments")
+
+
+class SupplierAdvancePayment(Base):
+    """
+    Supplier Advance Payment - Payments made to supplier before goods/services are received.
+    ERP Best Practice: Track advance payments separately for proper accounting and adjustment.
+    
+    Workflow:
+    1. Create advance payment (status: active)
+    2. Apply against GRN when goods received
+    3. Track remaining balance
+    4. Optionally refund unused advances
+    """
+    __tablename__ = "supplier_advance_payment"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    advance_no = Column(String(50), unique=True, nullable=False, index=True)  # Auto-generated: ADV-YYYYMMDD-XXX
+    supplier_id = Column(Integer, ForeignKey("supplier.id"), nullable=False, index=True)
+    payment_voucher_id = Column(Integer, nullable=True)  # Optional link to voucher (no FK constraint)
+    payment_date = Column(Date, nullable=False, index=True)
+    branch_code = Column(String(200), nullable=False)
+    payment_method = Column(String(30), nullable=False)  # Cash, Bank Transfer, Cheque
+    original_amount = Column(Numeric(18, 2), nullable=False)  # Original advance amount
+    applied_amount = Column(Numeric(18, 2), nullable=False, default=0)  # Amount already applied
+    remaining_amount = Column(Numeric(18, 2), nullable=False)  # Remaining balance
+    reference_number = Column(String(100))  # Cheque no, transaction ref, etc.
+    bank_name = Column(String(100))  # For bank/cheque payments
+    is_fully_applied = Column(Boolean, nullable=False, default=False)  # True when fully applied
+    remarks = Column(Text)
+    created_by = Column(Integer, nullable=True)  # No FK constraint
+    created_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+    updated_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP"))
+    
+    # Relationships
+    supplier = relationship("Supplier", back_populates="advance_payments")
+    applications = relationship("SupplierAdvanceApplication", back_populates="advance_payment", cascade="all, delete-orphan")
+
+
+class SupplierAdvanceApplication(Base):
+    """
+    Supplier Advance Application - Records application of advance payment against GRN.
+    Each application reduces the advance remaining balance and settles the corresponding GRN.
+    """
+    __tablename__ = "supplier_advance_application"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    advance_id = Column(Integer, ForeignKey("supplier_advance_payment.id", ondelete="CASCADE"), nullable=False, index=True)
+    grn_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False, index=True)
+    applied_amount = Column(Numeric(18, 2), nullable=False)  # Amount applied from advance
+    application_date = Column(Date, nullable=False)
+    remarks = Column(Text)
+    created_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+    updated_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP"))
+    
+    # Relationships
+    advance_payment = relationship("SupplierAdvancePayment", back_populates="applications")
+    good_received_note = relationship("GoodReceivedNote", back_populates="advance_applications")
+
 

@@ -60,9 +60,9 @@ export default function CreditNotesPage() {
     { field: "id", headerName: "ID", width: 70 },
     {
       field: "amount",
-      headerName: "Amount",
+      headerName: "Amount (Rs.)",
       width: 130,
-      renderCell: (params) => <TCurrency value={params.value} />,
+      renderCell: (params) => <TCurrency value={params.value} showSymbol={false} />,
     },
     { field: "invoice_no", headerName: "Invoice No", width: 130 },
     {

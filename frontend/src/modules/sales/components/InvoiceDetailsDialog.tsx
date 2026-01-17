@@ -24,6 +24,7 @@ import {
   Close as CloseIcon,
   Receipt as ReceiptIcon,
 } from "@mui/icons-material";
+import { formatCurrency, formatAmount } from "@/utils/formatters";
 import { salesApi } from "../api";
 import { Invoice } from "../types";
 import { useReferenceData } from "@/hooks";
@@ -255,9 +256,9 @@ export default function InvoiceDetailsDialog({
                   <TableRow sx={modernTableStyles.headerRow}>
                     <TableCell>Product</TableCell>
                     <TableCell align="center">Qty</TableCell>
-                    <TableCell align="right">Unit Price</TableCell>
+                    <TableCell align="right">Unit Price (Rs.)</TableCell>
                     <TableCell align="center">Warranty</TableCell>
-                    <TableCell align="right">Total</TableCell>
+                    <TableCell align="right">Total (Rs.)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -269,10 +270,10 @@ export default function InvoiceDetailsDialog({
                       }}>
                         <TableCell>{getProductName(item.product_id)}</TableCell>
                         <TableCell align="center">{item.quantity}</TableCell>
-                        <TableCell align="right">Rs. {item.selling_price.toFixed(2)}</TableCell>
+                        <TableCell align="right">{formatAmount(item.selling_price)}</TableCell>
                         <TableCell align="center">{item.warrenty_month} mo</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 500 }}>
-                          Rs. {(item.quantity * item.selling_price).toFixed(2)}
+                          {formatAmount(item.quantity * item.selling_price)}
                         </TableCell>
                       </TableRow>
                     ))
@@ -297,43 +298,43 @@ export default function InvoiceDetailsDialog({
                   {invoiceDetails.cash_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Cash</Typography>
-                      <Typography variant="body2">Rs. {invoiceDetails.cash_amount.toFixed(2)}</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.cash_amount)}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.card_visa_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Visa Card</Typography>
-                      <Typography variant="body2">Rs. {invoiceDetails.card_visa_amount.toFixed(2)}</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.card_visa_amount)}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.card_mastercard_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Mastercard</Typography>
-                      <Typography variant="body2">Rs. {invoiceDetails.card_mastercard_amount.toFixed(2)}</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.card_mastercard_amount)}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.card_amex_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Amex</Typography>
-                      <Typography variant="body2">Rs. {invoiceDetails.card_amex_amount.toFixed(2)}</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.card_amex_amount)}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.cheque_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Cheque</Typography>
-                      <Typography variant="body2">Rs. {invoiceDetails.cheque_amount.toFixed(2)}</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.cheque_amount)}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.bank_transfer_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Bank Transfer</Typography>
-                      <Typography variant="body2">Rs. {invoiceDetails.bank_transfer_amount.toFixed(2)}</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.bank_transfer_amount)}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.credit_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Credit</Typography>
-                      <Typography variant="body2">Rs. {invoiceDetails.credit_amount.toFixed(2)}</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.credit_amount)}</Typography>
                     </Box>
                   )}
                 </Paper>
@@ -351,31 +352,31 @@ export default function InvoiceDetailsDialog({
                 >
                   <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                     <Typography variant="body2">Subtotal</Typography>
-                    <Typography variant="body2">Rs. {calculateSubtotal().toFixed(2)}</Typography>
+                    <Typography variant="body2">{formatCurrency(calculateSubtotal())}</Typography>
                   </Box>
                   {invoiceDetails.payment_adjustments !== 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Adjustments</Typography>
-                      <Typography variant="body2">Rs. {invoiceDetails.payment_adjustments.toFixed(2)}</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.payment_adjustments)}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.cupon_amount !== 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Coupon</Typography>
-                      <Typography variant="body2" color="error">-Rs. {invoiceDetails.cupon_amount.toFixed(2)}</Typography>
+                      <Typography variant="body2" color="error">-{formatCurrency(invoiceDetails.cupon_amount)}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.credit_note_amount !== 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Credit Note</Typography>
-                      <Typography variant="body2" color="error">-Rs. {invoiceDetails.credit_note_amount.toFixed(2)}</Typography>
+                      <Typography variant="body2" color="error">-{formatCurrency(invoiceDetails.credit_note_amount)}</Typography>
                     </Box>
                   )}
                   <Divider sx={{ my: 1 }} />
                   <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                     <Typography variant="h6" fontWeight={700}>Total</Typography>
                     <Typography variant="h5" fontWeight={700} color="success.main">
-                      Rs. {calculateTotal().toFixed(2)}
+                      {formatCurrency(calculateTotal())}
                     </Typography>
                   </Box>
                 </Paper>

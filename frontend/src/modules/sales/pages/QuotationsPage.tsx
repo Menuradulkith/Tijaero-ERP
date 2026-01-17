@@ -22,6 +22,7 @@ import {
   useMasterDetailState,
   useTConfirmDialog
 } from "@/components/tijaero";
+import { ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 import { branchApi } from "@/modules/branches/api";
 import { customersApi } from "@/modules/customers/api";
 import { productsApi } from "@/modules/inventory/api";
@@ -898,15 +899,15 @@ export default function QuotationsPage() {
                 <TableRow>
                   <TableCell>Product</TableCell>
                   <TableCell align="right">Qty</TableCell>
-                  <TableCell align="right">Price</TableCell>
+                  <TableCell align="right">Price (Rs.)</TableCell>
                   {formData.quote_type === "quotation" && (
                     <>
-                      <TableCell align="right">Min Price</TableCell>
-                      <TableCell align="right">Max Price</TableCell>
+                      <TableCell align="right">Min Price (Rs.)</TableCell>
+                      <TableCell align="right">Max Price (Rs.)</TableCell>
                     </>
                   )}
                   <TableCell align="right">Discount %</TableCell>
-                  <TableCell align="right">Total</TableCell>
+                  <TableCell align="right">Total (Rs.)</TableCell>
                   <TableCell align="center">Action</TableCell>
                 </TableRow>
               </TableHead>
@@ -949,7 +950,7 @@ export default function QuotationsPage() {
                         size="small"
                         sx={{ width: 100 }}
                         InputProps={{
-                          startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                          startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
                         }}
                       />
                     </TableCell>
@@ -1001,6 +1002,7 @@ export default function QuotationsPage() {
                           value={
                             item.quantity * item.selling_price * (1 - item.discount_percent / 100)
                           }
+                          showSymbol={false}
                         />
                       </Typography>
                     </TableCell>

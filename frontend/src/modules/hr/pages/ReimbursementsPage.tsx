@@ -91,9 +91,9 @@ export default function ReimbursementsPage() {
     { field: "employee_id", headerName: "Employee ID", width: 130 },
     {
       field: "reimbursement_amount",
-      headerName: "Amount",
+      headerName: "Amount (Rs.)",
       width: 130,
-      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     },
     {
       field: "bill_date",

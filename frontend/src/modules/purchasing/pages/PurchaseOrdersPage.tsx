@@ -362,24 +362,36 @@ export default function PurchaseOrdersPage() {
   
   // Check credit limit when supplier or amount changes
   const checkCreditLimit = useCallback(async (supplierId: number, amount: number, paymentMethod: string) => {
+    console.log("🔍 checkCreditLimit called:", { supplierId, amount, paymentMethod });
+    
     if (paymentMethod?.toLowerCase() === "credit" && supplierId > 0 && amount > 0) {
       try {
+        console.log("📞 Making credit check API call...");
         const creditCheck = await purchaseOrdersApi.checkCredit(supplierId, amount);
+        console.log("✅ Credit check response:", creditCheck);
+        
         if (creditCheck.requires_approval) {
+          console.log("⚠️ Credit limit exceeded - showing warning");
           setCreditWarning({
             show: true,
-            message: creditCheck.message,
+            message: creditCheck.credit_check.message,
             breakdown: creditCheck.credit_check?.breakdown || "",
             requiresApproval: true,
           });
         } else {
+          console.log("✅ Credit check passed");
           setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
         }
       } catch (error) {
-        console.error("Credit check failed:", error);
+        console.error("❌ Credit check failed:", error);
         setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
       }
     } else {
+      console.log("⏭️ Skipping credit check:", { 
+        isCredit: paymentMethod?.toLowerCase() === "credit",
+        hasSupplier: supplierId > 0,
+        hasAmount: amount > 0
+      });
       setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
     }
   }, []);
@@ -391,6 +403,13 @@ export default function PurchaseOrdersPage() {
   
   // Check credit limit when supplier, payment method, or total amount changes
   useEffect(() => {
+    console.log("🎯 Credit check useEffect triggered:", {
+      isCreating,
+      supplierId: formData.first_suppliers_id,
+      paymentMethod: formData.payment_method,
+      totalAmount
+    });
+    
     if (isCreating && formData.first_suppliers_id && formData.payment_method) {
       checkCreditLimit(formData.first_suppliers_id, totalAmount, formData.payment_method);
     }
@@ -401,15 +420,11 @@ export default function PurchaseOrdersPage() {
     onSuccess: (newOrder) => {
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
       
-      // Check if the order was set to pending_approval due to credit limit
-      if (newOrder.status?.toLowerCase() === "pending_approval") {
-        toast.success(
-          "Purchase order created but requires approval due to supplier credit limit. Status set to 'Pending Approval'.",
-          { duration: 6000 }
-        );
-      } else {
-        toast.success("Purchase order created successfully");
-      }
+      // All orders are created with pending_approval status
+      toast.success(
+        "Purchase order created successfully. Status set to 'Pending Approval' - requires manager approval.",
+        { duration: 5000 }
+      );
       
       setIsCreating(false);
       setIsEditing(false);
@@ -527,10 +542,9 @@ export default function PurchaseOrdersPage() {
                   Supplier: {supplierName}<br />
                   Credit Limit: Rs. {creditCheck.credit_check.max_credit_limit.toLocaleString()}<br />
                   Current Outstanding: Rs. {creditCheck.credit_check.current_outstanding.toLocaleString()}<br />
-                  Pending POs: Rs. {(creditCheck.credit_check.pending_credits || 0).toLocaleString()}<br />
+                  Available Credit: Rs. {creditCheck.credit_check.available_credit.toLocaleString()}<br />
                   This Order: Rs. {creditCheck.credit_check.po_value.toLocaleString()}<br />
-                  Total Exposure: Rs. {creditCheck.credit_check.projected_exposure.toLocaleString()}<br />
-                  Excess: Rs. {creditCheck.credit_check.excess_amount.toLocaleString()}
+                  <strong style={{ color: '#dc2626' }}>Exceeds by: Rs. {creditCheck.credit_check.excess_amount.toLocaleString()}</strong>
                 </div>
                 <div style={{ fontSize: '13px', color: '#666' }}>
                   {creditCheck.message}
@@ -1042,14 +1056,15 @@ export default function PurchaseOrdersPage() {
                 </FormSection>
                 
                 {/* Credit Limit Warning */}
+                {console.log("🎨 Rendering - creditWarning state:", creditWarning, "isCreating:", isCreating)}
                 {isCreating && creditWarning.show && (
                   <Alert 
-                    severity="warning" 
+                    severity="error" 
                     sx={{ mb: 2 }}
                     icon={<WarningAmberIcon />}
                   >
                     <Typography variant="subtitle2" gutterBottom>
-                      Credit Limit Warning
+                      ⚠️ Credit Limit Exceeded
                     </Typography>
                     <Typography variant="body2">
                       {creditWarning.message}
@@ -1166,10 +1181,10 @@ export default function PurchaseOrdersPage() {
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
                       <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
-                      <TableCell align="right" sx={{ width: 120 }}>Unit Price</TableCell>
+                      <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
                       <TableCell sx={{ width: 100 }}>Warranty</TableCell>
                       <TableCell sx={{ width: 150 }}>Remark</TableCell>
-                      <TableCell align="right" sx={{ width: 120 }}>Amount</TableCell>
+                      <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
                       {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
                     </TableRow>
                   </TableHead>
@@ -1242,7 +1257,7 @@ export default function PurchaseOrdersPage() {
                                 inputProps={{ min: 0, step: 0.01 }}
                               />
                             ) : (
-                              `Rs. ${Number(item.unit_price).toFixed(2)}`
+                              Number(item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                             )}
                           </TableCell>
                           <TableCell>
@@ -1285,7 +1300,7 @@ export default function PurchaseOrdersPage() {
                             </Box>
                           </TableCell>
                           <TableCell align="right">
-                            Rs. {(item.quantity * item.unit_price).toFixed(2)}
+                            {(item.quantity * item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </TableCell>
                           {(isEditing || isCreating) && (
                             <TableCell>
@@ -1302,7 +1317,7 @@ export default function PurchaseOrdersPage() {
                         <Typography fontWeight="bold">Total:</Typography>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography fontWeight="bold">Rs. {calculateTotal().toFixed(2)}</Typography>
+                        <Typography fontWeight="bold">{calculateTotal().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
                       </TableCell>
                       {(isEditing || isCreating) && <TableCell />}
                     </TableRow>

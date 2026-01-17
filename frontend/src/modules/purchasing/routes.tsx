@@ -9,6 +9,7 @@ import PurchasingDashboard from "./pages/PurchasingDashboard";
 import POApprovalsPage from "./pages/POApprovalsPage";
 import PurchaseReturnApprovalsPage from "./pages/PurchaseReturnApprovalsPage";
 import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
+import PaymentApprovalsPage from "./pages/PaymentApprovalsPage";
 
 export default function PurchasingRoutes() {
   return (
@@ -23,6 +24,7 @@ export default function PurchasingRoutes() {
       {/* Redirect old settlements route to unified payments page */}
       <Route path="settlements" element={<Navigate to="/purchasing/payments" replace />} />
       <Route path="payments" element={<SupplierPaymentsPage />} />
+      <Route path="payment-approvals" element={<PaymentApprovalsPage />} />
     </Routes>
   );
 }

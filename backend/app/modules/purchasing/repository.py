@@ -445,3 +445,181 @@ class SupplierPaymentRepository:
         ).scalar()
         return float(result) if result else 0.0
 
+
+class SupplierAdvancePaymentRepository:
+    """Repository for Supplier Advance Payments"""
+    
+    def __init__(self, db: Session):
+        self.db = db
+    
+    def _generate_advance_no(self) -> str:
+        """Generate unique advance payment number: ADV-YYYYMMDD-XXX"""
+        today = datetime.now()
+        prefix = f"ADV-{today.strftime('%Y%m%d')}-"
+        
+        last_advance = self.db.query(models.SupplierAdvancePayment).filter(
+            models.SupplierAdvancePayment.advance_no.like(f"{prefix}%")
+        ).order_by(models.SupplierAdvancePayment.id.desc()).first()
+        
+        if last_advance:
+            last_num = int(last_advance.advance_no.split("-")[-1])
+            new_num = last_num + 1
+        else:
+            new_num = 1
+        
+        return f"{prefix}{new_num:03d}"
+    
+    def create(self, data: schemas.SupplierAdvancePaymentCreate, created_by: Optional[int] = None) -> models.SupplierAdvancePayment:
+        advance_no = self._generate_advance_no()
+        
+        db_advance = models.SupplierAdvancePayment(
+            advance_no=advance_no,
+            supplier_id=data.supplier_id,
+            payment_date=data.payment_date,
+            branch_code=data.branch_code,
+            payment_method=data.payment_method,
+            original_amount=data.original_amount,
+            applied_amount=0,
+            remaining_amount=data.original_amount,  # Initially, remaining = original
+            reference_number=data.reference_number,
+            bank_name=data.bank_name,
+            is_fully_applied=False,
+            remarks=data.remarks,
+            created_by=created_by
+        )
+        self.db.add(db_advance)
+        self.db.commit()
+        self.db.refresh(db_advance)
+        return db_advance
+    
+    def get_by_id(self, advance_id: int) -> Optional[models.SupplierAdvancePayment]:
+        return self.db.query(models.SupplierAdvancePayment).options(
+            joinedload(models.SupplierAdvancePayment.applications)
+        ).filter(models.SupplierAdvancePayment.id == advance_id).first()
+    
+    def get_by_advance_no(self, advance_no: str) -> Optional[models.SupplierAdvancePayment]:
+        return self.db.query(models.SupplierAdvancePayment).filter(
+            models.SupplierAdvancePayment.advance_no == advance_no
+        ).first()
+    
+    def get_all(self, filters: schemas.SupplierAdvancePaymentListFilter) -> List[models.SupplierAdvancePayment]:
+        query = self.db.query(models.SupplierAdvancePayment).options(
+            joinedload(models.SupplierAdvancePayment.supplier)
+        )
+        
+        if filters.supplier_id:
+            query = query.filter(models.SupplierAdvancePayment.supplier_id == filters.supplier_id)
+        if filters.branch_code:
+            query = query.filter(models.SupplierAdvancePayment.branch_code == filters.branch_code)
+        if filters.is_fully_applied is not None:
+            query = query.filter(models.SupplierAdvancePayment.is_fully_applied == filters.is_fully_applied)
+        if filters.date_from:
+            query = query.filter(models.SupplierAdvancePayment.payment_date >= filters.date_from)
+        if filters.date_to:
+            query = query.filter(models.SupplierAdvancePayment.payment_date <= filters.date_to)
+        
+        return query.order_by(models.SupplierAdvancePayment.created_at.desc()
+        ).offset(filters.skip).limit(filters.limit).all()
+    
+    def get_active_by_supplier(self, supplier_id: int) -> List[models.SupplierAdvancePayment]:
+        """Get all active advance payments with available balance for a supplier"""
+        return self.db.query(models.SupplierAdvancePayment).filter(
+            models.SupplierAdvancePayment.supplier_id == supplier_id,
+            models.SupplierAdvancePayment.is_fully_applied == False,
+            models.SupplierAdvancePayment.remaining_amount > 0
+        ).order_by(models.SupplierAdvancePayment.payment_date).all()
+    
+    def get_balance_by_supplier(self, supplier_id: int) -> float:
+        """Get total available advance balance for a supplier"""
+        result = self.db.query(func.sum(models.SupplierAdvancePayment.remaining_amount)).filter(
+            models.SupplierAdvancePayment.supplier_id == supplier_id,
+            models.SupplierAdvancePayment.is_fully_applied == False
+        ).scalar()
+        return float(result) if result else 0.0
+    
+    def update(self, advance_id: int, data: schemas.SupplierAdvancePaymentUpdate) -> Optional[models.SupplierAdvancePayment]:
+        db_advance = self.db.query(models.SupplierAdvancePayment).filter(
+            models.SupplierAdvancePayment.id == advance_id
+        ).first()
+        
+        if db_advance and not db_advance.is_fully_applied:
+            update_data = data.model_dump(exclude_unset=True)
+            for field, value in update_data.items():
+                setattr(db_advance, field, value)
+            self.db.commit()
+            self.db.refresh(db_advance)
+        return db_advance
+    
+    def apply_to_grn(self, advance_id: int, application_amount: float) -> Optional[models.SupplierAdvancePayment]:
+        """Apply advance to GRN - reduce remaining balance"""
+        db_advance = self.db.query(models.SupplierAdvancePayment).filter(
+            models.SupplierAdvancePayment.id == advance_id
+        ).first()
+        
+        if db_advance:
+            db_advance.applied_amount = float(db_advance.applied_amount) + application_amount
+            db_advance.remaining_amount = float(db_advance.original_amount) - float(db_advance.applied_amount)
+            
+            # Update status if fully applied
+            if db_advance.remaining_amount <= 0:
+                db_advance.is_fully_applied = True
+                db_advance.remaining_amount = 0
+            
+            self.db.commit()
+            self.db.refresh(db_advance)
+        return db_advance
+    
+    def delete(self, advance_id: int) -> bool:
+        """Delete an advance payment (only if no applications)"""
+        db_advance = self.db.query(models.SupplierAdvancePayment).filter(
+            models.SupplierAdvancePayment.id == advance_id
+        ).first()
+        
+        if db_advance and float(db_advance.applied_amount) == 0:
+            self.db.delete(db_advance)
+            self.db.commit()
+            return True
+        return False
+
+
+class SupplierAdvanceApplicationRepository:
+    """Repository for Supplier Advance Applications"""
+    
+    def __init__(self, db: Session):
+        self.db = db
+    
+    def create(self, data: schemas.SupplierAdvanceApplicationCreate, created_by: Optional[int] = None) -> models.SupplierAdvanceApplication:
+        db_application = models.SupplierAdvanceApplication(
+            advance_id=data.advance_id,
+            grn_id=data.grn_id,
+            applied_amount=data.applied_amount,
+            application_date=data.application_date,
+            remarks=data.remarks
+        )
+        self.db.add(db_application)
+        self.db.commit()
+        self.db.refresh(db_application)
+        return db_application
+    
+    def get_by_id(self, application_id: int) -> Optional[models.SupplierAdvanceApplication]:
+        return self.db.query(models.SupplierAdvanceApplication).filter(
+            models.SupplierAdvanceApplication.id == application_id
+        ).first()
+    
+    def get_by_advance(self, advance_id: int) -> List[models.SupplierAdvanceApplication]:
+        return self.db.query(models.SupplierAdvanceApplication).filter(
+            models.SupplierAdvanceApplication.advance_id == advance_id
+        ).order_by(models.SupplierAdvanceApplication.application_date).all()
+    
+    def get_by_grn(self, grn_id: int) -> List[models.SupplierAdvanceApplication]:
+        return self.db.query(models.SupplierAdvanceApplication).filter(
+            models.SupplierAdvanceApplication.grn_id == grn_id
+        ).all()
+    
+    def get_total_by_grn(self, grn_id: int) -> float:
+        """Get total advance applications applied to a GRN"""
+        result = self.db.query(func.sum(models.SupplierAdvanceApplication.applied_amount)).filter(
+            models.SupplierAdvanceApplication.grn_id == grn_id
+        ).scalar()
+        return float(result) if result else 0.0
+

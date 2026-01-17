@@ -26,6 +26,8 @@ export interface TCurrencyProps extends Omit<TypographyProps, "children"> {
   colorCode?: boolean;
   /** Show + sign for positive values */
   showSign?: boolean;
+  /** Show currency symbol (set to false when header already shows currency) */
+  showSymbol?: boolean;
   /** Minimum decimal places */
   minDecimals?: number;
   /** Maximum decimal places */
@@ -40,6 +42,7 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
   locale = "en-LK",
   colorCode = false,
   showSign = false,
+  showSymbol = true,
   minDecimals = 2,
   maxDecimals = 2,
   placeholder = "-",
@@ -68,15 +71,25 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
   }
 
   // Format currency
-  const formatter = new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency,
-    minimumFractionDigits: minDecimals,
-    maximumFractionDigits: maxDecimals,
-    signDisplay: showSign ? "exceptZero" : "auto",
-  });
-
-  const formatted = formatter.format(numValue);
+  let formatted: string;
+  if (showSymbol) {
+    const formatter = new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: minDecimals,
+      maximumFractionDigits: maxDecimals,
+      signDisplay: showSign ? "exceptZero" : "auto",
+    });
+    formatted = formatter.format(numValue);
+  } else {
+    // Format without currency symbol (for use with headers that show currency)
+    const formatter = new Intl.NumberFormat(locale, {
+      minimumFractionDigits: minDecimals,
+      maximumFractionDigits: maxDecimals,
+      signDisplay: showSign ? "exceptZero" : "auto",
+    });
+    formatted = formatter.format(numValue);
+  }
 
   // Determine color
   let color: string | undefined;

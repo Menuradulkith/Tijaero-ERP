@@ -81,9 +81,9 @@ export default function BankDepositsPage() {
     { field: "id", headerName: "ID", width: 70 },
     {
       field: "deposits_amount",
-      headerName: "Amount",
+      headerName: "Amount (Rs.)",
       width: 130,
-      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     },
     { field: "branch_code", headerName: "Branch", width: 120 },
     { field: "bank_name", headerName: "Bank", width: 150 },

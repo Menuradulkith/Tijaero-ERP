@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.db.session import get_db
+from app.auth.dependencies import get_current_user
 from . import schemas, service
 
 router = APIRouter(prefix="/purchasing", tags=["purchasing"])
@@ -281,14 +282,16 @@ def list_grns(
     )
     return grn_service.list_grns(filters)
 
-@router.patch("/grn/{grn_id}", response_model=schemas.GoodReceivedNote)
-def update_grn(
-    grn_id: int,
-    grn: schemas.GoodReceivedNoteCreate,
-    db: Session = Depends(get_db)
-):
-    grn_service = service.GoodReceivedNoteService(db)
-    return grn_service.update(grn_id, grn)
+# GRN Update endpoint disabled - GRNs are not editable after creation
+# @router.patch("/grn/{grn_id}", response_model=schemas.GoodReceivedNote)
+# def update_grn(
+#     grn_id: int,
+#     grn: schemas.GoodReceivedNoteCreate,
+#     db: Session = Depends(get_db)
+# ):
+#     """Update a GRN"""
+#     grn_service = service.GoodReceivedNoteService(db)
+#     return grn_service.update(grn_id, grn)
 
 @router.get("/grn/{grn_id}/items", response_model=List[schemas.GoodReceivedItemWithDetails])
 def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
@@ -313,6 +316,15 @@ def check_grn_item_barcode_exists(barcode: str, db: Session = Depends(get_db)):
     exists = grn_service.barcode_exists(barcode)
     return {"exists": exists, "barcode": barcode}
 
+
+@router.get("/grn-items/by-po/{po_id}", response_model=List[schemas.GoodReceivedItem])
+def get_grn_items_by_po(po_id: int, db: Session = Depends(get_db)):
+    """Get all GRN items for a specific Purchase Order"""
+    grn_service = service.GoodReceivedNoteService(db)
+    return grn_service.get_items_by_po(po_id)
+
+
+# Supplier Credits Settlement Endpoints
 @router.post("/credit-settlements", response_model=schemas.SupplierCreditsSettle, status_code=status.HTTP_201_CREATED)
 def create_credit_settlement(
     settle: schemas.SupplierCreditsSettleCreate,
@@ -326,14 +338,17 @@ def get_credit_settlement(settle_id: int, db: Session = Depends(get_db)):
     settle_service = service.SupplierCreditsSettleService(db)
     return settle_service.get_with_transactions(settle_id)
 
-@router.get("/credit-settlements", response_model=List[schemas.SupplierCreditsSettle])
+@router.get("/credit-settlements", response_model=List[schemas.SupplierCreditsSettleWithTransactions])
 def list_credit_settlements(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
+    """List all credit settlements with transactions"""
     settle_service = service.SupplierCreditsSettleService(db)
-    return settle_service.list_settlements(skip, limit)
+    settlements = settle_service.list_settlements(skip, limit)
+    # Enrich each settlement with transactions
+    return [settle_service.get_with_transactions(s.id) for s in settlements]
 
 @router.get("/suppliers/{supplier_id}/credit-settlements", response_model=List[schemas.SupplierCreditsSettle])
 def get_supplier_credit_settlements(supplier_id: int, db: Session = Depends(get_db)):
@@ -344,6 +359,31 @@ def get_supplier_credit_settlements(supplier_id: int, db: Session = Depends(get_
 def delete_credit_settlement(settle_id: int, db: Session = Depends(get_db)):
     settle_service = service.SupplierCreditsSettleService(db)
     settle_service.delete(settle_id)
+
+
+@router.post("/credit-settlements/{settle_id}/verify", response_model=schemas.SupplierCreditsSettle)
+def verify_credit_settlement(
+    settle_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Verify a credit settlement"""
+    settle_service = service.SupplierCreditsSettleService(db)
+    return settle_service.verify_settlement(settle_id, verified_by=current_user.id)
+
+
+@router.post("/credit-settlements/{settle_id}/cancel", response_model=schemas.SupplierCreditsSettle)
+def cancel_credit_settlement(
+    settle_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Cancel a credit settlement"""
+    settle_service = service.SupplierCreditsSettleService(db)
+    return settle_service.cancel_settlement(settle_id, verified_by=current_user.id)
+
+
+# ==================== SUPPLIER CREDIT MANAGEMENT ENDPOINTS ====================
 
 from app.modules.purchasing.credit_service import supplier_credit_service
 from datetime import date
@@ -519,3 +559,137 @@ def get_supplier_payments(
 
     payment_service = service.SupplierPaymentService(db)
     return payment_service.get_supplier_payments(supplier_id, skip, limit)
+
+
+# ==================== SUPPLIER ADVANCE PAYMENT ENDPOINTS ====================
+
+@router.post("/supplier-advances", response_model=schemas.SupplierAdvancePayment, status_code=status.HTTP_201_CREATED)
+def create_supplier_advance(
+    data: schemas.SupplierAdvancePaymentCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new supplier advance payment.
+    
+    Use this when paying a supplier before receiving goods/services.
+    The advance will be tracked and can later be applied against GRNs.
+    """
+    advance_service = service.SupplierAdvancePaymentService(db)
+    # TODO: Get created_by from current user
+    return advance_service.create_advance(data, created_by=1)
+
+
+@router.get("/supplier-advances", response_model=List[schemas.SupplierAdvancePayment])
+def list_supplier_advances(
+    supplier_id: Optional[int] = None,
+    branch_code: Optional[str] = None,
+    is_fully_applied: Optional[bool] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    """List all supplier advance payments with optional filters"""
+    from datetime import datetime
+    
+    advance_service = service.SupplierAdvancePaymentService(db)
+    filters = schemas.SupplierAdvancePaymentListFilter(
+        supplier_id=supplier_id,
+        branch_code=branch_code,
+        is_fully_applied=is_fully_applied,
+        date_from=datetime.strptime(date_from, "%Y-%m-%d").date() if date_from else None,
+        date_to=datetime.strptime(date_to, "%Y-%m-%d").date() if date_to else None,
+        skip=skip,
+        limit=limit
+    )
+    return advance_service.list_advances(filters)
+
+
+@router.get("/supplier-advances/{advance_id}", response_model=schemas.SupplierAdvancePaymentWithApplications)
+def get_supplier_advance(advance_id: int, db: Session = Depends(get_db)):
+    """Get supplier advance payment by ID with applications"""
+    advance_service = service.SupplierAdvancePaymentService(db)
+    return advance_service.get_advance(advance_id)
+
+
+@router.patch("/supplier-advances/{advance_id}", response_model=schemas.SupplierAdvancePayment)
+def update_supplier_advance(
+    advance_id: int,
+    data: schemas.SupplierAdvancePaymentUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update a supplier advance payment (only active advances can be updated)"""
+    advance_service = service.SupplierAdvancePaymentService(db)
+    return advance_service.update_advance(advance_id, data)
+
+
+@router.delete("/supplier-advances/{advance_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_supplier_advance(advance_id: int, db: Session = Depends(get_db)):
+    """Delete a supplier advance payment (only if no applications)"""
+    advance_service = service.SupplierAdvancePaymentService(db)
+    advance_service.delete_advance(advance_id)
+    return None
+
+
+@router.get("/suppliers/{supplier_id}/advance-balance", response_model=schemas.SupplierAdvanceBalanceSummary)
+def get_supplier_advance_balance(supplier_id: int, db: Session = Depends(get_db)):
+    """
+    Get advance payment balance summary for a supplier.
+    
+    Returns total advances, total applied, and available balance.
+    """
+    advance_service = service.SupplierAdvancePaymentService(db)
+    return advance_service.get_supplier_balance(supplier_id)
+
+
+@router.get("/suppliers/{supplier_id}/advances", response_model=List[schemas.SupplierAdvancePayment])
+def get_supplier_advances(
+    supplier_id: int,
+    is_fully_applied: Optional[bool] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    """Get all advance payments for a specific supplier"""
+    advance_service = service.SupplierAdvancePaymentService(db)
+    filters = schemas.SupplierAdvancePaymentListFilter(
+        supplier_id=supplier_id,
+        is_fully_applied=is_fully_applied,
+        skip=skip,
+        limit=limit
+    )
+    return advance_service.list_advances(filters)
+
+
+# ==================== SUPPLIER ADVANCE APPLICATION ENDPOINTS ====================
+
+@router.post("/supplier-advance-applications", response_model=schemas.SupplierAdvanceApplication, status_code=status.HTTP_201_CREATED)
+def create_advance_application(
+    data: schemas.SupplierAdvanceApplicationCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Create an application to apply advance against a GRN.
+    
+    This reduces the advance remaining balance and settles the corresponding GRN.
+    Validates that application amount doesn't exceed available balance.
+    """
+    advance_service = service.SupplierAdvancePaymentService(db)
+    # TODO: Get created_by from current user
+    return advance_service.create_application(data, created_by=1)
+
+
+@router.get("/supplier-advances/{advance_id}/applications", response_model=List[schemas.SupplierAdvanceApplication])
+def get_advance_applications(advance_id: int, db: Session = Depends(get_db)):
+    """Get all applications for a specific advance payment"""
+    advance_service = service.SupplierAdvancePaymentService(db)
+    return advance_service.get_applications_by_advance(advance_id)
+
+
+@router.get("/grn/{grn_id}/advance-applications", response_model=List[schemas.SupplierAdvanceApplication])
+def get_grn_advance_applications(grn_id: int, db: Session = Depends(get_db)):
+    """Get all advance applications applied to a specific GRN"""
+    advance_service = service.SupplierAdvancePaymentService(db)
+    return advance_service.get_applications_by_grn(grn_id)
+

@@ -63,9 +63,9 @@ export default function ChequePaymentsPage() {
     { field: "bank", headerName: "Bank", width: 150 },
     {
       field: "amount",
-      headerName: "Amount",
+      headerName: "Amount (Rs.)",
       width: 130,
-      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     },
     {
       field: "cheque_date",

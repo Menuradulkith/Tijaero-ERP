@@ -77,9 +77,9 @@ export default function CardPaymentsPage() {
     },
     {
       field: "amount",
-      headerName: "Amount",
+      headerName: "Amount (Rs.)",
       width: 130,
-      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     },
     { field: "ref_number", headerName: "Reference", width: 150 },
     { field: "invoice_no", headerName: "Invoice No", width: 130 },

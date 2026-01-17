@@ -58,9 +58,9 @@ export default function ExpensesPage() {
     { field: "expenses_method", headerName: "Method", width: 120 },
     {
       field: "expense_amount",
-      headerName: "Amount",
+      headerName: "Amount (Rs.)",
       width: 130,
-      renderCell: (params) => <TCurrency value={params.value} />,
+      renderCell: (params) => <TCurrency value={params.value} showSymbol={false} />,
     },
     { field: "branch_code", headerName: "Branch", width: 120 },
     { field: "bill_reference", headerName: "Bill Ref", width: 150 },

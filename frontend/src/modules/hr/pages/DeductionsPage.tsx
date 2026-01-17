@@ -90,9 +90,9 @@ export default function DeductionsPage() {
     { field: "reason", headerName: "Reason", width: 300 },
     {
       field: "amount",
-      headerName: "Amount",
+      headerName: "Amount (Rs.)",
       width: 130,
-      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     },
     { field: "approval_id", headerName: "Approval ID", width: 110 },
     {

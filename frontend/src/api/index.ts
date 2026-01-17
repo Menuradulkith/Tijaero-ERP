@@ -12,6 +12,7 @@ export {
   suppliersApi,
   purchaseOrdersApi,
   purchaseReturnsApi,
+  supplierAdvancePaymentsApi,
 } from "@/modules/purchasing/api";
 export {
   bankDepositsApi,

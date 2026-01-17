@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 from datetime import date
+from decimal import Decimal
 from . import models, schemas, repository
 from fastapi import HTTPException, status
 
@@ -76,6 +78,7 @@ class SupplierService:
 
 class PurchasingOrderService:
     def __init__(self, db: Session):
+        self.db = db
         self.repo = repository.PurchasingOrderRepository(db)
         self.supplier_repo = repository.SupplierRepository(db)
     
@@ -140,18 +143,19 @@ class PurchasingOrderService:
             for item in order.items
         ) if order.items else Decimal("0")
         
-        initial_status = "pending"
+        # All orders start with pending_approval status (both credit and non-credit)
+        initial_status = "pending_approval"
         
+        # For credit purchases, perform credit check to warn about limit
         if order.payment_method.lower() == "credit":
             from app.modules.purchasing.credit_service import SupplierCreditService
             credit_service = SupplierCreditService()
             credit_check = credit_service.check_po_credit(
                 self.repo.db, order.first_suppliers_id, po_total, order.payment_method
             )
-            
-            if credit_check["requires_approval"]:
-                initial_status = "pending_approval"
+            # Note: Credit check is informational; status remains pending_approval
         
+        # Create the order with pending_approval status
         created_order = self.repo.create(order, initial_status=initial_status)
         
         return created_order
@@ -182,6 +186,34 @@ class PurchasingOrderService:
                 detail=f"Cannot edit purchase order with status '{existing_po.status}'. Purchase orders that have received goods (GRN created) cannot be edited."
             )
         
+        # CREDIT CHECK: When approving a pending_approval PO with Credit payment
+        from app.modules.purchasing.credit_service import supplier_credit_service
+        if (order_update.status == "approved" and 
+            existing_po.status == "pending_approval" and 
+            existing_po.payment_method and 
+            existing_po.payment_method.lower() == "credit"):
+            
+            # Calculate PO total
+            from app.modules.purchasing.models import PurchasingOrderItems
+            po_total = self.db.query(
+                func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+            ).filter(
+                PurchasingOrderItems.purchasingorders_id == order_id
+            ).scalar() or Decimal("0")
+            
+            # Check credit limit
+            credit_check = supplier_credit_service.check_po_credit(
+                self.db, existing_po.first_suppliers_id, po_total, existing_po.payment_method
+            )
+            
+            # If still exceeds limit, prevent approval
+            if credit_check["requires_approval"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot approve: {credit_check['message']}. {credit_check['credit_check']['breakdown']}"
+                )
+        
+        # If updating suppliers, verify they are active
         if order_update.first_suppliers_id is not None:
             first_supplier = self.supplier_repo.get_by_id(order_update.first_suppliers_id)
             if not first_supplier:
@@ -760,10 +792,41 @@ class GoodReceivedNoteService:
             models.GoodReceivedItems.barcode == barcode
         ).first() is not None
     
+    def get_items_by_po(self, po_id: int) -> List[models.GoodReceivedItems]:
+        """Get all GRN items for a specific Purchase Order"""
+        # Get all GRN items that belong to this PO's items
+        return self.db.query(models.GoodReceivedItems).join(
+            models.PurchasingOrderItems,
+            models.GoodReceivedItems.purchasing_order_items_id == models.PurchasingOrderItems.id
+        ).filter(
+            models.PurchasingOrderItems.purchasingorders_id == po_id
+        ).all()
+    
     def create_item(self, item: schemas.GoodReceivedItemCreate) -> models.GoodReceivedItems:
         if self.barcode_exists(item.barcode):
             raise ValueError(f"Barcode '{item.barcode}' already exists in Good Received Items")
-        return self.repo.create_item(item)
+        
+        created_item = self.repo.create_item(item)
+        
+        # Update PO status after creating GRN item
+        # Get the PO ID from the item's PO item reference
+        if item.purchasing_order_items_id:
+            po_item = self.db.query(models.PurchasingOrderItems).filter(
+                models.PurchasingOrderItems.id == item.purchasing_order_items_id
+            ).first()
+            
+            if po_item:
+                # Update the PO status based on received items
+                po_status = self._determine_po_completion_status(po_item.purchasingorders_id)
+                po = self.db.query(models.PurchasingOrder).filter(
+                    models.PurchasingOrder.id == po_item.purchasingorders_id
+                ).first()
+                
+                if po:
+                    po.status = po_status
+                    self.db.commit()
+        
+        return created_item
 
 
 class SupplierCreditsSettleService:
@@ -841,6 +904,9 @@ class SupplierCreditsSettleService:
             branch_code=settle.branch_code,
             created_date=settle.created_date,
             suppliers_id=settle.suppliers_id,
+            status=settle.status,
+            verified_by=settle.verified_by,
+            verified_date=settle.verified_date,
             transactions=enriched_transactions
         )
     
@@ -862,6 +928,54 @@ class SupplierCreditsSettleService:
         credit_service.update_supplier_credit_balance(self.db, supplier_id)
         
         return result
+    
+    def verify_settlement(self, settle_id: int, verified_by: int = None) -> models.SupplierCreditsSettle:
+        """Verify a credit settlement"""
+        settle = self.repo.get_by_id(settle_id)
+        if not settle:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Credit settlement with id {settle_id} not found"
+            )
+        
+        if settle.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Only pending settlements can be verified. Current status: {settle.status}"
+            )
+        
+        from datetime import datetime
+        settle.status = "verified"
+        settle.verified_by = verified_by
+        settle.verified_date = datetime.now()
+        self.db.commit()
+        self.db.refresh(settle)
+        
+        return settle
+    
+    def cancel_settlement(self, settle_id: int, verified_by: int = None) -> models.SupplierCreditsSettle:
+        """Cancel a credit settlement"""
+        settle = self.repo.get_by_id(settle_id)
+        if not settle:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Credit settlement with id {settle_id} not found"
+            )
+        
+        if settle.status not in ["pending", "verified"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Settlement cannot be cancelled. Current status: {settle.status}"
+            )
+        
+        from datetime import datetime
+        settle.status = "cancelled"
+        settle.verified_by = verified_by
+        settle.verified_date = datetime.now()
+        self.db.commit()
+        self.db.refresh(settle)
+        
+        return settle
 
 
 class SupplierPaymentService:
@@ -1041,3 +1155,155 @@ class SupplierPaymentService:
     
     def get_supplier_payments(self, supplier_id: int, skip: int = 0, limit: int = 100) -> List[models.SupplierPayment]:
         return self.repo.get_by_supplier(supplier_id, skip, limit)
+
+
+class SupplierAdvancePaymentService:
+    """
+    Service for Supplier Advance Payments
+    
+    ERP Best Practice Workflow:
+    1. Create advance payment when paying supplier before goods received
+    2. Track available balance per supplier
+    3. Apply advances against GRNs when goods are received
+    4. Delete unused advances if needed
+    """
+    
+    def __init__(self, db: Session):
+        self.db = db
+        self.repo = repository.SupplierAdvancePaymentRepository(db)
+        self.application_repo = repository.SupplierAdvanceApplicationRepository(db)
+        self.supplier_repo = repository.SupplierRepository(db)
+    
+    def create_advance(self, data: schemas.SupplierAdvancePaymentCreate, created_by: Optional[int] = None) -> models.SupplierAdvancePayment:
+        # Validate supplier exists
+        supplier = self.supplier_repo.get_by_id(data.supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {data.supplier_id} not found"
+            )
+        
+        return self.repo.create(data, created_by)
+    
+    def get_advance(self, advance_id: int) -> models.SupplierAdvancePayment:
+        advance = self.repo.get_by_id(advance_id)
+        if not advance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Advance payment with id {advance_id} not found"
+            )
+        return advance
+    
+    def list_advances(self, filters: schemas.SupplierAdvancePaymentListFilter) -> List[models.SupplierAdvancePayment]:
+        return self.repo.get_all(filters)
+    
+    def get_supplier_balance(self, supplier_id: int) -> schemas.SupplierAdvanceBalanceSummary:
+        """Get advance payment balance summary for a supplier"""
+        supplier = self.supplier_repo.get_by_id(supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {supplier_id} not found"
+            )
+        
+        # Get all active advances
+        active_advances = self.repo.get_active_by_supplier(supplier_id)
+        
+        # Calculate totals
+        total_advances = sum(float(a.original_amount) for a in active_advances)
+        total_applied = sum(float(a.applied_amount) for a in active_advances)
+        available_balance = sum(float(a.remaining_amount) for a in active_advances)
+        
+        return schemas.SupplierAdvanceBalanceSummary(
+            supplier_id=supplier_id,
+            supplier_name=supplier.full_name,
+            total_advances=total_advances,
+            total_applied=total_applied,
+            available_balance=available_balance,
+            active_advance_count=len(active_advances),
+            advances=active_advances
+        )
+    
+    def update_advance(self, advance_id: int, data: schemas.SupplierAdvancePaymentUpdate) -> models.SupplierAdvancePayment:
+        advance = self.repo.get_by_id(advance_id)
+        if not advance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Advance payment with id {advance_id} not found"
+            )
+        
+        if advance.is_fully_applied:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot update fully applied advance payment"
+            )
+        
+        updated = self.repo.update(advance_id, data)
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to update advance payment"
+            )
+        return updated
+    
+    def delete_advance(self, advance_id: int) -> bool:
+        """Delete an advance payment (only if no applications)"""
+        advance = self.repo.get_by_id(advance_id)
+        if not advance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Advance payment with id {advance_id} not found"
+            )
+        
+        if float(advance.applied_amount) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete advance payment that has applications"
+            )
+        
+        return self.repo.delete(advance_id)
+    
+    def create_application(self, data: schemas.SupplierAdvanceApplicationCreate, created_by: Optional[int] = None) -> models.SupplierAdvanceApplication:
+        """
+        Create an application to apply advance against a GRN
+        This reduces the advance remaining balance and marks the corresponding GRN as partially/fully paid
+        """
+        # Validate advance exists and is not fully applied
+        advance = self.repo.get_by_id(data.advance_id)
+        if not advance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Advance payment with id {data.advance_id} not found"
+            )
+        
+        if advance.is_fully_applied:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot apply from a fully applied advance payment"
+            )
+        
+        # Check sufficient balance
+        if float(data.applied_amount) > float(advance.remaining_amount):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Application amount ({data.applied_amount}) exceeds available balance ({advance.remaining_amount})"
+            )
+        
+        # Create the application
+        application = self.application_repo.create(data, created_by)
+        
+        # Update the advance balance
+        self.repo.apply_to_grn(data.advance_id, float(data.applied_amount))
+        
+        return application
+    
+    def get_applications_by_advance(self, advance_id: int) -> List[models.SupplierAdvanceApplication]:
+        return self.application_repo.get_by_advance(advance_id)
+    
+    def get_applications_by_grn(self, grn_id: int) -> List[models.SupplierAdvanceApplication]:
+        return self.application_repo.get_by_grn(grn_id)
+    
+    def get_total_advance_applied_to_grn(self, grn_id: int) -> float:
+        """Get total advance applications applied to a GRN"""
+        return self.application_repo.get_total_by_grn(grn_id)
+

@@ -305,6 +305,11 @@ export interface SupplierCreditsSettle {
   branch_code: string;
   created_date: string;
   suppliers_id: number;
+  status: "pending" | "verified" | "cancelled";
+  verified_by?: number;
+  verified_date?: string;
+  supplier?: Supplier;
+  transactions?: SupplierCreditsSettleTransaction[];
 }
 
 export interface SupplierCreditsSettleTransaction {
@@ -413,4 +418,94 @@ export interface SupplierPaymentUpdate {
   invoice_reference?: string;
   remarks?: string;
   status?: string;
+}
+
+
+// ==================== SUPPLIER ADVANCE PAYMENT TYPES ====================
+
+export interface SupplierAdvancePayment {
+  id: number;
+  advance_no: string;
+  supplier_id: number;
+  payment_voucher_id?: number;
+  payment_date: string;
+  branch_code: string;
+  payment_method: SupplierPaymentMethod | string;
+  original_amount: number;
+  applied_amount: number;
+  remaining_amount: number;
+  reference_number?: string;
+  bank_name?: string;
+  is_fully_applied: boolean;
+  remarks?: string;
+  created_by?: number;
+  created_at?: string;
+  updated_at?: string;
+  // Loaded from relationships
+  supplier_name?: string;
+}
+
+export interface SupplierAdvancePaymentCreate {
+  supplier_id: number;
+  payment_date: string;
+  payment_method: string;
+  original_amount: number;
+  reference_number?: string;
+  bank_name?: string;
+  branch_code: string;
+  remarks?: string;
+}
+
+export interface SupplierAdvancePaymentUpdate {
+  payment_date?: string;
+  payment_method?: string;
+  reference_number?: string;
+  bank_name?: string;
+  remarks?: string;
+}
+
+export interface SupplierAdvanceApplication {
+  id: number;
+  advance_id: number;
+  grn_id: number;
+  applied_amount: number;
+  application_date: string;
+  remarks?: string;
+  created_at?: string;
+  updated_at?: string;
+  // Loaded from relationships
+  grn_no?: string;
+  advance_no?: string;
+}
+
+export interface SupplierAdvanceApplicationCreate {
+  advance_id: number;
+  grn_id: number;
+  applied_amount: number;
+  application_date: string;
+  remarks?: string;
+}
+
+export interface SupplierAdvancePaymentWithApplications extends SupplierAdvancePayment {
+  applications: SupplierAdvanceApplication[];
+}
+
+export interface SupplierAdvanceBalanceSummary {
+  supplier_id: number;
+  supplier_name: string;
+  total_advances: number;
+  total_applied: number;
+  available_balance: number;
+  active_advance_count: number;
+  advances: SupplierAdvancePayment[];
+}
+
+export interface SupplierAdvancePaymentListFilter {
+  supplier_id?: number;
+  branch_code?: string;
+  is_fully_applied?: boolean;
+  date_from?: string;
+  date_to?: string;
+  skip?: number;
+  limit?: number;
 }

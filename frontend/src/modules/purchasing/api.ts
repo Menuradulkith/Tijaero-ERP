@@ -238,13 +238,14 @@ export const goodReceivedNotesApi = {
     return response.data;
   },
 
-  update: async (id: number, data: Partial<GoodReceivedNoteCreate>) => {
-    const response = await apiClient.patch<GoodReceivedNote>(
-      `/purchasing/grn/${id}`,
-      data
-    );
-    return response.data;
-  },
+  // Update method disabled - GRNs are not editable after creation
+  // update: async (id: number, data: Partial<GoodReceivedNoteCreate>) => {
+  //   const response = await apiClient.patch<GoodReceivedNote>(
+  //     `/purchasing/grn/${id}`,
+  //     data
+  //   );
+  //   return response.data;
+  // },
 
   checkCredit: async (supplierId: number, grnAmount: number): Promise<GRNCreditCheckResult> => {
     const response = await apiClient.post<GRNCreditCheckResult>(
@@ -261,6 +262,13 @@ export const goodReceivedItemsApi = {
   getByGRN: async (grnId: number) => {
     const response = await apiClient.get<GoodReceivedItem[]>(
       `/purchasing/grn/${grnId}/items`
+    );
+    return response.data;
+  },
+
+  getByPO: async (poId: number) => {
+    const response = await apiClient.get<GoodReceivedItem[]>(
+      `/purchasing/grn-items/by-po/${poId}`
     );
     return response.data;
   },
@@ -284,7 +292,7 @@ export const goodReceivedItemsApi = {
 // Supplier Credits Settlement API
 export const supplierCreditsSettleApi = {
   getAll: async (skip = 0, limit = 100) => {
-    const response = await apiClient.get<SupplierCreditsSettle[]>(
+    const response = await apiClient.get<SupplierCreditsSettleWithTransactions[]>(
       "/purchasing/credit-settlements",
       { params: { skip, limit } }
     );
@@ -315,6 +323,20 @@ export const supplierCreditsSettleApi = {
 
   delete: async (id: number) => {
     await apiClient.delete(`/purchasing/credit-settlements/${id}`);
+  },
+
+  verify: async (id: number) => {
+    const response = await apiClient.post<SupplierCreditsSettle>(
+      `/purchasing/credit-settlements/${id}/verify`
+    );
+    return response.data;
+  },
+
+  cancel: async (id: number) => {
+    const response = await apiClient.post<SupplierCreditsSettle>(
+      `/purchasing/credit-settlements/${id}/cancel`
+    );
+    return response.data;
   },
 };
 
@@ -488,9 +510,8 @@ export interface POCreditCheckResult {
     allowed: boolean;
     requires_approval: boolean;
     current_outstanding: number;  // GRN-based actual liability
-    pending_credits: number;      // PO-based pending liability
     po_value: number;
-    projected_exposure: number;   // Total after this PO
+    projected_outstanding: number;   // Total after this PO
     max_credit_limit: number;
     available_credit: number;
     will_exceed_limit: boolean;
@@ -509,11 +530,11 @@ export interface GRNCreditCheckResult {
   requires_override: boolean;
   message: string;
   credit_check: {
+    allowed: boolean;
+    requires_approval: boolean;
     current_outstanding: number;
-    pending_credits: number;
-    grn_value: number;
-    new_outstanding_after_grn: number;
-    total_exposure: number;
+    po_value: number;  // Using grn_value
+    projected_outstanding: number;  // Total exposure
     max_credit_limit: number;
     available_credit: number;
     will_exceed_limit: boolean;
@@ -652,6 +673,14 @@ import {
   SupplierPayment,
   SupplierPaymentCreate,
   SupplierPaymentUpdate,
+  SupplierAdvancePayment,
+  SupplierAdvancePaymentCreate,
+  SupplierAdvancePaymentUpdate,
+  SupplierAdvancePaymentWithApplications,
+  SupplierAdvanceApplication,
+  SupplierAdvanceApplicationCreate,
+  SupplierAdvanceBalanceSummary,
+  SupplierAdvancePaymentListFilter,
 } from "./types";
 
 export const supplierPaymentsApi = {
@@ -718,6 +747,84 @@ export const supplierPaymentsApi = {
     const response = await apiClient.get<SupplierPayment[]>(
       `/purchasing/suppliers/${supplierId}/payments`,
       { params: { skip, limit } }
+    );
+    return response.data;
+  },
+};
+
+
+// ==================== SUPPLIER ADVANCE PAYMENT API ====================
+
+export const supplierAdvancePaymentsApi = {
+  getAll: async (params?: SupplierAdvancePaymentListFilter) => {
+    const response = await apiClient.get<SupplierAdvancePayment[]>(
+      "/purchasing/supplier-advances",
+      { params }
+    );
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<SupplierAdvancePaymentWithApplications>(
+      `/purchasing/supplier-advances/${id}`
+    );
+    return response.data;
+  },
+
+  create: async (data: SupplierAdvancePaymentCreate) => {
+    const response = await apiClient.post<SupplierAdvancePayment>(
+      "/purchasing/supplier-advances",
+      data
+    );
+    return response.data;
+  },
+
+  update: async (id: number, data: SupplierAdvancePaymentUpdate) => {
+    const response = await apiClient.patch<SupplierAdvancePayment>(
+      `/purchasing/supplier-advances/${id}`,
+      data
+    );
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/purchasing/supplier-advances/${id}`);
+  },
+
+  getBySupplier: async (supplierId: number, params?: { is_fully_applied?: boolean; skip?: number; limit?: number }) => {
+    const response = await apiClient.get<SupplierAdvancePayment[]>(
+      `/purchasing/suppliers/${supplierId}/advances`,
+      { params }
+    );
+    return response.data;
+  },
+
+  getSupplierBalance: async (supplierId: number) => {
+    const response = await apiClient.get<SupplierAdvanceBalanceSummary>(
+      `/purchasing/suppliers/${supplierId}/advance-balance`
+    );
+    return response.data;
+  },
+
+  // Application methods
+  getApplications: async (advanceId: number) => {
+    const response = await apiClient.get<SupplierAdvanceApplication[]>(
+      `/purchasing/supplier-advances/${advanceId}/applications`
+    );
+    return response.data;
+  },
+
+  createApplication: async (data: SupplierAdvanceApplicationCreate) => {
+    const response = await apiClient.post<SupplierAdvanceApplication>(
+      "/purchasing/supplier-advance-applications",
+      data
+    );
+    return response.data;
+  },
+
+  getApplicationsByGRN: async (grnId: number) => {
+    const response = await apiClient.get<SupplierAdvanceApplication[]>(
+      `/purchasing/grn/${grnId}/advance-applications`
     );
     return response.data;
   },

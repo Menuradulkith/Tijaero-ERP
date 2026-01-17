@@ -75,9 +75,9 @@ export default function AdvancePaymentsPage() {
     { field: "payment_method", headerName: "Method", width: 120 },
     {
       field: "payment_amount",
-      headerName: "Amount",
+      headerName: "Amount (Rs.)",
       width: 130,
-      valueFormatter: (value) => `Rs. ${Number(value).toFixed(2)}`,
+      valueFormatter: (value) => Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     },
     { field: "branch_code", headerName: "Branch", width: 120 },
     {

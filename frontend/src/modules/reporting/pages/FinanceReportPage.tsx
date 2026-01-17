@@ -156,7 +156,7 @@ export default function FinanceReportPage() {
                 <TableHead>
                   <TableRow>
                     <TableCell>Category</TableCell>
-                    <TableCell align="right">Amount</TableCell>
+                    <TableCell align="right">Amount (Rs.)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -164,7 +164,7 @@ export default function FinanceReportPage() {
                     <TableRow key={index}>
                       <TableCell>{expense.category}</TableCell>
                       <TableCell align="right">
-                        Rs. {expense.amount.toFixed(2)}
+                        {expense.amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                     </TableRow>
                   ))}
