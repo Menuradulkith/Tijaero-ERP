@@ -3,74 +3,75 @@
  * Refactored to use common tijaero components for better code reuse
  */
 
-import { useMemo, useCallback, useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  TextField,
-  MenuItem,
-  Typography,
-  IconButton,
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-  Paper,
-  Autocomplete,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  Alert,
-  Tooltip,
-  Stepper,
-  Step,
-  StepLabel,
-} from "@mui/material";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
-import MenuBookIcon from "@mui/icons-material/MenuBook";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import DeleteIcon from "@mui/icons-material/Delete";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  MenuItem,
+  Paper,
+  Step,
+  StepLabel,
+  Stepper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Import tijaero components
 import {
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
   MasterDetailLayout,
+  PURCHASING_PAYMENT_METHOD,
   SearchableList,
   SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  TFilterPanel,
+  SortOption,
   TBranchFilter,
-  TSupplierFilter,
-  TStatusChip,
+  TFilterPanel,
   TPrintButton,
+  TPrintPreviewDialog,
+  TStatusChip,
+  TSupplierFilter,
   canPrintDocument,
   getStatusProps,
-  useMasterDetailState,
-  SortOption,
   modernTableStyles,
-  PURCHASING_PAYMENT_METHOD,
+  useMasterDetailState
 } from "@/components/tijaero";
 
-import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
+import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 // OPTIMIZED: Removed individual imports for productsApi, branchApi - using aggregated endpoint
-import { 
-  PurchasingOrder, 
-  PurchasingOrderCreate, 
+import {
+  DailyPOLimitCheck,
+  PurchasingOrder,
+  PurchasingOrderCreate,
   PurchasingOrderItemCreate,
   PurchasingOrderWithItems,
   Supplier,
-  DailyPOLimitCheck,
 } from "@/modules/purchasing/types";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -133,18 +134,18 @@ export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
   const [formStep, setFormStep] = useState(0);
-  
+
   // Confirm dialog for unsaved changes and delete actions
   const confirmDialog = useConfirmDialog();
-  
+
   // Validation state - track which fields have been touched/blurred
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  
+
   // Daily PO limit warning dialog state
   const [dailyLimitWarningOpen, setDailyLimitWarningOpen] = useState(false);
   const [dailyLimitInfo, setDailyLimitInfo] = useState<DailyPOLimitCheck | null>(null);
   const [isDailyLimitExceeded, setIsDailyLimitExceeded] = useState(false);
-  
+
   // Credit warning state
   const [creditWarning, setCreditWarning] = useState<{
     show: boolean;
@@ -152,12 +153,12 @@ export default function PurchaseOrdersPage() {
     breakdown: string;
     requiresApproval: boolean;
   }>({ show: false, message: "", breakdown: "", requiresApproval: false });
-  
+
   // Mark field as touched when user leaves it
   const handleBlur = (fieldName: string) => {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
   };
-  
+
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
@@ -171,6 +172,15 @@ export default function PurchaseOrdersPage() {
     setSelectedItemForRemark(item);
     setTempItemRemark(item.remark || "");
     setItemRemarkModalOpen(true);
+  };
+
+  // Print Dialog State
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [selectedPoIdForPrint, setSelectedPoIdForPrint] = useState<number | null>(null);
+
+  const handlePrint = (poId: number) => {
+    setSelectedPoIdForPrint(poId);
+    setPrintDialogOpen(true);
   };
 
   const handleSaveItemRemark = () => {
@@ -244,7 +254,7 @@ export default function PurchaseOrdersPage() {
   const handleSelectOrderWithItems = useCallback(async (order: PurchasingOrder) => {
     const selected = await handleSelectOrder(order);
     if (!selected) return; // User cancelled
-    
+
     // Load detailed items after selection
     setTouched({});
     try {
@@ -335,8 +345,8 @@ export default function PurchaseOrdersPage() {
 
     // Apply supplier filter (matches either primary or secondary supplier)
     if (filterSupplier) {
-      filtered = filtered.filter(order => 
-        order.first_suppliers_id === filterSupplier || 
+      filtered = filtered.filter(order =>
+        order.first_suppliers_id === filterSupplier ||
         order.second_suppliers_id === filterSupplier
       );
     }
@@ -359,17 +369,17 @@ export default function PurchaseOrdersPage() {
       handleSelectOrderWithItems(filteredOrders[0]);
     }
   }, [filteredOrders, selectedOrder, isCreating]);
-  
+
   // Check credit limit when supplier or amount changes
   const checkCreditLimit = useCallback(async (supplierId: number, amount: number, paymentMethod: string) => {
     console.log("🔍 checkCreditLimit called:", { supplierId, amount, paymentMethod });
-    
+
     if (paymentMethod?.toLowerCase() === "credit" && supplierId > 0 && amount > 0) {
       try {
         console.log("📞 Making credit check API call...");
         const creditCheck = await purchaseOrdersApi.checkCredit(supplierId, amount);
         console.log("✅ Credit check response:", creditCheck);
-        
+
         if (creditCheck.requires_approval) {
           console.log("⚠️ Credit limit exceeded - showing warning");
           setCreditWarning({
@@ -387,7 +397,7 @@ export default function PurchaseOrdersPage() {
         setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
       }
     } else {
-      console.log("⏭️ Skipping credit check:", { 
+      console.log("⏭️ Skipping credit check:", {
         isCredit: paymentMethod?.toLowerCase() === "credit",
         hasSupplier: supplierId > 0,
         hasAmount: amount > 0
@@ -395,12 +405,12 @@ export default function PurchaseOrdersPage() {
       setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
     }
   }, []);
-  
+
   // Calculate total amount from line items
   const totalAmount = useMemo(() => {
     return lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
   }, [lineItems]);
-  
+
   // Check credit limit when supplier, payment method, or total amount changes
   useEffect(() => {
     console.log("🎯 Credit check useEffect triggered:", {
@@ -409,7 +419,7 @@ export default function PurchaseOrdersPage() {
       paymentMethod: formData.payment_method,
       totalAmount
     });
-    
+
     if (isCreating && formData.first_suppliers_id && formData.payment_method) {
       checkCreditLimit(formData.first_suppliers_id, totalAmount, formData.payment_method);
     }
@@ -419,13 +429,13 @@ export default function PurchaseOrdersPage() {
     mutationFn: purchaseOrdersApi.create,
     onSuccess: (newOrder) => {
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      
+
       // All orders are created with pending_approval status
       toast.success(
         "Purchase order created successfully. Status set to 'Pending Approval' - requires manager approval.",
         { duration: 5000 }
       );
-      
+
       setIsCreating(false);
       setIsEditing(false);
       setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
@@ -500,7 +510,7 @@ export default function PurchaseOrdersPage() {
   };
 
   const handleUpdateLineItem = (id: string, field: keyof OrderLineItem, value: any) => {
-    setLineItems(lineItems.map(item => 
+    setLineItems(lineItems.map(item =>
       item._id === id ? { ...item, [field]: value } : item
     ));
   };
@@ -517,23 +527,23 @@ export default function PurchaseOrdersPage() {
     console.log("Payment Method:", formData.payment_method, "| Is Credit:", isCreditPayment);
     console.log("Supplier ID:", formData.first_suppliers_id);
     console.log("Line Items:", lineItems.length);
-    
+
     if (isCreditPayment && formData.first_suppliers_id) {
       const totalAmount = lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
       console.log("Total Amount:", totalAmount);
-      
+
       try {
         console.log("Calling checkCredit API...");
         const creditCheck = await purchaseOrdersApi.checkCredit(formData.first_suppliers_id, totalAmount);
         console.log("Credit Check Response:", creditCheck);
-        
+
         // Show warning modal if requires approval
         if (creditCheck.requires_approval) {
           console.log("Showing credit warning modal...");
           // Get supplier name from suppliers data
           const supplier = suppliers?.find(s => s.id === formData.first_suppliers_id);
           const supplierName = supplier?.company_name || supplier?.full_name || 'Unknown';
-          
+
           const confirmed = await new Promise<boolean>((resolve) => {
             toast((t) => (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -605,7 +615,7 @@ export default function PurchaseOrdersPage() {
     } else if (selectedOrder) {
       // If order was approved, reset status to pending for re-approval
       const wasApproved = selectedOrder.status?.toLowerCase() === "approved";
-      
+
       // Send full update data
       const updateData: any = {
         purchasing_invoice_no: formData.purchasing_invoice_no,
@@ -625,16 +635,16 @@ export default function PurchaseOrdersPage() {
           remark: item.remark,
         })),
       };
-      
+
       // Reset to pending_approval if was approved
       if (wasApproved) {
         updateData.status = "pending_approval";
         toast("Order was previously approved. It will need re-approval after this edit.", { icon: "⚠️" });
       }
-      
-      updateMutation.mutate({ 
-        id: selectedOrder.id, 
-        data: updateData 
+
+      updateMutation.mutate({
+        id: selectedOrder.id,
+        data: updateData
       });
     }
   }, [isCreating, selectedOrder, formData, lineItems, createMutation, updateMutation, suppliers]);
@@ -666,7 +676,7 @@ export default function PurchaseOrdersPage() {
   // Validation error messages
   const getFieldError = (fieldName: string): string | undefined => {
     if (!touched[fieldName] && !isCreating) return undefined;
-    
+
     switch (fieldName) {
       case 'purchasing_order_no':
         if (!formData.purchasing_order_no) return 'Order number is required';
@@ -706,10 +716,10 @@ export default function PurchaseOrdersPage() {
   };
 
   // Step 1 validation: Order Information, Dates & Payments, Remarks
-  const isStep1Valid = formData.first_suppliers_id > 0 && 
-    formData.second_suppliers_id > 0 && 
-    formData.purchasing_order_no && 
-    formData.purchasing_invoice_no && 
+  const isStep1Valid = formData.first_suppliers_id > 0 &&
+    formData.second_suppliers_id > 0 &&
+    formData.purchasing_order_no &&
+    formData.purchasing_invoice_no &&
     formData.branch_code;
 
   // Full form validation (both steps)
@@ -850,8 +860,9 @@ export default function PurchaseOrdersPage() {
             <TPrintButton
               documentType="purchase-order"
               documentId={selectedOrder.id}
-              disabled={!canPrintDocument(selectedOrder.status)}
-              disabledReason="Cannot print draft/pending orders"
+              disabled={!canPrintDocument(selectedOrder.status, ["draft"])}
+              disabledReason="Cannot print draft orders"
+              onClick={() => handlePrint(selectedOrder.id)}
             />
           ) : undefined
         }
@@ -909,7 +920,7 @@ export default function PurchaseOrdersPage() {
                       const newBranchCode = newValue?.branch_code || "";
                       setFormData({ ...formData, branch_code: newBranchCode });
                       handleBlur('branch_code');
-                      
+
                       // Check daily limit for the selected branch when creating a new order
                       if (isCreating && newBranchCode) {
                         const limitInfo = await checkDailyLimit(newBranchCode);
@@ -921,9 +932,9 @@ export default function PurchaseOrdersPage() {
                           setIsDailyLimitExceeded(false);
                           if (limitInfo && limitInfo.can_create && limitInfo.remaining <= 2) {
                             // Warn if only 1-2 POs remaining
-                            toast(`Warning: Only ${limitInfo.remaining} PO(s) remaining for today in this branch`, { 
+                            toast(`Warning: Only ${limitInfo.remaining} PO(s) remaining for today in this branch`, {
                               icon: '⚠️',
-                              duration: 5000 
+                              duration: 5000
                             });
                           }
                         }
@@ -931,10 +942,10 @@ export default function PurchaseOrdersPage() {
                     }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
-                      <TextField 
-                        {...params} 
-                        label="Branch" 
-                        required 
+                      <TextField
+                        {...params}
+                        label="Branch"
+                        required
                         error={hasError('branch_code')}
                         helperText={getFieldError('branch_code')}
                       />
@@ -945,16 +956,16 @@ export default function PurchaseOrdersPage() {
                     size="small"
                     options={suppliers || []}
                     getOptionLabel={(option: Supplier) => {
-                      const name = option.company_name 
-                        ? `${option.full_name} (${option.company_name})` 
+                      const name = option.company_name
+                        ? `${option.full_name} (${option.company_name})`
                         : option.full_name;
                       return option.active ? name : `${name} (Inactive)`;
                     }}
                     getOptionDisabled={(option: Supplier) => !option.active}
                     value={suppliers?.find((s: Supplier) => s.id === formData.first_suppliers_id) || null}
                     onChange={(_, newValue: Supplier | null) => {
-                      setFormData({ 
-                        ...formData, 
+                      setFormData({
+                        ...formData,
                         first_suppliers_id: newValue?.id || 0,
                         credit_date: newValue?.credit_days ?? formData.credit_date
                       });
@@ -962,10 +973,10 @@ export default function PurchaseOrdersPage() {
                     }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
-                      <TextField 
-                        {...params} 
-                        label="Primary Supplier" 
-                        required 
+                      <TextField
+                        {...params}
+                        label="Primary Supplier"
+                        required
                         error={hasError('first_suppliers_id')}
                         helperText={getFieldError('first_suppliers_id')}
                       />
@@ -976,8 +987,8 @@ export default function PurchaseOrdersPage() {
                     size="small"
                     options={suppliers || []}
                     getOptionLabel={(option: Supplier) => {
-                      const name = option.company_name 
-                        ? `${option.full_name} (${option.company_name})` 
+                      const name = option.company_name
+                        ? `${option.full_name} (${option.company_name})`
                         : option.full_name;
                       return option.active ? name : `${name} (Inactive)`;
                     }}
@@ -989,10 +1000,10 @@ export default function PurchaseOrdersPage() {
                     }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
-                      <TextField 
-                        {...params} 
-                        label="Secondary Supplier" 
-                        required 
+                      <TextField
+                        {...params}
+                        label="Secondary Supplier"
+                        required
                         error={hasError('second_suppliers_id')}
                         helperText={getFieldError('second_suppliers_id')}
                       />
@@ -1054,12 +1065,12 @@ export default function PurchaseOrdersPage() {
                     helperText={getFieldError('credit_date') || (isCreating || isEditing ? "Auto-filled from supplier" : "")}
                   />
                 </FormSection>
-                
+
                 {/* Credit Limit Warning */}
                 {console.log("🎨 Rendering - creditWarning state:", creditWarning, "isCreating:", isCreating)}
                 {isCreating && creditWarning.show && (
-                  <Alert 
-                    severity="error" 
+                  <Alert
+                    severity="error"
                     sx={{ mb: 2 }}
                     icon={<WarningAmberIcon />}
                   >
@@ -1124,14 +1135,14 @@ export default function PurchaseOrdersPage() {
                 {/* Next/Cancel buttons for step 1 in create mode */}
                 {isCreating && (
                   <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
-                    <Button 
-                      variant="outlined" 
+                    <Button
+                      variant="outlined"
                       onClick={() => handleCancel(filteredOrders)}
                     >
                       Cancel
                     </Button>
-                    <Button 
-                      variant="contained" 
+                    <Button
+                      variant="contained"
                       onClick={handleNextStep}
                       disabled={!isStep1Valid || isDailyLimitExceeded}
                       endIcon={<ArrowForwardIcon />}
@@ -1148,8 +1159,8 @@ export default function PurchaseOrdersPage() {
               <>
                 {/* Back button in create mode only */}
                 {isCreating && (
-                  <Button 
-                    variant="text" 
+                  <Button
+                    variant="text"
                     onClick={handlePreviousStep}
                     startIcon={<ArrowBackIcon />}
                     sx={{ mb: 2 }}
@@ -1166,165 +1177,165 @@ export default function PurchaseOrdersPage() {
                     </IconButton>
                   )}
                 </Box>
-                
+
                 {/* Warning for empty items */}
                 {(isEditing || isCreating) && lineItems.length === 0 && (
                   <Alert severity="warning" sx={{ mb: 2 }}>
                     At least one item is required to save the order
                   </Alert>
                 )}
-                
+
                 <Box>
-              <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={modernTableStyles.headerRow}>
-                      <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
-                      <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
-                      <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
-                      <TableCell sx={{ width: 100 }}>Warranty</TableCell>
-                      <TableCell sx={{ width: 150 }}>Remark</TableCell>
-                      <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
-                      {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {lineItems.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={isEditing || isCreating ? 7 : 6} sx={modernTableStyles.emptyCell}>
-                          No items added yet
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      lineItems.map((item, index) => (
-                        <TableRow key={item._id} sx={{ 
-                          ...modernTableStyles.bodyRow,
-                          ...(index % 2 === 1 && { bgcolor: "grey.25" }),
-                        }}>
-                          <TableCell>
-                            {(isEditing || isCreating) ? (
-                              <Autocomplete
-                                size="small"
-                                options={products || []}
-                                getOptionLabel={(option: any) => option.name || ""}
-                                value={products?.find((p: any) => p.id === item.product_id) || null}
-                                onChange={(_, newValue: any) => {
-                                  // Set product_id and automatically populate unit_price from cost_price
-                                  const updatedItems = lineItems.map(lineItem => 
-                                    lineItem._id === item._id 
-                                      ? { ...lineItem, product_id: newValue?.id || 0, unit_price: newValue?.cost_price || 0 }
-                                      : lineItem
-                                  );
-                                  setLineItems(updatedItems);
-                                }}
-                                renderInput={(params) => (
-                                  <TextField {...params} placeholder="Select Product" size="small" />
-                                )}
-                                sx={{ minWidth: 180 }}
-                              />
-                            ) : (
-                              getProductName(item.product_id)
-                            )}
-                          </TableCell>
-                          <TableCell align="right">
-                            {(isEditing || isCreating) ? (
-                              <TextField
-                                size="small"
-                                type="number"
-                                value={item.quantity}
-                                onChange={(e) => handleUpdateLineItem(item._id, "quantity", parseInt(e.target.value) || 0)}
-                                sx={{ width: 80 }}
-                                inputProps={{ min: 0 }}
-                              />
-                            ) : (
-                              item.quantity
-                            )}
-                          </TableCell>
-                          <TableCell align="right">
-                            {(isEditing || isCreating) ? (
-                              <TextField
-                                size="small"
-                                type="number"
-                                value={item.unit_price}
-                                disabled
-                                sx={{ 
-                                  width: 100,
-                                  '& .MuiInputBase-input.Mui-disabled': {
-                                    WebkitTextFillColor: 'rgba(0, 0, 0, 0.87)',
-                                    color: 'rgba(0, 0, 0, 0.87)'
-                                  }
-                                }}
-                                inputProps={{ min: 0, step: 0.01 }}
-                              />
-                            ) : (
-                              Number(item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {(isEditing || isCreating) ? (
-                              <TextField
-                                size="small"
-                                value={item.warrenty_month}
-                                onChange={(e) => handleUpdateLineItem(item._id, "warrenty_month", e.target.value)}
-                                sx={{ width: 80 }}
-                                placeholder="Months"
-                              />
-                            ) : (
-                              `${item.warrenty_month} mo`
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                              {(isEditing || isCreating) ? (
-                                <TextField
-                                  size="small"
-                                  value={item.remark || ""}
-                                  onChange={(e) => handleUpdateLineItem(item._id, "remark", e.target.value)}
-                                  sx={{ width: 100 }}
-                                  placeholder="Remark"
-                                />
-                              ) : (
-                                <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {item.remark || "-"}
-                                </Typography>
-                              )}
-                              <Tooltip title="View/Edit Remark">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => handleOpenItemRemarkModal(item)}
-                                  sx={{ ml: 0.5 }}
-                                >
-                                  <MenuBookIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                          </TableCell>
-                          <TableCell align="right">
-                            {(item.quantity * item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </TableCell>
-                          {(isEditing || isCreating) && (
-                            <TableCell>
-                              <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </TableCell>
-                          )}
+                  <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={modernTableStyles.headerRow}>
+                          <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
+                          <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
+                          <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
+                          <TableCell sx={{ width: 100 }}>Warranty</TableCell>
+                          <TableCell sx={{ width: 150 }}>Remark</TableCell>
+                          <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
+                          {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
                         </TableRow>
-                      ))
-                    )}
-                    <TableRow sx={modernTableStyles.footerRow}>
-                      <TableCell colSpan={isEditing || isCreating ? 5 : 5} align="right">
-                        <Typography fontWeight="bold">Total:</Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="bold">{calculateTotal().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
-                      </TableCell>
-                      {(isEditing || isCreating) && <TableCell />}
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </Paper>
-            </Box>
+                      </TableHead>
+                      <TableBody>
+                        {lineItems.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={isEditing || isCreating ? 7 : 6} sx={modernTableStyles.emptyCell}>
+                              No items added yet
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          lineItems.map((item, index) => (
+                            <TableRow key={item._id} sx={{
+                              ...modernTableStyles.bodyRow,
+                              ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                            }}>
+                              <TableCell>
+                                {(isEditing || isCreating) ? (
+                                  <Autocomplete
+                                    size="small"
+                                    options={products || []}
+                                    getOptionLabel={(option: any) => option.name || ""}
+                                    value={products?.find((p: any) => p.id === item.product_id) || null}
+                                    onChange={(_, newValue: any) => {
+                                      // Set product_id and automatically populate unit_price from cost_price
+                                      const updatedItems = lineItems.map(lineItem =>
+                                        lineItem._id === item._id
+                                          ? { ...lineItem, product_id: newValue?.id || 0, unit_price: newValue?.cost_price || 0 }
+                                          : lineItem
+                                      );
+                                      setLineItems(updatedItems);
+                                    }}
+                                    renderInput={(params) => (
+                                      <TextField {...params} placeholder="Select Product" size="small" />
+                                    )}
+                                    sx={{ minWidth: 180 }}
+                                  />
+                                ) : (
+                                  getProductName(item.product_id)
+                                )}
+                              </TableCell>
+                              <TableCell align="right">
+                                {(isEditing || isCreating) ? (
+                                  <TextField
+                                    size="small"
+                                    type="number"
+                                    value={item.quantity}
+                                    onChange={(e) => handleUpdateLineItem(item._id, "quantity", parseInt(e.target.value) || 0)}
+                                    sx={{ width: 80 }}
+                                    inputProps={{ min: 0 }}
+                                  />
+                                ) : (
+                                  item.quantity
+                                )}
+                              </TableCell>
+                              <TableCell align="right">
+                                {(isEditing || isCreating) ? (
+                                  <TextField
+                                    size="small"
+                                    type="number"
+                                    value={item.unit_price}
+                                    disabled
+                                    sx={{
+                                      width: 100,
+                                      '& .MuiInputBase-input.Mui-disabled': {
+                                        WebkitTextFillColor: 'rgba(0, 0, 0, 0.87)',
+                                        color: 'rgba(0, 0, 0, 0.87)'
+                                      }
+                                    }}
+                                    inputProps={{ min: 0, step: 0.01 }}
+                                  />
+                                ) : (
+                                  Number(item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {(isEditing || isCreating) ? (
+                                  <TextField
+                                    size="small"
+                                    value={item.warrenty_month}
+                                    onChange={(e) => handleUpdateLineItem(item._id, "warrenty_month", e.target.value)}
+                                    sx={{ width: 80 }}
+                                    placeholder="Months"
+                                  />
+                                ) : (
+                                  `${item.warrenty_month} mo`
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                  {(isEditing || isCreating) ? (
+                                    <TextField
+                                      size="small"
+                                      value={item.remark || ""}
+                                      onChange={(e) => handleUpdateLineItem(item._id, "remark", e.target.value)}
+                                      sx={{ width: 100 }}
+                                      placeholder="Remark"
+                                    />
+                                  ) : (
+                                    <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {item.remark || "-"}
+                                    </Typography>
+                                  )}
+                                  <Tooltip title="View/Edit Remark">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleOpenItemRemarkModal(item)}
+                                      sx={{ ml: 0.5 }}
+                                    >
+                                      <MenuBookIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Box>
+                              </TableCell>
+                              <TableCell align="right">
+                                {(item.quantity * item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </TableCell>
+                              {(isEditing || isCreating) && (
+                                <TableCell>
+                                  <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          ))
+                        )}
+                        <TableRow sx={modernTableStyles.footerRow}>
+                          <TableCell colSpan={isEditing || isCreating ? 5 : 5} align="right">
+                            <Typography fontWeight="bold">Total:</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography fontWeight="bold">{calculateTotal().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                          </TableCell>
+                          {(isEditing || isCreating) && <TableCell />}
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </Paper>
+                </Box>
               </>
             )}
           </>
@@ -1421,6 +1432,14 @@ export default function PurchaseOrdersPage() {
 
       {/* Confirm Dialog */}
       <ConfirmDialog {...confirmDialog.dialogProps} />
+
+      {/* Print Preview Dialog */}
+      <TPrintPreviewDialog
+        open={printDialogOpen}
+        onClose={() => setPrintDialogOpen(false)}
+        documentType="purchase-order"
+        documentId={selectedPoIdForPrint || 0}
+      />
     </>
   );
 }

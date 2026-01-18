@@ -7,95 +7,91 @@
  * AFTER: 3 API calls (reference-data with locations/branches, purchaseOrders, grns)
  */
 
-import { useMemo, useCallback, useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import {
-  Box,
-  TextField,
-  MenuItem,
-  Typography,
-  IconButton,
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-  Paper,
-  CircularProgress,
-  Autocomplete,
-  Button,
-  Stepper,
-  Step,
-  StepLabel,
-  Chip,
-  Card,
-  CardContent,
-  LinearProgress,
-  Divider,
-  Collapse,
-  Alert,
-  InputAdornment,
-  Checkbox,
-  FormControlLabel,
-  FormGroup,
-  Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-} from "@mui/material";
-import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import { usePermission } from "@/auth/permissions";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import ErrorIcon from "@mui/icons-material/Error";
-import InventoryIcon from "@mui/icons-material/Inventory";
 import BusinessIcon from "@mui/icons-material/Business";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DeleteIcon from "@mui/icons-material/Delete";
+import ErrorIcon from "@mui/icons-material/Error";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import InventoryIcon from "@mui/icons-material/Inventory";
+import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SaveIcon from "@mui/icons-material/Save";
-import PrintIcon from "@mui/icons-material/Print";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  Chip,
+  CircularProgress,
+  Collapse,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControlLabel,
+  FormGroup,
+  IconButton,
+  InputAdornment,
+  LinearProgress,
+  MenuItem,
+  Paper,
+  Step,
+  StepLabel,
+  Stepper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
-import { usePermission } from "@/auth/permissions";
+import { useNavigate } from "react-router-dom";
 
 // Import tijaero components
 import {
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
   MasterDetailLayout,
+  modernTableStyles,
   SearchableList,
   SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  TFilterPanel,
-  TBranchFilter,
-  useMasterDetailState,
   SortOption,
-  modernTableStyles,
+  TBranchFilter,
+  TFilterPanel,
+  TPrintButton,
+  TPrintPreviewDialog,
+  useMasterDetailState
 } from "@/components/tijaero";
 
-import { goodReceivedNotesApi, goodReceivedItemsApi, purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
-import { Supplier } from "@/modules/purchasing/types";
 import { locationsApi } from "@/modules/common/api";
-import { salesStockApi, companyAssetsApi, productsApi } from "@/modules/inventory/api";
+import { companyAssetsApi, productsApi, salesStockApi } from "@/modules/inventory/api";
 import { Product } from "@/modules/inventory/types";
-import { formatCurrency } from "@/utils/formatters";
-import { 
-  GoodReceivedNote, 
-  GoodReceivedNoteCreate, 
-  GoodReceivedItemCreate,
-  GoodReceivedItem,
-  PurchasingOrder,
+import { goodReceivedItemsApi, goodReceivedNotesApi, purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import {
+  GoodReceivedItem, GoodReceivedItemCreate, GoodReceivedNote,
+  GoodReceivedNoteCreate, PurchasingOrder,
   PurchasingOrderItem,
-  PurchasingOrderWithItems,
+  PurchasingOrderWithItems, Supplier
 } from "@/modules/purchasing/types";
+import { formatCurrency } from "@/utils/formatters";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "good_received_date", label: "Date" },
@@ -173,31 +169,40 @@ export default function GoodReceivedNotesPage() {
   const [loadingPOItems, setLoadingPOItems] = useState(false);
   const [activeScanItem, setActiveScanItem] = useState<string | null>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
-  
+
+  // Print Dialog State
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [selectedGrnIdForPrint, setSelectedGrnIdForPrint] = useState<number | null>(null);
+
+  const handlePrint = (grnId: number) => {
+    setSelectedGrnIdForPrint(grnId);
+    setPrintDialogOpen(true);
+  };
+
   // Track barcode validation state for debouncing
   const barcodeValidationTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  
+
   // Credit limit override state
   const [creditLimitDialog, setCreditLimitDialog] = useState<{
     open: boolean;
     errorMessage: string;
     pendingData: GoodReceivedNoteCreate | null;
   }>({ open: false, errorMessage: "", pendingData: null });
-  
+
   // Check if user can override credit limit
   const canOverrideCredit = usePermission("purchasing", "credit_override");
-  
+
   // Confirm dialog for unsaved changes and delete actions
   const confirmDialog = useConfirmDialog();
-  
+
   // Validation state - track which fields have been touched/blurred
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  
+
   // Mark field as touched when user leaves it
   const handleBlur = (fieldName: string) => {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
   };
-  
+
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
@@ -250,7 +255,7 @@ export default function GoodReceivedNotesPage() {
     };
     loadSuppliers();
   }, []);
-  
+
   // Filter locations for the selected branch from the aggregated data
   const locations = useMemo(() => {
     if (!refData?.locations || !formData.branch_code) return [];
@@ -298,9 +303,9 @@ export default function GoodReceivedNotesPage() {
   // Group items by product for view mode display
   const groupedViewItems = useMemo(() => {
     if (!lineItems.length || isCreating) return [];
-    
+
     const groups: { [key: string]: { product_name: string; product_id?: number; items: typeof lineItems } } = {};
-    
+
     lineItems.forEach(item => {
       const key = item.product_name || `PO Item #${item.purchasing_order_items_id}`;
       if (!groups[key]) {
@@ -312,7 +317,7 @@ export default function GoodReceivedNotesPage() {
       }
       groups[key].items.push(item);
     });
-    
+
     // Sort by product name
     return Object.values(groups).sort((a, b) => a.product_name.localeCompare(b.product_name));
   }, [lineItems, isCreating]);
@@ -330,7 +335,7 @@ export default function GoodReceivedNotesPage() {
   const handleSelectGRNWithItems = useCallback(async (grn: GoodReceivedNote) => {
     const selected = await handleSelectGRN(grn);
     if (!selected) return; // User cancelled
-    
+
     // Load detailed items after selection
     setTouched({});
     loadGRNItems(grn.id);
@@ -353,12 +358,12 @@ export default function GoodReceivedNotesPage() {
       (grn) => {
         const grnMatch = grn.good_received_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
           String(grn.id).includes(searchQuery);
-        
+
         // Also search by PO number
         const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === grn.purchasingorders_id);
         const poNumber = po?.purchasing_order_no || "";
         const poMatch = poNumber.toLowerCase().includes(searchQuery.toLowerCase());
-        
+
         return grnMatch || poMatch;
       }
     );
@@ -404,21 +409,21 @@ export default function GoodReceivedNotesPage() {
       if (itemsStillChecking.length > 0) {
         throw new Error("Please wait - some barcodes are still being validated");
       }
-      
+
       // Check for any barcode errors before saving (excluding "Checking..." which we already handled)
       const itemsWithErrors = lineItems.filter(item => item.barcodeError && item.barcodeError !== "Checking...");
       if (itemsWithErrors.length > 0) {
         const errorDetails = itemsWithErrors.map(i => `${i.barcode}: ${i.barcodeError}`).join("; ");
         throw new Error(`Cannot save: ${itemsWithErrors.length} item(s) have barcode errors - ${errorDetails}`);
       }
-      
+
       // Get items with barcodes to save
       const itemsToSave = lineItems.filter(item => item.barcode);
-      
+
       if (itemsToSave.length === 0) {
         throw new Error("No items with barcodes to save. Please scan barcodes for items.");
       }
-      
+
       // Final validation: Check ALL barcodes one more time before saving (critical safety check)
       // Check against ALL three tables: good_received_items, sales_stock, company_assets
       console.log("Performing final barcode validation for", itemsToSave.length, "items");
@@ -446,22 +451,22 @@ export default function GoodReceivedNotesPage() {
           return { barcode: item.barcode, error: "validation failed - cannot verify" };
         }
       });
-      
+
       const validationResults = await Promise.all(barcodeValidationPromises);
       const duplicates = validationResults.filter(r => r !== null);
-      
+
       if (duplicates.length > 0) {
         const errorMsg = duplicates.map(d => `${d!.barcode} ${d!.error}`).join(", ");
         throw new Error(`Cannot save GRN: Duplicate barcodes found - ${errorMsg}`);
       }
-      
+
       // First create the GRN (with credit override if authorized)
       const newGRN = await goodReceivedNotesApi.create(data, allowCreditOverride);
-      
+
       let grnItemCount = 0;
       let salesStockCount = 0;
       let companyAssetCount = 0;
-      
+
       for (const item of itemsToSave) {
         // Step 1: Always save to good_received_items table first
         await goodReceivedItemsApi.create({
@@ -472,9 +477,9 @@ export default function GoodReceivedNotesPage() {
           purchasing_order_items_id: item.purchasing_order_items_id,
         });
         grnItemCount++;
-        
+
         // Step 2: Then distribute to sales_stock and/or company_assets based on selection
-        
+
         // Save to sales_stock if selected
         if (item.saveToSalesStock && item.product_id) {
           await salesStockApi.create({
@@ -488,7 +493,7 @@ export default function GoodReceivedNotesPage() {
           });
           salesStockCount++;
         }
-        
+
         // Save to company_assets if selected
         if (item.saveToCompanyAssets && item.product_id) {
           await companyAssetsApi.create({
@@ -506,7 +511,7 @@ export default function GoodReceivedNotesPage() {
           companyAssetCount++;
         }
       }
-      
+
       return { grn: newGRN, grnItemCount, salesStockCount, companyAssetCount };
     },
     onSuccess: async ({ grn: newGRN, grnItemCount, salesStockCount, companyAssetCount }) => {
@@ -519,15 +524,15 @@ export default function GoodReceivedNotesPage() {
       setLineItems([]);
       setProductGroups([]);
       setCreditLimitDialog({ open: false, errorMessage: "", pendingData: null });
-      
+
       // Refetch the GRN list to get the complete data
       await queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
       await queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
-      
+
       // Wait for refetch to complete
       await refetch();
-      
+
       // Navigate to supplier payments page for non-credit orders
       // Credit orders will use the Credit Settlement page instead
       const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === newGRN.purchasingorders_id);
@@ -545,7 +550,7 @@ export default function GoodReceivedNotesPage() {
     },
     onError: (error: any, variables) => {
       const errorDetail = error.response?.data?.detail || error.message || "Failed to create GRN";
-      
+
       // Check if this is a credit limit error
       if (errorDetail.includes("Cannot post GRN:") && errorDetail.includes("Credit limit")) {
         // Show credit limit dialog for authorized users to override
@@ -594,7 +599,7 @@ export default function GoodReceivedNotesPage() {
   };
 
   const handleUpdateLineItem = (id: string, field: keyof GRNLineItem, value: any) => {
-    setLineItems(lineItems.map(item => 
+    setLineItems(lineItems.map(item =>
       item._id === id ? { ...item, [field]: value } : item
     ));
   };
@@ -605,19 +610,19 @@ export default function GoodReceivedNotesPage() {
     }
     // Update removed - GRNs are not editable after creation
   }, [isCreating, formData, createMutation]);
-  
+
   // Button click handler that calls handleSave with default parameters
   const handleSaveClick = useCallback(() => {
     handleSave(false);
   }, [handleSave]);
-  
+
   // Handle credit limit override confirmation
   const handleCreditOverrideConfirm = useCallback(() => {
     if (creditLimitDialog.pendingData) {
       createMutation.mutate({ data: creditLimitDialog.pendingData, allowCreditOverride: true });
     }
   }, [creditLimitDialog.pendingData, createMutation]);
-  
+
   const handleCreditDialogClose = useCallback(() => {
     setCreditLimitDialog({ open: false, errorMessage: "", pendingData: null });
   }, []);
@@ -657,9 +662,9 @@ export default function GoodReceivedNotesPage() {
       } catch (error) {
         console.error("Failed to fetch branch locations:", error);
       }
-      
-      setFormData({ 
-        ...formData, 
+
+      setFormData({
+        ...formData,
         purchasingorders_id: poId,
         branch_code: selectedPO.branch_code,
         good_received_date: selectedPO.good_received_note_date?.split("T")[0] || new Date().toISOString().split("T")[0],
@@ -667,26 +672,26 @@ export default function GoodReceivedNotesPage() {
         // Auto-fill supplier invoice number from PO's purchasing_invoice_no
         supplier_invoice_no: selectedPO.purchasing_invoice_no || "",
       });
-      
+
       // Load PO items when PO is selected
       if (poId > 0 && isCreating) {
         setLoadingPOItems(true);
         try {
           // Fetch PO with items
           const poWithItems: PurchasingOrderWithItems = await purchaseOrdersApi.getById(poId);
-          
+
           // Fetch all products to get names
           const allProducts = await productsApi.getAll(0, 1000, true);
           setProducts(allProducts);
-          
+
           // For partially completed POs, fetch already received items to exclude them
           const receivedCountMap = new Map<number, number>(); // po_item_id -> count of received items
-          
+
           if (selectedPO.status === "partially_completed") {
             try {
               // Get all GRN items for this PO
               const receivedItems = await goodReceivedItemsApi.getByPO(poId);
-              
+
               // Count how many items have been received for each PO item
               receivedItems.forEach((grnItem) => {
                 if (grnItem.purchasing_order_items_id && grnItem.active) {
@@ -699,14 +704,14 @@ export default function GoodReceivedNotesPage() {
               // Continue with all items if we can't fetch received items
             }
           }
-          
+
           // Create line items from PO items - one for each quantity (excluding received items)
           const newLineItems: GRNLineItem[] = [];
           poWithItems.items?.forEach((poItem: PurchasingOrderItem) => {
             const product = allProducts.find((p: Product) => p.id === poItem.product_id);
             const receivedCount = receivedCountMap.get(poItem.id) || 0;
             const remainingQty = poItem.quantity - receivedCount;
-            
+
             // Only create line items for unreceived quantities
             for (let i = 0; i < remainingQty; i++) {
               newLineItems.push({
@@ -727,9 +732,9 @@ export default function GoodReceivedNotesPage() {
               });
             }
           });
-          
+
           setLineItems(newLineItems);
-          
+
           // Group items by product for display
           updateProductGroups(newLineItems, allProducts);
         } catch (error) {
@@ -743,11 +748,11 @@ export default function GoodReceivedNotesPage() {
       setFormData({ ...formData, purchasingorders_id: poId });
     }
   };
-  
+
   // Function to update product groups from line items
   const updateProductGroups = useCallback((items: GRNLineItem[], productList: Product[]) => {
     const groupMap = new Map<number, ProductGroup>();
-    
+
     items.forEach((item) => {
       const productId = item.product_id || 0;
       if (groupMap.has(productId)) {
@@ -766,105 +771,105 @@ export default function GoodReceivedNotesPage() {
         });
       }
     });
-    
+
     setProductGroups(Array.from(groupMap.values()));
   }, []);
-  
+
   // Toggle product group expansion
   const toggleProductGroup = (productId: number) => {
-    setProductGroups(groups => 
-      groups.map(g => 
+    setProductGroups(groups =>
+      groups.map(g =>
         g.product_id === productId ? { ...g, expanded: !g.expanded } : g
       )
     );
   };
-  
+
   // Validate barcode against database - extracted for reuse
   const validateBarcodeInDatabase = async (itemId: string, barcode: string) => {
     try {
       // Check good_received_items first (GRN items table)
       const grnItemsResult = await goodReceivedItemsApi.checkBarcodeExists(barcode);
       if (grnItemsResult.exists) {
-        setLineItems(items => 
-          items.map(item => 
-            item._id === itemId 
-              ? { ...item, barcodeError: "Barcode already exists in GRN Items" } 
+        setLineItems(items =>
+          items.map(item =>
+            item._id === itemId
+              ? { ...item, barcodeError: "Barcode already exists in GRN Items" }
               : item
           )
         );
-        setProductGroups(groups => 
+        setProductGroups(groups =>
           groups.map(g => ({
             ...g,
-            items: g.items.map(item => 
-              item._id === itemId 
-                ? { ...item, barcodeError: "Barcode already exists in GRN Items" } 
+            items: g.items.map(item =>
+              item._id === itemId
+                ? { ...item, barcodeError: "Barcode already exists in GRN Items" }
                 : item
             ),
           }))
         );
         return;
       }
-      
+
       // Check sales_stock
       const salesResult = await salesStockApi.checkBarcodeExists(barcode);
       if (salesResult.exists) {
-        setLineItems(items => 
-          items.map(item => 
-            item._id === itemId 
-              ? { ...item, barcodeError: "Barcode already exists in Sales Stock" } 
+        setLineItems(items =>
+          items.map(item =>
+            item._id === itemId
+              ? { ...item, barcodeError: "Barcode already exists in Sales Stock" }
               : item
           )
         );
-        setProductGroups(groups => 
+        setProductGroups(groups =>
           groups.map(g => ({
             ...g,
-            items: g.items.map(item => 
-              item._id === itemId 
-                ? { ...item, barcodeError: "Barcode already exists in Sales Stock" } 
+            items: g.items.map(item =>
+              item._id === itemId
+                ? { ...item, barcodeError: "Barcode already exists in Sales Stock" }
                 : item
             ),
           }))
         );
         return;
       }
-      
+
       // Check company_assets
       const assetsResult = await companyAssetsApi.checkBarcodeExists(barcode);
       if (assetsResult.exists) {
-        setLineItems(items => 
-          items.map(item => 
-            item._id === itemId 
-              ? { ...item, barcodeError: "Barcode already exists in Company Assets" } 
+        setLineItems(items =>
+          items.map(item =>
+            item._id === itemId
+              ? { ...item, barcodeError: "Barcode already exists in Company Assets" }
               : item
           )
         );
-        setProductGroups(groups => 
+        setProductGroups(groups =>
           groups.map(g => ({
             ...g,
-            items: g.items.map(item => 
-              item._id === itemId 
-                ? { ...item, barcodeError: "Barcode already exists in Company Assets" } 
+            items: g.items.map(item =>
+              item._id === itemId
+                ? { ...item, barcodeError: "Barcode already exists in Company Assets" }
                 : item
             ),
           }))
         );
         return;
       }
-      
+
       // If no duplicates found, clear the error
-      setLineItems(items => 
-        items.map(item => 
-          item._id === itemId 
-            ? { ...item, barcodeError: undefined } 
+      setLineItems(items =>
+        items.map(item =>
+          item._id === itemId
+            ? { ...item, barcodeError: undefined }
             : item
         )
       );
-      setProductGroups(groups => 
+      setProductGroups(groups =>
         groups.map(g => ({
           ...g,
-          items: g.items.map(item => 
-            item._id === itemId 
-              ? { ...item, barcodeError: undefined } 
+          items: g.items.map(item =>
+            item._id === itemId
+              ? { ...item, barcodeError: undefined }
               : item
           ),
         }))
@@ -872,26 +877,26 @@ export default function GoodReceivedNotesPage() {
     } catch (error) {
       // On error, mark the barcode with an error
       console.error("Barcode check failed:", error);
-      setLineItems(items => 
-        items.map(item => 
-          item._id === itemId 
-            ? { ...item, barcodeError: "Failed to verify barcode - please try again" } 
+      setLineItems(items =>
+        items.map(item =>
+          item._id === itemId
+            ? { ...item, barcodeError: "Failed to verify barcode - please try again" }
             : item
         )
       );
-      setProductGroups(groups => 
+      setProductGroups(groups =>
         groups.map(g => ({
           ...g,
-          items: g.items.map(item => 
-            item._id === itemId 
-              ? { ...item, barcodeError: "Failed to verify barcode - please try again" } 
+          items: g.items.map(item =>
+            item._id === itemId
+              ? { ...item, barcodeError: "Failed to verify barcode - please try again" }
               : item
           ),
         }))
       );
     }
   };
-  
+
   // Handle barcode scan for an item - with debounced validation
   const handleBarcodeChange = (itemId: string, barcode: string) => {
     // Cancel any pending validation for this item
@@ -899,148 +904,148 @@ export default function GoodReceivedNotesPage() {
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
-    
+
     // If barcode is empty, just clear it
     if (!barcode) {
-      setLineItems(items => 
-        items.map(item => 
-          item._id === itemId 
-            ? { ...item, barcode: "", scanned: false, barcodeError: undefined } 
+      setLineItems(items =>
+        items.map(item =>
+          item._id === itemId
+            ? { ...item, barcode: "", scanned: false, barcodeError: undefined }
             : item
         )
       );
-      setProductGroups(groups => 
+      setProductGroups(groups =>
         groups.map(g => ({
           ...g,
-          items: g.items.map(item => 
-            item._id === itemId 
-              ? { ...item, barcode: "", scanned: false, barcodeError: undefined } 
+          items: g.items.map(item =>
+            item._id === itemId
+              ? { ...item, barcode: "", scanned: false, barcodeError: undefined }
               : item
           ),
         }))
       );
       return;
     }
-    
+
     // Update barcode value immediately
-    setLineItems(items => 
-      items.map(item => 
-        item._id === itemId 
-          ? { ...item, barcode, scanned: true, barcodeError: undefined } 
+    setLineItems(items =>
+      items.map(item =>
+        item._id === itemId
+          ? { ...item, barcode, scanned: true, barcodeError: undefined }
           : item
       )
     );
-    setProductGroups(groups => 
+    setProductGroups(groups =>
       groups.map(g => ({
         ...g,
-        items: g.items.map(item => 
-          item._id === itemId 
-            ? { ...item, barcode, scanned: true, barcodeError: undefined } 
+        items: g.items.map(item =>
+          item._id === itemId
+            ? { ...item, barcode, scanned: true, barcodeError: undefined }
             : item
         ),
       }))
     );
-    
+
     // Check for duplicates in current line items FIRST (instant check)
     const duplicateInList = lineItems.find(item => item._id !== itemId && item.barcode === barcode);
     if (duplicateInList) {
-      setLineItems(items => 
-        items.map(item => 
-          item._id === itemId 
-            ? { ...item, barcodeError: "Duplicate barcode in current list" } 
+      setLineItems(items =>
+        items.map(item =>
+          item._id === itemId
+            ? { ...item, barcodeError: "Duplicate barcode in current list" }
             : item
         )
       );
-      setProductGroups(groups => 
+      setProductGroups(groups =>
         groups.map(g => ({
           ...g,
-          items: g.items.map(item => 
-            item._id === itemId 
-              ? { ...item, barcodeError: "Duplicate barcode in current list" } 
+          items: g.items.map(item =>
+            item._id === itemId
+              ? { ...item, barcodeError: "Duplicate barcode in current list" }
               : item
           ),
         }))
       );
       return;
     }
-    
+
     // Set checking state
-    setLineItems(items => 
-      items.map(item => 
-        item._id === itemId 
-          ? { ...item, barcodeError: "Checking..." } 
+    setLineItems(items =>
+      items.map(item =>
+        item._id === itemId
+          ? { ...item, barcodeError: "Checking..." }
           : item
       )
     );
-    setProductGroups(groups => 
+    setProductGroups(groups =>
       groups.map(g => ({
         ...g,
-        items: g.items.map(item => 
-          item._id === itemId 
-            ? { ...item, barcodeError: "Checking..." } 
+        items: g.items.map(item =>
+          item._id === itemId
+            ? { ...item, barcodeError: "Checking..." }
             : item
         ),
       }))
     );
-    
+
     // Debounce the database validation (500ms delay)
     const timer = setTimeout(() => {
       validateBarcodeInDatabase(itemId, barcode);
       barcodeValidationTimers.current.delete(itemId);
     }, 500);
-    
+
     barcodeValidationTimers.current.set(itemId, timer);
   };
-  
+
   // Handle immediate validation on blur or enter
   const handleBarcodeBlur = (itemId: string, barcode: string) => {
     if (!barcode) return;
-    
+
     // Cancel debounced validation
     const existingTimer = barcodeValidationTimers.current.get(itemId);
     if (existingTimer) {
       clearTimeout(existingTimer);
       barcodeValidationTimers.current.delete(itemId);
     }
-    
+
     // Validate immediately
     validateBarcodeInDatabase(itemId, barcode);
   };
-  
+
   // Handle warranty change for an item
   const handleWarrantyChange = (itemId: string, warranty: string) => {
-    setLineItems(items => 
-      items.map(item => 
+    setLineItems(items =>
+      items.map(item =>
         item._id === itemId ? { ...item, warranty_month: warranty } : item
       )
     );
-    setProductGroups(groups => 
+    setProductGroups(groups =>
       groups.map(g => ({
         ...g,
-        items: g.items.map(item => 
+        items: g.items.map(item =>
           item._id === itemId ? { ...item, warranty_month: warranty } : item
         ),
       }))
     );
   };
-  
+
   // Handle save destination change for individual item
   const handleSaveDestinationChange = (itemId: string, field: "saveToSalesStock" | "saveToCompanyAssets", value: boolean) => {
-    setLineItems(items => 
-      items.map(item => 
+    setLineItems(items =>
+      items.map(item =>
         item._id === itemId ? { ...item, [field]: value } : item
       )
     );
-    setProductGroups(groups => 
+    setProductGroups(groups =>
       groups.map(g => ({
         ...g,
-        items: g.items.map(item => 
+        items: g.items.map(item =>
           item._id === itemId ? { ...item, [field]: value } : item
         ),
       }))
     );
   };
-  
+
   // Handle default save destination change - updates all items
   const handleDefaultSaveDestinationChange = (field: "saveToSalesStock" | "saveToCompanyAssets", value: boolean) => {
     if (field === "saveToSalesStock") {
@@ -1048,17 +1053,17 @@ export default function GoodReceivedNotesPage() {
     } else {
       setDefaultSaveToCompanyAssets(value);
     }
-    setLineItems(items => 
+    setLineItems(items =>
       items.map(item => ({ ...item, [field]: value }))
     );
-    setProductGroups(groups => 
+    setProductGroups(groups =>
       groups.map(g => ({
         ...g,
         items: g.items.map(item => ({ ...item, [field]: value })),
       }))
     );
   };
-  
+
   // Start scanning for a specific item
   const startScanning = (itemId: string) => {
     setActiveScanItem(itemId);
@@ -1067,7 +1072,7 @@ export default function GoodReceivedNotesPage() {
       barcodeInputRef.current?.focus();
     }, 100);
   };
-  
+
   // Complete scanning and move to next
   const completeScan = (itemId: string) => {
     const currentIndex = lineItems.findIndex(item => item._id === itemId);
@@ -1078,29 +1083,29 @@ export default function GoodReceivedNotesPage() {
       setActiveScanItem(null);
     }
   };
-  
+
   // Check if all items are scanned
   const allItemsScanned = useMemo(() => {
     return lineItems.length > 0 && lineItems.every(item => item.scanned);
   }, [lineItems]);
-  
+
   // Check if any items have barcode errors (excluding "Checking..." state)
   const hasBarcodeErrors = useMemo(() => {
     return lineItems.some(item => item.barcodeError && item.barcodeError !== "Checking...");
   }, [lineItems]);
-  
+
   // Check if any items are still being validated
   const isValidatingBarcodes = useMemo(() => {
     return lineItems.some(item => item.barcodeError === "Checking...");
   }, [lineItems]);
-  
+
   // Check if all scanned barcodes have been validated (no errors and not checking)
   const allBarcodesValidated = useMemo(() => {
-    return lineItems.length > 0 && 
-           lineItems.every(item => item.scanned) && 
-           !lineItems.some(item => item.barcodeError);
+    return lineItems.length > 0 &&
+      lineItems.every(item => item.scanned) &&
+      !lineItems.some(item => item.barcodeError);
   }, [lineItems]);
-  
+
   // Count scanned items
   const scannedCount = useMemo(() => {
     return lineItems.filter(item => item.scanned).length;
@@ -1119,7 +1124,7 @@ export default function GoodReceivedNotesPage() {
   // Validation error messages
   const getFieldError = (fieldName: string): string | undefined => {
     if (!touched[fieldName] && !isCreating) return undefined;
-    
+
     switch (fieldName) {
       case 'good_received_no':
         if (!formData.good_received_no) return 'GRN number is required';
@@ -1152,8 +1157,8 @@ export default function GoodReceivedNotesPage() {
   };
 
   // Step 1 validation: GRN Information, Supplier Invoice, Remarks
-  const isStep1Valid = formData.good_received_no && 
-    formData.purchasingorders_id > 0 && 
+  const isStep1Valid = formData.good_received_no &&
+    formData.purchasingorders_id > 0 &&
     formData.supplier_invoice_no;
 
   // Full form validation
@@ -1309,18 +1314,11 @@ export default function GoodReceivedNotesPage() {
         // onEdit={handleStartEdit}
         endActions={
           selectedGRN && !isCreating && !isEditing ? (
-            <Tooltip title="Print / Preview Report">
-              <IconButton
-                size="small"
-                onClick={() => {
-                  const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/api\/v1$/, '');
-                  const reportUrl = `${baseUrl}/api/v1/reporting/documents/grn/${selectedGRN.id}`;
-                  window.open(reportUrl, '_blank');
-                }}
-              >
-                <PrintIcon />
-              </IconButton>
-            </Tooltip>
+            <TPrintButton
+              documentType="grn"
+              documentId={selectedGRN.id}
+              onClick={() => handlePrint(selectedGRN.id)}
+            />
           ) : undefined
         }
       />
@@ -1386,108 +1384,108 @@ export default function GoodReceivedNotesPage() {
                     )}
                     isOptionEqualToValue={(option, value) => option.id === value?.id}
                   />
-              <TextField
-                label="GRN Date"
-                size="small"
-                type="date"
-                value={formData.good_received_date}
-                onChange={(e) => setFormData({ ...formData, good_received_date: e.target.value })}
-                onBlur={() => handleBlur('good_received_date')}
-                disabled={!isEditing && !isCreating}
-                InputLabelProps={{ shrink: true }}
-                required
-                error={hasError('good_received_date')}
-                helperText={getFieldError('good_received_date')}
-              />
-              <TextField
-                label="Branch"
-                size="small"
-                value={getBranchDisplay(formData.branch_code)}
-                disabled
-                helperText="Auto-filled from Purchase Order"
-              />
-              <TextField
-                select
-                label="Location"
-                size="small"
-                value={formData.good_received_locations_id}
-                onChange={(e) => {
-                  setFormData({ ...formData, good_received_locations_id: parseInt(e.target.value) || 1 });
-                  handleBlur('good_received_locations_id');
-                }}
-                disabled={!isEditing && !isCreating}
-                required
-                error={hasError('good_received_locations_id')}
-                helperText={getFieldError('good_received_locations_id')}
-              >
-                {locations?.map((location: Location) => (
-                  <MenuItem key={location.id} value={location.id}>
-                    {location.name}
-                  </MenuItem>
-                ))}
-                {(!locations || locations.length === 0) && (
-                  <MenuItem value={1}>Default Location</MenuItem>
-                )}
-              </TextField>
-              <TextField
-                label="Supplier Name"
-                size="small"
-                value={getSupplierName(formData.purchasingorders_id)}
-                disabled
-                helperText="Auto-filled from Purchase Order"
-              />
-            </FormSection>
+                  <TextField
+                    label="GRN Date"
+                    size="small"
+                    type="date"
+                    value={formData.good_received_date}
+                    onChange={(e) => setFormData({ ...formData, good_received_date: e.target.value })}
+                    onBlur={() => handleBlur('good_received_date')}
+                    disabled={!isEditing && !isCreating}
+                    InputLabelProps={{ shrink: true }}
+                    required
+                    error={hasError('good_received_date')}
+                    helperText={getFieldError('good_received_date')}
+                  />
+                  <TextField
+                    label="Branch"
+                    size="small"
+                    value={getBranchDisplay(formData.branch_code)}
+                    disabled
+                    helperText="Auto-filled from Purchase Order"
+                  />
+                  <TextField
+                    select
+                    label="Location"
+                    size="small"
+                    value={formData.good_received_locations_id}
+                    onChange={(e) => {
+                      setFormData({ ...formData, good_received_locations_id: parseInt(e.target.value) || 1 });
+                      handleBlur('good_received_locations_id');
+                    }}
+                    disabled={!isEditing && !isCreating}
+                    required
+                    error={hasError('good_received_locations_id')}
+                    helperText={getFieldError('good_received_locations_id')}
+                  >
+                    {locations?.map((location: Location) => (
+                      <MenuItem key={location.id} value={location.id}>
+                        {location.name}
+                      </MenuItem>
+                    ))}
+                    {(!locations || locations.length === 0) && (
+                      <MenuItem value={1}>Default Location</MenuItem>
+                    )}
+                  </TextField>
+                  <TextField
+                    label="Supplier Name"
+                    size="small"
+                    value={getSupplierName(formData.purchasingorders_id)}
+                    disabled
+                    helperText="Auto-filled from Purchase Order"
+                  />
+                </FormSection>
 
-            <FormSection title="Supplier Invoice" columns={2}>
-              <TextField
-                label="Supplier Invoice No"
-                size="small"
-                value={formData.supplier_invoice_no}
-                onChange={(e) => setFormData({ ...formData, supplier_invoice_no: e.target.value })}
-                onBlur={() => handleBlur('supplier_invoice_no')}
-                disabled={!isEditing && !isCreating}
-                required
-                error={hasError('supplier_invoice_no')}
-                helperText={getFieldError('supplier_invoice_no')}
-              />
-              <TextField
-                label="Supplier Invoice Date"
-                size="small"
-                type="date"
-                value={formData.supplier_invoice_date}
-                onChange={(e) => setFormData({ ...formData, supplier_invoice_date: e.target.value })}
-                onBlur={() => handleBlur('supplier_invoice_date')}
-                disabled={!isEditing && !isCreating}
-                InputLabelProps={{ shrink: true }}
-                required
-                error={hasError('supplier_invoice_date')}
-                helperText={getFieldError('supplier_invoice_date')}
-              />
-            </FormSection>
+                <FormSection title="Supplier Invoice" columns={2}>
+                  <TextField
+                    label="Supplier Invoice No"
+                    size="small"
+                    value={formData.supplier_invoice_no}
+                    onChange={(e) => setFormData({ ...formData, supplier_invoice_no: e.target.value })}
+                    onBlur={() => handleBlur('supplier_invoice_no')}
+                    disabled={!isEditing && !isCreating}
+                    required
+                    error={hasError('supplier_invoice_no')}
+                    helperText={getFieldError('supplier_invoice_no')}
+                  />
+                  <TextField
+                    label="Supplier Invoice Date"
+                    size="small"
+                    type="date"
+                    value={formData.supplier_invoice_date}
+                    onChange={(e) => setFormData({ ...formData, supplier_invoice_date: e.target.value })}
+                    onBlur={() => handleBlur('supplier_invoice_date')}
+                    disabled={!isEditing && !isCreating}
+                    InputLabelProps={{ shrink: true }}
+                    required
+                    error={hasError('supplier_invoice_date')}
+                    helperText={getFieldError('supplier_invoice_date')}
+                  />
+                </FormSection>
 
-            <FormSection title="Remarks" columns={1}>
-              <TextField
-                label="Remarks"
-                size="small"
-                value={formData.remark}
-                onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
-                disabled={!isEditing && !isCreating}
-                multiline
-                rows={2}
-              />
-            </FormSection>
+                <FormSection title="Remarks" columns={1}>
+                  <TextField
+                    label="Remarks"
+                    size="small"
+                    value={formData.remark}
+                    onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    multiline
+                    rows={2}
+                  />
+                </FormSection>
 
                 {/* Next/Cancel buttons for step 1 in create mode */}
                 {isCreating && (
                   <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
-                    <Button 
-                      variant="outlined" 
+                    <Button
+                      variant="outlined"
                       onClick={() => handleCancel(filteredGRNs)}
                     >
                       Cancel
                     </Button>
-                    <Button 
-                      variant="contained" 
+                    <Button
+                      variant="contained"
                       onClick={handleNextStep}
                       disabled={!isStep1Valid}
                       endIcon={<ArrowForwardIcon />}
@@ -1504,8 +1502,8 @@ export default function GoodReceivedNotesPage() {
               <>
                 {/* Back button in create mode only */}
                 {isCreating && (
-                  <Button 
-                    variant="text" 
+                  <Button
+                    variant="text"
                     onClick={handlePreviousStep}
                     startIcon={<ArrowBackIcon />}
                     sx={{ mb: 2 }}
@@ -1534,7 +1532,7 @@ export default function GoodReceivedNotesPage() {
                       <FormGroup row>
                         <FormControlLabel
                           control={
-                            <Checkbox 
+                            <Checkbox
                               checked={defaultSaveToSalesStock}
                               onChange={(e) => handleDefaultSaveDestinationChange("saveToSalesStock", e.target.checked)}
                               color="success"
@@ -1549,7 +1547,7 @@ export default function GoodReceivedNotesPage() {
                         />
                         <FormControlLabel
                           control={
-                            <Checkbox 
+                            <Checkbox
                               checked={defaultSaveToCompanyAssets}
                               onChange={(e) => handleDefaultSaveDestinationChange("saveToCompanyAssets", e.target.checked)}
                               color="info"
@@ -1583,11 +1581,11 @@ export default function GoodReceivedNotesPage() {
                         {scannedCount} / {lineItems.length} items scanned
                       </Typography>
                     </Box>
-                    <LinearProgress 
-                      variant="determinate" 
-                      value={(scannedCount / lineItems.length) * 100} 
-                      sx={{ 
-                        height: 8, 
+                    <LinearProgress
+                      variant="determinate"
+                      value={(scannedCount / lineItems.length) * 100}
+                      sx={{
+                        height: 8,
                         borderRadius: 4,
                         bgcolor: 'grey.200',
                         '& .MuiLinearProgress-bar': {
@@ -1619,12 +1617,12 @@ export default function GoodReceivedNotesPage() {
                 {isCreating && productGroups.length > 0 ? (
                   <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                     {productGroups.map((group) => (
-                      <Card 
-                        key={group.product_id} 
+                      <Card
+                        key={group.product_id}
                         variant="outlined"
-                        sx={{ 
-                          borderLeft: 4, 
-                          borderLeftColor: group.items.every(i => i.scanned) ? 'success.main' : 'primary.main' 
+                        sx={{
+                          borderLeft: 4,
+                          borderLeftColor: group.items.every(i => i.scanned) ? 'success.main' : 'primary.main'
                         }}
                       >
                         {/* Product Header */}
@@ -1651,7 +1649,7 @@ export default function GoodReceivedNotesPage() {
                             </Box>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <Chip 
+                            <Chip
                               label={`${group.items.filter(i => i.scanned).length}/${group.total_quantity} scanned`}
                               size="small"
                               color={group.items.every(i => i.scanned) ? "success" : "default"}
@@ -1684,13 +1682,13 @@ export default function GoodReceivedNotesPage() {
                                 {/* Item Info Row */}
                                 <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
                                   {/* Item number */}
-                                  <Chip 
-                                    label={`#${index + 1}`} 
-                                    size="small" 
+                                  <Chip
+                                    label={`#${index + 1}`}
+                                    size="small"
                                     sx={{ minWidth: 40 }}
                                     color={item.scanned ? "success" : "default"}
                                   />
-                                  
+
                                   {/* Product Name */}
                                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                                     <Typography variant="caption" color="text.secondary">Product:</Typography>
@@ -1698,20 +1696,20 @@ export default function GoodReceivedNotesPage() {
                                       {item.product_name}
                                     </Typography>
                                   </Box>
-                                  
+
                                   {/* Branch */}
                                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                                     <Typography variant="caption" color="text.secondary">Branch:</Typography>
                                     <Chip label={item.branch_code} size="small" variant="outlined" />
                                   </Box>
-                                  
+
                                   {/* PO Item ID */}
                                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                                     <Typography variant="caption" color="text.secondary">PO Item ID:</Typography>
                                     <Chip label={item.purchasing_order_items_id} size="small" color="primary" variant="outlined" />
                                   </Box>
                                 </Box>
-                                
+
                                 {/* Barcode and Actions Row */}
                                 <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                                   {/* Barcode Input */}
@@ -1752,7 +1750,7 @@ export default function GoodReceivedNotesPage() {
                                       ) : undefined,
                                     }}
                                   />
-                                  
+
                                   {/* Warranty Input - show if empty or allow edit */}
                                   <TextField
                                     size="small"
@@ -1771,32 +1769,32 @@ export default function GoodReceivedNotesPage() {
 
                                   {/* Save Destination Checkboxes */}
                                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                  <Checkbox
-                                    checked={item.saveToSalesStock}
-                                    onChange={(e) => handleSaveDestinationChange(item._id, "saveToSalesStock", e.target.checked)}
-                                    size="small"
-                                    color="success"
-                                    title="Sales Stock"
-                                    icon={<InventoryIcon fontSize="small" />}
-                                    checkedIcon={<InventoryIcon fontSize="small" />}
-                                    sx={{ 
-                                      p: 0.5,
-                                      '&.Mui-checked': { color: 'success.main' }
-                                    }}
-                                  />
-                                  <Checkbox
-                                    checked={item.saveToCompanyAssets}
-                                    onChange={(e) => handleSaveDestinationChange(item._id, "saveToCompanyAssets", e.target.checked)}
-                                    size="small"
-                                    color="info"
-                                    title="Company Assets"
-                                    icon={<BusinessIcon fontSize="small" />}
-                                    checkedIcon={<BusinessIcon fontSize="small" />}
-                                    sx={{ 
-                                      p: 0.5,
-                                      '&.Mui-checked': { color: 'info.main' }
-                                    }}
-                                  />
+                                    <Checkbox
+                                      checked={item.saveToSalesStock}
+                                      onChange={(e) => handleSaveDestinationChange(item._id, "saveToSalesStock", e.target.checked)}
+                                      size="small"
+                                      color="success"
+                                      title="Sales Stock"
+                                      icon={<InventoryIcon fontSize="small" />}
+                                      checkedIcon={<InventoryIcon fontSize="small" />}
+                                      sx={{
+                                        p: 0.5,
+                                        '&.Mui-checked': { color: 'success.main' }
+                                      }}
+                                    />
+                                    <Checkbox
+                                      checked={item.saveToCompanyAssets}
+                                      onChange={(e) => handleSaveDestinationChange(item._id, "saveToCompanyAssets", e.target.checked)}
+                                      size="small"
+                                      color="info"
+                                      title="Company Assets"
+                                      icon={<BusinessIcon fontSize="small" />}
+                                      checkedIcon={<BusinessIcon fontSize="small" />}
+                                      sx={{
+                                        p: 0.5,
+                                        '&.Mui-checked': { color: 'info.main' }
+                                      }}
+                                    />
                                   </Box>
 
                                   {/* Scan button */}
@@ -1826,14 +1824,14 @@ export default function GoodReceivedNotesPage() {
                         Validating barcodes against database... Please wait.
                       </Alert>
                     )}
-                    
+
                     {/* Barcode Error Alert */}
                     {hasBarcodeErrors && !isValidatingBarcodes && (
                       <Alert severity="error" sx={{ mb: 2 }}>
                         Some barcodes have errors: {lineItems.filter(i => i.barcodeError && i.barcodeError !== "Checking...").map(i => `${i.barcode} (${i.barcodeError})`).join(", ")}
                       </Alert>
                     )}
-                    
+
                     {/* All Valid Alert */}
                     {allBarcodesValidated && !hasBarcodeErrors && !isValidatingBarcodes && (
                       <Alert severity="success" sx={{ mb: 2 }}>
@@ -1852,10 +1850,10 @@ export default function GoodReceivedNotesPage() {
                         disabled={isSaving || hasBarcodeErrors || isValidatingBarcodes || !allBarcodesValidated}
                         sx={{ mt: 2 }}
                       >
-                        {isSaving 
-                          ? "Saving..." 
-                          : isValidatingBarcodes 
-                            ? "Validating barcodes..." 
+                        {isSaving
+                          ? "Saving..."
+                          : isValidatingBarcodes
+                            ? "Validating barcodes..."
                             : `Save GRN with ${lineItems.length} Items`
                         }
                       </Button>
@@ -1886,15 +1884,15 @@ export default function GoodReceivedNotesPage() {
                           ) : lineItems.length === 0 ? (
                             <TableRow>
                               <TableCell colSpan={isEditing || isCreating ? 6 : 5} sx={modernTableStyles.emptyCell}>
-                                {isCreating 
-                                  ? "Select a Purchase Order to load items" 
+                                {isCreating
+                                  ? "Select a Purchase Order to load items"
                                   : "No items received yet"}
                               </TableCell>
                             </TableRow>
                           ) : isEditing ? (
                             // Edit mode - flat list
                             lineItems.map((item, index) => (
-                              <TableRow key={item._id} sx={{ 
+                              <TableRow key={item._id} sx={{
                                 ...modernTableStyles.bodyRow,
                                 ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                               }}>
@@ -2000,10 +1998,18 @@ export default function GoodReceivedNotesPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      
+
       {/* Confirm Dialog */}
       <ConfirmDialog {...confirmDialog.dialogProps} />
-      
+
+      {/* Print Preview Dialog */}
+      <TPrintPreviewDialog
+        open={printDialogOpen}
+        onClose={() => setPrintDialogOpen(false)}
+        documentType="grn"
+        documentId={selectedGrnIdForPrint || 0}
+      />
+
       {/* Credit Limit Override Dialog */}
       <Dialog
         open={creditLimitDialog.open}

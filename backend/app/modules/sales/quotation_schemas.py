@@ -74,13 +74,21 @@ class SalesQuoteItemUpdate(BaseModel):
     remark: Optional[str] = None
 
 
-class SalesQuoteItem(SalesQuoteItemBase):
+class SalesQuoteItem(BaseModel):
     """Schema for quote item response"""
 
     id: int
     quote_id: int
+    product_id: int
+    quantity: int
+    selling_price: float
+    minimum_selling_price: float
+    warrenty_month: str
     created_date: datetime
-    line_total: float
+    is_price_estimate: bool = False
+    description: Optional[str] = None
+    remark: Optional[str] = None
+    discount_percentage: float = 0
 
     class Config:
         from_attributes = True
@@ -167,23 +175,28 @@ class SalesQuoteStatusUpdate(BaseModel):
     remarks: Optional[str] = None
 
 
-class SalesQuote(SalesQuoteBase):
+class SalesQuote(BaseModel):
     """Schema for sales quote response"""
 
     id: int
     quote_no: str
+    quote_type: QuoteTypeEnum
+    branch_code: str
+    customer_id: int
+    sale_rep_id: int
+    customer_agent_id: Optional[int] = None
     created_date: date
     created_date_time: datetime
+    valid_until: date
+    expected_delivery_date: Optional[date] = None
     status: QuoteStatusEnum
     approval: bool
     approval_id: Optional[int] = None
+    special: bool = False
     sys_code: Optional[int] = None
-    revision_number: int
-    parent_quote_id: Optional[int] = None
-
-    # Totals
-    subtotal: float
-    tax_amount: float
+    is_estimate: bool = True
+    remarks: Optional[str] = None
+    customer_notes: Optional[str] = None
     total_amount: float
 
     # Conversion

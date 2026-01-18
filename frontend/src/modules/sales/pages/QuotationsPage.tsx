@@ -5,37 +5,39 @@
 import { usePermission } from "@/auth/permissions";
 import {
   ActionToolbar,
+  canPrintDocument,
   DetailPanelHeader,
   EmptyState,
   FormSection,
   MasterDetailLayout,
+  modernTableStyles,
   SearchableList,
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
   SortOption,
   TBranchFilter,
+  TConfirmDialog,
   TCurrency,
   TDate,
   TFilterPanel,
+  TPrintButton,
+  TPrintPreviewDialog,
   TStatusChip,
   useMasterDetailState,
   useTConfirmDialog
 } from "@/components/tijaero";
-import { ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 import { branchApi } from "@/modules/branches/api";
 import { customersApi } from "@/modules/customers/api";
-import { productsApi } from "@/modules/inventory/api";
+import { employeesApi } from "@/modules/employees/api";
+import { minimumPriceApi, productsApi } from "@/modules/inventory/api";
+import { ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 import {
   Add as AddIcon,
-  CheckCircle as ApproveIcon,
-  Cancel as CancelIcon,
-  Transform as ConvertIcon,
+  ArrowBack as ArrowBackIcon,
+  ArrowForward as ArrowForwardIcon,
   Delete as DeleteIcon,
-  Print as PrintIcon,
-  Description as QuoteIcon,
-  Refresh as ReviseIcon,
-  Send as SendIcon
+  Description as QuoteIcon
 } from "@mui/icons-material";
 import {
   Autocomplete,
@@ -47,6 +49,9 @@ import {
   InputAdornment,
   MenuItem,
   Paper,
+  Step,
+  StepLabel,
+  Stepper,
   Table,
   TableBody,
   TableCell,
@@ -75,6 +80,9 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "valid_until", label: "Validity" },
 ];
 
+// Form steps for stepper workflow
+const FORM_STEPS = ["Quote Information", "Quote Items"];
+
 // Line item type
 interface ItemFormData {
   product_id: number;
@@ -95,15 +103,11 @@ const getEmptyQuoteForm = (quoteType: QuoteType): Partial<SalesQuoteCreate> => (
   quote_type: quoteType,
   branch_code: "MAIN",
   customer_id: 0,
-  sale_rep_id: 1,
+  sale_rep_id: 0,
   valid_until: format(addDays(new Date(), 30), "yyyy-MM-dd"),
   is_estimate: quoteType === "quotation",
-  payment_terms: "",
-  delivery_terms: "",
   remarks: "",
   customer_notes: "",
-  discount_type: "none",
-  discount_value: 0,
   special: false,
   items: [],
 });
@@ -116,14 +120,25 @@ export default function QuotationsPage() {
   // Line items state
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
 
+  // Form step state for stepper workflow
+  const [formStep, setFormStep] = useState(0);
+
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Print Dialog State
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [selectedQuoteForPrint, setSelectedQuoteForPrint] = useState<SalesQuote | null>(null);
 
   // Permissions
   const canCreate = usePermission("sales", "create");
   const canDelete = usePermission("sales", "delete");
   const canUpdate = usePermission("sales", "update");
-  const canApprove = usePermission("sales", "approve");
+
+  // Confirm dialogs
+  const confirmDialog = useTConfirmDialog();
+
+
 
   // Use reusable state hook
   const {
@@ -136,6 +151,9 @@ export default function QuotationsPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
+    hasChanges,
+    favorites,
+    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectQuote,
@@ -147,10 +165,15 @@ export default function QuotationsPage() {
     resetFormFromItem: (quote) => quote,
     favoritesKey: "quotations_favorites",
     defaultSortField: "created_date",
+    confirmUnsavedChanges: async () => {
+      return await confirmDialog.confirm({
+        title: "Unsaved Changes",
+        message: "You have unsaved changes. Are you sure you want to Continue them?",
+        confirmText: "Confirm",
+        confirmColor: "error",
+      });
+    },
   });
-
-  // Confirm dialogs
-  const confirmDialog = useTConfirmDialog();
 
   // Data fetching
   const { data: quotesData, isLoading } = useQuery({
@@ -172,6 +195,37 @@ export default function QuotationsPage() {
     queryKey: ["branches"],
     queryFn: () => branchApi.getAll(1, 100),
   });
+
+  const { data: employees } = useQuery({
+    queryKey: ["employees"],
+    queryFn: () => employeesApi.getAll(),
+  });
+
+  // Fetch selected quote with items
+  const { data: selectedQuoteDetails } = useQuery({
+    queryKey: ["sales-quote-details", selectedQuote?.id],
+    queryFn: () => quotationApi.getById(selectedQuote!.id),
+    enabled: !!selectedQuote?.id && !isCreating && !isEditing,
+  });
+
+  // Populate line items when quote details are loaded
+  useEffect(() => {
+    if (selectedQuoteDetails?.items && !isCreating && !isEditing) {
+      setLineItems(selectedQuoteDetails.items.map((item) => ({
+        product_id: item.product_id,
+        quantity: item.quantity,
+        selling_price: Number(item.selling_price),
+        minimum_selling_price: Number(item.minimum_selling_price),
+        warrenty_month: item.warrenty_month,
+        min_price: 0,
+        max_price: 0,
+        is_price_estimate: item.is_price_estimate,
+        description: item.description || "",
+        discount_percent: item.discount_percentage || 0,
+        tax_rate: 0,
+      })));
+    }
+  }, [selectedQuoteDetails, isCreating, isEditing]);
 
   const branches = branchesData?.items || [];
 
@@ -274,88 +328,43 @@ export default function QuotationsPage() {
     },
   });
 
-  const approveMutation = useMutation({
-    mutationFn: (id: number) => quotationApi.approve(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
-      showSuccessToast("Quote approved successfully");
-    },
-    onError: (error: Error) => {
-      showErrorToast(`Failed to approve: ${error.message}`);
-    },
-  });
-
-  const sendMutation = useMutation({
-    mutationFn: (id: number) => quotationApi.markAsSent(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
-      showSuccessToast("Quote marked as sent");
-    },
-    onError: (error: Error) => {
-      showErrorToast(`Failed to update: ${error.message}`);
-    },
-  });
-
-  const acceptMutation = useMutation({
-    mutationFn: (id: number) => quotationApi.markAsAccepted(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
-      showSuccessToast("Quote marked as accepted");
-    },
-    onError: (error: Error) => {
-      showErrorToast(`Failed to update: ${error.message}`);
-    },
-  });
-
-  const cancelMutation = useMutation({
-    mutationFn: (id: number) => quotationApi.cancel(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
-      showSuccessToast("Quote cancelled");
-    },
-    onError: (error: Error) => {
-      showErrorToast(`Failed to cancel: ${error.message}`);
-    },
-  });
-
-  const convertMutation = useMutation({
-    mutationFn: (id: number) =>
-      quotationApi.convertToInvoice(id, {
-        payment_method: "cash",
-        cash_amount: selectedQuote?.total_amount || 0,
-      }),
-    onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-      showSuccessToast(`Converted to Invoice: ${response.invoice_no}`);
-    },
-    onError: (error: Error) => {
-      showErrorToast(`Failed to convert: ${error.message}`);
-    },
-  });
-
-  const reviseMutation = useMutation({
-    mutationFn: (id: number) => quotationApi.createRevision(id),
-    onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
-      showSuccessToast(`Created revision: ${response.new_quote_no}`);
-    },
-    onError: (error: Error) => {
-      showErrorToast(`Failed to create revision: ${error.message}`);
-    },
-  });
 
   // Handlers
   const handleCreateNew = useCallback(() => {
     setFormData(getEmptyQuoteForm("quotation"));
     setLineItems([]);
+    setFormStep(0);
     handleNewQuote();
   }, [handleNewQuote, setFormData]);
 
-  const handleDiscardChanges = useCallback(() => {
+  const handleDiscardChanges = useCallback(async () => {
+    if ((isEditing || isCreating) && hasChanges) {
+      const confirmed = await confirmDialog.confirm({
+        title: "Unsaved Changes",
+        message: "You have unsaved changes. Are you sure you want to Continue them?",
+        confirmText: "Confirm",
+        confirmColor: "error",
+      });
+      if (!confirmed) return;
+    }
+
     baseHandleCancel(filteredQuotes);
     setLineItems([]);
-  }, [baseHandleCancel, filteredQuotes]);
+    setFormStep(0);
+  }, [baseHandleCancel, filteredQuotes, isEditing, isCreating, hasChanges, confirmDialog]);
+
+  // Step navigation handlers
+  const handleNextStep = useCallback(() => {
+    if (formStep < FORM_STEPS.length - 1) {
+      setFormStep(prev => prev + 1);
+    }
+  }, [formStep]);
+
+  const handlePreviousStep = useCallback(() => {
+    if (formStep > 0) {
+      setFormStep(prev => prev - 1);
+    }
+  }, [formStep]);
 
   const handleEdit = useCallback(() => {
     if (selectedQuote) {
@@ -366,12 +375,8 @@ export default function QuotationsPage() {
         sale_rep_id: selectedQuote.sale_rep_id,
         valid_until: selectedQuote.valid_until,
         is_estimate: selectedQuote.is_estimate,
-        payment_terms: selectedQuote.payment_terms || "",
-        delivery_terms: selectedQuote.delivery_terms || "",
         remarks: selectedQuote.remarks || "",
         customer_notes: selectedQuote.customer_notes || "",
-        discount_type: selectedQuote.discount_type,
-        discount_value: selectedQuote.discount_value,
         special: selectedQuote.special,
       });
       handleStartEdit();
@@ -384,8 +389,24 @@ export default function QuotationsPage() {
       return;
     }
 
+    if (!formData.sale_rep_id || formData.sale_rep_id === 0) {
+      showErrorToast("Please select a sales representative");
+      return;
+    }
+
     if (lineItems.length === 0) {
       showErrorToast("Please add at least one item");
+      return;
+    }
+
+    // Validate minimum prices
+    const invalidItems = lineItems.filter(item =>
+      item.minimum_selling_price > 0 && item.selling_price < item.minimum_selling_price
+    );
+
+    if (invalidItems.length > 0) {
+      const product = products?.find(p => p.id === invalidItems[0].product_id);
+      showErrorToast(`Price for ${product?.name || 'item'} cannot be less than minimum price (${invalidItems[0].minimum_selling_price})`);
       return;
     }
 
@@ -395,12 +416,9 @@ export default function QuotationsPage() {
       selling_price: item.selling_price,
       minimum_selling_price: item.minimum_selling_price,
       warrenty_month: item.warrenty_month,
-      min_price: item.min_price,
-      max_price: item.max_price,
       is_price_estimate: item.is_price_estimate,
       description: item.description,
-      discount_percent: item.discount_percent,
-      tax_rate: item.tax_rate,
+      discount_percent: item.discount_percent || 0,
     }));
 
     if (isCreating) {
@@ -430,61 +448,6 @@ export default function QuotationsPage() {
     }
   }, [selectedQuote, deleteMutation, confirmDialog]);
 
-  const handleApprove = useCallback(async () => {
-    if (selectedQuote) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Approve Quote",
-        message: `Approve ${selectedQuote.quote_no}?`,
-        confirmText: "Approve",
-        confirmColor: "success",
-      });
-      if (confirmed) {
-        approveMutation.mutate(selectedQuote.id);
-      }
-    }
-  }, [selectedQuote, approveMutation, confirmDialog]);
-
-  const handleConvert = useCallback(async () => {
-    if (selectedQuote) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Convert to Invoice",
-        message: `Convert ${selectedQuote.quote_no} to an invoice?`,
-        confirmText: "Convert",
-        confirmColor: "primary",
-      });
-      if (confirmed) {
-        convertMutation.mutate(selectedQuote.id);
-      }
-    }
-  }, [selectedQuote, convertMutation, confirmDialog]);
-
-  const handleRevise = useCallback(async () => {
-    if (selectedQuote) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Create Revision",
-        message: `Create a new revision of ${selectedQuote.quote_no}?`,
-        confirmText: "Create Revision",
-        confirmColor: "primary",
-      });
-      if (confirmed) {
-        reviseMutation.mutate(selectedQuote.id);
-      }
-    }
-  }, [selectedQuote, reviseMutation, confirmDialog]);
-
-  const handleCancelQuote = useCallback(async () => {
-    if (selectedQuote) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Cancel Quote",
-        message: `Cancel ${selectedQuote.quote_no}?`,
-        confirmText: "Cancel Quote",
-        confirmColor: "error",
-      });
-      if (confirmed) {
-        cancelMutation.mutate(selectedQuote.id);
-      }
-    }
-  }, [selectedQuote, cancelMutation, confirmDialog]);
 
   // Add line item
   const handleAddLineItem = () => {
@@ -504,20 +467,60 @@ export default function QuotationsPage() {
   };
 
   // Update line item
-  const handleUpdateLineItem = (index: number, field: keyof ItemFormData, value: unknown) => {
-    const updated = [...lineItems];
-    updated[index] = { ...updated[index], [field]: value } as ItemFormData;
+  const handleUpdateLineItem = async (index: number, field: keyof ItemFormData, value: unknown) => {
+    // For non-product fields, update immediately
+    if (field !== "product_id") {
+      setLineItems(prev => {
+        const updated = [...prev];
+        updated[index] = { ...updated[index], [field]: value } as ItemFormData;
 
-    // Auto-fill price when product is selected
-    if (field === "product_id" && value) {
-      const product = products?.find((p) => p.id === value);
-      if (product) {
-        updated[index].selling_price = product.cost_price || 0;
-        updated[index].minimum_selling_price = product.cost_price || 0;
-      }
+        return updated;
+      });
+      return;
     }
 
-    setLineItems(updated);
+    // For product selection, fetch minimum price from MinimumPrice table
+    if (field === "product_id" && value) {
+      const product = products?.find((p) => p.id === value);
+      console.log("Selected product:", product);
+      if (product) {
+        // First update with product selected
+        setLineItems(prev => {
+          const updated = [...prev];
+          updated[index] = { ...updated[index], product_id: value as number } as ItemFormData;
+          return updated;
+        });
+
+        try {
+          // Fetch the current minimum price from the MinimumPrice table
+          console.log("Fetching minimum price for product ID:", product.id);
+          const minPriceData = await minimumPriceApi.getCurrent(product.id);
+          console.log("Minimum price data received:", minPriceData);
+          const minSellingPrice = minPriceData?.minimum_price || 0;
+          console.log("Using minimum selling price:", minSellingPrice);
+
+          // Update with the fetched minimum price
+          setLineItems(prev => {
+            const updated = [...prev];
+            updated[index].min_price = minSellingPrice;
+            updated[index].minimum_selling_price = minSellingPrice;
+            updated[index].selling_price = minSellingPrice;
+            return updated;
+          });
+        } catch (error) {
+          console.error("Error fetching minimum price:", error);
+          // If no minimum price set in the MinimumPrice table, set to 0
+          setLineItems(prev => {
+            const updated = [...prev];
+            updated[index].min_price = 0;
+            updated[index].minimum_selling_price = 0;
+            updated[index].selling_price = 0;
+            return updated;
+          });
+          showErrorToast("No minimum price set for this product. Please set a minimum price first.");
+        }
+      }
+    }
   };
 
   // Remove line item
@@ -526,113 +529,82 @@ export default function QuotationsPage() {
   };
 
   // Check if actions are allowed based on status
-  const canEditQuote = selectedQuote?.status === "draft" || selectedQuote?.status === "rejected";
-  const canApproveQuote = selectedQuote?.status === "draft" || selectedQuote?.status === "pending_approval";
-  const canSendQuote = selectedQuote?.status === "approved";
-  const canAcceptQuote = selectedQuote?.status === "sent";
-  const canConvertQuote = ["accepted", "approved", "sent"].includes(selectedQuote?.status || "");
-  const canReviseQuote = selectedQuote?.quote_type === "quotation" && ["sent", "rejected", "expired"].includes(selectedQuote?.status || "");
-  const canCancelQuoteStatus = !["converted", "cancelled"].includes(selectedQuote?.status || "");
-  const canDeleteQuoteStatus = selectedQuote?.status === "draft";
+  const canEditQuote = !["converted", "cancelled"].includes(selectedQuote?.status || "");
+  const canDeleteQuoteStatus = !["converted", "cancelled"].includes(selectedQuote?.status || "");
 
   // Render list item
-  const renderQuoteItem = (quote: SalesQuote) => (
+  const renderQuoteItem = (quote: SalesQuote, isSelected: boolean) => (
     <SelectableListItem
       key={quote.id}
-      isSelected={selectedQuote?.id === quote.id}
+      id={quote.id}
+      isSelected={isSelected}
       onClick={() => handleSelectQuote(quote)}
-      primaryText={quote.quote_no}
-      secondaryText={
-        <Box>
-          <Typography variant="body2" color="text.secondary">
-            {getCustomerName(quote.customer_id)}
-          </Typography>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
-            <TStatusChip status={quote.status} statusMap="quoteStatus" size="small" />
-            <Typography variant="caption" color="text.secondary">
-              Valid: <TDate value={quote.valid_until} format="short" />
-            </Typography>
+      primaryText={
+        <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+          {/* Quote Number */}
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>{quote.quote_no}</span>
+            {isSelected && (
+              <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                ({QUOTE_TYPE_LABELS[quote.quote_type]})
+              </Typography>
+            )}
           </Box>
+          {/* Additional fields when selected */}
+          {isSelected && (
+            <>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography component="span" variant="caption">
+                  {getCustomerName(quote.customer_id)}
+                </Typography>
+                <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                  (Customer)
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography component="span" variant="caption">
+                  <TDate value={quote.valid_until} format="short" />
+                </Typography>
+                <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                  (Valid Until)
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography component="span" variant="caption" fontWeight="medium">
+                  <TCurrency value={quote.total_amount} />
+                </Typography>
+                <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                  (Total)
+                </Typography>
+              </Box>
+              {/* Status Chips - shown below all fields when selected */}
+              <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                <TStatusChip
+                  status={quote.status}
+                  statusMap="quoteStatus"
+                  size="small"
+                />
+              </Box>
+            </>
+          )}
         </Box>
       }
+      secondaryText={!isSelected ? `${getCustomerName(quote.customer_id)} - ${new Date(quote.valid_until || "").toLocaleDateString()}` : undefined}
+      statusChip={!isSelected ? { label: quote.status, color: "default" } : undefined}
+      isFavorite={favorites.includes(quote.id)}
+      onToggleFavorite={(e) => toggleFavorite(quote.id, e)}
       endAction={
-        <Typography variant="body2" fontWeight="medium">
-          <TCurrency value={quote.total_amount} />
-        </Typography>
+        !isSelected ? (
+          <Typography variant="body2" fontWeight="medium">
+            <TCurrency value={quote.total_amount} />
+          </Typography>
+        ) : undefined
       }
     />
   );
 
   // Render detail panel
   const renderDetailPanel = () => {
-    // Determine custom actions based on mode and state
-    const customActions = !isCreating && !isEditing && selectedQuote ? (
-      <Box sx={{ display: "flex", gap: 0.5 }}>
-        <Button
-          size="small"
-          color="success"
-          startIcon={<ApproveIcon />}
-          onClick={handleApprove}
-          disabled={!canApprove || !canApproveQuote}
-        >
-          Approve
-        </Button>
-        <Button
-          size="small"
-          color="primary"
-          startIcon={<SendIcon />}
-          onClick={() => sendMutation.mutate(selectedQuote.id)}
-          disabled={!canSendQuote}
-        >
-          Send
-        </Button>
-        <Button
-          size="small"
-          color="success"
-          startIcon={<ApproveIcon />}
-          onClick={() => acceptMutation.mutate(selectedQuote.id)}
-          disabled={!canAcceptQuote}
-        >
-          Accept
-        </Button>
-        <Button
-          size="small"
-          color="primary"
-          startIcon={<ConvertIcon />}
-          onClick={handleConvert}
-          disabled={!canConvertQuote}
-        >
-          Convert
-        </Button>
-        {selectedQuote?.quote_type === "quotation" && (
-          <Button
-            size="small"
-            startIcon={<ReviseIcon />}
-            onClick={handleRevise}
-            disabled={!canReviseQuote}
-          >
-            Revise
-          </Button>
-        )}
-        <Button
-          size="small"
-          color="error"
-          startIcon={<CancelIcon />}
-          onClick={handleCancelQuote}
-          disabled={!canCancelQuoteStatus}
-        >
-          Cancel
-        </Button>
-        <Button
-          size="small"
-          startIcon={<PrintIcon />}
-          onClick={() => { }}
-        >
-          Print
-        </Button>
-      </Box>
-    ) : undefined;
-
     return (
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <DetailPanelHeader
@@ -676,7 +648,20 @@ export default function QuotationsPage() {
           onCancel={handleDiscardChanges}
           isSaving={createMutation.isPending || updateMutation.isPending}
           saveDisabled={!formData.customer_id || lineItems.length === 0}
-          customActions={customActions}
+          endActions={
+            selectedQuote && !isCreating && !isEditing ? (
+              <TPrintButton
+                documentType="quotation"
+                documentId={selectedQuote.id}
+                disabled={!canPrintDocument(selectedQuote.status, [])}
+                disabledReason="Cannot print this quote"
+                onClick={() => {
+                  setSelectedQuoteForPrint(selectedQuote);
+                  setPrintDialogOpen(true);
+                }}
+              />
+            ) : undefined
+          }
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -700,349 +685,440 @@ export default function QuotationsPage() {
     if (!selectedQuote) return null;
     const quote = selectedQuote;
 
+    // Calculate totals from items
+    const calculateTotal = () => {
+      if (!selectedQuoteDetails?.items) return quote.total_amount;
+      return selectedQuoteDetails.items.reduce((sum, item) => {
+        const baseTotal = item.quantity * Number(item.selling_price);
+        const discount = baseTotal * ((item.discount_percentage || 0) / 100);
+        return sum + (baseTotal - discount);
+      }, 0);
+    };
+
     return (
       <>
-        {/* Quote Details */}
-        <FormSection title="Quote Information">
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Branch</Typography>
-              <Typography>{getBranchName(quote.branch_code)}</Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Created Date</Typography>
-              <Typography><TDate value={quote.created_date} /></Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Valid Until</Typography>
-              <Typography><TDate value={quote.valid_until} /></Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Customer</Typography>
-              <Typography>{getCustomerName(quote.customer_id)}</Typography>
-            </Box>
-            {quote.payment_terms && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">Payment Terms</Typography>
-                <Typography>{quote.payment_terms}</Typography>
-              </Box>
-            )}
-            {quote.delivery_terms && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">Delivery Terms</Typography>
-                <Typography>{quote.delivery_terms}</Typography>
-              </Box>
-            )}
+        {/* Quote Information */}
+        <FormSection title="Quote Information" columns={3}>
+          <TextField
+            label="Quote Number"
+            size="small"
+            value={quote.quote_no}
+            disabled
+            InputProps={{ readOnly: true }}
+          />
+          <TextField
+            label="Quote Type"
+            size="small"
+            value={QUOTE_TYPE_LABELS[quote.quote_type]}
+            disabled
+            InputProps={{ readOnly: true }}
+          />
+          <TextField
+            label="Branch"
+            size="small"
+            value={getBranchName(quote.branch_code)}
+            disabled
+            InputProps={{ readOnly: true }}
+          />
+          <TextField
+            label="Customer"
+            size="small"
+            value={getCustomerName(quote.customer_id)}
+            disabled
+            InputProps={{ readOnly: true }}
+          />
+          <TextField
+            label="Created Date"
+            size="small"
+            value={new Date(quote.created_date).toLocaleDateString()}
+            disabled
+            InputProps={{ readOnly: true }}
+          />
+          <TextField
+            label="Valid Until"
+            size="small"
+            value={new Date(quote.valid_until).toLocaleDateString()}
+            disabled
+            InputProps={{ readOnly: true }}
+          />
+        </FormSection>
+
+        {/* Quote Status */}
+        <FormSection title="Quote Status" columns={4}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Typography variant="body2" color="text.secondary">Status:</Typography>
+            <TStatusChip status={quote.status} statusMap="quoteStatus" />
           </Box>
         </FormSection>
 
-        <Divider sx={{ my: 2 }} />
+        {/* Line Items */}
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: 2 }}>
+          <Typography variant="subtitle1" fontWeight="bold">Quote Items</Typography>
+        </Box>
 
-        {/* Totals */}
-        <FormSection title="Totals">
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-            <Box sx={{ minWidth: 200 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                <Typography color="text.secondary">Subtotal:</Typography>
-                <Typography><TCurrency value={quote.subtotal} /></Typography>
-              </Box>
-              {quote.discount_value > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                  <Typography color="text.secondary">Discount:</Typography>
-                  <Typography color="error">
-                    -<TCurrency value={quote.discount_value} />
-                  </Typography>
-                </Box>
+        <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={modernTableStyles.headerRow}>
+                <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
+                <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
+                <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
+                <TableCell align="right" sx={{ width: 100 }}>Discount (%)</TableCell>
+                <TableCell sx={{ width: 100 }}>Warranty</TableCell>
+                <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {selectedQuoteDetails?.items && selectedQuoteDetails.items.length > 0 ? (
+                selectedQuoteDetails.items.map((item, index) => {
+                  const product = products?.find(p => p.id === item.product_id);
+                  const baseTotal = item.quantity * Number(item.selling_price);
+                  const discount = baseTotal * ((item.discount_percentage || 0) / 100);
+                  const lineTotal = baseTotal - discount;
+                  return (
+                    <TableRow key={index} sx={{
+                      ...modernTableStyles.bodyRow,
+                      ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                    }}>
+                      <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
+                      <TableCell align="right">{item.quantity}</TableCell>
+                      <TableCell align="right"><TCurrency value={Number(item.selling_price)} /></TableCell>
+                      <TableCell align="right">{item.discount_percentage ? `${item.discount_percentage}%` : "-"}</TableCell>
+                      <TableCell>{item.warrenty_month || "-"}</TableCell>
+                      <TableCell align="right"><TCurrency value={lineTotal} /></TableCell>
+                    </TableRow>
+                  );
+                })
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={5} sx={modernTableStyles.emptyCell}>
+                    No items in this quote
+                  </TableCell>
+                </TableRow>
               )}
-              {quote.tax_amount > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                  <Typography color="text.secondary">Tax:</Typography>
-                  <Typography><TCurrency value={quote.tax_amount} /></Typography>
-                </Box>
-              )}
-              <Divider sx={{ my: 1 }} />
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                <Typography fontWeight="bold">Total:</Typography>
-                <Typography fontWeight="bold" color="primary">
-                  <TCurrency value={quote.total_amount} />
-                </Typography>
-              </Box>
-            </Box>
-          </Box>
-        </FormSection>
+              {/* Total Row */}
+              <TableRow sx={modernTableStyles.footerRow}>
+                <TableCell colSpan={5} align="right">
+                  <Typography fontWeight="bold">Total:</Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography fontWeight="bold"><TCurrency value={calculateTotal()} /></Typography>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </Paper>
 
-        {quote.remarks && (
-          <>
-            <Divider sx={{ my: 2 }} />
-            <FormSection title="Remarks">
-              <Typography>{quote.remarks}</Typography>
-            </FormSection>
-          </>
+        {/* Print Preview Dialog */}
+        {selectedQuoteForPrint && (
+          <TPrintPreviewDialog
+            open={printDialogOpen}
+            onClose={() => {
+              setPrintDialogOpen(false);
+              setSelectedQuoteForPrint(null);
+            }}
+            documentType="quotation"
+            documentId={selectedQuoteForPrint.id}
+            title={`Print Quote: ${selectedQuoteForPrint.quote_no}`}
+          />
         )}
 
-        {quote.converted_to_invoice_id && (
-          <>
-            <Divider sx={{ my: 2 }} />
-            <FormSection title="Conversion">
-              <Chip
-                label={`Converted to Invoice #${quote.converted_to_invoice_id}`}
-                color="success"
-                variant="outlined"
-              />
-            </FormSection>
-          </>
-        )}
+
+        {
+          quote.remarks && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <FormSection title="Remarks">
+                <Typography>{quote.remarks}</Typography>
+              </FormSection>
+            </>
+          )
+        }
+
+        {
+          quote.converted_to_invoice_id && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <FormSection title="Conversion">
+                <Chip
+                  label={`Converted to Invoice #${quote.converted_to_invoice_id}`}
+                  color="success"
+                  variant="outlined"
+                />
+              </FormSection>
+            </>
+          )
+        }
       </>
     );
   };
 
   // Render form content (without header/toolbar)
   const renderFormContent = () => {
+    // Step 1 validation: Basic info is filled
+    const isStep1Valid = formData.customer_id && formData.customer_id > 0 && formData.branch_code && formData.sale_rep_id && formData.sale_rep_id > 0;
+
     return (
       <>
-        {/* Basic Info */}
-        <FormSection title="Basic Information" columns={3}>
-          <TextField
-            select
-            label="Branch"
-            value={formData.branch_code || ""}
-            onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
-            size="small"
-            required
-          >
-            {branches.map((branch) => (
-              <MenuItem key={branch.id} value={branch.branch_code}>
-                {branch.branch_name}
-              </MenuItem>
-            ))}
-          </TextField>
+        {/* Stepper - shown in create/edit mode */}
+        <Stepper activeStep={formStep} sx={{ mb: 3 }}>
+          {FORM_STEPS.map((label) => (
+            <Step key={label}>
+              <StepLabel>{label}</StepLabel>
+            </Step>
+          ))}
+        </Stepper>
 
-          <Autocomplete
-            size="small"
-            options={customers || []}
-            getOptionLabel={(option) => option.customer_name}
-            value={customers?.find((c) => c.id === formData.customer_id) || null}
-            onChange={(_, newValue) => setFormData({ ...formData, customer_id: newValue?.id || 0 })}
-            renderInput={(params) => (
-              <TextField {...params} label="Customer" required />
-            )}
-          />
+        {/* Step 1: Quote Information */}
+        {formStep === 0 && (
+          <>
+            {/* Basic Info */}
+            <FormSection title="Basic Information" columns={3}>
+              <TextField
+                select
+                label="Branch"
+                value={formData.branch_code || ""}
+                onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
+                size="small"
+                required
+              >
+                {branches.map((branch) => (
+                  <MenuItem key={branch.id} value={branch.branch_code}>
+                    {branch.branch_name}
+                  </MenuItem>
+                ))}
+              </TextField>
 
-          <TextField
-            select
-            label="Type"
-            value={formData.quote_type || "quotation"}
-            onChange={(e) => setFormData({ ...formData, quote_type: e.target.value as QuoteType })}
-            size="small"
-            required
-          >
-            <MenuItem value="quotation">Quotation</MenuItem>
-            <MenuItem value="proforma">Proforma Invoice</MenuItem>
-          </TextField>
+              <Autocomplete
+                size="small"
+                options={customers || []}
+                getOptionLabel={(option) => option.customer_name}
+                value={customers?.find((c) => c.id === formData.customer_id) || null}
+                onChange={(_, newValue) => setFormData({ ...formData, customer_id: newValue?.id || 0 })}
+                renderInput={(params) => (
+                  <TextField {...params} label="Customer" required />
+                )}
+              />
 
-          <TextField
-            label="Valid Until"
-            type="date"
-            value={formData.valid_until || ""}
-            onChange={(e) => setFormData({ ...formData, valid_until: e.target.value })}
-            size="small"
-            InputLabelProps={{ shrink: true }}
-          />
+              <TextField
+                select
+                label="Type"
+                value={formData.quote_type || "quotation"}
+                onChange={(e) => setFormData({ ...formData, quote_type: e.target.value as QuoteType })}
+                size="small"
+                required
+              >
+                <MenuItem value="quotation">Quotation</MenuItem>
+                <MenuItem value="proforma">Proforma Invoice</MenuItem>
+              </TextField>
 
-          {formData.quote_type === "proforma" && (
-            <TextField
-              label="Expected Delivery Date"
-              type="date"
-              value={formData.expected_delivery_date || ""}
-              onChange={(e) => setFormData({ ...formData, expected_delivery_date: e.target.value })}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-            />
-          )}
-        </FormSection>
+              <TextField
+                label="Valid Until"
+                type="date"
+                value={formData.valid_until || ""}
+                onChange={(e) => setFormData({ ...formData, valid_until: e.target.value })}
+                size="small"
+                InputLabelProps={{ shrink: true }}
+                required
+              />
 
-        {/* Terms (for Proforma) */}
-        {formData.quote_type === "proforma" && (
-          <FormSection title="Terms" columns={2}>
-            <TextField
-              label="Payment Terms"
-              value={formData.payment_terms || ""}
-              onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
-              size="small"
-              placeholder="e.g., 50% advance, 50% on delivery"
-            />
-            <TextField
-              label="Delivery Terms"
-              value={formData.delivery_terms || ""}
-              onChange={(e) => setFormData({ ...formData, delivery_terms: e.target.value })}
-              size="small"
-              placeholder="e.g., FOB Colombo"
-            />
-          </FormSection>
+              <Autocomplete
+                size="small"
+                options={employees || []}
+                getOptionLabel={(option) => option.employee_id}
+                value={employees?.find((e) => e.id === formData.sale_rep_id) || null}
+                onChange={(_, newValue) => setFormData({ ...formData, sale_rep_id: newValue?.id || 0 })}
+                renderInput={(params) => (
+                  <TextField {...params} label="Sales Representative" required />
+                )}
+              />
+            </FormSection>
+
+            {/* Notes */}
+            <FormSection title="Notes" columns={2}>
+              <TextField
+                label="Internal Remarks"
+                value={formData.remarks || ""}
+                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                multiline
+                rows={2}
+                size="small"
+              />
+              <TextField
+                label="Customer Notes (shown on printed document)"
+                value={formData.customer_notes || ""}
+                onChange={(e) => setFormData({ ...formData, customer_notes: e.target.value })}
+                multiline
+                rows={2}
+                size="small"
+              />
+            </FormSection>
+          </>
         )}
 
-        {/* Line Items */}
-        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-            <Typography variant="subtitle2" fontWeight={600}>Line Items</Typography>
-            <Button size="small" startIcon={<AddIcon />} onClick={handleAddLineItem}>
-              Add Item
-            </Button>
-          </Box>
-          {lineItems.length === 0 ? (
-            <Typography color="text.secondary" align="center" sx={{ py: 2 }}>
-              No items added. Click "Add Item" to add products.
-            </Typography>
-          ) : (
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Product</TableCell>
-                  <TableCell align="right">Qty</TableCell>
-                  <TableCell align="right">Price (Rs.)</TableCell>
-                  {formData.quote_type === "quotation" && (
-                    <>
-                      <TableCell align="right">Min Price (Rs.)</TableCell>
-                      <TableCell align="right">Max Price (Rs.)</TableCell>
-                    </>
-                  )}
-                  <TableCell align="right">Discount %</TableCell>
-                  <TableCell align="right">Total (Rs.)</TableCell>
-                  <TableCell align="center">Action</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {lineItems.map((item, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      <Autocomplete
-                        options={products || []}
-                        getOptionLabel={(option) => option.name}
-                        value={products?.find((p) => p.id === item.product_id) || null}
-                        onChange={(_, newValue) =>
-                          handleUpdateLineItem(index, "product_id", newValue?.id || 0)
-                        }
-                        renderInput={(params) => (
-                          <TextField {...params} size="small" placeholder="Select product" />
+        {/* Step 2: Quote Items */}
+        {formStep === 1 && (
+          <>
+            {/* Line Items */}
+            <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={600}>Line Items</Typography>
+                <Button size="small" startIcon={<AddIcon />} onClick={handleAddLineItem}>
+                  Add Item
+                </Button>
+              </Box>
+              {lineItems.length === 0 ? (
+                <Typography color="text.secondary" align="center" sx={{ py: 2 }}>
+                  No items added. Click "Add Item" to add products.
+                </Typography>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Product</TableCell>
+                      <TableCell align="right">Qty</TableCell>
+                      <TableCell align="right">Price (Rs.)</TableCell>
+                      <TableCell align="right">Discount (%)</TableCell>
+                      {formData.quote_type === "quotation" && (
+                        <>
+                          <TableCell align="right">Min Price (Rs.)</TableCell>
+                        </>
+                      )}
+                      <TableCell align="right">Total (Rs.)</TableCell>
+                      <TableCell align="center">Action</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {lineItems.map((item, index) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          <Autocomplete
+                            options={products || []}
+                            getOptionLabel={(option) => option.name}
+                            value={products?.find((p) => p.id === item.product_id) || null}
+                            onChange={(_, newValue) =>
+                              handleUpdateLineItem(index, "product_id", newValue?.id || 0)
+                            }
+                            renderInput={(params) => (
+                              <TextField {...params} size="small" placeholder="Select product" />
+                            )}
+                            sx={{ minWidth: 200 }}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TextField
+                            type="number"
+                            value={item.quantity}
+                            onChange={(e) =>
+                              handleUpdateLineItem(index, "quantity", parseInt(e.target.value) || 1)
+                            }
+                            size="small"
+                            sx={{ width: 80 }}
+                            inputProps={{ min: 1 }}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TextField
+                            type="number"
+                            value={item.selling_price}
+                            onChange={(e) =>
+                              handleUpdateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)
+                            }
+                            size="small"
+                            sx={{ width: 100 }}
+                            InputProps={{
+                              startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                            }}
+                            inputProps={{ min: item.min_price || 0 }}
+                            error={item.selling_price < (item.min_price || 0)}
+                            helperText={item.selling_price < (item.min_price || 0) ? "Cannot be less than min price" : ""}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TextField
+                            type="number"
+                            value={item.discount_percent}
+                            onChange={(e) =>
+                              handleUpdateLineItem(index, "discount_percent", parseFloat(e.target.value) || 0)
+                            }
+                            size="small"
+                            sx={{ width: 80 }}
+                            inputProps={{ min: 0, max: 100 }}
+                          />
+                        </TableCell>
+                        {formData.quote_type === "quotation" && (
+                          <>
+                            <TableCell align="right">
+                              <TextField
+                                type="number"
+                                value={item.min_price || ""}
+                                size="small"
+                                sx={{ width: 100 }}
+                                placeholder="Min"
+                                disabled
+                                InputProps={{
+                                  readOnly: true,
+                                  startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                                }}
+                              />
+                            </TableCell>
+                          </>
                         )}
-                        sx={{ minWidth: 200 }}
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      <TextField
-                        type="number"
-                        value={item.quantity}
-                        onChange={(e) =>
-                          handleUpdateLineItem(index, "quantity", parseInt(e.target.value) || 1)
-                        }
-                        size="small"
-                        sx={{ width: 80 }}
-                        inputProps={{ min: 1 }}
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      <TextField
-                        type="number"
-                        value={item.selling_price}
-                        onChange={(e) =>
-                          handleUpdateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)
-                        }
-                        size="small"
-                        sx={{ width: 100 }}
-                        InputProps={{
-                          startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
-                        }}
-                      />
-                    </TableCell>
-                    {formData.quote_type === "quotation" && (
-                      <>
                         <TableCell align="right">
-                          <TextField
-                            type="number"
-                            value={item.min_price || ""}
-                            onChange={(e) =>
-                              handleUpdateLineItem(index, "min_price", parseFloat(e.target.value) || undefined)
-                            }
-                            size="small"
-                            sx={{ width: 100 }}
-                            placeholder="Min"
-                          />
+                          <Typography fontWeight="medium">
+                            <TCurrency
+                              value={
+                                item.quantity * item.selling_price * (1 - item.discount_percent / 100)
+                              }
+                              showSymbol={false}
+                            />
+                          </Typography>
                         </TableCell>
-                        <TableCell align="right">
-                          <TextField
-                            type="number"
-                            value={item.max_price || ""}
-                            onChange={(e) =>
-                              handleUpdateLineItem(index, "max_price", parseFloat(e.target.value) || undefined)
-                            }
-                            size="small"
-                            sx={{ width: 100 }}
-                            placeholder="Max"
-                          />
+                        <TableCell align="center">
+                          <IconButton size="small" color="error" onClick={() => handleRemoveLineItem(index)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
                         </TableCell>
-                      </>
-                    )}
-                    <TableCell align="right">
-                      <TextField
-                        type="number"
-                        value={item.discount_percent}
-                        onChange={(e) =>
-                          handleUpdateLineItem(index, "discount_percent", parseFloat(e.target.value) || 0)
-                        }
-                        size="small"
-                        sx={{ width: 80 }}
-                        InputProps={{
-                          endAdornment: <InputAdornment position="end">%</InputAdornment>,
-                        }}
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight="medium">
-                        <TCurrency
-                          value={
-                            item.quantity * item.selling_price * (1 - item.discount_percent / 100)
-                          }
-                          showSymbol={false}
-                        />
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="center">
-                      <IconButton size="small" color="error" onClick={() => handleRemoveLineItem(index)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          <Divider sx={{ my: 2 }} />
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-            <Typography variant="h6" fontWeight={700} color="success.main">
-              Total: <TCurrency value={calculateLineItemsTotal()} />
-            </Typography>
-          </Box>
-        </Paper>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              <Divider sx={{ my: 2 }} />
+              <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                <Typography variant="h6" fontWeight={700} color="success.main">
+                  Total: <TCurrency value={calculateLineItemsTotal()} />
+                </Typography>
+              </Box>
+            </Paper >
+          </>
+        )}
 
-        {/* Notes */}
-        <FormSection title="Notes" columns={2}>
-          <TextField
-            label="Internal Remarks"
-            value={formData.remarks || ""}
-            onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-            multiline
-            rows={2}
-            size="small"
-          />
-          <TextField
-            label="Customer Notes (shown on printed document)"
-            value={formData.customer_notes || ""}
-            onChange={(e) => setFormData({ ...formData, customer_notes: e.target.value })}
-            multiline
-            rows={2}
-            size="small"
-          />
-        </FormSection>
+        {/* Step Navigation Buttons */}
+        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 3, pt: 2, borderTop: 1, borderColor: "divider" }}>
+          <Button
+            variant="outlined"
+            startIcon={<ArrowBackIcon />}
+            onClick={handlePreviousStep}
+            disabled={formStep === 0}
+          >
+            Previous
+          </Button>
+          {formStep < FORM_STEPS.length - 1 ? (
+            <Button
+              variant="contained"
+              endIcon={<ArrowForwardIcon />}
+              onClick={handleNextStep}
+              disabled={!isStep1Valid}
+            >
+              Next
+            </Button>
+          ) : (
+            <Typography variant="body2" color="text.secondary" sx={{ alignSelf: "center" }}>
+              Click "Save" in the toolbar to create the quote
+            </Typography>
+          )}
+        </Box>
       </>
     );
   };
@@ -1071,18 +1147,6 @@ export default function QuotationsPage() {
                     onChange={setFilterBranch}
                   />
                 </TFilterPanel>
-                {canCreate && (
-                  <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={handleCreateNew}
-                    >
-                      New Quote
-                    </Button>
-                  </Box>
-                )}
               </Box>
             }
           >
@@ -1096,12 +1160,13 @@ export default function QuotationsPage() {
                 </Typography>
               </Box>
             ) : (
-              filteredQuotes.map(renderQuoteItem)
+              filteredQuotes.map((quote) => renderQuoteItem(quote, selectedQuote?.id === quote.id))
             )}
           </SearchableList>
         }
         detailPanel={renderDetailPanel()}
       />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

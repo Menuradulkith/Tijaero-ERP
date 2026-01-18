@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice - {{ invoice.invoice_no }}</title>
+    <title>Quotation - {{ quote.quote_no }}</title>
     <style>
         * {
             margin: 0;
@@ -155,37 +155,6 @@
             background: #f9f9f9;
         }
 
-        /* Payment Details */
-        .payment-breakdown {
-            margin-bottom: 15px;
-            border: 1px solid #ddd;
-            padding: 10px;
-            background: #f9f9f9;
-        }
-
-        .payment-breakdown h3 {
-            font-size: 10px;
-            text-transform: uppercase;
-            color: #1a4480;
-            margin-bottom: 5px;
-            border-bottom: 1px solid #ccc;
-            padding-bottom: 2px;
-        }
-
-        .payment-breakdown table {
-            width: 100%;
-            font-size: 10px;
-        }
-
-        .payment-breakdown td {
-            padding: 2px 0;
-        }
-
-        .payment-breakdown td.amount {
-            text-align: right;
-            font-weight: bold;
-        }
-
         /* Totals Box */
         .totals-section {
             display: flex;
@@ -218,20 +187,6 @@
             font-weight: bold;
         }
 
-        /* Footer Notes */
-        .footer-notes {
-            font-size: 9px;
-            color: #666;
-            margin-bottom: 15px;
-            padding: 8px;
-            background: #f9f9f9;
-            border: 1px solid #ddd;
-        }
-
-        .footer-notes p {
-            margin-bottom: 3px;
-        }
-
         /* Remarks */
         .remarks-section {
             background: #f9f9f9;
@@ -257,7 +212,7 @@
 
         .signature-box {
             text-align: center;
-            width: 22%;
+            width: 30%;
         }
 
         .signature-box .line {
@@ -271,11 +226,6 @@
             font-weight: bold;
         }
 
-        .signature-box .subtitle {
-            font-size: 9px;
-            color: #666;
-        }
-
         /* Print Info */
         .print-info {
             margin-top: 20px;
@@ -284,7 +234,6 @@
             font-size: 9px;
             color: #999;
             text-align: center;
-            width: 100%;
         }
 
         @media print {
@@ -317,24 +266,28 @@
             <div class="doc-info">
                 <table>
                     <tr>
-                        <td class="label">Invoice No.</td>
-                        <td class="value">{{ invoice.invoice_no }}</td>
+                        <td class="label">Quote No.</td>
+                        <td class="value">{{ quote.quote_no }}</td>
                     </tr>
                     <tr>
                         <td class="label">Date</td>
-                        <td class="value">{{ invoice.created_date }}</td>
+                        <td class="value">{{ quote.created_date }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Valid Until</td>
+                        <td class="value">{{ quote.valid_until }}</td>
                     </tr>
                     <tr>
                         <td class="label">Status</td>
-                        <td class="value">{% if invoice.status %}Active{% else %}Inactive{% endif %}</td>
+                        <td class="value">{{ quote.status | default('Draft') | upper }}</td>
                     </tr>
                     <tr>
                         <td class="label">Branch</td>
-                        <td class="value">{{ branch.branch_name | default(invoice.branch_code) }}</td>
+                        <td class="value">{{ branch.branch_name | default(quote.branch_code) }}</td>
                     </tr>
                     <tr>
                         <td class="label">Sales Rep</td>
-                        <td class="value">{{ invoice.sale_rep_id | default('-') }}</td>
+                        <td class="value">{{ quote.sales_rep_name | default('-') }}</td>
                     </tr>
                 </table>
             </div>
@@ -371,6 +324,9 @@
                     <th>Product / Description</th>
                     <th style="width: 50px;">Qty</th>
                     <th style="width: 90px;">Unit Price</th>
+                    {% if options.show_discount %}
+                    <th style="width: 70px;">Discount</th>
+                    {% endif %}
                     <th style="width: 70px;">Warranty</th>
                     <th style="width: 100px;">Amount</th>
                 </tr>
@@ -381,93 +337,58 @@
                     <td>{{ loop.index }}</td>
                     <td class="description">
                         {{ item.product_name | default('Product #' ~ item.product_id) }}
-                        {% if item.serial %}<br><small style="color: #666;">S/N: {{ item.serial }}</small>{% endif %}
+                        {% if item.description %}<br><small style="color: #666;">{{ item.description }}</small>{% endif
+                        %}
                     </td>
                     <td>{{ item.quantity }}</td>
                     <td class="amount">{{ "%.2f" | format(item.selling_price) }}</td>
+                    {% if options.show_discount %}
+                    <td class="amount">{{ "%.2f" | format(item.discount_amount) }}</td>
+                    {% endif %}
                     <td>{{ item.warrenty_month | default('-') }}</td>
-                    <td class="amount">{{ "%.2f" | format(item.total) }}</td>
+                    <td class="amount">{{ "%.2f" | format(item.total_amount) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
 
-        <!-- Layout for Payments and Totals -->
-        <div style="display: flex; gap: 20px;">
-            <!-- Payment Breakdown -->
-            <div style="flex: 1;">
-                {% if payments %}
-                <div class="payment-breakdown">
-                    <h3>Payment Details ({{ invoice.payment_method }})</h3>
-                    <table>
-                        {% for payment in payments %}
-                        <tr>
-                            <td>{{ payment.method }}</td>
-                            <td class="amount">{{ "%.2f" | format(payment.amount) }}</td>
-                        </tr>
-                        {% endfor %}
-                    </table>
-                </div>
-                {% endif %}
-
-                <div class="footer-notes">
-                    <p>→ Warranty covers only manufacturer's defects. Damages due to negligence, misuse, power
-                        fluctuation are NOT covered.</p>
-                    <p>→ A 5% Penalty per month will be imposed on all overdue invoices.</p>
-                    <p style="text-align: right; font-style: italic;">Goods Received in good condition & correct qty.
-                    </p>
-                </div>
-            </div>
-
-            <!-- Totals -->
-            <div class="totals-section" style="align-items: flex-start;">
-                <div class="totals-box">
-                    <table>
-                        <tr>
-                            <td class="label">Items Count</td>
-                            <td class="value">{{ items | length }}</td>
-                        </tr>
-                        <tr>
-                            <td class="label">Sub Total</td>
-                            <td class="value">{{ "%.2f" | format(invoice.subtotal) }}</td>
-                        </tr>
-                        {% if options.show_discount and invoice.discount_amount > 0 %}
-                        <tr>
-                            <td class="label">Discount</td>
-                            <td class="value">-{{ "%.2f" | format(invoice.discount_amount) }}</td>
-                        </tr>
-                        {% endif %}
-                        {% if invoice.tax_amount > 0 %}
-                        <tr>
-                            <td class="label">Tax</td>
-                            <td class="value">{{ "%.2f" | format(invoice.tax_amount) }}</td>
-                        </tr>
-                        {% endif %}
-                        <tr>
-                            <td class="label">Grand Total</td>
-                            <td class="value">{{ "%.2f" | format(invoice.grand_total) }}</td>
-                        </tr>
-                        <tr>
-                            <td class="label">Paid</td>
-                            <td class="value">{{ "%.2f" | format(invoice.paid_amount) }}</td>
-                        </tr>
-                        {% if invoice.balance_due > 0 %}
-                        <tr>
-                            <td class="label" style="background: #a00;">Balance Due</td>
-                            <td class="value" style="color: #a00;">{{ "%.2f" | format(invoice.balance_due) }}</td>
-                        </tr>
-                        {% endif %}
-                    </table>
-                </div>
+        <!-- Totals -->
+        <div class="totals-section">
+            <div class="totals-box">
+                <table>
+                    <tr>
+                        <td class="label">Items Count</td>
+                        <td class="value">{{ items | length }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Sub Total</td>
+                        <td class="value">{{ "%.2f" | format(totals.subtotal) }}</td>
+                    </tr>
+                    {% if options.show_discount and totals.discount > 0 %}
+                    <tr>
+                        <td class="label">Discount</td>
+                        <td class="value">-{{ "%.2f" | format(totals.discount) }}</td>
+                    </tr>
+                    {% endif %}
+                    <tr>
+                        <td class="label">Grand Total</td>
+                        <td class="value">{{ "%.2f" | format(totals.total_amount) }}</td>
+                    </tr>
+                </table>
             </div>
         </div>
 
-        <!-- Remarks -->
-        {% if invoice.remarks or options.custom_remarks %}
+        <!-- Remarks & Notes -->
+        {% if quote.remarks or quote.customer_notes or options.custom_remarks %}
         <div class="remarks-section">
-            {% if invoice.remarks %}
+            {% if quote.remarks %}
             <h3>Internal Remarks</h3>
-            <p>{{ invoice.remarks }}</p>
+            <p style="margin-bottom: 10px;">{{ quote.remarks }}</p>
+            {% endif %}
+
+            {% if quote.customer_notes %}
+            <h3>Customer Notes</h3>
+            <p>{{ quote.customer_notes }}</p>
             {% endif %}
 
             {% if options.custom_remarks %}
@@ -486,28 +407,19 @@
             </div>
             <div class="signature-box">
                 <div class="line"></div>
-                <div class="title">Authorized By</div>
+                <div class="title">Checking Officer</div>
             </div>
             <div class="signature-box">
                 <div class="line"></div>
-                <div class="title">Issued By</div>
-            </div>
-            <div class="signature-box">
-                <div class="line"></div>
-                <div class="title">Received By</div>
-                <div class="subtitle">Authorised Signatory &<br>Company Rubber Stamp</div>
+                <div class="title">Customer Acceptance</div>
             </div>
         </div>
         {% endif %}
 
-        <div
-            style="text-align: center; margin-top: 15px; font-weight: bold; border: 2px solid #1a4480; padding: 5px; color: #1a4480;">
-            "PLEASE SUBMIT THE INVOICE FOR WARRANTY CLAIMS"
-        </div>
-
         <!-- Print Info -->
         <div class="print-info">
-            Generated on {{ generated_at }} | Invoice ID: {{ invoice.id }}
+            Generated on {{ generated_at }} | Quote ID: {{ quote.id }} | {% if quote.is_estimate %}ESTIMATE{% else
+            %}OFFICIAL QUOTATION{% endif %}
         </div>
     </div>
     <script>

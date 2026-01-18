@@ -1,17 +1,17 @@
 import apiClient from "@/api/client";
 import {
-    ConvertToInvoiceRequest,
-    ConvertToInvoiceResponse,
-    CreateRevisionRequest,
-    CreateRevisionResponse,
-    QuoteStatus,
-    QuoteType,
-    SalesQuote,
-    SalesQuoteCreate,
-    SalesQuoteList,
-    SalesQuoteStatusUpdate,
-    SalesQuoteUpdate,
-    SalesQuoteWithItems
+  ConvertToInvoiceRequest,
+  ConvertToInvoiceResponse,
+  CreateRevisionRequest,
+  CreateRevisionResponse,
+  QuoteStatus,
+  QuoteType,
+  SalesQuote,
+  SalesQuoteCreate,
+  SalesQuoteList,
+  SalesQuoteStatusUpdate,
+  SalesQuoteUpdate,
+  SalesQuoteWithItems
 } from "./quotation-types";
 
 const BASE_URL = "/sales/quotes";
@@ -32,7 +32,7 @@ export const quotationApi = {
     page?: number;
     per_page?: number;
   }): Promise<SalesQuoteList> => {
-    const response = await apiClient.get<SalesQuoteList>(BASE_URL, { params });
+    const response = await apiClient.get<SalesQuoteList>(`${BASE_URL}/`, { params });
     return response.data;
   },
 
@@ -84,7 +84,7 @@ export const quotationApi = {
    * Create a new quote (quotation or proforma)
    */
   create: async (data: SalesQuoteCreate): Promise<SalesQuoteWithItems> => {
-    const response = await apiClient.post<SalesQuoteWithItems>(BASE_URL, data);
+    const response = await apiClient.post<SalesQuoteWithItems>(`${BASE_URL}/`, data);
     return response.data;
   },
 
