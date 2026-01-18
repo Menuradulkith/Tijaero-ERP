@@ -1,3 +1,4 @@
+import CustomerPaymentDashboard from "@/modules/sales/pages/CustomerPaymentDashboard";
 import CustomersPage from "@/modules/sales/pages/CustomersPage";
 import QuotationsPage from "@/modules/sales/pages/QuotationsPage";
 import SaleReturnsPage from "@/modules/sales/pages/SaleReturnsPage";
@@ -17,6 +18,7 @@ export default function SalesRoutes() {
       <Route path="dashboard" element={<SalesDashboard />} />
       <Route path="customers" element={<CustomersPage />} />
       <Route path="approvals" element={<SalesOrderApprovalsPage />} />
+      <Route path="payments" element={<CustomerPaymentDashboard />} />
     </Routes>
   );
 }

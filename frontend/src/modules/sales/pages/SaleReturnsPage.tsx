@@ -1,22 +1,32 @@
 /**
- * SaleReturnsPage - Using Tijaero-style reusable components
- * Refactored to match PurchaseReturnsPage with inline form creation (no popup dialog)
+ * SaleReturnsPage - Complete Sale Returns Management with Workflow
+ * Features:
+ * - Create sale returns from completed invoices
+ * - Approve/Reject/Process returns workflow
+ * - Stock restoration for returned items
+ * - Credit note generation or cash/bank refund
  */
 
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { usePermission } from "@/auth/permissions";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import DeleteIcon from "@mui/icons-material/Delete";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import ThumbUpIcon from "@mui/icons-material/ThumbUp";
+import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import {
     Alert,
     Autocomplete,
     Box,
     Button,
+    Chip,
     IconButton,
     InputAdornment,
+    MenuItem,
     Paper,
     Step,
     StepLabel,
@@ -27,6 +37,7 @@ import {
     TableHead,
     TableRow,
     TextField,
+    Tooltip,
     Typography
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -51,6 +62,8 @@ import {
     getStatusProps,
     modernTableStyles,
     useMasterDetailState,
+    useTConfirmDialog,
+    TConfirmDialog,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -66,12 +79,24 @@ import {
 const SORT_OPTIONS: SortOption[] = [
     { value: "added_date", label: "Date" },
     { value: "sale_return_no", label: "Return Number" },
+    { value: "total_refund", label: "Refund Amount" },
 ];
 
 // Status filter options for sale returns
 const SALE_RETURN_STATUS_OPTIONS = [
     { value: "pending", label: "Pending" },
     { value: "approved", label: "Approved" },
+    { value: "processed", label: "Processed" },
+    { value: "rejected", label: "Rejected" },
+];
+
+// Return reason options
+const RETURN_REASON_OPTIONS = [
+    { value: "defective", label: "Defective Product" },
+    { value: "wrong_item", label: "Wrong Item Delivered" },
+    { value: "customer_changed_mind", label: "Customer Changed Mind" },
+    { value: "damaged", label: "Damaged in Transit" },
+    { value: "other", label: "Other" },
 ];
 
 const FORM_STEPS = ["Return Information", "Return Items"];
@@ -83,8 +108,9 @@ const INITIAL_FORM_DATA: SaleReturnCreate = {
     branch_code: "MAIN",
     invoice_id: 0,
     good_received_locations_id: 1,
-    payment_method: "cash",
+    payment_method: "credit_note",
     remark: "",
+    return_reason: "",
     items: [],
 };
 
@@ -94,9 +120,9 @@ interface ReturnLineItem extends SaleReturnItemCreate {
 }
 
 const PAYMENT_OPTIONS = [
+    { value: "credit_note", label: "Store Credit (Credit Note)" },
     { value: "cash", label: "Cash Refund" },
     { value: "bank_transfer", label: "Bank Transfer" },
-    { value: "credit", label: "Store Credit" },
     { value: "cheque", label: "Cheque" },
 ];
 
@@ -107,12 +133,16 @@ const resetFormFromReturn = (ret: SaleReturn | SaleReturnWithItems): SaleReturnC
     good_received_locations_id: ret.good_received_locations_id,
     payment_method: ret.payment_method,
     remark: ret.remark || "",
+    return_reason: ret.return_reason || "",
     items: "items" in ret && ret.items ? ret.items.map(item => ({
         barcode: item.barcode,
         return_price: item.return_price,
         sold_price: item.sold_price,
         branch_code: item.branch_code,
         invoice_item_id: item.invoice_item_id,
+        quantity: item.quantity || 1,
+        condition: item.condition || "good",
+        restockable: item.restockable !== false,
     })) : [],
 });
 
@@ -266,10 +296,7 @@ export default function SaleReturnsPage() {
 
         // Apply status filter
         if (filterStatus) {
-            const isApproved = filterStatus === "approved";
-            filtered = filtered.filter(ret =>
-                isApproved ? ret.approval_id !== null : ret.approval_id === null
-            );
+            filtered = filtered.filter(ret => ret.status === filterStatus);
         }
 
         filtered.sort((a, b) => {
@@ -306,6 +333,69 @@ export default function SaleReturnsPage() {
         },
     });
 
+    // Workflow mutations
+    const approveMutation = useMutation({
+        mutationFn: saleReturnsApi.approve,
+        onSuccess: (updated) => {
+            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
+            toast.success("Sale return approved successfully");
+            handleSelectReturnWithItems(updated);
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.detail || "Failed to approve sale return");
+        },
+    });
+
+    const rejectMutation = useMutation({
+        mutationFn: ({ id, reason }: { id: number; reason?: string }) => saleReturnsApi.reject(id, reason),
+        onSuccess: (updated) => {
+            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
+            toast.success("Sale return rejected");
+            handleSelectReturnWithItems(updated);
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.detail || "Failed to reject sale return");
+        },
+    });
+
+    const processMutation = useMutation({
+        mutationFn: saleReturnsApi.process,
+        onSuccess: (result) => {
+            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
+            queryClient.invalidateQueries({ queryKey: ["sales"] });
+            queryClient.invalidateQueries({ queryKey: ["credit-notes"] });
+            toast.success(result.message || "Sale return processed successfully");
+            if (result.sale_return) {
+                handleSelectReturnWithItems(result.sale_return);
+            }
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.detail || "Failed to process sale return");
+        },
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: saleReturnsApi.delete,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
+            toast.success("Sale return deleted");
+            handleSelectReturn(null as any);
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.detail || "Failed to delete sale return");
+        },
+    });
+
+    // Workflow dialogs
+    const approveDialog = useTConfirmDialog();
+    const rejectDialog = useTConfirmDialog();
+    const processDialog = useTConfirmDialog();
+    const deleteDialog2 = useTConfirmDialog();
+
+    // Permissions
+    const canApprove = usePermission("sales", "approve");
+    const canDelete = usePermission("sales", "delete");
+
     // Helper functions
     const getInvoiceNo = useCallback((invoiceId: number) => {
         const invoice = invoices?.find((i) => i.id === invoiceId);
@@ -313,7 +403,7 @@ export default function SaleReturnsPage() {
     }, [invoices]);
 
     const getStatus = useCallback((ret: SaleReturn) => {
-        return ret.approval_id ? "approved" : "pending";
+        return ret.status || (ret.approval_id ? "approved" : "pending");
     }, []);
 
     const getBranchDisplay = (branchCode: string) => {
@@ -322,7 +412,7 @@ export default function SaleReturnsPage() {
     };
 
     const calculateTotal = () => {
-        return lineItems.reduce((sum, item) => sum + (Number(item.return_price) || 0), 0);
+        return lineItems.reduce((sum, item) => sum + (Number(item.return_price) * (item.quantity || 1) || 0), 0);
     };
 
     // Line item handlers
@@ -333,6 +423,9 @@ export default function SaleReturnsPage() {
             return_price: 0,
             sold_price: 0,
             branch_code: formData.branch_code,
+            quantity: 1,
+            condition: "good",
+            restockable: true,
         };
         setLineItems([...lineItems, newItem]);
         setBarcodeInput("");
@@ -524,11 +617,75 @@ export default function SaleReturnsPage() {
                 isEditing={isEditing}
                 isSaving={isSaving}
                 isFormValid={!!isFormValid}
-                canDelete={false}
+                canDelete={canDelete && selectedReturn?.status === 'pending'}
                 onNew={handleNewReturn}
                 onSave={handleSave}
                 onCancel={() => handleCancel(filteredReturns)}
                 onEdit={handleStartEdit}
+                onDelete={() => {
+                    if (selectedReturn) {
+                        deleteDialog2.open(
+                            "Delete Sale Return",
+                            `Delete return ${selectedReturn.sale_return_no}? This cannot be undone.`,
+                            () => deleteMutation.mutate(selectedReturn.id)
+                        );
+                    }
+                }}
+                customActions={selectedReturn && !isCreating && !isEditing ? (
+                    <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+                        {/* Approve button - only for pending returns */}
+                        {canApprove && selectedReturn.status === "pending" && (
+                            <Tooltip title="Approve Return">
+                                <IconButton
+                                    size="small"
+                                    color="success"
+                                    onClick={() => approveDialog.open(
+                                        "Approve Sale Return",
+                                        `Approve return ${selectedReturn.sale_return_no}?`,
+                                        () => approveMutation.mutate(selectedReturn.id)
+                                    )}
+                                    disabled={approveMutation.isPending}
+                                >
+                                    <ThumbUpIcon />
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                        {/* Reject button - only for pending returns */}
+                        {canApprove && selectedReturn.status === "pending" && (
+                            <Tooltip title="Reject Return">
+                                <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => rejectDialog.open(
+                                        "Reject Sale Return",
+                                        `Reject return ${selectedReturn.sale_return_no}?`,
+                                        () => rejectMutation.mutate({ id: selectedReturn.id })
+                                    )}
+                                    disabled={rejectMutation.isPending}
+                                >
+                                    <ThumbDownIcon />
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                        {/* Process button - only for approved returns */}
+                        {canApprove && (selectedReturn.status === "pending" || selectedReturn.status === "approved") && (
+                            <Tooltip title="Process Return (Refund & Restock)">
+                                <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => processDialog.open(
+                                        "Process Sale Return",
+                                        `Process return ${selectedReturn.sale_return_no}? This will:\n• Restock applicable items\n• Issue ${selectedReturn.payment_method === 'credit_note' ? 'a credit note' : 'refund'}\n• Update the original invoice`,
+                                        () => processMutation.mutate(selectedReturn.id)
+                                    )}
+                                    disabled={processMutation.isPending}
+                                >
+                                    <PlayArrowIcon />
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                    </Box>
+                ) : undefined}
             />
 
             <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -605,12 +762,28 @@ export default function SaleReturnsPage() {
                                         options={PAYMENT_OPTIONS}
                                         getOptionLabel={(option) => option.label}
                                         value={PAYMENT_OPTIONS.find((p) => p.value === formData.payment_method) || null}
-                                        onChange={(_, newValue) => setFormData({ ...formData, payment_method: newValue?.value || "cash" })}
+                                        onChange={(_, newValue) => setFormData({ ...formData, payment_method: newValue?.value || "credit_note" })}
                                         disabled={!isEditing && !isCreating}
                                         renderInput={(params) => (
                                             <TextField {...params} label="Refund Method" />
                                         )}
                                     />
+                                    <TextField
+                                        select
+                                        label="Return Reason"
+                                        size="small"
+                                        value={formData.return_reason || ""}
+                                        onChange={(e) => setFormData({ ...formData, return_reason: e.target.value })}
+                                        disabled={!isEditing && !isCreating}
+                                    >
+                                        <MenuItem value="">Select reason...</MenuItem>
+                                        {RETURN_REASON_OPTIONS.map((opt) => (
+                                            <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                                        ))}
+                                    </TextField>
+                                </FormSection>
+
+                                <FormSection title="Additional Details" columns={1}>
                                     <TextField
                                         label="Remarks"
                                         size="small"
@@ -619,26 +792,94 @@ export default function SaleReturnsPage() {
                                         disabled={!isEditing && !isCreating}
                                         multiline
                                         rows={2}
-                                        placeholder="Enter reason for return..."
+                                        placeholder="Enter additional notes..."
+                                        fullWidth
                                     />
                                 </FormSection>
 
-                                {/* View mode: Show date and status */}
+                                {/* View mode: Show date, status, and totals */}
                                 {!isCreating && !isEditing && selectedReturn && (
-                                    <FormSection title="Status" columns={3}>
-                                        <Box>
-                                            <Typography variant="caption" color="text.secondary">Date</Typography>
-                                            <Typography variant="body2" fontWeight={500}>
-                                                {format(new Date(selectedReturn.added_date), "MMMM dd, yyyy")}
-                                            </Typography>
-                                        </Box>
-                                        <Box>
-                                            <Typography variant="caption" color="text.secondary">Status</Typography>
-                                            <Box sx={{ mt: 0.5 }}>
-                                                <TStatusChip status={getStatus(selectedReturn)} statusMap="salesReturn" size="small" />
+                                    <>
+                                        <FormSection title="Status & Dates" columns={4}>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Status</Typography>
+                                                <Box sx={{ mt: 0.5 }}>
+                                                    <TStatusChip status={getStatus(selectedReturn)} statusMap="salesReturn" size="small" />
+                                                </Box>
                                             </Box>
-                                        </Box>
-                                    </FormSection>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Created Date</Typography>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    {format(new Date(selectedReturn.added_date), "MMM dd, yyyy")}
+                                                </Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Return Reason</Typography>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    {RETURN_REASON_OPTIONS.find(r => r.value === selectedReturn.return_reason)?.label || selectedReturn.return_reason || "-"}
+                                                </Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Refund Method</Typography>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    {PAYMENT_OPTIONS.find(p => p.value === selectedReturn.payment_method)?.label || selectedReturn.payment_method}
+                                                </Typography>
+                                            </Box>
+                                        </FormSection>
+
+                                        <FormSection title="Refund Summary" columns={4}>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Subtotal</Typography>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    Rs. {(selectedReturn.subtotal || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                </Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Tax Refund</Typography>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    Rs. {(selectedReturn.tax_refund || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                </Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Total Refund</Typography>
+                                                <Typography variant="h6" color="warning.main" fontWeight={600}>
+                                                    Rs. {(selectedReturn.total_refund || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                </Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Refund Status</Typography>
+                                                <Chip
+                                                    size="small"
+                                                    label={selectedReturn.refund_status === 'processed' ? 'Refunded' : 'Pending'}
+                                                    color={selectedReturn.refund_status === 'processed' ? 'success' : 'warning'}
+                                                />
+                                            </Box>
+                                        </FormSection>
+
+                                        {/* Show refund details if processed */}
+                                        {selectedReturn.refund_status === 'processed' && (
+                                            <FormSection title="Refund Details" columns={3}>
+                                                <Box>
+                                                    <Typography variant="caption" color="text.secondary">Refund Amount</Typography>
+                                                    <Typography variant="body2" fontWeight={500}>
+                                                        Rs. {(selectedReturn.refund_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                    </Typography>
+                                                </Box>
+                                                <Box>
+                                                    <Typography variant="caption" color="text.secondary">Refund Date</Typography>
+                                                    <Typography variant="body2" fontWeight={500}>
+                                                        {selectedReturn.refund_date ? format(new Date(selectedReturn.refund_date), "MMM dd, yyyy") : "-"}
+                                                    </Typography>
+                                                </Box>
+                                                <Box>
+                                                    <Typography variant="caption" color="text.secondary">Reference</Typography>
+                                                    <Typography variant="body2" fontWeight={500}>
+                                                        {selectedReturn.refund_reference || "-"}
+                                                    </Typography>
+                                                </Box>
+                                            </FormSection>
+                                        )}
+                                    </>
                                 )}
 
                                 {/* Next/Cancel buttons for step 1 in create mode */}
@@ -858,6 +1099,10 @@ export default function SaleReturnsPage() {
                 detailPanel={detailPanel}
             />
             <ConfirmDialog {...confirmDialog.dialogProps} />
+            <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
+            <TConfirmDialog {...rejectDialog.dialogProps} confirmText="Reject" confirmColor="error" />
+            <TConfirmDialog {...processDialog.dialogProps} confirmText="Process" confirmColor="primary" />
+            <TConfirmDialog {...deleteDialog2.dialogProps} confirmText="Delete" confirmColor="error" />
         </>
     );
 }

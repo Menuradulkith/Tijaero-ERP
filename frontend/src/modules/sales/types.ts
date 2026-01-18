@@ -40,6 +40,23 @@ export interface Invoice {
   created_date_time: string;
   status: boolean;
   approval: boolean;
+  approval_status: string;
+  // Tax and discount
+  tax_rate: number;
+  tax_amount: number;
+  discount_percent: number;
+  discount_amount: number;
+  // Totals
+  subtotal: number;
+  grand_total: number;
+  // Service charges
+  service_charge_rate: number;
+  service_charge_amount: number;
+  // Payment tracking
+  paid_amount: number;
+  balance_due: number;
+  payment_status: string;  // unpaid, partial, paid
+  // Timestamps
   created_at: string;
   updated_at: string;
 }
@@ -61,12 +78,30 @@ export interface InvoiceCreate {
   remarks?: string;
   special?: boolean;
   items: InvoiceItemCreate[];
+  // Cheque payment details
+  cheque_number?: string;
+  cheque_bank?: string;
+  cheque_date?: string;
+  // Card payment details
+  card_ref_number?: string;
+  card_holder_name?: string;
+  // Bank transfer details
+  bank_transfer_ref?: string;
+  bank_name?: string;
+  // Credit note
+  credit_note_id?: number;
+  // Tax and discount
+  tax_rate?: number;
+  discount_percent?: number;
+  discount_amount?: number;
 }
 
 export interface InvoiceUpdate {
   remarks?: string;
   status?: boolean;
   approval?: boolean;
+  approval_status?: string;
+  items?: InvoiceItemCreate[];
 }
 
 export interface InvoiceWithItems extends Invoice {
@@ -82,6 +117,12 @@ export interface SaleReturnItem {
   invoice_item_id?: number;
   sale_return_id: number;
   added_date: string;
+  sales_stock_id?: number;
+  product_id?: number;
+  quantity: number;
+  condition: string;  // good, damaged, defective, opened
+  restockable: boolean;
+  restocked: boolean;
 }
 
 export interface SaleReturnItemCreate {
@@ -90,6 +131,10 @@ export interface SaleReturnItemCreate {
   sold_price: number;
   branch_code: string;
   invoice_item_id?: number;
+  product_id?: number;
+  quantity?: number;
+  condition?: string;
+  restockable?: boolean;
 }
 
 export interface SaleReturn {
@@ -103,6 +148,25 @@ export interface SaleReturn {
   added_date: string;
   cheque_date: string;
   approval_id?: number;
+  // Status
+  status: string;  // pending, approved, processed, rejected
+  return_reason?: string;
+  // Totals
+  subtotal: number;
+  tax_refund: number;
+  total_refund: number;
+  // Refund tracking
+  refund_status: string;  // pending, processed, partial
+  refund_amount: number;
+  refund_date?: string;
+  refund_reference?: string;
+  credit_note_id?: number;
+  // User tracking
+  created_by?: number;
+  approved_by?: number;
+  processed_by?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface SaleReturnCreate {
@@ -112,11 +176,20 @@ export interface SaleReturnCreate {
   good_received_locations_id: number;
   payment_method: string;
   remark?: string;
+  return_reason?: string;
   items: SaleReturnItemCreate[];
 }
 
 export interface SaleReturnWithItems extends SaleReturn {
   items: SaleReturnItem[];
+}
+
+export interface SaleReturnProcessResponse {
+  sale_return: SaleReturn;
+  credit_note_id?: number;
+  refund_reference?: string;
+  items_restocked: number;
+  message: string;
 }
 
 // Sales Statistics Types
