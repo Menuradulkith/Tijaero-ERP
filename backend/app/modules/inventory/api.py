@@ -54,9 +54,9 @@ def get_available_sales_stock(branch_code: str, db: Session = Depends(get_db)):
     return sales_stock_service.get_available_by_branch(branch_code)
 
 
-@router.get("/sales-stock/barcode/{barcode}", response_model=schemas.SalesStock)
+@router.get("/sales-stock/barcode/{barcode}")
 def get_sales_stock_by_barcode(barcode: str, db: Session = Depends(get_db)):
-    """Get sales stock item by barcode"""
+    """Get sales stock item by barcode with enriched product data"""
     sales_stock_service = service.SalesStockService(db)
     item = sales_stock_service.get_by_barcode(barcode)
     if not item:
