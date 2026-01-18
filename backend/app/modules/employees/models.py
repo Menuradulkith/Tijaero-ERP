@@ -24,9 +24,6 @@ class Employee(Base, TimestampMixin):
     employee_id = Column(Text, unique=True, nullable=False)
 
     user = relationship("User", foreign_keys=[user_id], lazy="select", viewonly=True)
-    invoices = relationship(
-        "Invoice", back_populates="sale_rep", lazy="select", viewonly=True
-    )
     payrolls = relationship("EmployeePayroll", back_populates="employee", lazy="select")
     salary_profile = relationship(
         "EmployeeSalaryProfile", back_populates="employee", uselist=False, lazy="select"

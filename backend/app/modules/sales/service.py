@@ -6,6 +6,7 @@ from app.modules.sales.models import Invoice, InvoiceItems, InvoiceItemsBarcode,
 from app.modules.inventory.models import SalesStock
 from app.modules.finance.models import ChequePayments, CardPayments, BankDeposits
 from app.modules.customers.credit_service import CustomerCreditService
+from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from decimal import Decimal
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
@@ -220,7 +221,6 @@ class SalesService:
         card_holder_name = getattr(invoice_data, 'card_holder_name', None)
         bank_transfer_ref = getattr(invoice_data, 'bank_transfer_ref', None)
         bank_name = getattr(invoice_data, 'bank_name', None)
-        credit_note_id = getattr(invoice_data, 'credit_note_id', None)
         
         # Get payment method
         payment_method = invoice_data.payment_method.lower() if invoice_data.payment_method else ""
@@ -275,7 +275,7 @@ class SalesService:
         invoice_dict = invoice_data.model_dump(exclude={
             'items', 'cheque_number', 'cheque_bank', 'cheque_date', 
             'card_ref_number', 'card_holder_name', 'bank_transfer_ref', 
-            'bank_name', 'credit_note_id', 'tax_rate', 'discount_percent', 'discount_amount'
+            'bank_name', 'tax_rate', 'discount_percent', 'discount_amount'
         })
         invoice_dict['created_date'] = date.today()
         invoice_dict['created_date_time'] = datetime.now()
@@ -308,7 +308,6 @@ class SalesService:
             invoice_dict['payment_status'] = "paid"
         
         invoice_dict['cupon_amount'] = 0
-        invoice_dict['credit_note_amount'] = 0
         
         # Handle cheque date
         if cheque_date_str:
@@ -389,7 +388,6 @@ class SalesService:
         invoice_dict['cheque_payment_id'] = cheque_payment_id
         invoice_dict['card_payment_id'] = card_payment_id
         invoice_dict['bank_transfer_id'] = bank_transfer_id
-        invoice_dict['credit_note_id'] = credit_note_id if payment_method == "credit_note" else None
         
         invoice = Invoice(**invoice_dict)
         db.add(invoice)
@@ -459,12 +457,37 @@ class SalesService:
                             )
                             db.add(barcode_link)
         
+        # Create approval record for credit sales orders
+        if is_credit_payment:
+            approval_record = approval_service.create_approval_request(
+                db=db,
+                approval_type=ApprovalType.SALES_ORDER,
+                reference_id=invoice.id,
+                reference_no=invoice.invoice_no,
+                branch_code=invoice.branch_code,
+                requested_by=user_id,
+                remarks=f"Credit sales order pending approval. Amount: Rs. {grand_total:,.2f}",
+                approval_group="sales_approvers"
+            )
+            invoice.approval_id = approval_record.id
+        
         db.commit()
         db.refresh(invoice)
         return invoice
     
     def update_invoice(self, db: Session, invoice_id: int, invoice_data: schemas.InvoiceUpdate, user_id: int):
         invoice = self.get_invoice(db, invoice_id)
+        
+        # Track original status for re-approval logic
+        was_completed = invoice.approval_status == 'completed'
+        
+        # Block manual approval via update_invoice - must use Approval Dashboard
+        update_data = invoice_data.model_dump(exclude_unset=True, exclude={'items'})
+        if update_data.get('approval_status') == 'completed' and invoice.approval_status == 'pending_approval':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Sales orders cannot be manually approved. Please use the Approval Dashboard."
+            )
         
         # Handle items update if provided
         if invoice_data.items is not None:
@@ -534,9 +557,6 @@ class SalesService:
                 item = InvoiceItems(**item_dict)
                 db.add(item)
         
-        # Update invoice fields
-        update_data = invoice_data.model_dump(exclude_unset=True, exclude={'items'})
-        
         # Check if payment method is being updated to credit - if so, reset approval
         if 'payment_method' in update_data:
             payment_method = update_data['payment_method'].lower()
@@ -556,6 +576,47 @@ class SalesService:
         
         db.commit()
         db.refresh(invoice)
+        
+        # If a completed/approved sales order was edited, reset to pending_approval
+        if was_completed and invoice.payment_method and invoice.payment_method.lower() == 'credit':
+            from app.modules.common.models import Approvals
+            
+            invoice.approval = False
+            invoice.approval_status = "pending_approval"
+            
+            # Reset the existing approval record back to pending
+            if invoice.approval_id:
+                approval_record = db.query(Approvals).filter(Approvals.id == invoice.approval_id).first()
+                if approval_record:
+                    approval_record.status = "pending"
+                    approval_record.status_changed_by = None
+                    approval_record.remark = "Re-approval required: Sales order was edited after approval."
+            else:
+                # Create a new approval record if one doesn't exist
+                approval_record = approval_service.create_approval_request(
+                    db=db,
+                    approval_type=ApprovalType.SALES_ORDER,
+                    reference_id=invoice.id,
+                    reference_no=invoice.invoice_no,
+                    branch_code=invoice.branch_code,
+                    requested_by=user_id,
+                    remarks="Re-approval required: Sales order was edited after approval.",
+                    approval_group="sales_approvers"
+                )
+                invoice.approval_id = approval_record.id
+            
+            # Restore stock to reserved state
+            items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+            for item in items:
+                if item.sales_stock_id:
+                    stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                    if stock_item and stock_item.status == 'sold':
+                        stock_item.status = 'reserved'
+                        stock_item.is_active = True
+            
+            db.commit()
+            db.refresh(invoice)
+        
         return invoice
     
     def delete_invoice(self, db: Session, invoice_id: int):
@@ -577,8 +638,8 @@ class SalesService:
     
     def approve_invoice(self, db: Session, invoice_id: int, user_id: int):
         """
-        Approve a pending credit invoice and update stock status.
-        For credit orders, this moves them to approved status.
+        Approve a pending credit invoice through the centralized approval system.
+        Updates the approval record and changes invoice status to completed.
         """
         invoice = self.get_invoice(db, invoice_id)
         
@@ -588,9 +649,39 @@ class SalesService:
                 detail=f"Invoice is already {invoice.approval_status}"
             )
         
+        # Verify and update approval record
+        if invoice.approval_id:
+            from app.modules.common.models import Approvals
+            approval_record = db.query(Approvals).filter(Approvals.id == invoice.approval_id).first()
+            if approval_record:
+                if approval_record.status != 'pending':
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Approval record is already {approval_record.status}"
+                    )
+                # Update approval record
+                approval_record.status = 'approved'
+                approval_record.status_changed_by = user_id
+                approval_record.remark = f"Approved by user {user_id} on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        else:
+            # Create approval record if missing (for backward compatibility)
+            approval_record = approval_service.create_approval_request(
+                db=db,
+                approval_type=ApprovalType.SALES_ORDER,
+                reference_id=invoice.id,
+                reference_no=invoice.invoice_no,
+                branch_code=invoice.branch_code,
+                requested_by=user_id,
+                remarks=f"Credit sales order approved. Amount: Rs. {invoice.grand_total:,.2f}",
+                approval_group="sales_approvers"
+            )
+            approval_record.status = 'approved'
+            approval_record.status_changed_by = user_id
+            invoice.approval_id = approval_record.id
+        
         # Update invoice approval status
         invoice.approval = True
-        invoice.approval_status = 'approved'
+        invoice.approval_status = 'completed'  # Credit orders go directly to completed after approval
         
         # Update sales stock status to 'sold' for all items with barcodes
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
@@ -600,10 +691,6 @@ class SalesService:
                 if stock_item and stock_item.status == 'reserved':
                     stock_item.status = 'sold'
                     stock_item.is_active = False
-        
-        # For credit orders that are approved, automatically mark as completed
-        # since stock is already marked as sold
-        invoice.approval_status = 'completed'
         
         db.commit()
         db.refresh(invoice)
@@ -809,13 +896,26 @@ class SalesService:
             item = SaleReturnItems(**item_dict)
             db.add(item)
         
+        # Create approval record for sale return
+        approval_record = approval_service.create_approval_request(
+            db=db,
+            approval_type=ApprovalType.SALE_RETURN,
+            reference_id=sale_return.id,
+            reference_no=sale_return.sale_return_no,
+            branch_code=sale_return.branch_code,
+            requested_by=user_id,
+            remarks=f"Sale return pending approval. Refund amount: Rs. {total_refund:,.2f}",
+            approval_group="sales_approvers"
+        )
+        sale_return.approval_id = approval_record.id
+        
         db.commit()
         db.refresh(sale_return)
         return sale_return
     
     def approve_sale_return(self, db: Session, return_id: int, user_id: int):
         """
-        Approve a pending sale return.
+        Approve a pending sale return through the centralized approval system.
         """
         sale_return = self.get_sale_return(db, return_id)
         
@@ -824,6 +924,35 @@ class SalesService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Sale return is already {sale_return.status}"
             )
+        
+        # Update approval record
+        if sale_return.approval_id:
+            from app.modules.common.models import Approvals
+            approval_record = db.query(Approvals).filter(Approvals.id == sale_return.approval_id).first()
+            if approval_record:
+                if approval_record.status != 'pending':
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Approval record is already {approval_record.status}"
+                    )
+                approval_record.status = 'approved'
+                approval_record.status_changed_by = user_id
+                approval_record.remark = f"Approved by user {user_id} on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        else:
+            # Create approval record if missing (backward compatibility)
+            approval_record = approval_service.create_approval_request(
+                db=db,
+                approval_type=ApprovalType.SALE_RETURN,
+                reference_id=sale_return.id,
+                reference_no=sale_return.sale_return_no,
+                branch_code=sale_return.branch_code,
+                requested_by=user_id,
+                remarks=f"Sale return approved.",
+                approval_group="sales_approvers"
+            )
+            approval_record.status = 'approved'
+            approval_record.status_changed_by = user_id
+            sale_return.approval_id = approval_record.id
         
         sale_return.status = 'approved'
         sale_return.approved_by = user_id
@@ -834,7 +963,7 @@ class SalesService:
     
     def reject_sale_return(self, db: Session, return_id: int, user_id: int, reason: str = None):
         """
-        Reject a pending sale return.
+        Reject a pending sale return through the centralized approval system.
         """
         sale_return = self.get_sale_return(db, return_id)
         
@@ -843,6 +972,15 @@ class SalesService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot reject sale return with status: {sale_return.status}"
             )
+        
+        # Update approval record
+        if sale_return.approval_id:
+            from app.modules.common.models import Approvals
+            approval_record = db.query(Approvals).filter(Approvals.id == sale_return.approval_id).first()
+            if approval_record:
+                approval_record.status = 'rejected'
+                approval_record.status_changed_by = user_id
+                approval_record.remark = reason or f"Rejected by user {user_id}"
         
         sale_return.status = 'rejected'
         if reason:
@@ -1013,5 +1151,181 @@ class SalesService:
             "current_month_returns": current_month_returns,
             "total_refunded": float(total_refunded)
         }
+    
+    def settle_credit_payment(self, db: Session, payment_data: schemas.CreditPaymentCreate, user_id: int):
+        """
+        Settle (full or partial) payment for a credit sales order.
+        Creates settlement record and updates invoice payment status.
+        Standard ERP credit payment settlement flow.
+        """
+        from app.modules.customers.models import CustomerCreditsSettle, CustomerCreditsSettleTransaction
+        from app.modules.finance.models import ChequePayments, CardPayments, BankDeposits
+        
+        # Get invoice
+        invoice = self.get_invoice(db, payment_data.invoice_id)
+        
+        # Validate it's a credit invoice
+        if invoice.payment_method != 'credit':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This invoice is not a credit sale"
+            )
+        
+        # Validate invoice is approved/completed
+        if invoice.approval_status not in ['approved', 'completed']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot settle payment for invoice with status: {invoice.approval_status}"
+            )
+        
+        # Validate payment amount
+        if payment_data.payment_amount > invoice.balance_due:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Payment amount (Rs. {payment_data.payment_amount:,.2f}) exceeds balance due (Rs. {invoice.balance_due:,.2f})"
+            )
+        
+        # Generate settlement number
+        settle_count = db.query(func.count(CustomerCreditsSettle.id)).scalar() or 0
+        settle_no = f"CS-{invoice.branch_code}-{date.today().strftime('%Y%m%d')}-{settle_count + 1:04d}"
+        
+        # Create credit settle record
+        credit_settle = CustomerCreditsSettle(
+            customer_credits_settle_no=settle_no,
+            branch_code=invoice.branch_code,
+            created_date=datetime.now(),
+            customer_id=invoice.customer_id
+        )
+        db.add(credit_settle)
+        db.flush()
+        
+        # Create payment record based on method
+        payment_method = payment_data.payment_method.lower()
+        
+        # Handle cheque payment
+        if payment_method == "cheque":
+            cheque_payment = ChequePayments(
+                cheque_number=int(payment_data.cheque_number) if payment_data.cheque_number else 0,
+                branch_code=0,
+                from_party=invoice.customer.customer_name,
+                bank=payment_data.cheque_bank or "",
+                amount=payment_data.payment_amount,
+                cheque_date=payment_data.cheque_date or payment_data.payment_date,
+                deposit_date=payment_data.payment_date,
+                remark=payment_data.remarks or f"Credit settlement for {invoice.invoice_no}",
+                payment_for="Credit Settlement",
+                invoice_no=invoice.invoice_no
+            )
+            db.add(cheque_payment)
+            db.flush()
+        
+        # Handle card payment
+        elif payment_method in ["card_visa", "card_mastercard", "card_amex"]:
+            card_type_map = {
+                "card_visa": "VISA",
+                "card_mastercard": "MASTER",
+                "card_amex": "AMEX"
+            }
+            card_payment = CardPayments(
+                card_type=card_type_map.get(payment_method, "VISA"),
+                amount=payment_data.payment_amount,
+                date_time=datetime.now(),
+                remark=payment_data.card_holder_name or f"Credit settlement for {invoice.invoice_no}",
+                ref_number=payment_data.card_ref_number or "",
+                invoice_no=invoice.invoice_no,
+                deposited=True
+            )
+            db.add(card_payment)
+            db.flush()
+        
+        # Handle bank transfer
+        elif payment_method == "bank_transfer":
+            bank_deposit = BankDeposits(
+                deposits_amount=payment_data.payment_amount,
+                remarks=f"Ref: {payment_data.bank_transfer_ref}" if payment_data.bank_transfer_ref else f"Credit settlement for {invoice.invoice_no}",
+                created_date=datetime.now(),
+                branch_code=invoice.branch_code,
+                bank_name=payment_data.bank_name or "",
+                user_id=user_id,
+                payment_for="Credit Settlement",
+                invoice_no=invoice.invoice_no,
+                verified=False,
+                returned=False
+            )
+            db.add(bank_deposit)
+            db.flush()
+        
+        # Create settlement transaction
+        settle_transaction = CustomerCreditsSettleTransaction(
+            payment_method=payment_data.payment_method,
+            cheque_date=payment_data.cheque_date or payment_data.payment_date,
+            payment_amount=payment_data.payment_amount,
+            payment_method_number=payment_data.cheque_number or payment_data.card_ref_number or payment_data.bank_transfer_ref,
+            remarks=payment_data.remarks,
+            created_date=payment_data.payment_date,
+            customer_credit_settle_id=credit_settle.id,
+            invoice_id=invoice.id
+        )
+        db.add(settle_transaction)
+        
+        # Update invoice payment tracking
+        previous_balance = invoice.balance_due
+        invoice.paid_amount = float(Decimal(str(invoice.paid_amount)) + Decimal(str(payment_data.payment_amount)))
+        invoice.balance_due = float(Decimal(str(invoice.balance_due)) - Decimal(str(payment_data.payment_amount)))
+        
+        # Update payment status
+        if invoice.balance_due <= 0:
+            invoice.payment_status = "paid"
+            invoice.balance_due = 0  # Ensure no negative balance
+        elif invoice.paid_amount > 0:
+            invoice.payment_status = "partial"
+        
+        db.commit()
+        db.refresh(invoice)
+        
+        return {
+            "invoice_id": invoice.id,
+            "payment_amount": payment_data.payment_amount,
+            "previous_balance": previous_balance,
+            "new_balance": invoice.balance_due,
+            "payment_status": invoice.payment_status,
+            "settlement_record_id": credit_settle.id,
+            "message": f"Payment of Rs. {payment_data.payment_amount:,.2f} recorded successfully. New balance: Rs. {invoice.balance_due:,.2f}"
+        }
+    
+    def get_invoice_payment_history(self, db: Session, invoice_id: int):
+        """Get payment history for a credit invoice."""
+        from app.modules.customers.models import CustomerCreditsSettleTransaction
+        
+        invoice = self.get_invoice(db, invoice_id)
+        
+        if invoice.payment_method != 'credit':
+            return []
+        
+        transactions = db.query(CustomerCreditsSettleTransaction).filter(
+            CustomerCreditsSettleTransaction.invoice_id == invoice_id
+        ).order_by(CustomerCreditsSettleTransaction.created_date.desc()).all()
+        
+        # Calculate running balance
+        current_balance = invoice.grand_total
+        history = []
+        
+        # Sort by date ascending for balance calculation
+        sorted_transactions = sorted(transactions, key=lambda x: x.created_date)
+        
+        for trans in sorted_transactions:
+            current_balance -= trans.payment_amount
+            history.append({
+                "id": trans.id,
+                "payment_date": trans.created_date,
+                "payment_method": trans.payment_method,
+                "payment_amount": float(trans.payment_amount),
+                "balance_after_payment": float(current_balance),
+                "remarks": trans.remarks,
+                "created_at": trans.credit_settle.created_date
+            })
+        
+        # Return in descending order (most recent first)
+        return list(reversed(history))
 
 sales_service = SalesService()

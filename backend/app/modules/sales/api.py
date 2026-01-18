@@ -247,35 +247,8 @@ def delete_sale_return(
     """Delete a pending sale return."""
     return service.sales_service.delete_sale_return(db, return_id)
 
-# Sale Return Workflow Endpoints
-@router.post(
-    "/returns/{return_id}/approve",
-    response_model=schemas.SaleReturn,
-    summary="Approve Sale Return",
-    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
-)
-def approve_sale_return(
-    return_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
-):
-    """Approve a pending sale return for processing."""
-    return service.sales_service.approve_sale_return(db, return_id, current_user.id)
-
-@router.post(
-    "/returns/{return_id}/reject",
-    response_model=schemas.SaleReturn,
-    summary="Reject Sale Return",
-    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
-)
-def reject_sale_return(
-    return_id: int,
-    reason: str = Query(None, description="Reason for rejection"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
-):
-    """Reject a pending sale return."""
-    return service.sales_service.reject_sale_return(db, return_id, current_user.id, reason)
+# NOTE: Sale return approvals are handled through the centralized Approval Dashboard
+# Use POST /api/v1/common/approvals/{approval_id}/approve or /reject instead
 
 @router.post(
     "/returns/{return_id}/process",
@@ -309,22 +282,8 @@ def get_return_statistics(
     return service.sales_service.get_return_statistics(db)
 
 # Invoice Workflow Endpoints
-@router.post(
-    "/{invoice_id}/approve",
-    response_model=schemas.InvoiceWithItems,
-    summary="Approve Sales Order",
-    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
-)
-def approve_invoice(
-    invoice_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
-):
-    """
-    Approve a pending credit sales order.
-    This changes status to 'approved' and marks stock as 'sold'.
-    """
-    return service.sales_service.approve_invoice(db, invoice_id, current_user.id)
+# NOTE: Invoice/Sales Order approvals are handled through the centralized Approval Dashboard
+# Use POST /api/v1/common/approvals/{approval_id}/approve instead
 
 @router.post(
     "/{invoice_id}/complete",
@@ -359,3 +318,40 @@ def cancel_invoice(
     Cannot cancel completed invoices - use sale return instead.
     """
     return service.sales_service.cancel_invoice(db, invoice_id, current_user.id)
+
+# Credit Payment Settlement Endpoints
+@router.post(
+    "/{invoice_id}/settle-payment",
+    response_model=schemas.CreditPaymentResponse,
+    summary="Settle Credit Payment",
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+)
+def settle_credit_payment(
+    invoice_id: int,
+    payment_data: schemas.CreditPaymentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+):
+    """
+    Record a payment (full or partial) against a credit sales order.
+    Standard ERP credit settlement process - updates paid_amount and balance_due.
+    """
+    # Ensure invoice_id matches
+    payment_data.invoice_id = invoice_id
+    return service.sales_service.settle_credit_payment(db, payment_data, current_user.id)
+
+@router.get(
+    "/{invoice_id}/payment-history",
+    response_model=List[schemas.InvoicePaymentHistory],
+    summary="Get Invoice Payment History",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_invoice_payment_history(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """
+    Get payment history for a credit invoice showing all settlement transactions.
+    """
+    return service.sales_service.get_invoice_payment_history(db, invoice_id)

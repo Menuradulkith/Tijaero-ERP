@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.db.session import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_permission
+from app.auth.rbac import Permissions
+from app.auth.models import User
 from . import schemas, service
 
 router = APIRouter(prefix="/purchasing", tags=["purchasing"])
@@ -73,10 +75,11 @@ def check_daily_po_limit(
 @router.post("/orders", response_model=schemas.PurchasingOrderWithItems, status_code=status.HTTP_201_CREATED)
 def create_purchase_order(
     order: schemas.PurchasingOrderCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     order_service = service.PurchasingOrderService(db)
-    return order_service.create_order(order)
+    return order_service.create_order(order, created_by=current_user.id)
 
 @router.get("/orders/{order_id}", response_model=schemas.PurchasingOrderWithItems)
 def get_purchase_order(order_id: int, db: Session = Depends(get_db)):
@@ -122,6 +125,8 @@ def delete_purchase_order(order_id: int, db: Session = Depends(get_db)):
     order_service = service.PurchasingOrderService(db)
     order_service.delete_order(order_id)
     return None
+
+
 
 
 @router.post("/orders/check-credit", response_model=schemas.POCreditCheckResponse)
@@ -187,15 +192,9 @@ def create_purchase_return(
     return_service = service.PurchasingReturnService(db)
     return return_service.create_return(return_data)
 
-@router.post("/returns/{return_id}/approve", response_model=schemas.PurchasingReturnWithItems)
-def approve_purchase_return(
-    return_id: int,
-    request: schemas.PurchaseReturnApprovalRequest,
-    db: Session = Depends(get_db)
-):
+# NOTE: Purchase return approvals are handled through the centralized Approval Dashboard
+# Use POST /api/v1/common/approvals/{approval_id}/approve or /reject instead
 
-    return_service = service.PurchasingReturnService(db)
-    return return_service.approve_return(return_id, request.approve, request.remarks)
 
 @router.get("/returns/{return_id}", response_model=schemas.PurchasingReturnWithItems)
 def get_purchase_return(return_id: int, db: Session = Depends(get_db)):

@@ -24,7 +24,7 @@ class Invoice(Base, TimestampMixin):
     remarks = Column(Text)
     created_date = Column(Date, nullable=False)
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    sale_rep_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    sale_rep_id = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
     customer_agent_id = Column(Integer, ForeignKey("customers.id"))
     approval = Column(Boolean, nullable=False)
     approval_status = Column(String(30), nullable=False, default="pending_approval")  # pending_approval, approved, completed
@@ -41,7 +41,6 @@ class Invoice(Base, TimestampMixin):
     payment_adjustments = Column(Numeric(60, 2), nullable=False)
     credit_amount = Column(Numeric(60, 2), nullable=False)
     cupon_amount = Column(Numeric(60, 2), nullable=False, default=0)
-    credit_note_amount = Column(Numeric(60, 2), nullable=False, default=0)
     special = Column(Boolean, nullable=False)
     sys_code = Column(Integer)
     created_date_time = Column(TIMESTAMP, nullable=False)
@@ -71,7 +70,6 @@ class Invoice(Base, TimestampMixin):
     card_payment_id = Column(Integer, ForeignKey("card_payments.id"))
     voucher_id = Column(Integer, ForeignKey("vouchers.id"))
     cupon_id = Column(Integer, ForeignKey("customer_cupon_codes.id"))
-    credit_note_id = Column(Integer, ForeignKey("customer_credit_notes.id"))
     approval_id = Column(Integer, ForeignKey("approvals.id"))
 
     # Source tracking - for invoices converted from quotes/proforma
@@ -85,7 +83,7 @@ class Invoice(Base, TimestampMixin):
     customer_agent = relationship(
         "Customer", foreign_keys=[customer_agent_id], back_populates="agent_invoices"
     )
-    sale_rep = relationship("Employee", back_populates="invoices")
+    sale_rep = relationship("User", foreign_keys=[sale_rep_id])
     advance_payment = relationship("CustomerAdvancePayments", back_populates="invoices")
     cheque_payment = relationship("ChequePayments", back_populates="invoices")
     bank_transfer = relationship("BankDeposits", back_populates="invoices")
@@ -93,7 +91,6 @@ class Invoice(Base, TimestampMixin):
     card_payment = relationship("CardPayments", back_populates="invoices")
     voucher = relationship("Vouchers", back_populates="invoices")
     cupon = relationship("CustomerCuponCodes", back_populates="invoices")
-    credit_note = relationship("CustomerCreditNotes", back_populates="invoices")
     approval_record = relationship(
         "Approvals", back_populates="invoices", foreign_keys=[approval_id]
     )
@@ -194,9 +191,9 @@ class SaleReturn(Base, TimestampMixin):
     credit_note_id = Column(Integer, ForeignKey("customer_credit_notes.id"), nullable=True)
     
     # User tracking
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    processed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+    approved_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+    processed_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
 
     # Relationships
     location = relationship("Locations", back_populates="sale_returns")
