@@ -692,6 +692,10 @@ class SalesService:
                     stock_item.status = 'sold'
                     stock_item.is_active = False
         
+        # For credit orders that are approved, automatically mark as completed
+        # since stock is already marked as sold
+        invoice.approval_status = 'completed'
+        
         db.commit()
         db.refresh(invoice)
         return invoice
