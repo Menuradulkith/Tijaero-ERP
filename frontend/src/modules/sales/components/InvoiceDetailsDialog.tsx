@@ -1,37 +1,37 @@
-import { useQuery } from "@tanstack/react-query";
+import { useReferenceData } from "@/hooks";
+import { formatAmount, formatCurrency } from "@/utils/formatters";
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  Grid,
+  Close as CloseIcon,
+  Print as PrintIcon,
+  Receipt as ReceiptIcon,
+} from "@mui/icons-material";
+import {
   Box,
-  Typography,
+  Button,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  Grid,
+  IconButton,
+  Paper,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
-  Divider,
-  Chip,
-  Paper,
-  IconButton,
-  Skeleton,
+  Typography,
 } from "@mui/material";
-import {
-  Print as PrintIcon,
-  Close as CloseIcon,
-  Receipt as ReceiptIcon,
-} from "@mui/icons-material";
-import { formatCurrency, formatAmount } from "@/utils/formatters";
+import { useQuery } from "@tanstack/react-query";
 import { salesApi } from "../api";
 import { Invoice } from "../types";
-import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed customersApi, productsApi imports - using aggregated endpoint
+import { modernTableStyles, TPrintPreviewDialog } from "@/components/tijaero";
 import { format } from "date-fns";
-import { useRef } from "react";
-import { modernTableStyles } from "@/components/tijaero";
+import { useRef, useState } from "react";
 
 interface InvoiceDetailsDialogProps {
   open: boolean;
@@ -85,77 +85,11 @@ export default function InvoiceDetailsDialog({
     );
   };
 
+  /* Print Dialog State */
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+
   const handlePrint = () => {
-    const printContent = printRef.current;
-    if (!printContent) return;
-
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Invoice ${invoiceDetails?.invoice_no}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background-color: #f5f5f5; }
-            .header { text-align: center; margin-bottom: 20px; }
-            .info-row { display: flex; justify-content: space-between; margin: 5px 0; }
-            .total { text-align: right; font-size: 18px; font-weight: bold; }
-            @media print { button { display: none; } }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>INVOICE</h1>
-            <p>${invoiceDetails?.invoice_no}</p>
-          </div>
-          <div class="info-row">
-            <div>
-              <strong>Customer:</strong> ${customer?.customer_name || "N/A"}<br/>
-              <strong>Contact:</strong> ${customer?.mobile_contact_number || "N/A"}<br/>
-              <strong>Email:</strong> ${customer?.email || "N/A"}
-            </div>
-            <div style="text-align: right;">
-              <strong>Date:</strong> ${invoiceDetails ? format(new Date(invoiceDetails.created_date), "MMMM dd, yyyy") : ""}<br/>
-              <strong>Branch:</strong> ${invoiceDetails?.branch_code}<br/>
-              <strong>Payment:</strong> ${invoiceDetails?.payment_method}
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Qty</th>
-                <th>Unit Price</th>
-                <th>Warranty</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${invoiceDetails?.items?.map(item => `
-                <tr>
-                  <td>${getProductName(item.product_id)}</td>
-                  <td>${item.quantity}</td>
-                  <td>Rs. ${item.selling_price.toFixed(2)}</td>
-                  <td>${item.warrenty_month} months</td>
-                  <td>Rs. ${(item.quantity * item.selling_price).toFixed(2)}</td>
-                </tr>
-              `).join("") || ""}
-            </tbody>
-          </table>
-          <div class="total">
-            <p>Subtotal: Rs. ${calculateSubtotal().toFixed(2)}</p>
-            <p style="font-size: 24px;">Total: Rs. ${calculateTotal().toFixed(2)}</p>
-          </div>
-          ${invoiceDetails?.remarks ? `<p><strong>Remarks:</strong> ${invoiceDetails.remarks}</p>` : ""}
-          <script>window.print();</script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    setPrintDialogOpen(true);
   };
 
   if (!invoice) return null;
@@ -264,7 +198,7 @@ export default function InvoiceDetailsDialog({
                 <TableBody>
                   {invoiceDetails.items?.length > 0 ? (
                     invoiceDetails.items.map((item, index) => (
-                      <TableRow key={item.id} sx={{ 
+                      <TableRow key={item.id} sx={{
                         ...modernTableStyles.bodyRow,
                         ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                       }}>
@@ -407,6 +341,14 @@ export default function InvoiceDetailsDialog({
           Print Invoice
         </Button>
       </DialogActions>
+
+      {/* Print Preview Dialog */}
+      <TPrintPreviewDialog
+        open={printDialogOpen}
+        onClose={() => setPrintDialogOpen(false)}
+        documentType="invoice"
+        documentId={invoice?.id || 0}
+      />
     </Dialog>
   );
 }

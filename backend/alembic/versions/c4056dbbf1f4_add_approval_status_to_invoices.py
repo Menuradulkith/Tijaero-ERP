@@ -1,7 +1,7 @@
 """add_approval_status_to_invoices
 
 Revision ID: c4056dbbf1f4
-Revises: merge_heads_jan17
+Revises: g1a2b3c4d5e6
 Create Date: 2026-01-18 06:22:48.874003
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = 'c4056dbbf1f4'
-down_revision = 'merge_heads_jan17'
+down_revision = 'g1a2b3c4d5e6'
 branch_labels = None
 depends_on = None
 

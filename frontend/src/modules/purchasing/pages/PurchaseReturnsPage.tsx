@@ -4,71 +4,72 @@
  * With barcode scanning/validation for purchase returns
  */
 
-import { useMemo, useCallback, useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  TextField,
-  Typography,
-  IconButton,
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-  Paper,
-  Autocomplete,
-  Button,
-  Stepper,
-  Step,
-  StepLabel,
-  Chip,
-  CircularProgress,
-  InputAdornment,
-  Alert,
-} from "@mui/material";
-import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DeleteIcon from "@mui/icons-material/Delete";
+import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  IconButton,
+  InputAdornment,
+  Paper,
+  Step,
+  StepLabel,
+  Stepper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Import tijaero components
 import {
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
   MasterDetailLayout,
+  RETURN_STATUS_FILTER_OPTIONS,
   SearchableList,
   SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  FormSection,
-  EmptyState,
-  TFilterPanel,
+  SortOption,
   TBranchFilter,
-  TStatusFilter,
-  RETURN_STATUS_FILTER_OPTIONS,
-  TStatusChip,
+  TFilterPanel,
   TPrintButton,
+  TPrintPreviewDialog,
+  TStatusChip,
+  TStatusFilter,
   canPrintDocument,
   getStatusProps,
-  useMasterDetailState,
-  SortOption,
   modernTableStyles,
+  useMasterDetailState
 } from "@/components/tijaero";
 
-import { purchaseReturnsApi, goodReceivedNotesApi, purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
+import { goodReceivedNotesApi, purchaseOrdersApi, purchaseReturnsApi, suppliersApi } from "@/modules/purchasing/api";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
-import { 
-  PurchasingReturn, 
-  PurchasingReturnWithItems,
-  PurchasingReturnCreate, 
-  PurchasingReturnItemCreate,
+import {
   GoodReceivedNote,
   PurchasingOrder,
+  PurchasingReturn,
+  PurchasingReturnCreate,
+  PurchasingReturnItemCreate,
+  PurchasingReturnWithItems,
   Supplier,
 } from "@/modules/purchasing/types";
 
@@ -127,18 +128,27 @@ export default function PurchaseReturnsPage() {
   const queryClient = useQueryClient();
   const [lineItems, setLineItems] = useState<ReturnLineItem[]>([]);
   const [formStep, setFormStep] = useState(0);
-  
+
+  // Print Dialog State
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [selectedReturnIdForPrint, setSelectedReturnIdForPrint] = useState<number | null>(null);
+
+  const handlePrint = (returnId: number) => {
+    setSelectedReturnIdForPrint(returnId);
+    setPrintDialogOpen(true);
+  };
+
   // Confirm dialog for unsaved changes and delete actions
   const confirmDialog = useConfirmDialog();
-  
+
   // Validation state - track which fields have been touched/blurred
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  
+
   // Mark field as touched when user leaves it
   const handleBlur = (fieldName: string) => {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
   };
-  
+
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
@@ -232,7 +242,7 @@ export default function PurchaseReturnsPage() {
   const handleSelectReturnWithItems = useCallback(async (ret: PurchasingReturn) => {
     const selected = await handleSelectReturn(ret);
     if (!selected) return; // User cancelled
-    
+
     // Load detailed items after selection
     setTouched({});
     setBarcodeInput("");
@@ -390,7 +400,7 @@ export default function PurchaseReturnsPage() {
 
     // Get the selected GRN info for validation
     const selectedGrn = grns?.find((g: GoodReceivedNote) => g.id === formData.goodreceivednote_id);
-    
+
     if (!selectedGrn) {
       setValidationError("Please select a GRN first");
       return;
@@ -480,7 +490,7 @@ export default function PurchaseReturnsPage() {
   };
 
   const handleUpdateLineItem = (id: string, field: keyof ReturnLineItem, value: any) => {
-    setLineItems(lineItems.map(item => 
+    setLineItems(lineItems.map(item =>
       item._id === id ? { ...item, [field]: value } : item
     ));
   };
@@ -549,7 +559,7 @@ export default function PurchaseReturnsPage() {
   // Validation error messages
   const getFieldError = (fieldName: string): string | undefined => {
     if (!touched[fieldName] && !isCreating) return undefined;
-    
+
     switch (fieldName) {
       case 'purchasing_return_no':
         if (!formData.purchasing_return_no) return 'Return number is required';
@@ -574,7 +584,7 @@ export default function PurchaseReturnsPage() {
 
   // Step 1 validation
   const isStep1Valid = formData.purchasing_return_no && formData.goodreceivednote_id > 0;
-  
+
   // Full form validation
   const isFormValid = isStep1Valid && lineItems.length > 0;
   const isSaving = createMutation.isPending;
@@ -734,6 +744,7 @@ export default function PurchaseReturnsPage() {
               documentId={selectedReturn.id}
               disabled={!canPrintDocument(selectedReturn.status)}
               disabledReason="Cannot print draft/pending returns"
+              onClick={() => handlePrint(selectedReturn.id)}
             />
           ) : undefined
         }
@@ -777,10 +788,10 @@ export default function PurchaseReturnsPage() {
                     value={grns?.find((g: GoodReceivedNote) => g.id === formData.goodreceivednote_id) || null}
                     onChange={(_, newValue: GoodReceivedNote | null) => {
                       if (newValue) {
-                        setFormData({ 
-                          ...formData, 
+                        setFormData({
+                          ...formData,
                           goodreceivednote_id: newValue.id,
-                          branch_code: newValue.branch_code 
+                          branch_code: newValue.branch_code
                         });
                       } else {
                         setFormData({ ...formData, goodreceivednote_id: 0 });
@@ -789,10 +800,10 @@ export default function PurchaseReturnsPage() {
                     }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
-                      <TextField 
-                        {...params} 
-                        label="Good Received Note" 
-                        required 
+                      <TextField
+                        {...params}
+                        label="Good Received Note"
+                        required
                         error={hasError('goodreceivednote_id')}
                         helperText={getFieldError('goodreceivednote_id')}
                       />
@@ -829,14 +840,14 @@ export default function PurchaseReturnsPage() {
                 {/* Next/Cancel buttons for step 1 in create mode */}
                 {isCreating && (
                   <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
-                    <Button 
-                      variant="outlined" 
+                    <Button
+                      variant="outlined"
                       onClick={() => handleCancel(filteredReturns)}
                     >
                       Cancel
                     </Button>
-                    <Button 
-                      variant="contained" 
+                    <Button
+                      variant="contained"
                       onClick={handleNextStep}
                       disabled={!isStep1Valid}
                       endIcon={<ArrowForwardIcon />}
@@ -853,8 +864,8 @@ export default function PurchaseReturnsPage() {
               <>
                 {/* Back button in create mode only */}
                 {isCreating && (
-                  <Button 
-                    variant="text" 
+                  <Button
+                    variant="text"
                     onClick={handlePreviousStep}
                     startIcon={<ArrowBackIcon />}
                     sx={{ mb: 2 }}
@@ -865,11 +876,11 @@ export default function PurchaseReturnsPage() {
 
                 {/* Barcode Scanner Section */}
                 {(isEditing || isCreating) && (
-                  <Paper 
-                    variant="outlined" 
-                    sx={{ 
-                      p: 2, 
-                      mb: 2, 
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      p: 2,
+                      mb: 2,
                       bgcolor: "primary.50",
                       borderColor: "primary.main",
                       borderWidth: 2,
@@ -921,11 +932,11 @@ export default function PurchaseReturnsPage() {
                     {/* Note: Approval is always required for purchase returns */}
                     <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
                       <Typography variant="body2" color="text.secondary">
-                        <Chip 
-                          label="Requires Approval" 
-                          size="small" 
-                          color="warning" 
-                          sx={{ mr: 1 }} 
+                        <Chip
+                          label="Requires Approval"
+                          size="small"
+                          color="warning"
+                          sx={{ mr: 1 }}
                         />
                         All purchase returns require approval before processing
                       </Typography>
@@ -963,138 +974,139 @@ export default function PurchaseReturnsPage() {
                     </IconButton>
                   )}
                 </Box>
-                
+
                 {/* Warning for empty items */}
                 {(isEditing || isCreating) && lineItems.length === 0 && (
                   <Alert severity="warning" sx={{ mb: 2 }}>
                     At least one item is required to save the return. Scan barcodes to add items.
                   </Alert>
                 )}
-                
+
                 <Box>
-              <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={modernTableStyles.headerRow}>
-                      <TableCell>Barcode</TableCell>
-                      <TableCell>Product</TableCell>
-                      <TableCell>Branch Code</TableCell>
-                      <TableCell>Added Date</TableCell>
-                      <TableCell align="right" sx={{ width: 120 }}>Purchase Price (Rs.)</TableCell>
-                      <TableCell align="right" sx={{ width: 120 }}>Return Price (Rs.)</TableCell>
-                      {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {lineItems.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={isEditing || isCreating ? 7 : 6} sx={modernTableStyles.emptyCell}>
-                          {(isEditing || isCreating) 
-                            ? "Scan barcodes above to add items" 
-                            : "No items added yet"}
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      lineItems.map((item, index) => {
-                        const validatedItem = validatedItems.find(v => v.barcode === item.barcode);
-                        return (
-                        <TableRow key={item._id} sx={{ 
-                          ...modernTableStyles.bodyRow,
-                          ...(index % 2 === 1 && { bgcolor: "grey.25" }),
-                        }}>
-                          <TableCell>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                              {validatedItem && (
-                                <CheckCircleIcon fontSize="small" color="success" />
-                              )}
-                            {(isEditing || isCreating) && !validatedItem ? (
-                              <TextField
-                                size="small"
-                                fullWidth
-                                value={item.barcode}
-                                onChange={(e) => handleUpdateLineItem(item._id, "barcode", e.target.value)}
-                                placeholder="Barcode"
-                              />
-                            ) : (
-                              <Typography variant="body2">{item.barcode}</Typography>
-                            )}
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            {validatedItem ? (
-                              <Typography variant="body2">{validatedItem.product_name}</Typography>
-                            ) : item.product_name ? (
-                              <Typography variant="body2">{item.product_name}</Typography>
-                            ) : (isEditing || isCreating) ? (
-                              <TextField
-                                size="small"
-                                type="number"
-                                value={item.product_id}
-                                onChange={(e) => handleUpdateLineItem(item._id, "product_id", parseInt(e.target.value) || 0)}
-                                sx={{ width: 100 }}
-                                placeholder="Product ID"
-                              />
-                            ) : (
-                              `#${item.product_id}`
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {validatedItem?.branch_code || item.branch_code || formData.branch_code || "-"}
-                          </TableCell>
-                          <TableCell>
-                            {item.added_date ? new Date(item.added_date).toLocaleDateString() : (isCreating ? "New" : "-")}
-                          </TableCell>
-                          <TableCell align="right">
-                            {(isEditing || isCreating) ? (
-                              <TextField
-                                size="small"
-                                type="number"
-                                value={item.purchasing_price}
-                                onChange={(e) => handleUpdateLineItem(item._id, "purchasing_price", parseFloat(e.target.value) || 0)}
-                                sx={{ width: 100 }}
-                                inputProps={{ min: 0, step: 0.01 }}
-                              />
-                            ) : (
-                              (Number(item.purchasing_price) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                            )}
-                          </TableCell>
-                          <TableCell align="right">
-                            {(isEditing || isCreating) ? (
-                              <TextField
-                                size="small"
-                                type="number"
-                                value={item.return_price ?? 0}
-                                onChange={(e) => handleUpdateLineItem(item._id, "return_price", parseFloat(e.target.value) || 0)}
-                                sx={{ width: 100 }}
-                                inputProps={{ min: 0, step: 0.01 }}
-                              />
-                            ) : (
-                              (Number(item.return_price) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                            )}
-                          </TableCell>
-                          {(isEditing || isCreating) && (
-                            <TableCell>
-                              <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </TableCell>
-                          )}
+                  <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={modernTableStyles.headerRow}>
+                          <TableCell>Barcode</TableCell>
+                          <TableCell>Product</TableCell>
+                          <TableCell>Branch Code</TableCell>
+                          <TableCell>Added Date</TableCell>
+                          <TableCell align="right" sx={{ width: 120 }}>Purchase Price (Rs.)</TableCell>
+                          <TableCell align="right" sx={{ width: 120 }}>Return Price (Rs.)</TableCell>
+                          {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
                         </TableRow>
-                      );})
-                    )}
-                    <TableRow sx={{ bgcolor: "action.hover" }}>
-                      <TableCell colSpan={isEditing || isCreating ? 5 : 5} align="right">
-                        <Typography fontWeight="bold">Total Return:</Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="bold">{(calculateTotal() || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
-                      </TableCell>
-                      {(isEditing || isCreating) && <TableCell />}
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </Paper>
-            </Box>
+                      </TableHead>
+                      <TableBody>
+                        {lineItems.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={isEditing || isCreating ? 7 : 6} sx={modernTableStyles.emptyCell}>
+                              {(isEditing || isCreating)
+                                ? "Scan barcodes above to add items"
+                                : "No items added yet"}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          lineItems.map((item, index) => {
+                            const validatedItem = validatedItems.find(v => v.barcode === item.barcode);
+                            return (
+                              <TableRow key={item._id} sx={{
+                                ...modernTableStyles.bodyRow,
+                                ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                              }}>
+                                <TableCell>
+                                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                    {validatedItem && (
+                                      <CheckCircleIcon fontSize="small" color="success" />
+                                    )}
+                                    {(isEditing || isCreating) && !validatedItem ? (
+                                      <TextField
+                                        size="small"
+                                        fullWidth
+                                        value={item.barcode}
+                                        onChange={(e) => handleUpdateLineItem(item._id, "barcode", e.target.value)}
+                                        placeholder="Barcode"
+                                      />
+                                    ) : (
+                                      <Typography variant="body2">{item.barcode}</Typography>
+                                    )}
+                                  </Box>
+                                </TableCell>
+                                <TableCell>
+                                  {validatedItem ? (
+                                    <Typography variant="body2">{validatedItem.product_name}</Typography>
+                                  ) : item.product_name ? (
+                                    <Typography variant="body2">{item.product_name}</Typography>
+                                  ) : (isEditing || isCreating) ? (
+                                    <TextField
+                                      size="small"
+                                      type="number"
+                                      value={item.product_id}
+                                      onChange={(e) => handleUpdateLineItem(item._id, "product_id", parseInt(e.target.value) || 0)}
+                                      sx={{ width: 100 }}
+                                      placeholder="Product ID"
+                                    />
+                                  ) : (
+                                    `#${item.product_id}`
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {validatedItem?.branch_code || item.branch_code || formData.branch_code || "-"}
+                                </TableCell>
+                                <TableCell>
+                                  {item.added_date ? new Date(item.added_date).toLocaleDateString() : (isCreating ? "New" : "-")}
+                                </TableCell>
+                                <TableCell align="right">
+                                  {(isEditing || isCreating) ? (
+                                    <TextField
+                                      size="small"
+                                      type="number"
+                                      value={item.purchasing_price}
+                                      onChange={(e) => handleUpdateLineItem(item._id, "purchasing_price", parseFloat(e.target.value) || 0)}
+                                      sx={{ width: 100 }}
+                                      inputProps={{ min: 0, step: 0.01 }}
+                                    />
+                                  ) : (
+                                    (Number(item.purchasing_price) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                  )}
+                                </TableCell>
+                                <TableCell align="right">
+                                  {(isEditing || isCreating) ? (
+                                    <TextField
+                                      size="small"
+                                      type="number"
+                                      value={item.return_price ?? 0}
+                                      onChange={(e) => handleUpdateLineItem(item._id, "return_price", parseFloat(e.target.value) || 0)}
+                                      sx={{ width: 100 }}
+                                      inputProps={{ min: 0, step: 0.01 }}
+                                    />
+                                  ) : (
+                                    (Number(item.return_price) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                  )}
+                                </TableCell>
+                                {(isEditing || isCreating) && (
+                                  <TableCell>
+                                    <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </TableCell>
+                                )}
+                              </TableRow>
+                            );
+                          })
+                        )}
+                        <TableRow sx={{ bgcolor: "action.hover" }}>
+                          <TableCell colSpan={isEditing || isCreating ? 5 : 5} align="right">
+                            <Typography fontWeight="bold">Total Return:</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography fontWeight="bold">{(calculateTotal() || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                          </TableCell>
+                          {(isEditing || isCreating) && <TableCell />}
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </Paper>
+                </Box>
               </>
             )}
           </>
@@ -1113,6 +1125,13 @@ export default function PurchaseReturnsPage() {
         detailPanel={detailPanel}
       />
       <ConfirmDialog {...confirmDialog.dialogProps} />
+
+      <TPrintPreviewDialog
+        open={printDialogOpen}
+        onClose={() => setPrintDialogOpen(false)}
+        documentType="purchase-return"
+        documentId={selectedReturnIdForPrint || 0}
+      />
     </>
   );
 }

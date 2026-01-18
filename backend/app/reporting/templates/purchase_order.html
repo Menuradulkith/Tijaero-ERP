@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,7 +11,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
@@ -19,14 +20,14 @@
             background: #fff;
             padding: 15px;
         }
-        
+
         .document {
             max-width: 800px;
             margin: 0 auto;
             background: #fff;
             padding: 20px;
         }
-        
+
         /* Header */
         .header {
             display: flex;
@@ -36,11 +37,11 @@
             padding-bottom: 10px;
             border-bottom: 2px solid #1a4480;
         }
-        
+
         .company-info {
             flex: 1;
         }
-        
+
         .company-info .logo {
             width: 50px;
             height: 50px;
@@ -55,52 +56,52 @@
             float: left;
             margin-right: 10px;
         }
-        
+
         .company-info h1 {
             font-size: 20px;
             color: #1a4480;
             font-weight: bold;
             margin-bottom: 2px;
         }
-        
+
         .company-info h1 span {
             font-style: italic;
             font-weight: normal;
         }
-        
+
         .company-info p {
             color: #666;
             font-size: 10px;
             line-height: 1.3;
         }
-        
+
         /* Document Info Grid */
         .doc-info {
             width: 280px;
         }
-        
+
         .doc-info table {
             width: 100%;
             border-collapse: collapse;
             font-size: 10px;
         }
-        
+
         .doc-info td {
             border: 1px solid #1a4480;
             padding: 3px 6px;
         }
-        
+
         .doc-info td.label {
             background: #1a4480;
             color: #fff;
             font-weight: bold;
             width: 45%;
         }
-        
+
         .doc-info td.value {
             background: #fff;
         }
-        
+
         /* Supplier Info */
         .supplier-section {
             margin-bottom: 15px;
@@ -108,25 +109,25 @@
             border: 1px solid #ddd;
             background: #f9f9f9;
         }
-        
+
         .supplier-section table {
             width: 100%;
             border-collapse: collapse;
         }
-        
+
         .supplier-section td.label {
             font-weight: bold;
             width: 120px;
             color: #1a4480;
         }
-        
+
         /* Items Table */
         .items-table {
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 15px;
         }
-        
+
         .items-table th {
             background: #1a4480;
             color: #fff;
@@ -135,53 +136,57 @@
             font-weight: bold;
             border: 1px solid #1a4480;
         }
-        
+
         .items-table td {
             border: 1px solid #ccc;
             padding: 6px;
             text-align: center;
         }
-        
+
         .items-table td.description {
             text-align: left;
         }
-        
+
+        .items-table td.amount {
+            text-align: right;
+        }
+
         .items-table tbody tr:nth-child(even) {
             background: #f9f9f9;
         }
-        
+
         /* Totals Box */
         .totals-section {
             display: flex;
             justify-content: flex-end;
             margin-bottom: 15px;
         }
-        
+
         .totals-box {
             width: 200px;
         }
-        
+
         .totals-box table {
             width: 100%;
             border-collapse: collapse;
         }
-        
+
         .totals-box td {
             border: 1px solid #1a4480;
             padding: 4px 8px;
         }
-        
+
         .totals-box td.label {
             background: #1a4480;
             color: #fff;
             font-weight: bold;
         }
-        
+
         .totals-box td.value {
             text-align: right;
             font-weight: bold;
         }
-        
+
         /* Remarks */
         .remarks-section {
             background: #f9f9f9;
@@ -189,14 +194,14 @@
             border: 1px solid #ddd;
             margin-bottom: 15px;
         }
-        
+
         .remarks-section h3 {
             font-size: 10px;
             text-transform: uppercase;
             color: #1a4480;
             margin-bottom: 5px;
         }
-        
+
         /* Signatures */
         .signatures {
             display: flex;
@@ -204,23 +209,23 @@
             margin-top: 30px;
             padding-top: 10px;
         }
-        
+
         .signature-box {
             text-align: center;
             width: 30%;
         }
-        
+
         .signature-box .line {
             border-top: 1px solid #333;
             margin-bottom: 5px;
             min-height: 40px;
         }
-        
+
         .signature-box .title {
             font-size: 10px;
             font-weight: bold;
         }
-        
+
         /* Print Info */
         .print-info {
             margin-top: 20px;
@@ -229,17 +234,26 @@
             font-size: 9px;
             color: #999;
             text-align: center;
+            width: 100%;
         }
-        
+
         @media print {
-            body { padding: 0; }
-            .document { border: none; padding: 10px; }
+            body {
+                padding: 0;
+            }
+
+            .document {
+                border: none;
+                padding: 10px;
+            }
         }
     </style>
 </head>
+
 <body>
     <div class="document">
         <!-- Header -->
+        {% if options.show_header %}
         <div class="header">
             <div class="company-info">
                 <div class="logo">T</div>
@@ -270,16 +284,13 @@
                     </tr>
                     <tr>
                         <td class="label">Payment</td>
-                        <td class="value">{{ po.payment_method }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Expected Delivery</td>
-                        <td class="value">{{ po.good_received_note_date }}</td>
+                        <td class="value">{{ po.payment_terms | default(po.payment_method) | default('-') }}</td>
                     </tr>
                 </table>
             </div>
         </div>
-        
+        {% endif %}
+
         <!-- Supplier Info -->
         <div class="supplier-section">
             <table>
@@ -299,19 +310,25 @@
                     <td class="label">Email</td>
                     <td>{{ supplier.email | default('N/A') }}</td>
                 </tr>
+                {% if supplier.address %}
+                <tr>
+                    <td class="label">Address</td>
+                    <td>{{ supplier.address }}</td>
+                </tr>
+                {% endif %}
             </table>
         </div>
-        
+
         <!-- Items Table -->
         <table class="items-table">
             <thead>
                 <tr>
                     <th style="width: 30px;">NO</th>
-                    <th>Product</th>
+                    <th>Product / Description</th>
                     <th style="width: 50px;">Qty</th>
-                    <th style="width: 80px;">Unit Price</th>
+                    <th style="width: 90px;">Unit Price</th>
                     <th style="width: 70px;">Warranty</th>
-                    <th style="width: 90px;">Total</th>
+                    <th style="width: 100px;">Amount</th>
                 </tr>
             </thead>
             <tbody>
@@ -320,17 +337,18 @@
                     <td>{{ loop.index }}</td>
                     <td class="description">
                         {{ item.product_name | default('Product #' ~ item.product_id) }}
-                        {% if item.remark %}<br><small style="color: #666;">{{ item.remark }}</small>{% endif %}
+                        {% if item.description %}<br><small style="color: #666;">{{ item.description }}</small>{% endif
+                        %}
                     </td>
                     <td>{{ item.quantity }}</td>
-                    <td style="text-align: right;">{{ "%.2f" | format(item.unit_price) }}</td>
+                    <td class="amount">{{ "%.2f" | format(item.unit_price) }}</td>
                     <td>{{ item.warrenty_month | default('-') }}</td>
-                    <td style="text-align: right;">{{ "%.2f" | format(item.quantity * item.unit_price) }}</td>
+                    <td class="amount">{{ "%.2f" | format(item.total) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        
+
         <!-- Totals -->
         <div class="totals-section">
             <div class="totals-box">
@@ -350,16 +368,24 @@
                 </table>
             </div>
         </div>
-        
-        <!-- Remarks -->
-        {% if po.remarks %}
+
+        <!-- Remarks & Notes -->
+        {% if po.remarks or options.custom_remarks %}
         <div class="remarks-section">
-            <h3>Remarks</h3>
-            <p>{{ po.remarks }}</p>
+            {% if po.remarks %}
+            <h3>Internal Remarks</h3>
+            <p style="margin-bottom: 10px;">{{ po.remarks }}</p>
+            {% endif %}
+
+            {% if options.custom_remarks %}
+            <h3>Additional Remarks</h3>
+            <p>{{ options.custom_remarks }}</p>
+            {% endif %}
         </div>
         {% endif %}
-        
+
         <!-- Signatures -->
+        {% if options.show_signatures %}
         <div class="signatures">
             <div class="signature-box">
                 <div class="line"></div>
@@ -374,11 +400,23 @@
                 <div class="title">Supplier Signature</div>
             </div>
         </div>
-        
+        {% endif %}
+
         <!-- Print Info -->
         <div class="print-info">
-            Generated on {{ generated_at }} | Document ID: {{ po.id }}
+            Generated on {{ generated_at }} | PO ID: {{ po.id }}
         </div>
     </div>
+    <script>
+        window.onload = function () {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('auto_print') === 'true') {
+                setTimeout(() => {
+                    window.print();
+                }, 500);
+            }
+        }
+    </script>
 </body>
+
 </html>

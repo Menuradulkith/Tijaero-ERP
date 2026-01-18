@@ -1,31 +1,34 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Box, Paper } from "@mui/material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-} from "@mui/icons-material";
-import { useForm } from "react-hook-form";
-import {
-  TPageHeader,
+  showErrorToast,
+  showSuccessToast,
   TButton,
-  TIconButton,
+  TConfirmDialog,
+  TCurrency,
   TFormDialog,
   TFormField,
-  TConfirmDialog,
-  useTConfirmDialog,
-  TCurrency,
-  showSuccessToast,
-  showErrorToast,
+  TIconButton,
+  TPageHeader,
+  TPrintPreviewDialog,
+  useTConfirmDialog
 } from "@/components/tijaero";
 import { payrollApi } from "@/modules/hr/api";
 import { EmployeePayrollCreate } from "@/modules/hr/types";
+import {
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  Edit as EditIcon,
+  Print as PrintIcon,
+} from "@mui/icons-material";
+import { Box, Paper } from "@mui/material";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
 
 export default function PayrollPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const { dialogProps, confirm } = useTConfirmDialog();
 
@@ -188,9 +191,18 @@ export default function PayrollPage() {
       <TPageHeader
         title="Employee Payroll"
         actions={
-          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
-            New Payroll
-          </TButton>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <TButton
+              startIcon={<PrintIcon />}
+              variant="outlined"
+              onClick={() => setPrintDialogOpen(true)}
+            >
+              Print Report
+            </TButton>
+            <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+              New Payroll
+            </TButton>
+          </Box>
         }
       />
 
@@ -278,6 +290,14 @@ export default function PayrollPage() {
       </TFormDialog>
 
       <TConfirmDialog {...dialogProps} />
+
+      <TPrintPreviewDialog
+        open={printDialogOpen}
+        onClose={() => setPrintDialogOpen(false)}
+        documentType="payroll"
+        documentId={0}
+        title="Payroll Report"
+      />
     </Box>
   );
 }
