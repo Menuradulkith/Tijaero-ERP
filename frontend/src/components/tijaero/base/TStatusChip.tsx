@@ -179,6 +179,9 @@ export const STATUS_MAPS = {
   invoice: {
     draft: { label: "Draft", color: "default" as StatusColor },
     pending: { label: "Pending", color: "warning" as StatusColor },
+    pending_approval: { label: "Pending Approval", color: "warning" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
+    completed: { label: "Completed", color: "success" as StatusColor },
     sent: { label: "Sent", color: "info" as StatusColor },
     paid: { label: "Paid", color: "success" as StatusColor },
     overdue: { label: "Overdue", color: "error" as StatusColor },
@@ -281,8 +284,15 @@ export const TStatusChip: React.FC<TStatusChipProps> = ({
       size={size}
       variant={variant}
       sx={{
-        fontWeight: 500,
-        textTransform: "capitalize",
+        fontWeight: 600,
+        fontSize: '0.75rem',
+        height: size === "small" ? '24px' : '32px',
+        borderRadius: '6px',
+        color: variant === 'filled' ? '#fff' : undefined,
+        '& .MuiChip-label': {
+          px: 1.5,
+          py: 0.5,
+        },
         ...sx,
       }}
     />

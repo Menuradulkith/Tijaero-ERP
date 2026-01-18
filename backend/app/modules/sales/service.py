@@ -416,10 +416,14 @@ class SalesService:
                     sales_stock_id = stock_item.id
                     item_dict['sales_stock_id'] = sales_stock_id
                     
-                    # For completed orders (cash/card/etc), update sales stock status
+                    # Update stock status based on approval status
                     if invoice_dict['approval_status'] == 'completed':
+                        # Cash/Card/Cheque/Bank orders - mark as sold immediately
                         stock_item.status = 'sold'
                         stock_item.is_active = False
+                    elif invoice_dict['approval_status'] == 'pending_approval':
+                        # Credit orders - reserve stock until approved
+                        stock_item.status = 'reserved'
             
             # Calculate line total
             line_total = item_dict['quantity'] * item_dict['selling_price']
@@ -431,23 +435,29 @@ class SalesService:
             
             # Create InvoiceItemsBarcode link if we have both barcode and GRN item
             if barcode and sales_stock_id:
-                # Get the good_received_items_id from sales_stock
+                # Get the good_received_note from sales_stock
                 stock_item = db.query(SalesStock).filter(SalesStock.id == sales_stock_id).first()
                 if stock_item and stock_item.good_received_note_id:
-                    # Find the GRN item for this barcode
-                    from app.modules.purchasing.models import GoodReceivedItems
-                    grn_item = db.query(GoodReceivedItems).filter(
-                        GoodReceivedItems.good_received_note_id == stock_item.good_received_note_id,
-                        GoodReceivedItems.barcode == barcode
+                    # Get the GRN note number
+                    from app.modules.purchasing.models import GoodReceivedItems, GoodReceivedNote
+                    grn = db.query(GoodReceivedNote).filter(
+                        GoodReceivedNote.id == stock_item.good_received_note_id
                     ).first()
                     
-                    if grn_item:
-                        barcode_link = InvoiceItemsBarcode(
-                            created_date=datetime.now(),
-                            good_received_items_id=grn_item.id,
-                            invoice_items_id=item.id
-                        )
-                        db.add(barcode_link)
+                    if grn:
+                        # Find the GRN item for this barcode using the note number
+                        grn_item = db.query(GoodReceivedItems).filter(
+                            GoodReceivedItems.good_received_note == grn.good_received_no,
+                            GoodReceivedItems.barcode == barcode
+                        ).first()
+                        
+                        if grn_item:
+                            barcode_link = InvoiceItemsBarcode(
+                                created_date=datetime.now(),
+                                good_received_items_id=grn_item.id,
+                                invoice_items_id=item.id
+                            )
+                            db.add(barcode_link)
         
         db.commit()
         db.refresh(invoice)
@@ -568,6 +578,7 @@ class SalesService:
     def approve_invoice(self, db: Session, invoice_id: int, user_id: int):
         """
         Approve a pending credit invoice and update stock status.
+        For credit orders, this moves them to approved status.
         """
         invoice = self.get_invoice(db, invoice_id)
         
@@ -589,6 +600,10 @@ class SalesService:
                 if stock_item and stock_item.status == 'reserved':
                     stock_item.status = 'sold'
                     stock_item.is_active = False
+        
+        # For credit orders that are approved, automatically mark as completed
+        # since stock is already marked as sold
+        invoice.approval_status = 'completed'
         
         db.commit()
         db.refresh(invoice)

@@ -28,7 +28,6 @@ import {
   Add as AddIcon,
   Cancel as CancelIcon,
   Delete as DeleteIcon,
-  Done as DoneIcon,
   Edit as EditIcon,
   MenuBook as MenuBookIcon,
   Print as PrintIcon,
@@ -180,7 +179,6 @@ export default function SalesPage() {
   const deleteDialog = useTConfirmDialog();
   const discardDialog = useTConfirmDialog();
   const approveDialog = useTConfirmDialog();
-  const completeDialog = useTConfirmDialog();
   const cancelDialog = useTConfirmDialog();
 
   // Main state using Tijaero hook
@@ -257,11 +255,17 @@ export default function SalesPage() {
   const filteredInvoices = useMemo(() => {
     if (!invoices) return [];
 
-    let filtered = invoices.filter(
-      (invoice) =>
-        invoice.invoice_no.toLowerCase().includes(state.searchQuery.toLowerCase()) ||
-        invoice.branch_code.toLowerCase().includes(state.searchQuery.toLowerCase())
-    );
+    let filtered = invoices.filter((invoice) => {
+      const searchLower = state.searchQuery.toLowerCase();
+      const customer = customers?.find((c) => c.id === invoice.customer_id);
+      const customerName = customer?.customer_name?.toLowerCase() || "";
+
+      return (
+        invoice.invoice_no.toLowerCase().includes(searchLower) ||
+        invoice.branch_code.toLowerCase().includes(searchLower) ||
+        customerName.includes(searchLower)
+      );
+    });
 
     // Apply branch filter
     if (filterBranch) {
@@ -315,10 +319,10 @@ export default function SalesPage() {
     onSuccess: (createdInvoice) => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
-      
+
       const paymentMethod = pendingPaymentMethod.toLowerCase();
       const isCreditPayment = paymentMethod === "credit";
-      
+
       if (isCreditPayment) {
         // Credit payment - needs approval, stay on this page
         showSuccessToast("Sales order created. Credit payment requires approval.");
@@ -326,6 +330,8 @@ export default function SalesPage() {
         setLineItems([]);
         setFormStep(0);
         state.setFormData(emptyInvoiceForm);
+        // Select the newly created invoice so it appears at the top
+        state.setSelectedItem(createdInvoice as Invoice);
       } else {
         // Cash/Card/Cheque/Bank Transfer - auto-approved, go to payment dashboard
         showSuccessToast("Payment completed! Redirecting to payment dashboard...");
@@ -350,10 +356,10 @@ export default function SalesPage() {
     onSuccess: (updatedInvoice) => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
-      
+
       const paymentMethod = pendingPaymentMethod.toLowerCase();
       const isCreditPayment = paymentMethod === "credit";
-      
+
       if (isCreditPayment) {
         // Credit payment - needs approval after edit
         showSuccessToast("Sales order updated. Credit payment requires approval.");
@@ -361,7 +367,7 @@ export default function SalesPage() {
         // Cash/Card - completed status
         showSuccessToast("Sales order updated successfully.");
       }
-      
+
       state.setIsCreating(false);
       state.setIsEditing(false);
       setLineItems([]);
@@ -387,19 +393,6 @@ export default function SalesPage() {
     },
     onError: () => {
       showErrorToast("Failed to approve sales order");
-    },
-  });
-
-  const completeMutation = useMutation({
-    mutationFn: salesApi.complete,
-    onSuccess: (updatedInvoice) => {
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-      queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
-      showSuccessToast("Sales order marked as completed");
-      state.setSelectedItem(updatedInvoice as Invoice);
-    },
-    onError: () => {
-      showErrorToast("Failed to complete sales order");
     },
   });
 
@@ -479,7 +472,12 @@ export default function SalesPage() {
 
   const handleEdit = () => {
     if (!state.selectedItem || !fullInvoice) return;
-    
+
+    // Prevent editing completed or cancelled orders
+    if (state.selectedItem.approval_status === "completed" || state.selectedItem.approval_status === "cancelled") {
+      return;
+    }
+
     // Load invoice data into form
     state.setIsEditing(true);
     state.setIsCreating(false);
@@ -487,7 +485,7 @@ export default function SalesPage() {
     setBarcodeInput("");
     setBarcodeError(null);
     setValidatedBarcodes([]);
-    
+
     // Reset payment details - could be enhanced to load from related tables
     setPaymentDetails({
       cheque_number: "",
@@ -500,7 +498,7 @@ export default function SalesPage() {
       credit_note_id: 0,
       credit_note_amount: 0,
     });
-    
+
     // Set form data from selected invoice
     state.setFormData({
       invoice_no: state.selectedItem.invoice_no,
@@ -520,7 +518,7 @@ export default function SalesPage() {
       special: state.selectedItem.special,
       items: [],
     });
-    
+
     // Load existing line items
     const existingItems = fullInvoice.items.map((item: any) => ({
       product_id: item.product_id,
@@ -537,7 +535,7 @@ export default function SalesPage() {
   const handleSave = () => {
     const subtotal = calculateLineItemsTotal();
     const paymentMethod = state.formData.payment_method || "cash";
-    
+
     // Validate credit limit for credit sales
     if (paymentMethod === "credit" && customerCreditStatus) {
       if (subtotal > customerCreditStatus.available_credit) {
@@ -548,7 +546,7 @@ export default function SalesPage() {
         );
         return;
       }
-      
+
       // Warn about overdue invoices
       if (customerCreditStatus.overdue_count > 0) {
         showErrorToast(
@@ -558,11 +556,11 @@ export default function SalesPage() {
         return;
       }
     }
-    
+
     // Calculate service charges for card payments
     let serviceCharge = 0;
     let total = subtotal;
-    
+
     if (paymentMethod === "card_amex") {
       serviceCharge = subtotal * 0.03; // 3% for Amex
       total = subtotal + serviceCharge;
@@ -604,7 +602,7 @@ export default function SalesPage() {
 
     // Store payment method for post-creation/update navigation
     setPendingPaymentMethod(paymentMethod);
-    
+
     if (state.isEditing && state.selectedItem) {
       // Update existing invoice
       updateMutation.mutate({
@@ -668,7 +666,7 @@ export default function SalesPage() {
 
   const updateLineItem = (index: number, field: keyof ItemFormData, value: number | string) => {
     const updated = [...lineItems];
-    
+
     // Prevent selling price from going below minimum price
     if (field === 'selling_price') {
       const numValue = typeof value === 'number' ? value : parseFloat(value as string) || 0;
@@ -678,7 +676,7 @@ export default function SalesPage() {
         return;
       }
     }
-    
+
     updated[index] = { ...updated[index], [field]: value };
     setLineItems(updated);
   };
@@ -763,12 +761,12 @@ export default function SalesPage() {
       {/* Workflow Actions based on approval_status */}
       {canApprove && state.selectedItem.approval_status === "pending_approval" && (
         <Tooltip title="Approve Order">
-          <IconButton 
-            size="small" 
+          <IconButton
+            size="small"
             color="success"
             onClick={() => approveDialog.open(
               "Approve Sales Order",
-              `Approve invoice ${state.selectedItem?.invoice_no}? Stock will be marked as sold.`,
+              `Approve invoice ${state.selectedItem?.invoice_no}? Stock will be marked as sold and order will be completed.`,
               () => approveMutation.mutate(state.selectedItem!.id)
             )}
             disabled={approveMutation.isPending}
@@ -777,26 +775,10 @@ export default function SalesPage() {
           </IconButton>
         </Tooltip>
       )}
-      {canApprove && state.selectedItem.approval_status === "approved" && (
-        <Tooltip title="Mark as Completed">
-          <IconButton 
-            size="small" 
-            color="primary"
-            onClick={() => completeDialog.open(
-              "Complete Sales Order",
-              `Mark invoice ${state.selectedItem?.invoice_no} as completed?`,
-              () => completeMutation.mutate(state.selectedItem!.id)
-            )}
-            disabled={completeMutation.isPending}
-          >
-            <DoneIcon />
-          </IconButton>
-        </Tooltip>
-      )}
       {canDelete && state.selectedItem.approval_status !== "completed" && state.selectedItem.approval_status !== "cancelled" && (
         <Tooltip title="Cancel Order">
-          <IconButton 
-            size="small" 
+          <IconButton
+            size="small"
             color="error"
             onClick={() => cancelDialog.open(
               "Cancel Sales Order",
@@ -809,13 +791,17 @@ export default function SalesPage() {
           </IconButton>
         </Tooltip>
       )}
-      
+
       {/* Standard Actions */}
-      <Tooltip title="Edit Order">
-        <IconButton size="small" onClick={handleEdit}>
-          <EditIcon />
-        </IconButton>
-      </Tooltip>
+      <Button
+        size="small"
+        variant="outlined"
+        startIcon={<EditIcon />}
+        onClick={handleEdit}
+        disabled={state.selectedItem.approval_status === "completed" || state.selectedItem.approval_status === "cancelled"}
+      >
+        Edit
+      </Button>
       <Tooltip title="Print Invoice">
         <IconButton size="small" onClick={handleViewDetails}>
           <PrintIcon />
@@ -939,10 +925,40 @@ export default function SalesPage() {
                   })}
                   <TableRow sx={modernTableStyles.footerRow}>
                     <TableCell colSpan={5} align="right">
-                      <strong>Total:</strong>
+                      <strong>Subtotal:</strong>
                     </TableCell>
                     <TableCell align="right">
                       <strong>{(fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                    </TableCell>
+                  </TableRow>
+                  {/* Service Charge Row - Only for card payments */}
+                  {(fullInvoice.payment_method === "card_amex" ||
+                    fullInvoice.payment_method === "card_visa" ||
+                    fullInvoice.payment_method === "card_mastercard") &&
+                    fullInvoice.service_charge_amount > 0 && (
+                      <TableRow sx={{ bgcolor: "warning.lighter" }}>
+                        <TableCell colSpan={5} align="right">
+                          <Typography fontWeight="medium" color="warning.dark">
+                            Service Charge ({fullInvoice.service_charge_rate}%):
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight="medium" color="warning.dark">
+                            {fullInvoice.service_charge_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  <TableRow sx={{ bgcolor: "success.lighter" }}>
+                    <TableCell colSpan={5} align="right">
+                      <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
+                        Grand Total:
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
+                        {((fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0) + (fullInvoice.service_charge_amount || 0)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Typography>
                     </TableCell>
                   </TableRow>
                 </TableBody>
@@ -972,31 +988,7 @@ export default function SalesPage() {
           </FormSection>
         )}
 
-        {/* Adjustments */}
-        {state.selectedItem && (state.selectedItem.payment_adjustments !== 0 ||
-          state.selectedItem.cupon_amount !== 0 ||
-          state.selectedItem.credit_note_amount !== 0) && (
-            <FormSection title="Adjustments">
-              {state.selectedItem.payment_adjustments !== 0 && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Payment Adjustments</Typography>
-                  <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
-                </Box>
-              )}
-              {state.selectedItem.cupon_amount !== 0 && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Coupon Amount</Typography>
-                  <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cupon_amount.toFixed(2)}</Typography>
-                </Box>
-              )}
-              {state.selectedItem.credit_note_amount !== 0 && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Credit Note</Typography>
-                  <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
-                </Box>
-              )}
-            </FormSection>
-          )}
+
       </>
     );
   };
@@ -1044,17 +1036,17 @@ export default function SalesPage() {
 
           {/* Customer Credit Information Panel */}
           {customerCreditStatus && (state.formData.customer_id || 0) > 0 && (
-            <Box sx={{ 
-              p: 2, 
-              mb: 2, 
+            <Box sx={{
+              p: 2,
+              mb: 2,
               borderRadius: 1,
-              bgcolor: customerCreditStatus.available_credit <= 0 ? "error.lighter" : 
-                       customerCreditStatus.available_credit < customerCreditStatus.max_credit_limit * 0.2 ? "warning.lighter" : 
-                       "success.lighter",
+              bgcolor: customerCreditStatus.available_credit <= 0 ? "error.lighter" :
+                customerCreditStatus.available_credit < customerCreditStatus.max_credit_limit * 0.2 ? "warning.lighter" :
+                  "success.lighter",
               border: 1,
-              borderColor: customerCreditStatus.available_credit <= 0 ? "error.light" : 
-                          customerCreditStatus.available_credit < customerCreditStatus.max_credit_limit * 0.2 ? "warning.light" : 
-                          "success.light"
+              borderColor: customerCreditStatus.available_credit <= 0 ? "error.light" :
+                customerCreditStatus.available_credit < customerCreditStatus.max_credit_limit * 0.2 ? "warning.light" :
+                  "success.light"
             }}>
               <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
                 Customer Credit Information
@@ -1097,9 +1089,9 @@ export default function SalesPage() {
 
           {/* Recent Customer Sales Panel */}
           {(state.formData.customer_id || 0) > 0 && (
-            <Box sx={{ 
-              p: 2, 
-              mb: 2, 
+            <Box sx={{
+              p: 2,
+              mb: 2,
               borderRadius: 1,
               bgcolor: "background.paper",
               border: 1,
@@ -1139,30 +1131,30 @@ export default function SalesPage() {
                           {format(new Date(sale.created_date), "dd/MM/yyyy")}
                         </TableCell>
                         <TableCell>
-                          <Chip 
-                            label={sale.payment_method?.replace(/_/g, " ").toUpperCase()} 
-                            size="small" 
+                          <Chip
+                            label={sale.payment_method?.replace(/_/g, " ").toUpperCase()}
+                            size="small"
                             color={sale.payment_method === "cash" ? "success" : "default"}
                           />
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight={500}>
                             Rs. {(sale.grand_total || (
-                              sale.cash_amount + 
-                              sale.card_visa_amount + 
-                              sale.card_mastercard_amount + 
-                              sale.card_amex_amount + 
-                              sale.cheque_amount + 
-                              sale.bank_transfer_amount + 
+                              sale.cash_amount +
+                              sale.card_visa_amount +
+                              sale.card_mastercard_amount +
+                              sale.card_amex_amount +
+                              sale.cheque_amount +
+                              sale.bank_transfer_amount +
                               sale.credit_amount
                             ))?.toLocaleString()}
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <TStatusChip 
-                            status={sale.approval_status || "pending_approval"} 
-                            statusMap="invoice" 
-                            size="small" 
+                          <TStatusChip
+                            status={sale.approval_status || "pending_approval"}
+                            statusMap="invoice"
+                            size="small"
                           />
                         </TableCell>
                       </TableRow>
@@ -1234,31 +1226,31 @@ export default function SalesPage() {
             </FormSection>
           )}
 
-          {(state.formData.payment_method === "card_visa" || 
-            state.formData.payment_method === "card_mastercard" || 
+          {(state.formData.payment_method === "card_visa" ||
+            state.formData.payment_method === "card_mastercard" ||
             state.formData.payment_method === "card_amex") && (
-            <FormSection title="Card Payment Details" columns={2}>
-              <TextField
-                label="Card Reference Number"
-                size="small"
-                value={paymentDetails.card_ref_number}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, card_ref_number: e.target.value })}
-                placeholder="Transaction/Approval code"
-              />
-              <TextField
-                label="Card Holder Name"
-                size="small"
-                value={paymentDetails.card_holder_name}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, card_holder_name: e.target.value })}
-              />
-              <Box sx={{ gridColumn: "span 2", p: 1.5, bgcolor: "warning.lighter", borderRadius: 1 }}>
-                <Typography variant="body2" color="warning.dark">
-                  <strong>Service Charge:</strong>{" "}
-                  {state.formData.payment_method === "card_amex" ? "3.0%" : "2.7%"} will be applied to the total amount
-                </Typography>
-              </Box>
-            </FormSection>
-          )}
+              <FormSection title="Card Payment Details" columns={2}>
+                <TextField
+                  label="Card Reference Number"
+                  size="small"
+                  value={paymentDetails.card_ref_number}
+                  onChange={(e) => setPaymentDetails({ ...paymentDetails, card_ref_number: e.target.value })}
+                  placeholder="Transaction/Approval code"
+                />
+                <TextField
+                  label="Card Holder Name"
+                  size="small"
+                  value={paymentDetails.card_holder_name}
+                  onChange={(e) => setPaymentDetails({ ...paymentDetails, card_holder_name: e.target.value })}
+                />
+                <Box sx={{ gridColumn: "span 2", p: 1.5, bgcolor: "warning.lighter", borderRadius: 1 }}>
+                  <Typography variant="body2" color="warning.dark">
+                    <strong>Service Charge:</strong>{" "}
+                    {state.formData.payment_method === "card_amex" ? "3.0%" : "2.7%"} will be applied to the total amount
+                  </Typography>
+                </Box>
+              </FormSection>
+            )}
 
           {state.formData.payment_method === "bank_transfer" && (
             <FormSection title="Bank Transfer Details" columns={2}>
@@ -1402,179 +1394,179 @@ export default function SalesPage() {
                   ) : null,
                 }}
                 autoFocus
-          />
-          <Button
-            variant="contained"
-            color="warning"
-            onClick={() => handleValidateBarcode(barcodeInput)}
-            disabled={isValidatingBarcode || !barcodeInput.trim()}
-            sx={{ minWidth: 100 }}
-          >
-            {isValidatingBarcode ? <CircularProgress size={20} /> : "Add"}
-          </Button>
-        </Box>
-      </Paper>
+              />
+              <Button
+                variant="contained"
+                color="warning"
+                onClick={() => handleValidateBarcode(barcodeInput)}
+                disabled={isValidatingBarcode || !barcodeInput.trim()}
+                sx={{ minWidth: 100 }}
+              >
+                {isValidatingBarcode ? <CircularProgress size={20} /> : "Add"}
+              </Button>
+            </Box>
+          </Paper>
 
-      {/* Line Items Section */}
-      <Box sx={{ mb: 3 }}>
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-          <Typography variant="subtitle1" fontWeight="bold">Line Items</Typography>
-          <IconButton size="small" onClick={addLineItem} color="primary" title="Add manual item">
-            <AddIcon />
-          </IconButton>
-        </Box>
+          {/* Line Items Section */}
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+              <Typography variant="subtitle1" fontWeight="bold">Line Items</Typography>
+              <IconButton size="small" onClick={addLineItem} color="primary" title="Add manual item">
+                <AddIcon />
+              </IconButton>
+            </Box>
 
-        <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={modernTableStyles.headerRow}>
-                <TableCell>Barcode</TableCell>
-                <TableCell>Product</TableCell>
-                <TableCell>Branch Code</TableCell>
-                <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
-                <TableCell align="right" sx={{ width: 100 }}>Warranty (Months)</TableCell>
-                <TableCell align="right" sx={{ width: 120 }}>Min Price (Rs.)</TableCell>
-                <TableCell align="right" sx={{ width: 120 }}>Selling Price (Rs.)</TableCell>
-                <TableCell sx={{ width: 50 }} />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {lineItems.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} sx={modernTableStyles.emptyCell}>
-                    Scan barcodes above to add items
-                  </TableCell>
-                </TableRow>
-              ) : (
-                lineItems.map((item, index) => (
-                  <TableRow key={index} sx={{
-                    ...modernTableStyles.bodyRow,
-                    ...(index % 2 === 1 && { bgcolor: "grey.25" }),
-                  }}>
-                    {/* Barcode Column - with validation indicator */}
-                    <TableCell>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                        {item.barcode && validatedBarcodes.includes(item.barcode) && (
-                          <CheckCircleIcon fontSize="small" color="success" />
-                        )}
-                        <Typography variant="body2" color={item.barcode ? "success.main" : "text.secondary"} fontWeight={item.barcode ? 500 : 400}>
-                          {item.barcode || "-"}
-                        </Typography>
-                      </Box>
+            <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={modernTableStyles.headerRow}>
+                    <TableCell>Barcode</TableCell>
+                    <TableCell>Product</TableCell>
+                    <TableCell>Branch Code</TableCell>
+                    <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
+                    <TableCell align="right" sx={{ width: 100 }}>Warranty (Months)</TableCell>
+                    <TableCell align="right" sx={{ width: 120 }}>Min Price (Rs.)</TableCell>
+                    <TableCell align="right" sx={{ width: 120 }}>Selling Price (Rs.)</TableCell>
+                    <TableCell sx={{ width: 50 }} />
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {lineItems.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} sx={modernTableStyles.emptyCell}>
+                        Scan barcodes above to add items
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    lineItems.map((item, index) => (
+                      <TableRow key={index} sx={{
+                        ...modernTableStyles.bodyRow,
+                        ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                      }}>
+                        {/* Barcode Column - with validation indicator */}
+                        <TableCell>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            {item.barcode && validatedBarcodes.includes(item.barcode) && (
+                              <CheckCircleIcon fontSize="small" color="success" />
+                            )}
+                            <Typography variant="body2" color={item.barcode ? "success.main" : "text.secondary"} fontWeight={item.barcode ? 500 : 400}>
+                              {item.barcode || "-"}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+
+                        {/* Product Column */}
+                        <TableCell>
+                          <Typography variant="body2">{item.product_name || `Product #${item.product_id}`}</Typography>
+                        </TableCell>
+
+                        {/* Branch Code Column */}
+                        <TableCell>
+                          {item.branch_code || state.formData.branch_code || "-"}
+                        </TableCell>
+
+                        {/* Quantity Column */}
+                        <TableCell align="right">
+                          <Typography variant="body2">{item.quantity}</Typography>
+                        </TableCell>
+
+                        {/* Warranty Column */}
+                        <TableCell align="right">
+                          <TextField
+                            size="small"
+                            type="number"
+                            value={item.warrenty_month}
+                            onChange={(e) => updateLineItem(index, "warrenty_month", e.target.value)}
+                            sx={{ width: 80 }}
+                            inputProps={{ min: 0 }}
+                          />
+                        </TableCell>
+
+                        {/* Min Price Column */}
+                        <TableCell align="right">
+                          <Typography variant="body2" color="text.secondary">
+                            {(item.minimum_selling_price || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </Typography>
+                        </TableCell>
+
+                        {/* Selling Price Column */}
+                        <TableCell align="right">
+                          <TextField
+                            size="small"
+                            type="number"
+                            value={item.selling_price}
+                            onChange={(e) => updateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)}
+                            sx={{ width: 100 }}
+                            inputProps={{ min: item.minimum_selling_price, step: 0.01 }}
+                            error={item.selling_price < item.minimum_selling_price}
+                            helperText={item.selling_price < item.minimum_selling_price ? `Min: ${item.minimum_selling_price}` : ""}
+                          />
+                        </TableCell>
+
+                        {/* Delete Button Column */}
+                        <TableCell align="center">
+                          <IconButton size="small" color="error" onClick={() => removeLineItem(index)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                  {/* Total Row */}
+                  <TableRow sx={{ bgcolor: "action.hover" }}>
+                    <TableCell colSpan={7} align="right">
+                      <Typography fontWeight="bold">Subtotal:</Typography>
                     </TableCell>
-                    
-                    {/* Product Column */}
-                    <TableCell>
-                      <Typography variant="body2">{item.product_name || `Product #${item.product_id}`}</Typography>
-                    </TableCell>
-
-                    {/* Branch Code Column */}
-                    <TableCell>
-                      {item.branch_code || state.formData.branch_code || "-"}
-                    </TableCell>
-
-                    {/* Quantity Column */}
                     <TableCell align="right">
-                      <Typography variant="body2">{item.quantity}</Typography>
-                    </TableCell>
-
-                    {/* Warranty Column */}
-                    <TableCell align="right">
-                      <TextField
-                        size="small"
-                        type="number"
-                        value={item.warrenty_month}
-                        onChange={(e) => updateLineItem(index, "warrenty_month", e.target.value)}
-                        sx={{ width: 80 }}
-                        inputProps={{ min: 0 }}
-                      />
-                    </TableCell>
-
-                    {/* Min Price Column */}
-                    <TableCell align="right">
-                      <Typography variant="body2" color="text.secondary">
-                        {(item.minimum_selling_price || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <Typography fontWeight="bold">
+                        {calculateLineItemsTotal().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Typography>
                     </TableCell>
-
-                    {/* Selling Price Column */}
-                    <TableCell align="right">
-                      <TextField
-                        size="small"
-                        type="number"
-                        value={item.selling_price}
-                        onChange={(e) => updateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)}
-                        sx={{ width: 100 }}
-                        inputProps={{ min: item.minimum_selling_price, step: 0.01 }}
-                        error={item.selling_price < item.minimum_selling_price}
-                        helperText={item.selling_price < item.minimum_selling_price ? `Min: ${item.minimum_selling_price}` : ""}
-                      />
-                    </TableCell>
-
-                    {/* Delete Button Column */}
-                    <TableCell align="center">
-                      <IconButton size="small" color="error" onClick={() => removeLineItem(index)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
+                    <TableCell />
                   </TableRow>
-                ))
-              )}
-              {/* Total Row */}
-              <TableRow sx={{ bgcolor: "action.hover" }}>
-                <TableCell colSpan={7} align="right">
-                  <Typography fontWeight="bold">Subtotal:</Typography>
-                </TableCell>
-                <TableCell align="right">
-                  <Typography fontWeight="bold">
-                    {calculateLineItemsTotal().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Typography>
-                </TableCell>
-                <TableCell />
-              </TableRow>
-              {/* Service Charge Row - Only for card payments */}
-              {(state.formData.payment_method === "card_amex" || 
-                state.formData.payment_method === "card_visa" || 
-                state.formData.payment_method === "card_mastercard") && (
-                <TableRow sx={{ bgcolor: "warning.lighter" }}>
-                  <TableCell colSpan={7} align="right">
-                    <Typography fontWeight="medium" color="warning.dark">
-                      Service Charge ({state.formData.payment_method === "card_amex" ? "3.0%" : "2.7%"}):
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography fontWeight="medium" color="warning.dark">
-                      {(calculateLineItemsTotal() * (state.formData.payment_method === "card_amex" ? 0.03 : 0.027)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </Typography>
-                  </TableCell>
-                  <TableCell />
-                </TableRow>
-              )}
-              {/* Grand Total Row */}
-              <TableRow sx={{ bgcolor: "primary.lighter" }}>
-                <TableCell colSpan={7} align="right">
-                  <Typography fontWeight="bold" color="primary.main">Grand Total:</Typography>
-                </TableCell>
-                <TableCell align="right">
-                  <Typography fontWeight="bold" color="primary.main" fontSize="1.1rem">
-                    {(() => {
-                      const subtotal = calculateLineItemsTotal();
-                      let serviceCharge = 0;
-                      if (state.formData.payment_method === "card_amex") {
-                        serviceCharge = subtotal * 0.03;
-                      } else if (state.formData.payment_method === "card_visa" || state.formData.payment_method === "card_mastercard") {
-                        serviceCharge = subtotal * 0.027;
-                      }
-                      return (subtotal + serviceCharge).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    })()}
-                  </Typography>
-                </TableCell>
-                <TableCell />
-              </TableRow>
-            </TableBody>
-          </Table>
-        </Paper>
-      </Box>
+                  {/* Service Charge Row - Only for card payments */}
+                  {(state.formData.payment_method === "card_amex" ||
+                    state.formData.payment_method === "card_visa" ||
+                    state.formData.payment_method === "card_mastercard") && (
+                      <TableRow sx={{ bgcolor: "warning.lighter" }}>
+                        <TableCell colSpan={7} align="right">
+                          <Typography fontWeight="medium" color="warning.dark">
+                            Service Charge ({state.formData.payment_method === "card_amex" ? "3.0%" : "2.7%"}):
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight="medium" color="warning.dark">
+                            {(calculateLineItemsTotal() * (state.formData.payment_method === "card_amex" ? 0.03 : 0.027)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </Typography>
+                        </TableCell>
+                        <TableCell />
+                      </TableRow>
+                    )}
+                  {/* Grand Total Row */}
+                  <TableRow sx={{ bgcolor: "primary.lighter" }}>
+                    <TableCell colSpan={7} align="right">
+                      <Typography fontWeight="bold" color="primary.main">Grand Total:</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight="bold" color="primary.main" fontSize="1.1rem">
+                        {(() => {
+                          const subtotal = calculateLineItemsTotal();
+                          let serviceCharge = 0;
+                          if (state.formData.payment_method === "card_amex") {
+                            serviceCharge = subtotal * 0.03;
+                          } else if (state.formData.payment_method === "card_visa" || state.formData.payment_method === "card_mastercard") {
+                            serviceCharge = subtotal * 0.027;
+                          }
+                          return (subtotal + serviceCharge).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        })()}
+                      </Typography>
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </Paper>
+          </Box>
 
           {/* Step 2 Navigation */}
           <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
@@ -1590,9 +1582,9 @@ export default function SalesPage() {
               color="primary"
               onClick={handleSave}
               disabled={
-                createMutation.isPending || 
+                createMutation.isPending ||
                 updateMutation.isPending ||
-                lineItems.length === 0 || 
+                lineItems.length === 0 ||
                 lineItems.some(item => item.selling_price < item.minimum_selling_price)
               }
               startIcon={(createMutation.isPending || updateMutation.isPending) ? <CircularProgress size={20} /> : null}
@@ -1613,7 +1605,7 @@ export default function SalesPage() {
           <SearchableList
             searchValue={state.searchQuery}
             onSearchChange={state.setSearchQuery}
-            searchPlaceholder="Search by invoice no..."
+            searchPlaceholder="Search by invoice no, customer name..."
             sortOptions={sortOptions}
             currentSort={state.sortField}
             onSortChange={state.setSortField}
@@ -1636,6 +1628,8 @@ export default function SalesPage() {
           >
             {filteredInvoices.map((invoice) => {
               const isSelected = state.selectedItem?.id === invoice.id;
+              const customer = customers?.find((c) => c.id === invoice.customer_id);
+              const customerName = customer?.customer_name || "Unknown Customer";
               return (
                 <SelectableListItem
                   key={invoice.id}
@@ -1668,7 +1662,7 @@ export default function SalesPage() {
                           </Typography>
                         )}
                       </Box>
-                      {/* Date & Branch - only when selected */}
+                      {/* Date & Customer Name - only when selected */}
                       {isSelected && (
                         <>
                           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1681,10 +1675,10 @@ export default function SalesPage() {
                           </Box>
                           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <Typography component="span" variant="caption">
-                              {invoice.branch_code}
+                              {customerName}
                             </Typography>
                             <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                              (Branch)
+                              (Customer)
                             </Typography>
                           </Box>
                           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1703,11 +1697,10 @@ export default function SalesPage() {
                               color={invoice.status ? "success" : "default"}
                               sx={{ height: 18, fontSize: "0.65rem" }}
                             />
-                            <Chip
-                              label={invoice.approval ? "Approved" : "Pending Approval"}
+                            <TStatusChip
+                              status={invoice.approval_status || "pending_approval"}
+                              statusMap="invoice"
                               size="small"
-                              color={invoice.approval ? "info" : "warning"}
-                              variant="outlined"
                               sx={{ height: 18, fontSize: "0.65rem" }}
                             />
                           </Box>
@@ -1715,7 +1708,7 @@ export default function SalesPage() {
                       )}
                     </Box>
                   }
-                  secondaryText={!isSelected ? `${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${invoice.branch_code}` : undefined}
+                  secondaryText={!isSelected ? `${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${customerName}` : undefined}
                   isFavorite={state.favorites.includes(invoice.id)}
                   onToggleFavorite={() => state.toggleFavorite(invoice.id)}
                 />
@@ -1747,8 +1740,8 @@ export default function SalesPage() {
 
             <ActionToolbar
               canCreate={canCreate}
-              canDelete={canDelete}
-              canUpdate={canUpdate}
+              canDelete={canDelete && state.selectedItem?.approval_status !== "completed"}
+              canUpdate={canUpdate && state.selectedItem?.approval_status !== "completed"}
               isEditing={state.isEditing}
               isCreating={state.isCreating}
               hasSelection={!!state.selectedItem}
@@ -1776,7 +1769,6 @@ export default function SalesPage() {
       <TConfirmDialog {...deleteDialog.dialogProps} />
       <TConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
       <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
-      <TConfirmDialog {...completeDialog.dialogProps} confirmText="Complete" confirmColor="primary" />
       <TConfirmDialog {...cancelDialog.dialogProps} confirmText="Cancel Order" confirmColor="error" />
 
       {/* Invoice Details Dialog */}
