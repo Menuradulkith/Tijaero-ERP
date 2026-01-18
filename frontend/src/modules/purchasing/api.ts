@@ -13,6 +13,7 @@ import {
   BarcodeValidationRequest,
   BarcodeValidationResponse,
   PurchaseReturnApprovalRequest,
+
   GoodReceivedNote,
   GoodReceivedNoteCreate,
   GoodReceivedItem,
@@ -133,6 +134,8 @@ export const purchaseOrdersApi = {
     await apiClient.delete(`/purchasing/orders/${id}`);
   },
 
+
+
   getSupplierOrders: async (supplierId: number, skip = 0, limit = 100) => {
     const response = await apiClient.get<PurchasingOrder[]>(
       `/purchasing/suppliers/${supplierId}/orders`,
@@ -198,11 +201,24 @@ export const purchaseReturnsApi = {
   },
 
   approve: async (returnId: number, request: Omit<PurchaseReturnApprovalRequest, 'return_id'>) => {
-    const response = await apiClient.post<PurchasingReturnWithItems>(
-      `/purchasing/returns/${returnId}/approve`,
-      { return_id: returnId, ...request }
-    );
-    return response.data;
+    // Get the purchase return to find its approval_id
+    const purchaseReturn = await purchaseReturnsApi.getById(returnId);
+
+    if (!purchaseReturn.approval_id) {
+      throw new Error('Purchase return does not have an approval record');
+    }
+
+    // Use centralized approval API
+    const { approvalsApi } = await import('@/modules/common/api');
+
+    if (request.approve) {
+      await approvalsApi.approve(purchaseReturn.approval_id, request.remarks);
+    } else {
+      await approvalsApi.reject(purchaseReturn.approval_id, request.remarks || 'Rejected');
+    }
+
+    // Return the updated purchase return
+    return purchaseReturnsApi.getById(returnId);
   },
 };
 

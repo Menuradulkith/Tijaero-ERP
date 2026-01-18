@@ -1,10 +1,11 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from . import models, schemas, repository
 from fastapi import HTTPException, status
+from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 
 DAILY_PO_LIMIT_PER_BRANCH = 5
 
@@ -105,7 +106,7 @@ class PurchasingOrderService:
             message=message
         )
     
-    def create_order(self, order: schemas.PurchasingOrderCreate) -> models.PurchasingOrder:
+    def create_order(self, order: schemas.PurchasingOrderCreate, created_by: int = 1) -> models.PurchasingOrder:
         limit_check = self.check_daily_limit(order.branch_code)
         if not limit_check.can_create:
             raise HTTPException(
@@ -157,6 +158,21 @@ class PurchasingOrderService:
         
         # Create the order with pending_approval status
         created_order = self.repo.create(order, initial_status=initial_status)
+
+        # Create approval record for the new PO
+        approval_record = approval_service.create_approval_request(
+            db=self.db,
+            approval_type=ApprovalType.PURCHASE_ORDER,
+            reference_id=created_order.id,
+            reference_no=created_order.purchasing_order_no,
+            branch_code=order.branch_code,
+            requested_by=created_by,
+            remarks=f"Purchase order pending approval.",
+            approval_group="purchasing_approvers"
+        )
+        created_order.approval_id = approval_record.id
+        self.db.commit()
+        self.db.refresh(created_order)
         
         return created_order
     
@@ -186,32 +202,12 @@ class PurchasingOrderService:
                 detail=f"Cannot edit purchase order with status '{existing_po.status}'. Purchase orders that have received goods (GRN created) cannot be edited."
             )
         
-        # CREDIT CHECK: When approving a pending_approval PO with Credit payment
-        from app.modules.purchasing.credit_service import supplier_credit_service
-        if (order_update.status == "approved" and 
-            existing_po.status == "pending_approval" and 
-            existing_po.payment_method and 
-            existing_po.payment_method.lower() == "credit"):
-            
-            # Calculate PO total
-            from app.modules.purchasing.models import PurchasingOrderItems
-            po_total = self.db.query(
-                func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
-            ).filter(
-                PurchasingOrderItems.purchasingorders_id == order_id
-            ).scalar() or Decimal("0")
-            
-            # Check credit limit
-            credit_check = supplier_credit_service.check_po_credit(
-                self.db, existing_po.first_suppliers_id, po_total, existing_po.payment_method
+        # Prevent manual status update to 'approved' via generic update endpoint
+        if order_update.status == "approved" and existing_po.status in ["pending", "pending_approval"]:
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase orders cannot be manually approved. Please use the Approval Dashboard."
             )
-            
-            # If still exceeds limit, prevent approval
-            if credit_check["requires_approval"]:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot approve: {credit_check['message']}. {credit_check['credit_check']['breakdown']}"
-                )
         
         # If updating suppliers, verify they are active
         if order_update.first_suppliers_id is not None:
@@ -240,12 +236,46 @@ class PurchasingOrderService:
                     detail=f"Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier before updating the purchase order."
                 )
         
+        # Track if this was an approved PO being edited
+        was_approved = existing_po.status == "approved"
+        
         order = self.repo.update(order_id, order_update)
         if not order:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Purchase order with id {order_id} not found"
             )
+        
+        # If an approved PO was edited, reset it back to pending_approval
+        if was_approved:
+            from app.modules.common.models import Approvals
+            
+            order.status = "pending_approval"
+            
+            # Reset the existing approval record back to pending
+            if order.approval_id:
+                approval_record = self.db.query(Approvals).filter(Approvals.id == order.approval_id).first()
+                if approval_record:
+                    approval_record.status = "pending"
+                    approval_record.status_changed_by = None
+                    approval_record.remark = "Re-approval required: Purchase order was edited after approval."
+            else:
+                # Create a new approval record if one doesn't exist
+                approval_record = approval_service.create_approval_request(
+                    db=self.db,
+                    approval_type=ApprovalType.PURCHASE_ORDER,
+                    reference_id=order.id,
+                    reference_no=order.purchasing_order_no,
+                    branch_code=order.branch_code,
+                    requested_by=0,  # System-triggered re-approval
+                    remarks="Re-approval required: Purchase order was edited after approval.",
+                    approval_group="purchasing_approvers"
+                )
+                order.approval_id = approval_record.id
+            
+            self.db.commit()
+            self.db.refresh(order)
+        
         return order
     
     def delete_order(self, order_id: int) -> None:
@@ -262,6 +292,71 @@ class PurchasingOrderService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e)
             )
+
+    def approve_order(self, order_id: int, approve: bool, remarks: Optional[str] = None, user_id: int = 0) -> models.PurchasingOrder:
+        """
+        Approve or reject a purchase order.
+        """
+        from app.modules.common.models import Approvals
+        from decimal import Decimal
+        from sqlalchemy import func
+        from app.modules.purchasing.credit_service import supplier_credit_service
+        from app.modules.purchasing.models import PurchasingOrderItems
+        
+        order = self.repo.get_by_id(order_id)
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase order with id {order_id} not found"
+            )
+        
+        # Determine if we can approve based on current status
+        if order.status != "pending_approval":
+            # Allow approving if it's just 'pending' (legacy) or 'pending_approval'
+            if order.status != "pending":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Order is not pending approval. Current status: {order.status}"
+                )
+            
+        # Perform credit check if approving
+        if approve and order.payment_method and order.payment_method.lower() == "credit":
+            
+            po_total = self.db.query(
+                func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+            ).filter(
+                PurchasingOrderItems.purchasingorders_id == order_id
+            ).scalar() or Decimal("0")
+            
+            credit_check = supplier_credit_service.check_po_credit(
+                self.db, order.first_suppliers_id, po_total, order.payment_method
+            )
+            
+            if credit_check["requires_approval"]:
+                if remarks:
+                    remarks += f" [Credit Limit Exceeded: {credit_check['message']}]"
+                else:
+                    remarks = f"Credit Limit Exceeded: {credit_check['message']}"
+
+        # Update Approval Record in approvals table
+        if order.approval_id:
+            approval_record = self.db.query(Approvals).filter(Approvals.id == order.approval_id).first()
+            if approval_record:
+                # If approval record exists, update it
+                if approval_record.status == 'pending':
+                    approval_record.status = 'approved' if approve else 'rejected'
+                    approval_record.status_changed_by = user_id
+                    approval_record.remark = remarks or f"{'Approved' if approve else 'Rejected'} by user {user_id}"
+        
+        # Update PO Status
+        if approve:
+            order.status = "approved"
+        else:
+            order.status = "rejected"
+            
+        self.db.commit()
+        self.db.refresh(order)
+        return order
 
 class PurchasingReturnService:
     def __init__(self, db: Session):
@@ -470,6 +565,20 @@ class PurchasingReturnService:
                     stock_item.is_active = False
                     stock_item.returned_date = now
         
+        # Create approval record for purchase returns that require approval
+        if return_data.require_approval:
+            approval_record = approval_service.create_approval_request(
+                db=self.db,
+                approval_type=ApprovalType.PURCHASE_RETURN,
+                reference_id=db_return.id,
+                reference_no=return_no,
+                branch_code=return_data.branch_code,
+                requested_by=0,  # TODO: Get from current user
+                remarks=f"Purchase return pending approval.",
+                approval_group="purchasing_approvers"
+            )
+            db_return.approval_id = approval_record.id
+        
         self.db.commit()
         self.db.refresh(db_return)
 
@@ -483,11 +592,13 @@ class PurchasingReturnService:
         
         return db_return
     
-    def approve_return(self, return_id: int, approve: bool, remarks: Optional[str] = None) -> models.PurchasingReturn:
-
+    def approve_return(self, return_id: int, approve: bool, remarks: Optional[str] = None, user_id: int = 0) -> models.PurchasingReturn:
+        """
+        Approve or reject a purchase return through the centralized approval system.
+        """
         from app.modules.purchasing.credit_service import SupplierCreditService
         from app.modules.inventory.models import SalesStock
-        from datetime import datetime
+        from app.modules.common.models import Approvals
         
         return_record = self.repo.get_by_id(return_id)
         if not return_record:
@@ -503,6 +614,19 @@ class PurchasingReturnService:
             )
         
         now = datetime.now()
+        
+        # Update approval record
+        if return_record.approval_id:
+            approval_record = self.db.query(Approvals).filter(Approvals.id == return_record.approval_id).first()
+            if approval_record:
+                if approval_record.status != 'pending':
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Approval record is already {approval_record.status}"
+                    )
+                approval_record.status = 'approved' if approve else 'rejected'
+                approval_record.status_changed_by = user_id
+                approval_record.remark = remarks or f"{'Approved' if approve else 'Rejected'} by user {user_id}"
         
         if approve:
             return_record.status = "approved"

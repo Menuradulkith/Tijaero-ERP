@@ -52,6 +52,7 @@ import {
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { approvalsApi } from "@/modules/common/api";
 import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed individual imports for productsApi, branchApi - using aggregated endpoint
 import { PurchasingOrder, PurchasingOrderWithItems, Supplier } from "@/modules/purchasing/types";
@@ -171,12 +172,13 @@ export default function POApprovalsPage() {
 
   // Approve mutation
   const approveMutation = useMutation({
-    mutationFn: (id: number) => purchaseOrdersApi.update(id, { status: "approved" }),
-    onSuccess: (_data, id) => {
+    mutationFn: ({ approvalId }: { approvalId: number; poId: number }) =>
+      approvalsApi.approve(approvalId),
+    onSuccess: (_data, { poId }) => {
       queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
-        (prev || []).map((o) => (o.id === id ? { ...o, status: "approved" } : o))
+        (prev || []).map((o) => (o.id === poId ? { ...o, status: "approved" } : o))
       );
-      setSelectedOrder((prev) => (prev && prev.id === id ? { ...prev, status: "approved" } : prev));
+      setSelectedOrder((prev) => (prev && prev.id === poId ? { ...prev, status: "approved" } : prev));
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
       showSuccessToast("Purchase order approved successfully");
     },
@@ -185,14 +187,14 @@ export default function POApprovalsPage() {
 
   // Reject mutation
   const rejectMutation = useMutation({
-    mutationFn: ({ id, remarks }: { id: number; remarks: string }) =>
-      purchaseOrdersApi.update(id, { status: "cancelled", remarks }),
-    onSuccess: (_data, variables) => {
+    mutationFn: ({ approvalId, remarks }: { approvalId: number; poId: number; remarks: string }) =>
+      approvalsApi.reject(approvalId, remarks),
+    onSuccess: (_data, { poId, remarks }) => {
       queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
-        (prev || []).map((o) => (o.id === variables.id ? { ...o, status: "cancelled" } : o))
+        (prev || []).map((o) => (o.id === poId ? { ...o, status: "rejected" } : o))
       );
       setSelectedOrder((prev) =>
-        prev && prev.id === variables.id ? { ...prev, status: "cancelled", remarks: variables.remarks } : prev
+        prev && prev.id === poId ? { ...prev, status: "rejected", remarks: remarks } : prev
       );
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
       showSuccessToast("Purchase order rejected");
@@ -204,20 +206,20 @@ export default function POApprovalsPage() {
 
   const handleApprove = async () => {
     if (!selectedOrder) return;
-    
+
     // Check if it's a credit order and validate credit limit
     const isCreditPayment = selectedOrder.payment_method?.toLowerCase() === "credit";
     if (isCreditPayment && selectedOrder.first_suppliers_id) {
       const totalAmount = (selectedOrder.items || []).reduce((sum: number, item: any) => sum + (item.quantity * item.unit_price), 0);
-      
+
       try {
         const creditCheck = await purchaseOrdersApi.checkCredit(selectedOrder.first_suppliers_id, totalAmount);
-        
+
         // Show warning modal if requires approval
         if (creditCheck.requires_approval) {
           const supplier = supplierMap.get(selectedOrder.first_suppliers_id);
           const supplierName = supplier?.company_name || supplier?.full_name || 'Unknown';
-          
+
           const confirmed = await new Promise<boolean>((resolve) => {
             toast((t) => (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -279,11 +281,11 @@ export default function POApprovalsPage() {
         return;
       }
     }
-    
+
     // Check if it's after 6pm (18:00)
     const currentHour = new Date().getHours();
     const isAfterHours = currentHour >= 18;
-    
+
     if (isAfterHours) {
       const confirmed = await confirmDialog.confirm({
         title: "After-Hours Approval Warning",
@@ -292,16 +294,29 @@ export default function POApprovalsPage() {
         cancelText: "Cancel",
         confirmColor: "warning",
       });
-      
+
       if (!confirmed) return;
     }
-    
-    approveMutation.mutate(selectedOrder.id);
+
+    if (!selectedOrder.approval_id) {
+      showErrorToast("This order has no approval record. Please contact support.");
+      return;
+    }
+
+    approveMutation.mutate({ approvalId: selectedOrder.approval_id, poId: selectedOrder.id });
   };
 
   const handleReject = () => {
     if (selectedOrder && rejectReason.trim()) {
-      rejectMutation.mutate({ id: selectedOrder.id, remarks: rejectReason });
+      if (!selectedOrder.approval_id) {
+        showErrorToast("This order has no approval record.");
+        return;
+      }
+      rejectMutation.mutate({
+        approvalId: selectedOrder.approval_id,
+        poId: selectedOrder.id,
+        remarks: rejectReason
+      });
     }
   };
 
@@ -379,7 +394,7 @@ export default function POApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        Rs. {isSelected && selectedOrder?.items 
+                        Rs. {isSelected && selectedOrder?.items
                           ? selectedOrder.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0).toLocaleString()
                           : (order.total_amount?.toLocaleString() || "0")}
                       </Typography>
@@ -426,9 +441,9 @@ export default function POApprovalsPage() {
         chips={
           selectedOrder
             ? (() => {
-                const s = getStatusProps(selectedOrder.status || "draft", "purchaseOrder");
-                return [{ label: s.label, color: s.color }];
-              })()
+              const s = getStatusProps(selectedOrder.status || "draft", "purchaseOrder");
+              return [{ label: s.label, color: s.color }];
+            })()
             : []
         }
       />
@@ -511,7 +526,7 @@ export default function POApprovalsPage() {
                     {selectedOrder.items?.map((item, index) => {
                       const product = productMap.get(item.product_id);
                       return (
-                        <TableRow key={index} sx={{ 
+                        <TableRow key={index} sx={{
                           ...modernTableStyles.bodyRow,
                           ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                         }}>

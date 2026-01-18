@@ -200,6 +200,8 @@ class PurchaseReturnApprovalRequest(BaseModel):
     approve: bool 
     remarks: Optional[str] = None
 
+
+
 class SupplierListFilter(BaseModel):
     active: Optional[bool] = None
     country_id: Optional[int] = None

@@ -341,7 +341,6 @@ class SalesQuoteService:
             status=True,
             approval=True,
             cupon_amount=0,
-            credit_note_amount=0,
             source_quote_id=quote.id,
             source_quote_type=quote.quote_type
         )

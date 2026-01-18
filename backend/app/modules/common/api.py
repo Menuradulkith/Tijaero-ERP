@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, status, Query
+from fastapi import APIRouter, Depends, status, Query, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
 from app.db.session import get_db
+from app.auth.models import User
+from app.auth.rbac import require_permission, Permissions
 from . import schemas, service
+from .approval_service import approval_service as centralized_approval_service, ApprovalType, ApprovalStatus
 
 router = APIRouter(prefix="/common", tags=["common"])
 
@@ -147,3 +151,205 @@ def create_approval(approval: schemas.ApprovalCreate, db: Session = Depends(get_
 def update_approval(approval_id: int, approval: schemas.ApprovalUpdate, db: Session = Depends(get_db)):
     approval_service = service.ApprovalService(db)
     return approval_service.update(approval_id, approval)
+
+
+# ============================================================================
+# Centralized Approval System Endpoints
+# ============================================================================
+
+class ApprovalActionRequest(BaseModel):
+    remarks: Optional[str] = None
+
+
+class ApprovalStatisticsResponse(BaseModel):
+    total_pending: int
+    pending_by_type: Dict[str, int]
+
+
+@router.get(
+    "/approvals/pending",
+    response_model=List[schemas.Approval],
+    summary="Get All Pending Approvals",
+)
+def get_pending_approvals(
+    approval_type: Optional[str] = Query(None, description="Filter by type: sales_order, sale_return, purchase_return, etc."),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """
+    Get list of all pending approvals across the ERP.
+    Permitted users can view and approve these requests.
+    """
+    type_filter = None
+    if approval_type:
+        try:
+            type_filter = ApprovalType(approval_type)
+        except ValueError:
+            pass
+    
+    return centralized_approval_service.get_pending_approvals(db, type_filter, None, skip, limit)
+
+
+@router.get(
+    "/approvals/statistics",
+    response_model=ApprovalStatisticsResponse,
+    summary="Get Approval Statistics",
+)
+def get_approval_statistics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get statistics on pending approvals across all modules."""
+    return centralized_approval_service.get_approval_statistics(db)
+
+
+@router.get(
+    "/approvals/types",
+    response_model=List[str],
+    summary="Get Approval Types",
+)
+def get_approval_types(
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get list of all available approval types."""
+    return [t.value for t in ApprovalType]
+
+
+@router.post(
+    "/approvals/{approval_id}/approve",
+    response_model=schemas.Approval,
+    summary="Approve Request",
+)
+def approve_request(
+    approval_id: int,
+    request: ApprovalActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """
+    Approve a pending approval request through the centralized system.
+    This will automatically update the status of the related record.
+    """
+    from .models import Approvals
+    
+    approval = db.query(Approvals).filter(Approvals.id == approval_id).first()
+    if not approval:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Approval record not found"
+        )
+    
+    if approval.status != 'pending':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot approve. Current status: {approval.status}"
+        )
+    
+    # Parse the approval_for to get type and reference
+    if approval.approval_for:
+        parts = approval.approval_for.split(":")
+        if len(parts) >= 2:
+            approval_type = parts[0]
+            reference_id = int(parts[1])
+            
+            # Update the source record based on type
+            if approval_type == ApprovalType.SALES_ORDER.value:
+                from app.modules.sales.service import sales_service
+                sales_service.approve_invoice(db, reference_id, current_user.id)
+            elif approval_type == ApprovalType.SALE_RETURN.value:
+                from app.modules.sales.service import sales_service
+                sales_service.approve_sale_return(db, reference_id, current_user.id)
+            elif approval_type == ApprovalType.PURCHASE_RETURN.value:
+                from app.modules.purchasing.service import PurchasingReturnService
+                return_service = PurchasingReturnService(db)
+                return_service.approve_return(reference_id, approve=True, remarks=request.remarks, user_id=current_user.id)
+            elif approval_type == ApprovalType.PURCHASE_ORDER.value:
+                from app.modules.purchasing.service import PurchasingOrderService
+                po_service = PurchasingOrderService(db)
+                po_service.approve_order(reference_id, approve=True, remarks=request.remarks, user_id=current_user.id)
+            else:
+                # Generic approval update
+                approval.status = 'approved'
+                approval.status_changed_by = current_user.id
+                approval.remark = request.remarks or f"Approved by user {current_user.id}"
+                db.commit()
+    
+    db.refresh(approval)
+    return approval
+
+
+@router.post(
+    "/approvals/{approval_id}/reject",
+    response_model=schemas.Approval,
+    summary="Reject Request",
+)
+def reject_request(
+    approval_id: int,
+    request: ApprovalActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """
+    Reject a pending approval request.
+    Reason/remarks are required for rejection.
+    """
+    from .models import Approvals
+    
+    if not request.remarks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Rejection reason is required"
+        )
+    
+    approval = db.query(Approvals).filter(Approvals.id == approval_id).first()
+    if not approval:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Approval record not found"
+        )
+    
+    if approval.status != 'pending':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot reject. Current status: {approval.status}"
+        )
+    
+    # Parse the approval_for to get type and reference
+    if approval.approval_for:
+        parts = approval.approval_for.split(":")
+        if len(parts) >= 2:
+            approval_type = parts[0]
+            reference_id = int(parts[1])
+            
+            # Update the source record based on type
+            if approval_type == ApprovalType.SALE_RETURN.value:
+                from app.modules.sales.service import sales_service
+                sales_service.reject_sale_return(db, reference_id, current_user.id, request.remarks)
+            elif approval_type == ApprovalType.PURCHASE_RETURN.value:
+                from app.modules.purchasing.service import PurchasingReturnService
+                return_service = PurchasingReturnService(db)
+                return_service.approve_return(reference_id, approve=False, remarks=request.remarks, user_id=current_user.id)
+            elif approval_type == ApprovalType.PURCHASE_ORDER.value:
+                from app.modules.purchasing.service import PurchasingOrderService
+                po_service = PurchasingOrderService(db)
+                po_service.approve_order(reference_id, approve=False, remarks=request.remarks, user_id=current_user.id)
+            elif approval_type == ApprovalType.SALES_ORDER.value:
+                # Cancel the credit sales order
+                from app.modules.sales.service import sales_service
+                sales_service.cancel_invoice(db, reference_id, current_user.id)
+                approval.status = 'rejected'
+                approval.status_changed_by = current_user.id
+                approval.remark = request.remarks
+                db.commit()
+            else:
+                # Generic rejection
+                approval.status = 'rejected'
+                approval.status_changed_by = current_user.id
+                approval.remark = request.remarks
+                db.commit()
+    
+    db.refresh(approval)
+    return approval
+

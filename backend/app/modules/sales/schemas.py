@@ -46,8 +46,6 @@ class InvoiceBase(BaseModel):
     # Bank transfer details
     bank_transfer_ref: Optional[str] = None
     bank_name: Optional[str] = None
-    # Credit note
-    credit_note_id: Optional[int] = None
     # Tax fields
     tax_rate: float = Field(default=0, ge=0, le=100)
     # Discount fields
@@ -72,7 +70,6 @@ class Invoice(InvoiceBase):
     approval: bool
     approval_status: str
     cupon_amount: float
-    credit_note_amount: float
     # Calculated totals
     subtotal: float = 0
     tax_amount: float = 0
@@ -174,3 +171,42 @@ class SaleReturnProcessResponse(BaseModel):
     refund_reference: Optional[str] = None
     items_restocked: int = 0
     message: str
+
+# Credit Payment Settlement Schemas
+class CreditPaymentCreate(BaseModel):
+    invoice_id: int
+    payment_method: str = Field(..., max_length=30)  # cash, cheque, card_visa, card_mastercard, card_amex, bank_transfer
+    payment_amount: float = Field(..., gt=0)
+    payment_date: date
+    # Cheque details
+    cheque_number: Optional[str] = None
+    cheque_bank: Optional[str] = None
+    cheque_date: Optional[date] = None
+    # Card details
+    card_ref_number: Optional[str] = None
+    card_holder_name: Optional[str] = None
+    # Bank transfer details
+    bank_transfer_ref: Optional[str] = None
+    bank_name: Optional[str] = None
+    # General
+    remarks: Optional[str] = None
+
+class CreditPaymentResponse(BaseModel):
+    invoice_id: int
+    payment_amount: float
+    previous_balance: float
+    new_balance: float
+    payment_status: str
+    settlement_record_id: int
+    message: str
+
+class InvoicePaymentHistory(BaseModel):
+    id: int
+    payment_date: date
+    payment_method: str
+    payment_amount: float
+    balance_after_payment: float
+    remarks: Optional[str] = None
+    created_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)

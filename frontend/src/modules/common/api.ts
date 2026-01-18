@@ -104,4 +104,20 @@ export const approvalsApi = {
     );
     return response.data;
   },
+
+  approve: async (id: number, remarks?: string) => {
+    const response = await apiClient.post<Approval>(
+      `/common/approvals/${id}/approve`,
+      { remarks }
+    );
+    return response.data;
+  },
+
+  reject: async (id: number, remarks: string) => {
+    const response = await apiClient.post<Approval>(
+      `/common/approvals/${id}/reject`,
+      { remarks }
+    );
+    return response.data;
+  },
 };

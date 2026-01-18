@@ -73,7 +73,7 @@ class CustomerCreditNotes(Base):
     
 
     customer = relationship("Customer", back_populates="credit_notes")
-    invoices = relationship("Invoice", back_populates="credit_note")
+    # Note: Credit notes are for sale returns/vouchers, not directly linked to invoices table
 
 
 class CustomerCreditsSettle(Base):

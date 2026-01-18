@@ -49,7 +49,7 @@ export const CUSTOMER_PAYMENT_METHOD = [
   { value: 'card_visa', label: 'Card / Visa 2.7%' },
   { value: 'card_mastercard', label: 'Card / Mastercard 2.7%' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'credit_note', label: 'Credit Note' },
+  { value: 'credit', label: 'Credit' },
 ] as const;
 
 export const SUPPLIER_PAYMENT_METHOD = [
