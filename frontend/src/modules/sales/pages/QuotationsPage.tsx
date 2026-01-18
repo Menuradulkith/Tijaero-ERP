@@ -22,6 +22,7 @@ import {
   TDate,
   TFilterPanel,
   TPrintButton,
+  TPrintPreviewDialog,
   TStatusChip,
   useMasterDetailState,
   useTConfirmDialog
@@ -124,6 +125,10 @@ export default function QuotationsPage() {
 
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Print Dialog State
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [selectedQuoteForPrint, setSelectedQuoteForPrint] = useState<SalesQuote | null>(null);
 
   // Permissions
   const canCreate = usePermission("sales", "create");
@@ -648,8 +653,12 @@ export default function QuotationsPage() {
               <TPrintButton
                 documentType="quotation"
                 documentId={selectedQuote.id}
-                disabled={!canPrintDocument(selectedQuote.status)}
-                disabledReason="Cannot print draft quotes"
+                disabled={!canPrintDocument(selectedQuote.status, [])}
+                disabledReason="Cannot print this quote"
+                onClick={() => {
+                  setSelectedQuoteForPrint(selectedQuote);
+                  setPrintDialogOpen(true);
+                }}
               />
             ) : undefined
           }
@@ -800,27 +809,46 @@ export default function QuotationsPage() {
           </Table>
         </Paper>
 
-        {quote.remarks && (
-          <>
-            <Divider sx={{ my: 2 }} />
-            <FormSection title="Remarks">
-              <Typography>{quote.remarks}</Typography>
-            </FormSection>
-          </>
+        {/* Print Preview Dialog */}
+        {selectedQuoteForPrint && (
+          <TPrintPreviewDialog
+            open={printDialogOpen}
+            onClose={() => {
+              setPrintDialogOpen(false);
+              setSelectedQuoteForPrint(null);
+            }}
+            documentType="quotation"
+            documentId={selectedQuoteForPrint.id}
+            title={`Print Quote: ${selectedQuoteForPrint.quote_no}`}
+          />
         )}
 
-        {quote.converted_to_invoice_id && (
-          <>
-            <Divider sx={{ my: 2 }} />
-            <FormSection title="Conversion">
-              <Chip
-                label={`Converted to Invoice #${quote.converted_to_invoice_id}`}
-                color="success"
-                variant="outlined"
-              />
-            </FormSection>
-          </>
-        )}
+
+        {
+          quote.remarks && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <FormSection title="Remarks">
+                <Typography>{quote.remarks}</Typography>
+              </FormSection>
+            </>
+          )
+        }
+
+        {
+          quote.converted_to_invoice_id && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <FormSection title="Conversion">
+                <Chip
+                  label={`Converted to Invoice #${quote.converted_to_invoice_id}`}
+                  color="success"
+                  variant="outlined"
+                />
+              </FormSection>
+            </>
+          )
+        }
       </>
     );
   };
@@ -1062,7 +1090,7 @@ export default function QuotationsPage() {
                   Total: <TCurrency value={calculateLineItemsTotal()} />
                 </Typography>
               </Box>
-            </Paper>
+            </Paper >
           </>
         )}
 

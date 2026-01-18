@@ -151,3 +151,24 @@ def get_purchase_return_report(
     from app.reporting.document_reports import get_document_report_service
     report_service = get_document_report_service(db)
     return report_service.generate_purchase_return_report(return_id)
+
+
+@router.get("/documents/quotation/{id}", response_class=HTMLResponse)
+def get_quotation_report(
+    id: int,
+    show_header: bool = Query(True),
+    show_discount: bool = Query(True),
+    show_signatures: bool = Query(True),
+    custom_remarks: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+
+    from app.reporting.document_reports import get_document_report_service
+    report_service = get_document_report_service(db)
+    return report_service.generate_quotation_report(
+        id, 
+        show_header=show_header,
+        show_discount=show_discount,
+        show_signatures=show_signatures,
+        custom_remarks=custom_remarks
+    )

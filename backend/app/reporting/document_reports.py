@@ -9,10 +9,12 @@ from app.modules.purchasing.models import (
     PurchasingOrder, PurchasingOrderItems, GoodReceivedNote,
     PurchasingReturn, PurchasingReturnItems, Supplier
 )
+from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
 from app.modules.inventory.models import SalesStock
 from app.modules.products.models import Product
 from app.modules.settings.models import Settings
 from app.auth.models import Branch
+from app.modules.customers.models import Customer
 
 
 class DocumentReportService:
@@ -80,6 +82,26 @@ class DocumentReportService:
             "company_name": "",
             "mobile_contact_number": "",
             "home_contact_number": "",
+            "email": "",
+            "address": ""
+        }
+    
+    def _get_customer_info(self, customer_id: int) -> dict:
+        customer = self.db.query(Customer).filter(Customer.id == customer_id).first()
+        if customer:
+            return {
+                "id": customer.id,
+                "customer_name": customer.customer_name,
+                "mobile_number": customer.mobile_contact_number or "",
+                "land_number": customer.home_contact_number or "",
+                "email": customer.email or "",
+                "address": customer.payment_address or ""
+            }
+        return {
+            "id": customer_id,
+            "customer_name": f"Customer #{customer_id}",
+            "mobile_number": "",
+            "land_number": "",
             "email": "",
             "address": ""
         }
@@ -246,6 +268,8 @@ class DocumentReportService:
             total_quantity += 1
             total_value += unit_price
 
+            total_value += unit_price
+
         template = self.env.get_template("purchase_return.html")
         return template.render(
             company=company,
@@ -271,6 +295,91 @@ class DocumentReportService:
             items=items,
             total_quantity=total_quantity,
             total_value=total_value,
+            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+    def generate_quotation_report(
+        self, 
+        quote_id: int,
+        show_header: bool = True,
+        show_discount: bool = True,
+        show_signatures: bool = True,
+        custom_remarks: Optional[str] = None
+    ) -> str:
+        quote = self.db.query(SalesQuote).options(
+            joinedload(SalesQuote.items)
+        ).filter(SalesQuote.id == quote_id).first()
+        
+        if not quote:
+            raise HTTPException(status_code=404, detail=f"Quotation #{quote_id} not found")
+        
+        company = self._get_company_info()
+        customer = self._get_customer_info(quote.customer_id)
+        branch = self._get_branch_info(quote.branch_code)
+        
+        items = []
+        subtotal = 0
+        total_discount = 0
+        
+        for item in quote.items:
+            product = self.db.query(Product).filter(Product.id == item.product_id).first()
+            
+            # Calculate item totals
+            quantity = item.quantity or 0
+            unit_price = float(item.selling_price or 0)
+            base_total = quantity * unit_price
+            
+            # Discount
+            discount_percent = float(item.discount_percentage or 0)
+            discount_amount = base_total * (discount_percent / 100)
+            
+            line_total = base_total - discount_amount
+            
+            items.append({
+                "product_id": item.product_id,
+                "product_name": product.name if product else f"Product #{item.product_id}",
+                "description": getattr(item, 'description', '') or '',
+                "quantity": quantity,
+                "selling_price": unit_price,
+                "discount_percentage": discount_percent,
+                "discount_amount": discount_amount,
+                "warrenty_month": item.warrenty_month,
+                "total_amount": line_total
+            })
+            
+            subtotal += base_total
+            total_discount += discount_amount
+
+        final_total = subtotal - total_discount
+
+        template = self.env.get_template("quotation.html")
+        return template.render(
+            company=company,
+            quote={
+                "id": quote.id,
+                "quote_no": quote.quote_no,
+                "created_date": str(quote.created_date) if quote.created_date else "",
+                "valid_until": str(quote.valid_until) if quote.valid_until else "",
+                "status": quote.status or "draft",
+                "branch_code": quote.branch_code,
+                "is_estimate": quote.is_estimate,
+                "remarks": quote.remarks,
+                "customer_notes": quote.customer_notes
+            },
+            customer=customer,
+            branch=branch,
+            items=items,
+            totals={
+                "subtotal": subtotal,
+                "discount": total_discount,
+                "total_amount": final_total
+            },
+            options={
+                "show_header": show_header,
+                "show_discount": show_discount,
+                "show_signatures": show_signatures,
+                "custom_remarks": custom_remarks
+            },
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
