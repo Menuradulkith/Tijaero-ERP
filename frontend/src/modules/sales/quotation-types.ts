@@ -2,7 +2,7 @@
 
 export type QuoteType = 'quotation' | 'proforma';
 
-export type QuoteStatus = 
+export type QuoteStatus =
   | 'draft'
   | 'pending_approval'
   | 'approved'
@@ -27,16 +27,10 @@ export interface SalesQuoteItem {
   minimum_selling_price: number;
   warrenty_month: string;
   created_date: string;
-  
-  // Quote specific
-  min_price?: number;
-  max_price?: number;
   is_price_estimate: boolean;
   description?: string;
-  discount_percent: number;
-  tax_rate: number;
-  line_total: number;
   remark?: string;
+  discount_percentage: number;
 }
 
 export interface SalesQuoteItemCreate {
@@ -45,13 +39,10 @@ export interface SalesQuoteItemCreate {
   selling_price: number;
   minimum_selling_price: number;
   warrenty_month: string;
-  min_price?: number;
-  max_price?: number;
   is_price_estimate?: boolean;
   description?: string;
-  discount_percent?: number;
-  tax_rate?: number;
   remark?: string;
+  discount_percent: number;
 }
 
 export interface SalesQuoteItemWithProduct extends SalesQuoteItem {
@@ -69,39 +60,27 @@ export interface SalesQuote {
   customer_id: number;
   sale_rep_id: number;
   customer_agent_id?: number;
-  
+
   created_date: string;
   created_date_time: string;
   valid_until: string;
   expected_delivery_date?: string;
-  
+
   status: QuoteStatus;
   approval: boolean;
   approval_id?: number;
   special: boolean;
   sys_code?: number;
-  
+
   is_estimate: boolean;
-  revision_number: number;
-  parent_quote_id?: number;
-  
-  payment_terms?: string;
-  delivery_terms?: string;
-  
   remarks?: string;
   customer_notes?: string;
-  terms_conditions?: string;
-  
-  discount_type: DiscountType;
-  discount_value: number;
-  subtotal: number;
-  tax_amount: number;
   total_amount: number;
-  
+
   converted_to_invoice_id?: number;
   converted_at?: string;
   converted_by?: number;
-  
+
   created_at: string;
   updated_at: string;
 }
@@ -127,19 +106,12 @@ export interface SalesQuoteCreate {
   customer_agent_id?: number;
   valid_until: string;
   expected_delivery_date?: string;
-  
+
   is_estimate?: boolean;
-  payment_terms?: string;
-  delivery_terms?: string;
-  
   remarks?: string;
   customer_notes?: string;
-  terms_conditions?: string;
-  
-  discount_type?: DiscountType;
-  discount_value?: number;
   special?: boolean;
-  
+
   items: SalesQuoteItemCreate[];
 }
 
@@ -150,19 +122,12 @@ export interface SalesQuoteUpdate {
   customer_agent_id?: number;
   valid_until?: string;
   expected_delivery_date?: string;
-  
+
   is_estimate?: boolean;
-  payment_terms?: string;
-  delivery_terms?: string;
-  
   remarks?: string;
   customer_notes?: string;
-  terms_conditions?: string;
-  
-  discount_type?: DiscountType;
-  discount_value?: number;
   special?: boolean;
-  
+
   items?: SalesQuoteItemCreate[];
 }
 

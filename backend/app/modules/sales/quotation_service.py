@@ -93,17 +93,9 @@ class SalesQuoteService:
             status=QuoteStatus.DRAFT.value,
             approval=False,
             is_estimate=is_estimate,
-            revision_number=1,
-            payment_terms=quote_data.payment_terms,
-            delivery_terms=quote_data.delivery_terms,
             remarks=quote_data.remarks,
             customer_notes=quote_data.customer_notes,
-            terms_conditions=quote_data.terms_conditions,
-            discount_type=quote_data.discount_type.value,
-            discount_value=quote_data.discount_value,
             special=quote_data.special,
-            subtotal=0,
-            tax_amount=0,
             total_amount=0
         )
         
@@ -133,8 +125,8 @@ class SalesQuoteService:
                 detail=f"Quote with ID {quote_id} not found"
             )
         
-        # Check if quote can be edited
-        if quote.status not in [QuoteStatus.DRAFT.value, QuoteStatus.REJECTED.value]:
+        # Check if quote can be edited (not converted or cancelled)
+        if quote.status in [QuoteStatus.CONVERTED.value, QuoteStatus.CANCELLED.value]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot edit quote in '{quote.status}' status"
@@ -176,11 +168,11 @@ class SalesQuoteService:
                 detail=f"Quote with ID {quote_id} not found"
             )
         
-        # Only allow deletion of draft quotes
-        if quote.status != QuoteStatus.DRAFT.value:
+        # Only prevent deletion of converted or cancelled quotes
+        if quote.status in [QuoteStatus.CONVERTED.value, QuoteStatus.CANCELLED.value]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete quote in '{quote.status}' status. Only draft quotes can be deleted."
+                detail=f"Cannot delete quote in '{quote.status}' status."
             )
         
         return self.repository.delete(db, quote_id)
@@ -430,18 +422,9 @@ class SalesQuoteService:
             status=QuoteStatus.DRAFT.value,
             approval=False,
             is_estimate=original_quote.is_estimate,
-            revision_number=next_revision,
-            parent_quote_id=parent_id,
-            payment_terms=original_quote.payment_terms,
-            delivery_terms=original_quote.delivery_terms,
             remarks=reason or f"Revision of {original_quote.quote_no}",
             customer_notes=original_quote.customer_notes,
-            terms_conditions=original_quote.terms_conditions,
-            discount_type=original_quote.discount_type,
-            discount_value=float(original_quote.discount_value),
             special=original_quote.special,
-            subtotal=float(original_quote.subtotal),
-            tax_amount=float(original_quote.tax_amount),
             total_amount=float(original_quote.total_amount)
         )
         
@@ -454,13 +437,8 @@ class SalesQuoteService:
                 minimum_selling_price=orig_item.minimum_selling_price,
                 warrenty_month=orig_item.warrenty_month,
                 created_date=now,
-                min_price=orig_item.min_price,
-                max_price=orig_item.max_price,
                 is_price_estimate=orig_item.is_price_estimate,
                 description=orig_item.description,
-                discount_percent=orig_item.discount_percent,
-                tax_rate=orig_item.tax_rate,
-                line_total=orig_item.line_total,
                 remark=orig_item.remark
             )
             new_quote.items.append(new_item)
@@ -485,18 +463,11 @@ class SalesQuoteService:
             minimum_selling_price=item_data.minimum_selling_price,
             warrenty_month=item_data.warrenty_month,
             created_date=created_date,
-            min_price=item_data.min_price,
-            max_price=item_data.max_price,
-            is_price_estimate=item_data.is_price_estimate,
+            is_price_estimate=item_data.is_price_estimate or False,
             description=item_data.description,
-            discount_percent=item_data.discount_percent,
-            tax_rate=item_data.tax_rate,
             remark=item_data.remark,
-            line_total=0
+            discount_percentage=item_data.discount_percent
         )
-        
-        # Calculate line total
-        self._calculate_item_total(item)
         
         return item
     
@@ -505,50 +476,40 @@ class SalesQuoteService:
         base_total = Decimal(str(item.selling_price)) * item.quantity
         
         # Apply discount
-        if item.discount_percent > 0:
-            discount = base_total * (Decimal(str(item.discount_percent)) / 100)
+        if item.discount_percentage > 0:
+            discount = base_total * (Decimal(str(item.discount_percentage)) / 100)
             base_total -= discount
         
         # Apply tax
-        if item.tax_rate > 0:
-            tax = base_total * (Decimal(str(item.tax_rate)) / 100)
-            base_total += tax
+        # if item.tax_rate > 0:
+        #     tax = base_total * (Decimal(str(item.tax_rate)) / 100)
+        #     base_total += tax
         
-        item.line_total = float(base_total)
+        # item.line_total = float(base_total)
+        return base_total
     
     def _calculate_quote_totals(self, quote: SalesQuote) -> None:
         """Calculate quote totals from items"""
-        subtotal = Decimal('0')
-        tax_total = Decimal('0')
+        total = Decimal('0')
         
         for item in quote.items:
-            # Recalculate item total
-            self._calculate_item_total(item)
+            # Calculate item total: quantity * selling_price
+            item_total = Decimal(str(item.selling_price)) * item.quantity
             
-            item_base = Decimal(str(item.selling_price)) * item.quantity
-            
-            # Apply item discount
-            if item.discount_percent > 0:
-                item_base -= item_base * (Decimal(str(item.discount_percent)) / 100)
-            
-            subtotal += item_base
-            
-            # Calculate tax
-            if item.tax_rate > 0:
-                tax_total += item_base * (Decimal(str(item.tax_rate)) / 100)
-        
-        quote.subtotal = float(subtotal)
-        quote.tax_amount = float(tax_total)
-        
-        # Apply quote-level discount
-        total = subtotal
-        if quote.discount_type == DiscountType.PERCENTAGE.value and quote.discount_value > 0:
-            total -= subtotal * (Decimal(str(quote.discount_value)) / 100)
-        elif quote.discount_type == DiscountType.FIXED.value and quote.discount_value > 0:
-            total -= Decimal(str(quote.discount_value))
-        
-        # Add tax
-        total += tax_total
+            # Apply discount
+            if item.discount_percentage > 0:
+                discount = item_total * (Decimal(str(item.discount_percentage)) / 100)
+                item_total -= discount
+                
+                
+            # Validate minimum price
+            if item.minimum_selling_price > 0 and item.selling_price < item.minimum_selling_price:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Selling price {item.selling_price} cannot be less than minimum price {item.minimum_selling_price} for product {item.product_id}"
+                )
+
+            total += item_total
         
         quote.total_amount = float(total)
     
