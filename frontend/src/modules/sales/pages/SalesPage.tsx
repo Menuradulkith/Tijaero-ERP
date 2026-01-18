@@ -16,6 +16,7 @@ import {
   TBranchFilter,
   TConfirmDialog,
   TFilterPanel,
+  TStatusChip,
   TStatusFilter,
   useMasterDetailState,
   useTConfirmDialog,
@@ -24,12 +25,10 @@ import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
 import {
   Add as AddIcon,
-  CheckCircle as ApproveIcon,
   Delete as DeleteIcon,
+  MenuBook as MenuBookIcon,
   Print as PrintIcon,
   Receipt as ReceiptIcon,
-  AssignmentReturn as ReturnIcon,
-  Visibility as ViewIcon,
 } from "@mui/icons-material";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
@@ -38,11 +37,17 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   InputAdornment,
   MenuItem,
   Paper,
+  Step,
+  StepLabel,
+  Stepper,
   Table,
   TableBody,
   TableCell,
@@ -52,10 +57,12 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { salesApi } from "../api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate } from "../types";
@@ -69,9 +76,12 @@ const sortOptions: SortOption[] = [
 
 // Status filter options
 const INVOICE_STATUS_OPTIONS = [
-  { value: "pending", label: "Pending" },
+  { value: "pending_approval", label: "Pending Approval" },
   { value: "approved", label: "Approved" },
 ];
+
+// Form steps for stepper workflow
+const FORM_STEPS = ["Order Information", "Line Items"];
 
 // Line item type
 interface ItemFormData {
@@ -81,6 +91,9 @@ interface ItemFormData {
   minimum_selling_price: number;
   warrenty_month: string;
   barcode?: string; // Track which items were added via barcode
+  product_name?: string; // Store product name for display
+  branch_code?: string; // Store branch code
+  added_date?: string; // Store when item was added
 }
 
 // Initial form data
@@ -109,9 +122,15 @@ export default function SalesPage() {
   // Line items state (separate from main form for complex management)
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
 
+  // Form step state for stepper workflow
+  const [formStep, setFormStep] = useState(0);
+
   // Dialog states
   const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState(false);
   const [selectedInvoiceForView, setSelectedInvoiceForView] = useState<Invoice | null>(null);
+  const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
+  const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
+  const [currentItemRemark, setCurrentItemRemark] = useState("");
 
   // Barcode scanning state
   const [barcodeInput, setBarcodeInput] = useState("");
@@ -119,22 +138,20 @@ export default function SalesPage() {
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
+  // Validated items tracking (for visual feedback on scanned items)
+  const [validatedBarcodes, setValidatedBarcodes] = useState<string[]>([]);
+
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
-  // Navigation
-  const navigate = useNavigate();
-
   // Permissions
   const canCreate = usePermission("sales", "create");
   const canDelete = usePermission("sales", "delete");
-  const canUpdate = usePermission("sales", "update");
 
   // Confirm dialogs
   const deleteDialog = useTConfirmDialog();
   const discardDialog = useTConfirmDialog();
-  const approveDialog = useTConfirmDialog();
 
   // Main state using Tijaero hook
   const state = useMasterDetailState<Invoice, Partial<InvoiceCreate>>({
@@ -159,15 +176,12 @@ export default function SalesPage() {
   const products = refData?.products || [];
   const branches = refData?.branches || [];
 
-  // Get branch name by code
-  const getBranchName = (branchCode: string) => {
-    return branches.find((b) => b.branch_code === branchCode)?.branch_name || branchCode;
-  };
-
-  // Get customer name by id
-  const getCustomerName = (customerId: number) => {
-    return customers?.find((c) => c.id === customerId)?.customer_name || `Customer #${customerId}`;
-  };
+  // Load full invoice with items when viewing
+  const { data: fullInvoice } = useQuery({
+    queryKey: ["sales", state.selectedItem?.id],
+    queryFn: () => salesApi.getById(state.selectedItem!.id),
+    enabled: !!state.selectedItem && !state.isCreating,
+  });
 
   // Calculate total for an invoice
   const calculateTotal = (invoice: Invoice) => {
@@ -256,17 +270,6 @@ export default function SalesPage() {
     },
   });
 
-  const approveMutation = useMutation({
-    mutationFn: (id: number) => salesApi.approve(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-      showSuccessToast("Invoice approved successfully");
-    },
-    onError: () => {
-      showErrorToast("Failed to approve invoice");
-    },
-  });
-
   // Pending invoice for selection after discard confirm
   const [_pendingInvoice, setPendingInvoice] = useState<Invoice | null>(null);
 
@@ -293,8 +296,10 @@ export default function SalesPage() {
     state.setSelectedItem(null);
     state.setIsCreating(true);
     setLineItems([]);
+    setFormStep(0);
     setBarcodeInput("");
     setBarcodeError(null);
+    setValidatedBarcodes([]);
     state.setFormData({
       invoice_no: `INV-${Date.now()}`,
       branch_code: "MAIN",
@@ -337,6 +342,8 @@ export default function SalesPage() {
   const handleCancel = () => {
     state.setIsCreating(false);
     setLineItems([]);
+    setFormStep(0);
+    setValidatedBarcodes([]);
   };
 
   const handleDelete = () => {
@@ -358,6 +365,8 @@ export default function SalesPage() {
         selling_price: 0,
         minimum_selling_price: 0,
         warrenty_month: "0",
+        branch_code: state.formData.branch_code || "",
+        added_date: new Date().toISOString(),
       },
     ]);
   };
@@ -365,6 +374,18 @@ export default function SalesPage() {
   const removeLineItem = (index: number) => {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
+
+  // Step navigation functions
+  const handleNextStep = () => {
+    if (formStep < FORM_STEPS.length - 1) setFormStep(prev => prev + 1);
+  };
+
+  const handlePreviousStep = () => {
+    if (formStep > 0) setFormStep(prev => prev - 1);
+  };
+
+  // Step 1 validation - require customer and invoice number
+  const isStep1Valid = state.formData.invoice_no && state.formData.customer_id && state.formData.customer_id > 0;
 
   const updateLineItem = (index: number, field: keyof ItemFormData, value: number | string) => {
     const updated = [...lineItems];
@@ -394,25 +415,35 @@ export default function SalesPage() {
       const response = await apiClient.get(`/inventory/sales-stock/barcode/${barcode.trim()}`);
       const stockItem = response.data;
 
+      console.log("Stock Item Response:", stockItem); // Debug log
+
       if (stockItem.status !== "available") {
         setBarcodeError("This item is not available for sale");
         return;
       }
 
+      // Get prices from product relationship or top-level fields
+      const sellingPrice = stockItem.selling_price || stockItem.product?.selling_price || 0;
+      const warrantyMonths = stockItem.warranty_month || stockItem.product?.warrenty_month || "0";
+      const productName = stockItem.product_name || stockItem.product?.product_name || stockItem.product?.name || "";
+
       // Add to line items
       const newItem: ItemFormData = {
         product_id: stockItem.product_id,
         quantity: 1,
-        selling_price: stockItem.minimum_selling_price || 0,
-        minimum_selling_price: stockItem.minimum_selling_price || 0,
-        warrenty_month: stockItem.warranty_month?.toString() || "0",
-        barcode: barcode.trim(), // Store the barcode
+        selling_price: sellingPrice,
+        minimum_selling_price: sellingPrice,
+        warrenty_month: warrantyMonths?.toString() || "0",
+        barcode: barcode.trim(),
+        product_name: productName,
+        branch_code: stockItem.branch_code || state.formData.branch_code || "",
       };
       setLineItems(prev => [...prev, newItem]);
+      setValidatedBarcodes(prev => [...prev, barcode.trim()]);
 
       setBarcodeInput("");
       barcodeInputRef.current?.focus();
-      showSuccessToast(`Added: ${stockItem.product?.product_name || "Product"}`);
+      showSuccessToast(`Added: ${productName || "Product"}`);
     } catch (error: any) {
       console.error("Barcode validation error:", error);
       setBarcodeError(error.response?.data?.detail || "Barcode not found in available stock");
@@ -429,293 +460,323 @@ export default function SalesPage() {
     }
   };
 
-  // Handle process return - navigate to Sale Returns page
-  const handleProcessReturn = () => {
-    navigate("/sales/returns");
-  };
-
-  // Handle approve
-  const handleApprove = () => {
-    if (state.selectedItem && !state.selectedItem.approval) {
-      approveDialog.open(
-        "Approve Invoice",
-        `Are you sure you want to approve invoice ${state.selectedItem.invoice_no}?`,
-        () => approveMutation.mutate(state.selectedItem!.id)
-      );
-    }
-  };
-
   // Custom actions for toolbar
   const customActions = state.selectedItem && !state.isCreating ? (
     <Box sx={{ display: "flex", gap: 0.5 }}>
-      <Tooltip title="View Details">
-        <IconButton size="small" onClick={handleViewDetails}>
-          <ViewIcon />
-        </IconButton>
-      </Tooltip>
       <Tooltip title="Print Invoice">
         <IconButton size="small" onClick={handleViewDetails}>
           <PrintIcon />
         </IconButton>
       </Tooltip>
-      {canCreate && (
-        <Tooltip title="Process Return">
-          <IconButton size="small" color="warning" onClick={handleProcessReturn}>
-            <ReturnIcon />
-          </IconButton>
-        </Tooltip>
-      )}
-      {canUpdate && !state.selectedItem.approval && (
-        <Tooltip title="Approve Invoice">
-          <IconButton size="small" color="success" onClick={handleApprove}>
-            <ApproveIcon />
-          </IconButton>
-        </Tooltip>
-      )}
     </Box>
   ) : undefined;
 
   // Render view invoice details
-  const renderViewInvoice = () => (
-    <>
-      <FormSection title="Invoice Details">
-        <Box>
-          <Typography variant="caption" color="text.secondary">Invoice No</Typography>
-          <Typography variant="body2" fontWeight={500}>{state.selectedItem?.invoice_no}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Branch</Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {state.selectedItem && getBranchName(state.selectedItem.branch_code)}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Date</Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {state.selectedItem && format(new Date(state.selectedItem.created_date), "MMMM dd, yyyy")}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Customer</Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {state.selectedItem && getCustomerName(state.selectedItem.customer_id)}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Payment Method</Typography>
-          <Typography variant="body2" fontWeight={500} sx={{ textTransform: "capitalize" }}>
-            {state.selectedItem?.payment_method?.replace(/_/g, " ")}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Status</Typography>
-          <Chip
-            label={state.selectedItem?.status ? "Active" : "Inactive"}
-            size="small"
-            color={state.selectedItem?.status ? "success" : "default"}
-          />
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Approval</Typography>
-          <Chip
-            label={state.selectedItem?.approval ? "Approved" : "Pending"}
-            size="small"
-            color={state.selectedItem?.approval ? "success" : "warning"}
-            variant="outlined"
-          />
-        </Box>
-      </FormSection>
+  const renderViewInvoice = () => {
+    const customer = customers?.find((c) => c.id === state.selectedItem?.customer_id);
+    const productMap = new Map(products.map((p: any) => [p.id, p]));
 
-      <FormSection title="Payment Breakdown">
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "1fr 1fr 1fr 1fr" }, gap: 2, gridColumn: "1 / -1" }}>
-          {state.selectedItem && state.selectedItem.cash_amount > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Cash</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cash_amount.toFixed(2)}</Typography>
-            </Box>
-          )}
-          {state.selectedItem && state.selectedItem.card_visa_amount > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Visa</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_visa_amount.toFixed(2)}</Typography>
-            </Box>
-          )}
-          {state.selectedItem && state.selectedItem.card_mastercard_amount > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Mastercard</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_mastercard_amount.toFixed(2)}</Typography>
-            </Box>
-          )}
-          {state.selectedItem && state.selectedItem.card_amex_amount > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Amex</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.card_amex_amount.toFixed(2)}</Typography>
-            </Box>
-          )}
-          {state.selectedItem && state.selectedItem.cheque_amount > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Cheque</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cheque_amount.toFixed(2)}</Typography>
-            </Box>
-          )}
-          {state.selectedItem && state.selectedItem.bank_transfer_amount > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Bank Transfer</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.bank_transfer_amount.toFixed(2)}</Typography>
-            </Box>
-          )}
-          {state.selectedItem && state.selectedItem.credit_amount > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Credit</Typography>
-              <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_amount.toFixed(2)}</Typography>
-            </Box>
-          )}
-        </Box>
-        <Box sx={{ gridColumn: "1 / -1" }}>
-          <Divider sx={{ my: 2 }} />
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Typography variant="subtitle2" fontWeight={600}>Total Amount</Typography>
-            <Typography variant="h6" fontWeight={700} color="success.main">
-              Rs. {state.selectedItem && calculateTotal(state.selectedItem).toFixed(2)}
-            </Typography>
+    return (
+      <>
+        {/* Order Information */}
+        <FormSection title="Order Information" columns={3}>
+          <TextField label="Invoice Number" size="small" value={state.selectedItem?.invoice_no} disabled />
+          <TextField label="Branch" size="small" value={state.selectedItem?.branch_code} disabled />
+          <TextField label="Payment Method" size="small" value={state.selectedItem?.payment_method?.replace(/_/g, " ")} disabled />
+        </FormSection>
+
+        {/* Customer Information */}
+        <FormSection title="Customer Information" columns={2}>
+          <TextField label="Customer Name" size="small" value={customer?.customer_name || ""} disabled />
+          <TextField label="Company" size="small" value={customer?.company_name || "N/A"} disabled />
+          <TextField label="Contact" size="small" value={customer?.mobile_contact_number || ""} disabled />
+          <TextField label="Email" size="small" value={customer?.email || "N/A"} disabled />
+        </FormSection>
+
+        {/* Dates & Payment */}
+        <FormSection title="Dates & Payment" columns={3}>
+          <TextField
+            label="Order Date"
+            size="small"
+            value={state.selectedItem ? new Date(state.selectedItem.created_date).toLocaleDateString() : ""}
+            disabled
+          />
+          <TextField
+            label="Credit Amount"
+            size="small"
+            value={`Rs. ${(state.selectedItem?.credit_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            disabled
+          />
+          <TextField
+            label="Cash Amount"
+            size="small"
+            value={`Rs. ${(state.selectedItem?.cash_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            disabled
+          />
+        </FormSection>
+
+        {/* Order Status */}
+        <FormSection title="Order Status" columns={1}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Typography variant="body2" color="text.secondary">Status:</Typography>
+            <TStatusChip status={state.selectedItem?.approval ? "approved" : "pending_approval"} statusMap="salesOrder" />
           </Box>
-        </Box>
-      </FormSection>
+        </FormSection>
 
-      {state.selectedItem && (state.selectedItem.payment_adjustments !== 0 ||
-        state.selectedItem.cupon_amount !== 0 ||
-        state.selectedItem.credit_note_amount !== 0) && (
-          <FormSection title="Adjustments">
-            {state.selectedItem.payment_adjustments !== 0 && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">Payment Adjustments</Typography>
-                <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
-              </Box>
-            )}
-            {state.selectedItem.cupon_amount !== 0 && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">Coupon Amount</Typography>
-                <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cupon_amount.toFixed(2)}</Typography>
-              </Box>
-            )}
-            {state.selectedItem.credit_note_amount !== 0 && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">Credit Note</Typography>
-                <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
-              </Box>
-            )}
+        {/* Tracking */}
+        <FormSection title="Tracking" columns={2}>
+          <TextField
+            label="Created Date"
+            size="small"
+            value={state.selectedItem?.created_at ? new Date(state.selectedItem.created_at).toLocaleString() : ""}
+            disabled
+            InputProps={{ readOnly: true }}
+          />
+          <TextField
+            label="Order Date"
+            size="small"
+            value={state.selectedItem?.created_date ? new Date(state.selectedItem.created_date).toLocaleDateString() : ""}
+            disabled
+            InputProps={{ readOnly: true }}
+          />
+        </FormSection>
+
+        {/* Order Items */}
+        {fullInvoice?.items && (
+          <FormSection title="Order Items" columns={1}>
+            <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={modernTableStyles.headerRow}>
+                    <TableCell>Product</TableCell>
+                    <TableCell align="right">Quantity</TableCell>
+                    <TableCell align="right">Unit Price (Rs.)</TableCell>
+                    <TableCell align="center">Warranty</TableCell>
+                    <TableCell>Remark</TableCell>
+                    <TableCell align="right">Amount (Rs.)</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {fullInvoice.items.map((item: any, index: number) => {
+                    const product = productMap.get(item.product_id);
+                    return (
+                      <TableRow key={index} sx={{
+                        ...modernTableStyles.bodyRow,
+                        ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                      }}>
+                        <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
+                        <TableCell align="right">{item.quantity}</TableCell>
+                        <TableCell align="right">{item.selling_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell align="center">{item.warrenty_month || "0"} mo</TableCell>
+                        <TableCell>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {item.remark || "-"}
+                            </Typography>
+                            <Tooltip title="View Remark">
+                              <IconButton size="small" onClick={() => { setCurrentItemRemark(item.remark || ""); setItemRemarkModalOpen(true); }}>
+                                <MenuBookIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right">{(item.quantity * item.selling_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  <TableRow sx={modernTableStyles.footerRow}>
+                    <TableCell colSpan={5} align="right">
+                      <strong>Total:</strong>
+                    </TableCell>
+                    <TableCell align="right">
+                      <strong>{(fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </Paper>
           </FormSection>
         )}
 
-      {state.selectedItem?.remarks && (
-        <FormSection title="Remarks" isLast>
-          <Typography variant="body2" color="text.secondary" sx={{ gridColumn: "1 / -1" }}>
-            {state.selectedItem.remarks}
-          </Typography>
-        </FormSection>
-      )}
-    </>
-  );
+        {/* Remarks */}
+        {state.selectedItem?.remarks && (
+          <FormSection title="Remarks" columns={1}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+              <TextField
+                multiline
+                rows={2}
+                fullWidth
+                value={state.selectedItem.remarks}
+                disabled
+                size="small"
+              />
+              <Tooltip title="View / Add Remarks">
+                <IconButton size="small" onClick={() => setRemarksDialogOpen(true)}>
+                  <MenuBookIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </FormSection>
+        )}
+
+        {/* Adjustments */}
+        {state.selectedItem && (state.selectedItem.payment_adjustments !== 0 ||
+          state.selectedItem.cupon_amount !== 0 ||
+          state.selectedItem.credit_note_amount !== 0) && (
+            <FormSection title="Adjustments">
+              {state.selectedItem.payment_adjustments !== 0 && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Payment Adjustments</Typography>
+                  <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.payment_adjustments.toFixed(2)}</Typography>
+                </Box>
+              )}
+              {state.selectedItem.cupon_amount !== 0 && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Coupon Amount</Typography>
+                  <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.cupon_amount.toFixed(2)}</Typography>
+                </Box>
+              )}
+              {state.selectedItem.credit_note_amount !== 0 && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Credit Note</Typography>
+                  <Typography variant="body2" fontWeight={500}>Rs. {state.selectedItem.credit_note_amount.toFixed(2)}</Typography>
+                </Box>
+              )}
+            </FormSection>
+          )}
+      </>
+    );
+  };
 
   // Render create invoice form
   const renderCreateForm = () => (
     <>
-      <FormSection title="Order Details" columns={3}>
-        <TextField
-          label="Invoice No"
-          size="small"
-          value={state.formData.invoice_no}
-          onChange={(e) => state.setFormData({ ...state.formData, invoice_no: e.target.value })}
-          required
-        />
-        <Autocomplete
-          size="small"
-          options={branches}
-          getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-          value={branches.find((b) => b.branch_code === state.formData.branch_code) || null}
-          onChange={(_, newValue) => state.setFormData({ ...state.formData, branch_code: newValue?.branch_code || "" })}
-          renderInput={(params) => <TextField {...params} label="Branch" required />}
-        />
-        <Autocomplete
-          size="small"
-          options={customers || []}
-          getOptionLabel={(option) => option.customer_name || ""}
-          value={customers?.find((c) => c.id === state.formData.customer_id) || null}
-          onChange={(_, newValue) => state.setFormData({ ...state.formData, customer_id: newValue?.id || 0 })}
-          renderInput={(params) => <TextField {...params} label="Customer" required />}
-        />
-        <TextField
-          label="Payment Method"
-          size="small"
-          select
-          value={state.formData.payment_method}
-          onChange={(e) => state.setFormData({ ...state.formData, payment_method: e.target.value })}
-        >
-          {CUSTOMER_PAYMENT_METHOD.map((option) => (
-            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-          ))}
-        </TextField>
-      </FormSection>
+      {/* Stepper */}
+      <Stepper activeStep={formStep} sx={{ mb: 3 }}>
+        {FORM_STEPS.map((label) => (
+          <Step key={label}>
+            <StepLabel>{label}</StepLabel>
+          </Step>
+        ))}
+      </Stepper>
 
-      <FormSection title="Additional Information" columns={1}>
-        <TextField
-          label="Remarks"
-          size="small"
-          value={state.formData.remarks}
-          onChange={(e) => state.setFormData({ ...state.formData, remarks: e.target.value })}
-          multiline
-          rows={2}
-        />
-      </FormSection>
+      {/* Step 1: Order Information */}
+      {formStep === 0 && (
+        <>
+          <FormSection title="Order Details" columns={3}>
+            <TextField
+              label="Invoice No"
+              size="small"
+              value={state.formData.invoice_no}
+              onChange={(e) => state.setFormData({ ...state.formData, invoice_no: e.target.value })}
+              required
+            />
+            <Autocomplete
+              size="small"
+              options={branches}
+              getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+              value={branches.find((b) => b.branch_code === state.formData.branch_code) || null}
+              onChange={(_, newValue) => state.setFormData({ ...state.formData, branch_code: newValue?.branch_code || "" })}
+              renderInput={(params) => <TextField {...params} label="Branch" required />}
+            />
+            <Autocomplete
+              size="small"
+              options={customers || []}
+              getOptionLabel={(option) => option.customer_name || ""}
+              value={customers?.find((c) => c.id === state.formData.customer_id) || null}
+              onChange={(_, newValue) => state.setFormData({ ...state.formData, customer_id: newValue?.id || 0 })}
+              renderInput={(params) => <TextField {...params} label="Customer" required />}
+            />
+            <TextField
+              label="Payment Method"
+              size="small"
+              select
+              value={state.formData.payment_method}
+              onChange={(e) => state.setFormData({ ...state.formData, payment_method: e.target.value })}
+            >
+              {CUSTOMER_PAYMENT_METHOD.map((option) => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </TextField>
+          </FormSection>
 
-      {/* Barcode Scanner Section */}
-      <Paper
-        variant="outlined"
-        sx={{
-          p: 2,
-          mb: 2,
-          bgcolor: "warning.50",
-          borderColor: "warning.main",
-          borderWidth: 2,
-        }}
-      >
-        <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
-          <QrCodeScannerIcon color="warning" />
-          Scan Barcode to Add Products
-        </Typography>
-        <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-          <TextField
-            inputRef={barcodeInputRef}
-            size="small"
-            fullWidth
-            placeholder="Scan or type barcode and press Enter..."
-            value={barcodeInput}
-            onChange={(e) => {
-              setBarcodeInput(e.target.value);
-              if (barcodeError) setBarcodeError(null);
+          <FormSection title="Additional Information" columns={1}>
+            <TextField
+              label="Remarks"
+              size="small"
+              value={state.formData.remarks}
+              onChange={(e) => state.setFormData({ ...state.formData, remarks: e.target.value })}
+              multiline
+              rows={2}
+            />
+          </FormSection>
+
+          {/* Step 1 Navigation */}
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleNextStep}
+              disabled={!isStep1Valid}
+              endIcon={<ArrowForwardIcon />}
+            >
+              Next: Line Items
+            </Button>
+          </Box>
+        </>
+      )}
+
+      {/* Step 2: Line Items */}
+      {formStep === 1 && (
+        <>
+          {/* Barcode Scanner Section */}
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 2,
+              mb: 2,
+              bgcolor: "warning.50",
+              borderColor: "warning.main",
+              borderWidth: 2,
             }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleValidateBarcode(barcodeInput);
-              }
-            }}
-            disabled={isValidatingBarcode}
-            error={!!barcodeError}
-            helperText={barcodeError || "Press Enter to add item"}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <QrCodeScannerIcon fontSize="small" color="action" />
-                </InputAdornment>
-              ),
-              endAdornment: isValidatingBarcode ? (
-                <InputAdornment position="end">
-                  <CircularProgress size={20} />
-                </InputAdornment>
-              ) : null,
-            }}
-            autoFocus
+          >
+            <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+              <QrCodeScannerIcon color="warning" />
+              Scan Barcode to Add Products
+            </Typography>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+              <TextField
+                inputRef={barcodeInputRef}
+                size="small"
+                fullWidth
+                placeholder="Scan or type barcode and press Enter..."
+                value={barcodeInput}
+                onChange={(e) => {
+                  setBarcodeInput(e.target.value);
+                  if (barcodeError) setBarcodeError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleValidateBarcode(barcodeInput);
+                  }
+                }}
+                disabled={isValidatingBarcode}
+                error={!!barcodeError}
+                helperText={barcodeError || "Press Enter to add item"}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <QrCodeScannerIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                  endAdornment: isValidatingBarcode ? (
+                    <InputAdornment position="end">
+                      <CircularProgress size={20} />
+                    </InputAdornment>
+                  ) : null,
+                }}
+                autoFocus
           />
           <Button
             variant="contained"
@@ -744,17 +805,18 @@ export default function SalesPage() {
               <TableRow sx={modernTableStyles.headerRow}>
                 <TableCell>Barcode</TableCell>
                 <TableCell>Product</TableCell>
+                <TableCell>Branch Code</TableCell>
                 <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
-                <TableCell align="right" sx={{ width: 120 }}>Min Price</TableCell>
-                <TableCell align="right" sx={{ width: 120 }}>Selling Price</TableCell>
-                <TableCell align="right" sx={{ width: 120 }}>Line Total</TableCell>
+                <TableCell align="right" sx={{ width: 100 }}>Warranty (Months)</TableCell>
+                <TableCell align="right" sx={{ width: 120 }}>Min Price (Rs.)</TableCell>
+                <TableCell align="right" sx={{ width: 120 }}>Selling Price (Rs.)</TableCell>
                 <TableCell sx={{ width: 50 }} />
               </TableRow>
             </TableHead>
             <TableBody>
               {lineItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} sx={modernTableStyles.emptyCell}>
+                  <TableCell colSpan={8} sx={modernTableStyles.emptyCell}>
                     Scan barcodes above to add items
                   </TableCell>
                 </TableRow>
@@ -764,66 +826,52 @@ export default function SalesPage() {
                     ...modernTableStyles.bodyRow,
                     ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                   }}>
-                    {/* Barcode Column */}
+                    {/* Barcode Column - with validation indicator */}
                     <TableCell>
-                      <Typography variant="body2" color={item.barcode ? "success.main" : "text.secondary"} fontWeight={item.barcode ? 500 : 400}>
-                        {item.barcode || "-"}
-                      </Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                        {item.barcode && validatedBarcodes.includes(item.barcode) && (
+                          <CheckCircleIcon fontSize="small" color="success" />
+                        )}
+                        <Typography variant="body2" color={item.barcode ? "success.main" : "text.secondary"} fontWeight={item.barcode ? 500 : 400}>
+                          {item.barcode || "-"}
+                        </Typography>
+                      </Box>
                     </TableCell>
+                    
                     {/* Product Column */}
                     <TableCell>
-                      <Autocomplete
-                        size="small"
-                        options={products || []}
-                        getOptionLabel={(option) => `${option.item_code} - ${option.name}`}
-                        value={products?.find((p) => p.id === item.product_id) || null}
-                        onChange={async (_, newValue) => {
-                          updateLineItem(index, "product_id", newValue?.id || 0);
-                          if (newValue) {
-                            // Auto-fill selling price from product
-                            updateLineItem(index, "selling_price", newValue.selling_price || newValue.cost_price || 0);
-
-                            // Fetch minimum selling price from sales_stock for this product
-                            try {
-                              const response = await apiClient.get(`/inventory/sales-stock`, {
-                                params: { product_id: newValue.id, limit: 1 }
-                              });
-                              if (response.data && response.data.length > 0) {
-                                const stockItem = response.data[0];
-                                // Get min price from the product relationship in stock item
-                                const minPrice = stockItem.product?.selling_price || newValue.cost_price || 0;
-                                updateLineItem(index, "minimum_selling_price", minPrice);
-                              } else {
-                                // Fallback: use cost_price as min price if no stock found
-                                updateLineItem(index, "minimum_selling_price", newValue.cost_price || 0);
-                              }
-                            } catch (error) {
-                              console.error("Error fetching min price:", error);
-                              // Fallback: use cost_price as min price
-                              updateLineItem(index, "minimum_selling_price", newValue.cost_price || 0);
-                            }
-                          }
-                        }}
-                        renderInput={(params) => <TextField {...params} placeholder="Select product" />}
-                        sx={{ minWidth: 200 }}
-                      />
+                      <Typography variant="body2">{item.product_name || `Product #${item.product_id}`}</Typography>
                     </TableCell>
+
+                    {/* Branch Code Column */}
+                    <TableCell>
+                      {item.branch_code || state.formData.branch_code || "-"}
+                    </TableCell>
+
+                    {/* Quantity Column */}
+                    <TableCell align="right">
+                      <Typography variant="body2">{item.quantity}</Typography>
+                    </TableCell>
+
+                    {/* Warranty Column */}
                     <TableCell align="right">
                       <TextField
                         size="small"
                         type="number"
-                        value={item.quantity}
-                        onChange={(e) => updateLineItem(index, "quantity", parseInt(e.target.value) || 1)}
+                        value={item.warrenty_month}
+                        onChange={(e) => updateLineItem(index, "warrenty_month", e.target.value)}
                         sx={{ width: 80 }}
-                        inputProps={{ min: 1 }}
+                        inputProps={{ min: 0 }}
                       />
                     </TableCell>
+
                     {/* Min Price Column */}
                     <TableCell align="right">
                       <Typography variant="body2" color="text.secondary">
-                        Rs. {(item.minimum_selling_price || 0).toFixed(2)}
+                        {(item.minimum_selling_price || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Typography>
                     </TableCell>
+
                     {/* Selling Price Column */}
                     <TableCell align="right">
                       <TextField
@@ -832,12 +880,13 @@ export default function SalesPage() {
                         value={item.selling_price}
                         onChange={(e) => updateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)}
                         sx={{ width: 100 }}
-                        InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                        inputProps={{ min: 0, step: 0.01 }}
+                        error={item.selling_price < item.minimum_selling_price}
+                        helperText={item.selling_price < item.minimum_selling_price ? `Min: ${item.minimum_selling_price}` : ""}
                       />
                     </TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight={500}>Rs. {(item.quantity * item.selling_price).toFixed(2)}</Typography>
-                    </TableCell>
+
+                    {/* Delete Button Column */}
                     <TableCell align="center">
                       <IconButton size="small" color="error" onClick={() => removeLineItem(index)}>
                         <DeleteIcon fontSize="small" />
@@ -846,17 +895,44 @@ export default function SalesPage() {
                   </TableRow>
                 ))
               )}
+              {/* Total Row */}
+              <TableRow sx={{ bgcolor: "action.hover" }}>
+                <TableCell colSpan={7} align="right">
+                  <Typography fontWeight="bold">Total:</Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography fontWeight="bold">
+                    {calculateLineItemsTotal().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Typography>
+                </TableCell>
+                <TableCell />
+              </TableRow>
             </TableBody>
           </Table>
         </Paper>
-
-        <Divider sx={{ my: 2 }} />
-        <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-          <Typography variant="h6" fontWeight={700} color="success.main">
-            Total: Rs. {calculateLineItemsTotal().toFixed(2)}
-          </Typography>
-        </Box>
       </Box>
+
+          {/* Step 2 Navigation */}
+          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
+            <Button
+              variant="outlined"
+              onClick={handlePreviousStep}
+              startIcon={<ArrowBackIcon />}
+            >
+              Back
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleSave}
+              disabled={createMutation.isPending || lineItems.length === 0}
+              startIcon={createMutation.isPending ? <CircularProgress size={20} /> : null}
+            >
+              {createMutation.isPending ? "Saving..." : "Save Order"}
+            </Button>
+          </Box>
+        </>
+      )}
     </>
   );
 
@@ -959,7 +1035,7 @@ export default function SalesPage() {
                               sx={{ height: 18, fontSize: "0.65rem" }}
                             />
                             <Chip
-                              label={invoice.approval ? "Approved" : "Pending"}
+                              label={invoice.approval ? "Approved" : "Pending Approval"}
                               size="small"
                               color={invoice.approval ? "info" : "warning"}
                               variant="outlined"
@@ -1012,7 +1088,7 @@ export default function SalesPage() {
               onSave={handleSave}
               onCancel={handleCancel}
               isSaving={createMutation.isPending}
-              saveDisabled={!state.formData.invoice_no || lineItems.length === 0}
+              saveDisabled={!state.formData.invoice_no || lineItems.length === 0 || formStep !== 1}
               customActions={customActions}
             />
 
@@ -1030,7 +1106,6 @@ export default function SalesPage() {
       </MasterDetailLayout>
       <TConfirmDialog {...deleteDialog.dialogProps} />
       <TConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
-      <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
 
       {/* Invoice Details Dialog */}
       <InvoiceDetailsDialog
@@ -1041,6 +1116,56 @@ export default function SalesPage() {
           setSelectedInvoiceForView(null);
         }}
       />
+
+      {/* Remarks Modal */}
+      <Dialog open={remarksDialogOpen} onClose={() => setRemarksDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Remarks</DialogTitle>
+        <DialogContent>
+          <TextField
+            multiline
+            rows={8}
+            fullWidth
+            placeholder="No remarks..."
+            value={state.selectedItem?.remarks || ""}
+            InputProps={{ readOnly: true }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
+          <Button onClick={() => setRemarksDialogOpen(false)} variant="outlined">
+            Cancel
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Item Remark Modal */}
+      <Dialog
+        open={itemRemarkModalOpen}
+        onClose={() => setItemRemarkModalOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <MenuBookIcon />
+          Item Remark
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            value={currentItemRemark || "No remark"}
+            InputProps={{ readOnly: true }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setItemRemarkModalOpen(false)} variant="outlined">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

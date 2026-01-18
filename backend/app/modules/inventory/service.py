@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from typing import List, Optional
@@ -114,10 +114,39 @@ class SalesStockService:
             models.SalesStock.status == "available"
         ).all()
     
-    def get_by_barcode(self, barcode: str) -> models.SalesStock:
-        return self.db.query(models.SalesStock).filter(
+    def get_by_barcode(self, barcode: str) -> Optional[dict]:
+        """Get sales stock by barcode with enriched product data"""
+        item = self.db.query(models.SalesStock).filter(
             models.SalesStock.barcode == barcode
-        ).first()
+        ).options(joinedload(models.SalesStock.product)).first()
+        
+        if not item:
+            return None
+        
+        # Return enriched data similar to get_all
+        return {
+            "id": item.id,
+            "product_id": item.product_id,
+            "barcode": item.barcode,
+            "branch_code": item.branch_code,
+            "good_received_note_id": item.good_received_note_id,
+            "purchasing_order_items_id": item.purchasing_order_items_id,
+            "warranty_month": item.warranty_month,
+            "status": item.status,
+            "added_date": item.added_date,
+            "cost_price": item.product.cost_price if item.product else None,
+            "selling_price": item.product.selling_price if item.product else None,
+            "product_name": item.product.name if item.product else None,
+            "item_code": item.product.item_code if item.product else None,
+            "product": {
+                "id": item.product.id if item.product else None,
+                "product_name": item.product.name if item.product else None,
+                "name": item.product.name if item.product else None,
+                "item_code": item.product.item_code if item.product else None,
+                "selling_price": item.product.selling_price if item.product else None,
+                "cost_price": item.product.cost_price if item.product else None,
+            } if item.product else None,
+        }
     
     def update_status(self, id: int, status: str) -> models.SalesStock:
         item = self.db.query(models.SalesStock).filter(models.SalesStock.id == id).first()

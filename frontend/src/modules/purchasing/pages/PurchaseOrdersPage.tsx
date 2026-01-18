@@ -626,9 +626,9 @@ export default function PurchaseOrdersPage() {
         })),
       };
       
-      // Reset to pending if was approved
+      // Reset to pending_approval if was approved
       if (wasApproved) {
-        updateData.status = "pending";
+        updateData.status = "pending_approval";
         toast("Order was previously approved. It will need re-approval after this edit.", { icon: "⚠️" });
       }
       

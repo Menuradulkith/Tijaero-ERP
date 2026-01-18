@@ -7,6 +7,7 @@
 import CancelIcon from "@mui/icons-material/Cancel";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import {
     Box,
     Button,
@@ -15,6 +16,7 @@ import {
     DialogActions,
     DialogContent,
     DialogTitle,
+    IconButton,
     Paper,
     Table,
     TableBody,
@@ -22,6 +24,7 @@ import {
     TableHead,
     TableRow,
     TextField,
+    Tooltip,
     Typography
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,6 +42,9 @@ import {
     SortOption,
     TBranchFilter,
     TFilterPanel,
+    TStatusChip,
+    TStatusFilter,
+    getStatusProps,
     modernTableStyles,
     showErrorToast,
     showSuccessToast,
@@ -57,6 +63,13 @@ const SORT_OPTIONS: SortOption[] = [
     { value: "invoice_no", label: "Invoice Number" },
 ];
 
+// Status options for filtering
+const SO_STATUS_FILTER_OPTIONS = [
+    { value: "pending_approval", label: "Pending Approval", color: "warning" as const },
+    { value: "approved", label: "Approved", color: "success" as const },
+    { value: "cancelled", label: "Cancelled", color: "error" as const },
+];
+
 export default function SalesOrderApprovalsPage() {
     const queryClient = useQueryClient();
     const [searchQuery, setSearchQuery] = useState("");
@@ -68,11 +81,14 @@ export default function SalesOrderApprovalsPage() {
 
     // Filter states
     const [filterBranch, setFilterBranch] = useState<string | null>(null);
+    const [filterStatus, setFilterStatus] = useState<string | null>("pending_approval");
 
     // Dialogs
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
     const [rejectReason, setRejectReason] = useState("");
-    // const [remarksDialogOpen, setRemarksDialogOpen] = useState(false); // Unused for now
+    const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
+    const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
+    const [currentItemRemark, setCurrentItemRemark] = useState("");
 
     // Fetch pending invoices
     const { data: orders = [], isLoading, refetch } = useQuery({
@@ -117,6 +133,11 @@ export default function SalesOrderApprovalsPage() {
     // Filter and sort orders
     const filteredOrders = useMemo(() => {
         let filtered = orders.filter((order) => {
+            // Status filter
+            if (filterStatus) {
+                const orderStatus = order.approval ? "approved" : "pending_approval";
+                if (orderStatus !== filterStatus) return false;
+            }
             // Branch filter
             if (filterBranch && order.branch_code !== filterBranch) {
                 return false;
@@ -241,6 +262,11 @@ export default function SalesOrderApprovalsPage() {
             emptyMessage="No pending orders found"
             listHeader={
                 <TFilterPanel>
+                    <TStatusFilter
+                        options={SO_STATUS_FILTER_OPTIONS}
+                        value={filterStatus}
+                        onChange={setFilterStatus}
+                    />
                     <TBranchFilter
                         branches={branches}
                         value={filterBranch}
@@ -250,6 +276,7 @@ export default function SalesOrderApprovalsPage() {
             }
             renderItem={(order, isSelected) => {
                 const orderCustomer = customerMap.get(order.customer_id);
+                const statusChip = getStatusProps(order.approval ? "approved" : "pending_approval", "invoice");
                 return (
                     <SelectableListItem
                         key={order.id}
@@ -287,16 +314,16 @@ export default function SalesOrderApprovalsPage() {
                                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <Typography component="span" variant="caption">
                                                 Rs. {((order as any).total_amount || 0).toLocaleString()}
-                                                {/* Note: Invoice type might not have total_amount explicitly on list item, 
-                            checking Invoice type definition might be needed. 
-                            Usually list items allow some total. 
-                            If not, we can sum items if available or just show '-' 
-                        */}
                                             </Typography>
+                                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                                                (Amount)
+                                            </Typography>
+                                        </Box>
+                                        <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
                                             <Chip
-                                                label="Pending"
+                                                label={statusChip.label}
                                                 size="small"
-                                                color="warning"
+                                                color={statusChip.color}
                                                 sx={{ height: 18, fontSize: "0.65rem" }}
                                             />
                                         </Box>
@@ -371,23 +398,64 @@ export default function SalesOrderApprovalsPage() {
                         {/* Order Information */}
                         <FormSection title="Order Information" columns={3}>
                             <TextField label="Invoice Number" size="small" value={selectedOrder.invoice_no} disabled />
-                            <TextField
-                                label="Date"
-                                size="small"
-                                value={new Date(selectedOrder.created_date).toLocaleDateString()}
-                                disabled
-                            />
                             <TextField label="Branch" size="small" value={selectedOrder.branch_code} disabled />
                             <TextField label="Payment Method" size="small" value={selectedOrder.payment_method} disabled />
-                            {/* Add more fields as needed */}
                         </FormSection>
 
                         {/* Customer Information */}
                         <FormSection title="Customer Information" columns={2}>
                             <TextField label="Customer Name" size="small" value={customer?.customer_name || ""} disabled />
-                            <TextField label="Company" size="small" value={customer?.company_name || ""} disabled />
+                            <TextField label="Company" size="small" value={customer?.company_name || "N/A"} disabled />
                             <TextField label="Contact" size="small" value={customer?.mobile_contact_number || ""} disabled />
-                            <TextField label="Email" size="small" value={customer?.email || ""} disabled />
+                            <TextField label="Email" size="small" value={customer?.email || "N/A"} disabled />
+                        </FormSection>
+
+                        {/* Dates & Payment */}
+                        <FormSection title="Dates & Payment" columns={3}>
+                            <TextField
+                                label="Order Date"
+                                size="small"
+                                value={new Date(selectedOrder.created_date).toLocaleDateString()}
+                                disabled
+                            />
+                            <TextField
+                                label="Credit Amount"
+                                size="small"
+                                value={`Rs. ${(selectedOrder.credit_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                disabled
+                            />
+                            <TextField
+                                label="Cash Amount"
+                                size="small"
+                                value={`Rs. ${(selectedOrder.cash_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                disabled
+                            />
+                        </FormSection>
+
+                        {/* Order Status */}
+                        <FormSection title="Order Status" columns={1}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                <Typography variant="body2" color="text.secondary">Status:</Typography>
+                                <TStatusChip status={selectedOrder.approval ? "approved" : "pending_approval"} statusMap="salesOrder" />
+                            </Box>
+                        </FormSection>
+
+                        {/* Tracking */}
+                        <FormSection title="Tracking" columns={2}>
+                            <TextField
+                                label="Created Date"
+                                size="small"
+                                value={selectedOrder.created_at ? new Date(selectedOrder.created_at).toLocaleString() : ""}
+                                disabled
+                                InputProps={{ readOnly: true }}
+                            />
+                            <TextField
+                                label="Order Date"
+                                size="small"
+                                value={selectedOrder.created_date ? new Date(selectedOrder.created_date).toLocaleDateString() : ""}
+                                disabled
+                                InputProps={{ readOnly: true }}
+                            />
                         </FormSection>
 
                         {/* Order Items */}
@@ -398,8 +466,10 @@ export default function SalesOrderApprovalsPage() {
                                         <TableRow sx={modernTableStyles.headerRow}>
                                             <TableCell>Product</TableCell>
                                             <TableCell align="right">Quantity</TableCell>
-                                            <TableCell align="right">Unit Price</TableCell>
-                                            <TableCell align="right">Total</TableCell>
+                                            <TableCell align="right">Unit Price (Rs.)</TableCell>
+                                            <TableCell align="center">Warranty</TableCell>
+                                            <TableCell>Remark</TableCell>
+                                            <TableCell align="right">Amount (Rs.)</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -412,17 +482,30 @@ export default function SalesOrderApprovalsPage() {
                                                 }}>
                                                     <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                                                     <TableCell align="right">{item.quantity}</TableCell>
-                                                    <TableCell align="right">Rs. {item.selling_price.toLocaleString()}</TableCell>
-                                                    <TableCell align="right">Rs. {(item.quantity * item.selling_price).toLocaleString()}</TableCell>
+                                                    <TableCell align="right">{item.selling_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                                                    <TableCell align="center">{item.warrenty_month || "0"} mo</TableCell>
+                                                    <TableCell>
+                                                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                                            <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                {(item as any).remark || "-"}
+                                                            </Typography>
+                                                            <Tooltip title="View Remark">
+                                                                <IconButton size="small" onClick={() => { setCurrentItemRemark((item as any).remark || ""); setItemRemarkModalOpen(true); }}>
+                                                                    <MenuBookIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                        </Box>
+                                                    </TableCell>
+                                                    <TableCell align="right">{(item.quantity * item.selling_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                                                 </TableRow>
                                             );
                                         })}
                                         <TableRow sx={modernTableStyles.footerRow}>
-                                            <TableCell colSpan={3} align="right">
-                                                <strong>Total Amount:</strong>
+                                            <TableCell colSpan={5} align="right">
+                                                <strong>Total:</strong>
                                             </TableCell>
                                             <TableCell align="right">
-                                                <strong>Rs. {selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.selling_price), 0).toLocaleString() || "0"}</strong>
+                                                <strong>{(selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.selling_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                                             </TableCell>
                                         </TableRow>
                                     </TableBody>
@@ -432,14 +515,21 @@ export default function SalesOrderApprovalsPage() {
 
                         {/* Remarks */}
                         <FormSection title="Remarks" columns={1}>
-                            <TextField
-                                multiline
-                                rows={2}
-                                fullWidth
-                                value={selectedOrder.remarks || "No remarks"}
-                                disabled
-                                size="small"
-                            />
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+                                <TextField
+                                    multiline
+                                    rows={2}
+                                    fullWidth
+                                    value={selectedOrder.remarks || "No remarks"}
+                                    disabled
+                                    size="small"
+                                />
+                                <Tooltip title="View / Add Remarks">
+                                    <IconButton size="small" onClick={() => setRemarksDialogOpen(true)}>
+                                        <MenuBookIcon fontSize="small" />
+                                    </IconButton>
+                                </Tooltip>
+                            </Box>
                         </FormSection>
                     </>
                 )}
@@ -471,6 +561,56 @@ export default function SalesOrderApprovalsPage() {
                         disabled={rejectMutation.isPending}
                     >
                         Reject (Delete)
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Remarks Modal */}
+            <Dialog open={remarksDialogOpen} onClose={() => setRemarksDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>Remarks</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        multiline
+                        rows={8}
+                        fullWidth
+                        placeholder="No remarks..."
+                        value={selectedOrder?.remarks || ""}
+                        InputProps={{ readOnly: true }}
+                        sx={{ mt: 1 }}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
+                    <Button onClick={() => setRemarksDialogOpen(false)} variant="outlined">
+                        Cancel
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Item Remark Modal */}
+            <Dialog
+                open={itemRemarkModalOpen}
+                onClose={() => setItemRemarkModalOpen(false)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <MenuBookIcon />
+                    Item Remark
+                </DialogTitle>
+                <DialogContent>
+                    <TextField
+                        fullWidth
+                        multiline
+                        rows={4}
+                        value={currentItemRemark || "No remark"}
+                        InputProps={{ readOnly: true }}
+                        sx={{ mt: 1 }}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setItemRemarkModalOpen(false)} variant="outlined">
+                        Close
                     </Button>
                 </DialogActions>
             </Dialog>
