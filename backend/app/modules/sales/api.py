@@ -100,6 +100,21 @@ def get_invoices_by_customer(
     return service.sales_service.get_by_customer(db, customer_id, skip, limit)
 
 @router.get(
+    "/customer/{customer_id}/recent",
+    response_model=List[schemas.Invoice],
+    summary="Get Recent Sales for Customer",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_recent_customer_sales(
+    customer_id: int,
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get the most recent sales records for a customer from any branch."""
+    return service.sales_service.get_recent_by_customer(db, customer_id, limit)
+
+@router.get(
     "/{invoice_id}",
     response_model=schemas.InvoiceWithItems,
     summary="Get Sales Order by ID",
@@ -201,7 +216,7 @@ def get_sale_return(
     current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
 ):
     """Get sale return details with items."""
-    return service.sales_service.get_sale_return(db, return_id)
+    return service.sales_service.get_sale_return_with_items(db, return_id)
 
 @router.post(
     "/returns/",
@@ -216,4 +231,131 @@ def create_sale_return(
     current_user: User = Depends(require_permission(*Permissions.SALES_CREATE))
 ):
     """Create a new sale return."""
-    return service.sales_service.create_sale_return(db, sale_return)
+    return service.sales_service.create_sale_return(db, sale_return, current_user.id)
+
+@router.delete(
+    "/returns/{return_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete Sale Return",
+    dependencies=[Depends(require_permission(*Permissions.SALES_DELETE))]
+)
+def delete_sale_return(
+    return_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_DELETE))
+):
+    """Delete a pending sale return."""
+    return service.sales_service.delete_sale_return(db, return_id)
+
+# Sale Return Workflow Endpoints
+@router.post(
+    "/returns/{return_id}/approve",
+    response_model=schemas.SaleReturn,
+    summary="Approve Sale Return",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def approve_sale_return(
+    return_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """Approve a pending sale return for processing."""
+    return service.sales_service.approve_sale_return(db, return_id, current_user.id)
+
+@router.post(
+    "/returns/{return_id}/reject",
+    response_model=schemas.SaleReturn,
+    summary="Reject Sale Return",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def reject_sale_return(
+    return_id: int,
+    reason: str = Query(None, description="Reason for rejection"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """Reject a pending sale return."""
+    return service.sales_service.reject_sale_return(db, return_id, current_user.id, reason)
+
+@router.post(
+    "/returns/{return_id}/process",
+    response_model=schemas.SaleReturnProcessResponse,
+    summary="Process Sale Return",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def process_sale_return(
+    return_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """
+    Process an approved sale return:
+    - Restore stock for restockable items
+    - Create credit note or process refund
+    - Update original invoice totals
+    """
+    return service.sales_service.process_sale_return(db, return_id, current_user.id)
+
+@router.get(
+    "/returns/statistics",
+    summary="Get Sale Return Statistics",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_return_statistics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get sale return statistics for dashboard."""
+    return service.sales_service.get_return_statistics(db)
+
+# Invoice Workflow Endpoints
+@router.post(
+    "/{invoice_id}/approve",
+    response_model=schemas.InvoiceWithItems,
+    summary="Approve Sales Order",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def approve_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """
+    Approve a pending credit sales order.
+    This changes status to 'approved' and marks stock as 'sold'.
+    """
+    return service.sales_service.approve_invoice(db, invoice_id, current_user.id)
+
+@router.post(
+    "/{invoice_id}/complete",
+    response_model=schemas.InvoiceWithItems,
+    summary="Complete Sales Order",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def complete_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """
+    Mark an approved invoice as completed (delivered/paid).
+    This finalizes the sale and ensures all stock is marked as 'sold'.
+    """
+    return service.sales_service.complete_invoice(db, invoice_id, current_user.id)
+
+@router.post(
+    "/{invoice_id}/cancel",
+    response_model=schemas.InvoiceWithItems,
+    summary="Cancel Sales Order",
+    dependencies=[Depends(require_permission(*Permissions.SALES_DELETE))]
+)
+def cancel_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_DELETE))
+):
+    """
+    Cancel a sales order and restore stock to available.
+    Cannot cancel completed invoices - use sale return instead.
+    """
+    return service.sales_service.cancel_invoice(db, invoice_id, current_user.id)

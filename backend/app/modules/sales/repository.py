@@ -35,6 +35,12 @@ class SalesRepository:
             Invoice.customer_id == customer_id
         ).offset(skip).limit(limit).all()
     
+    def get_recent_by_customer(self, db: Session, customer_id: int, limit: int = 5):
+        """Get most recent invoices for a customer from any branch, ordered by date descending"""
+        return db.query(Invoice).filter(
+            Invoice.customer_id == customer_id
+        ).order_by(Invoice.created_date.desc(), Invoice.id.desc()).limit(limit).all()
+    
     def get_returns_by_invoice(self, db: Session, invoice_id: int, skip: int = 0, limit: int = 100):
         """Get sale returns for a specific invoice"""
         return db.query(SaleReturn).filter(

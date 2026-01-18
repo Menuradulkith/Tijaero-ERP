@@ -2,10 +2,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from fastapi import HTTPException, status
 from app.modules.sales import repository, schemas
-from app.modules.sales.models import Invoice, InvoiceItems, SaleReturn, SaleReturnItems
+from app.modules.sales.models import Invoice, InvoiceItems, InvoiceItemsBarcode, SaleReturn, SaleReturnItems
 from app.modules.inventory.models import SalesStock
+from app.modules.finance.models import ChequePayments, CardPayments, BankDeposits
+from app.modules.customers.credit_service import CustomerCreditService
+from decimal import Decimal
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
+
+# Initialize credit service
+customer_credit_service = CustomerCreditService()
 
 class SalesService:
     def get_all_invoices(self, db: Session, skip: int = 0, limit: int = 100):
@@ -34,6 +40,10 @@ class SalesService:
     def get_by_customer(self, db: Session, customer_id: int, skip: int = 0, limit: int = 100):
         """Get invoices for a specific customer"""
         return repository.sales_repository.get_by_customer(db, customer_id, skip, limit)
+    
+    def get_recent_by_customer(self, db: Session, customer_id: int, limit: int = 5):
+        """Get most recent invoices for a customer from any branch"""
+        return repository.sales_repository.get_recent_by_customer(db, customer_id, limit)
     
     def get_returns_by_invoice(self, db: Session, invoice_id: int, skip: int = 0, limit: int = 100):
         """Get sale returns for a specific invoice"""
@@ -185,31 +195,259 @@ class SalesService:
             )
     
     def create_invoice(self, db: Session, invoice_data: schemas.InvoiceCreate, user_id: int):
+        # Calculate subtotal from items
+        subtotal = sum(
+            item.quantity * item.selling_price 
+            for item in invoice_data.items
+        )
+        
         # Validate all products are available in sales stock before creating invoice
         for item_data in invoice_data.items:
             self.validate_product_availability(db, item_data.product_id, item_data.quantity)
+            
+            # Validate selling price is not below minimum price
+            if item_data.selling_price < item_data.minimum_selling_price:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Selling price ({item_data.selling_price}) cannot be less than minimum price ({item_data.minimum_selling_price}) for product ID {item_data.product_id}"
+                )
         
-        # Create invoice
-        invoice_dict = invoice_data.model_dump(exclude={'items'})
+        # Extract payment details before creating invoice dict
+        cheque_number = getattr(invoice_data, 'cheque_number', None)
+        cheque_bank = getattr(invoice_data, 'cheque_bank', None)
+        cheque_date_str = getattr(invoice_data, 'cheque_date', None)
+        card_ref_number = getattr(invoice_data, 'card_ref_number', None)
+        card_holder_name = getattr(invoice_data, 'card_holder_name', None)
+        bank_transfer_ref = getattr(invoice_data, 'bank_transfer_ref', None)
+        bank_name = getattr(invoice_data, 'bank_name', None)
+        credit_note_id = getattr(invoice_data, 'credit_note_id', None)
+        
+        # Get payment method
+        payment_method = invoice_data.payment_method.lower() if invoice_data.payment_method else ""
+        is_credit_payment = payment_method == "credit"
+        
+        # Validate credit limit for credit sales
+        if is_credit_payment:
+            credit_validation = customer_credit_service.validate_credit_sale(
+                db, 
+                invoice_data.customer_id, 
+                Decimal(str(subtotal)),
+                allow_over_limit=False  # Don't allow exceeding credit limit
+            )
+            
+            if not credit_validation["allowed"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Credit limit exceeded. {credit_validation['message']}. "
+                           f"Available credit: Rs. {credit_validation['available_credit']:,.2f}, "
+                           f"Required: Rs. {subtotal:,.2f}"
+                )
+        
+        # Calculate service charges for card payments
+        service_charge_rate = Decimal("0")
+        service_charge_amount = Decimal("0")
+        if payment_method == "card_amex":
+            service_charge_rate = Decimal("0.03")  # 3% for Amex
+            service_charge_amount = Decimal(str(subtotal)) * service_charge_rate
+        elif payment_method in ["card_visa", "card_mastercard"]:
+            service_charge_rate = Decimal("0.027")  # 2.7% for Visa/Mastercard
+            service_charge_amount = Decimal(str(subtotal)) * service_charge_rate
+        
+        # Calculate tax and discount (from invoice data if provided)
+        tax_rate = Decimal(str(getattr(invoice_data, 'tax_rate', 0) or 0))
+        discount_percent = Decimal(str(getattr(invoice_data, 'discount_percent', 0) or 0))
+        discount_amount = Decimal(str(getattr(invoice_data, 'discount_amount', 0) or 0))
+        
+        # Calculate tax amount
+        tax_amount = Decimal(str(subtotal)) * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
+        
+        # Calculate discount (percentage takes priority, then fixed amount)
+        calculated_discount = Decimal("0")
+        if discount_percent > 0:
+            calculated_discount = Decimal(str(subtotal)) * (discount_percent / 100)
+        elif discount_amount > 0:
+            calculated_discount = discount_amount
+        
+        # Calculate grand total
+        grand_total = Decimal(str(subtotal)) - calculated_discount + tax_amount + service_charge_amount
+        
+        # Create invoice dict
+        invoice_dict = invoice_data.model_dump(exclude={
+            'items', 'cheque_number', 'cheque_bank', 'cheque_date', 
+            'card_ref_number', 'card_holder_name', 'bank_transfer_ref', 
+            'bank_name', 'credit_note_id', 'tax_rate', 'discount_percent', 'discount_amount'
+        })
         invoice_dict['created_date'] = date.today()
         invoice_dict['created_date_time'] = datetime.now()
         invoice_dict['status'] = True
-        invoice_dict['approval'] = False
+        
+        # Set calculated totals
+        invoice_dict['subtotal'] = float(subtotal)
+        invoice_dict['tax_rate'] = float(tax_rate)
+        invoice_dict['tax_amount'] = float(tax_amount)
+        invoice_dict['discount_percent'] = float(discount_percent)
+        invoice_dict['discount_amount'] = float(calculated_discount)
+        invoice_dict['service_charge_rate'] = float(service_charge_rate)
+        invoice_dict['service_charge_amount'] = float(service_charge_amount)
+        invoice_dict['grand_total'] = float(grand_total)
+        
+        # Set payment tracking fields
+        if is_credit_payment:
+            # Credit payment - needs approval, unpaid until settled
+            invoice_dict['approval'] = False
+            invoice_dict['approval_status'] = "pending_approval"
+            invoice_dict['paid_amount'] = 0
+            invoice_dict['balance_due'] = float(grand_total)
+            invoice_dict['payment_status'] = "unpaid"
+        else:
+            # Cash/Card/Cheque/Bank Transfer - auto-approved and paid
+            invoice_dict['approval'] = True
+            invoice_dict['approval_status'] = "completed"
+            invoice_dict['paid_amount'] = float(grand_total)
+            invoice_dict['balance_due'] = 0
+            invoice_dict['payment_status'] = "paid"
+        
         invoice_dict['cupon_amount'] = 0
         invoice_dict['credit_note_amount'] = 0
-        invoice_dict['cheque_date'] = date.today()
+        
+        # Handle cheque date
+        if cheque_date_str:
+            try:
+                invoice_dict['cheque_date'] = datetime.strptime(cheque_date_str, '%Y-%m-%d').date()
+            except:
+                invoice_dict['cheque_date'] = date.today()
+        else:
+            invoice_dict['cheque_date'] = date.today()
+        
+        # Create payment records based on payment method
+        cheque_payment_id = None
+        card_payment_id = None
+        bank_transfer_id = None
+        
+        # Handle cheque payment
+        if payment_method == "cheque" and cheque_number:
+            cheque_payment = ChequePayments(
+                cheque_number=int(cheque_number) if cheque_number else 0,
+                branch_code=0,  # Will be updated
+                from_party=card_holder_name or "Customer",
+                bank=cheque_bank or "",
+                amount=invoice_data.cheque_amount or 0,
+                cheque_date=invoice_dict['cheque_date'],
+                deposit_date=date.today(),
+                remark=invoice_data.remarks or "",
+                payment_for="Sales Invoice",
+                invoice_no=invoice_data.invoice_no
+            )
+            db.add(cheque_payment)
+            db.flush()
+            cheque_payment_id = cheque_payment.id
+        
+        # Handle card payment
+        if payment_method in ["card_visa", "card_mastercard", "card_amex"]:
+            card_type_map = {
+                "card_visa": "VISA",
+                "card_mastercard": "MASTER",
+                "card_amex": "AMEX"
+            }
+            card_amount = (
+                invoice_data.card_visa_amount or 
+                invoice_data.card_mastercard_amount or 
+                invoice_data.card_amex_amount or 0
+            )
+            card_payment = CardPayments(
+                card_type=card_type_map.get(payment_method, "VISA"),
+                amount=card_amount,
+                date_time=datetime.now(),
+                remark=card_holder_name or "",
+                ref_number=card_ref_number or "",
+                invoice_no=invoice_data.invoice_no,
+                deposited=True
+            )
+            db.add(card_payment)
+            db.flush()
+            card_payment_id = card_payment.id
+        
+        # Handle bank transfer
+        if payment_method == "bank_transfer":
+            bank_deposit = BankDeposits(
+                deposits_amount=invoice_data.bank_transfer_amount or 0,
+                remarks=f"Ref: {bank_transfer_ref}" if bank_transfer_ref else "",
+                created_date=datetime.now(),
+                branch_code=invoice_data.branch_code,
+                bank_name=bank_name or "",
+                user_id=user_id,
+                payment_for="Sales Invoice",
+                invoice_no=invoice_data.invoice_no,
+                verified=False,
+                returned=False
+            )
+            db.add(bank_deposit)
+            db.flush()
+            bank_transfer_id = bank_deposit.id
+        
+        # Set payment record IDs
+        invoice_dict['cheque_payment_id'] = cheque_payment_id
+        invoice_dict['card_payment_id'] = card_payment_id
+        invoice_dict['bank_transfer_id'] = bank_transfer_id
+        invoice_dict['credit_note_id'] = credit_note_id if payment_method == "credit_note" else None
         
         invoice = Invoice(**invoice_dict)
         db.add(invoice)
         db.flush()
         
-        # Create invoice items
+        # Create invoice items and handle sales stock
         for item_data in invoice_data.items:
             item_dict = item_data.model_dump()
             item_dict['invoice_id'] = invoice.id
             item_dict['created_date'] = datetime.now()
+            
+            # Get barcode from item_dict (keep it for reference)
+            barcode = item_dict.get('barcode', None)
+            sales_stock_id = None
+            
+            # Find and link the sales stock item if barcode provided
+            if barcode:
+                stock_item = db.query(SalesStock).filter(
+                    SalesStock.barcode == barcode,
+                    SalesStock.status == 'available'
+                ).first()
+                
+                if stock_item:
+                    sales_stock_id = stock_item.id
+                    item_dict['sales_stock_id'] = sales_stock_id
+                    
+                    # For completed orders (cash/card/etc), update sales stock status
+                    if invoice_dict['approval_status'] == 'completed':
+                        stock_item.status = 'sold'
+                        stock_item.is_active = False
+            
+            # Calculate line total
+            line_total = item_dict['quantity'] * item_dict['selling_price']
+            item_dict['line_total'] = line_total
+            
             item = InvoiceItems(**item_dict)
             db.add(item)
+            db.flush()
+            
+            # Create InvoiceItemsBarcode link if we have both barcode and GRN item
+            if barcode and sales_stock_id:
+                # Get the good_received_items_id from sales_stock
+                stock_item = db.query(SalesStock).filter(SalesStock.id == sales_stock_id).first()
+                if stock_item and stock_item.good_received_note_id:
+                    # Find the GRN item for this barcode
+                    from app.modules.purchasing.models import GoodReceivedItems
+                    grn_item = db.query(GoodReceivedItems).filter(
+                        GoodReceivedItems.good_received_note_id == stock_item.good_received_note_id,
+                        GoodReceivedItems.barcode == barcode
+                    ).first()
+                    
+                    if grn_item:
+                        barcode_link = InvoiceItemsBarcode(
+                            created_date=datetime.now(),
+                            good_received_items_id=grn_item.id,
+                            invoice_items_id=item.id
+                        )
+                        db.add(barcode_link)
         
         db.commit()
         db.refresh(invoice)
@@ -218,7 +456,91 @@ class SalesService:
     def update_invoice(self, db: Session, invoice_id: int, invoice_data: schemas.InvoiceUpdate, user_id: int):
         invoice = self.get_invoice(db, invoice_id)
         
-        update_data = invoice_data.model_dump(exclude_unset=True)
+        # Handle items update if provided
+        if invoice_data.items is not None:
+            # First, restore stock for existing items
+            existing_items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+            for item in existing_items:
+                if item.sales_stock_id:
+                    stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                    if stock_item and stock_item.status in ['sold', 'reserved']:
+                        stock_item.status = 'available'
+                        stock_item.is_active = True
+            
+            # Delete existing items and barcode links
+            db.query(InvoiceItemsBarcode).filter(
+                InvoiceItemsBarcode.invoice_items_id.in_(
+                    [item.id for item in existing_items]
+                )
+            ).delete(synchronize_session=False)
+            db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).delete()
+            
+            # Validate product availability for all new items
+            for item_data in invoice_data.items:
+                if item_data.barcode:
+                    # Check if this barcode is still available
+                    stock = db.query(SalesStock).filter(
+                        SalesStock.barcode == item_data.barcode,
+                        SalesStock.status == 'available'
+                    ).first()
+                    if not stock:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Barcode {item_data.barcode} is no longer available"
+                        )
+                else:
+                    self.validate_product_availability(db, item_data.product_id, item_data.quantity)
+            
+            # Create new items
+            for item_data in invoice_data.items:
+                item_dict = item_data.model_dump()
+                item_dict['invoice_id'] = invoice_id
+                item_dict['created_date'] = datetime.now()
+                
+                barcode = item_dict.get('barcode', None)
+                sales_stock_id = None
+                
+                if barcode:
+                    stock_item = db.query(SalesStock).filter(
+                        SalesStock.barcode == barcode,
+                        SalesStock.status == 'available'
+                    ).first()
+                    
+                    if stock_item:
+                        sales_stock_id = stock_item.id
+                        item_dict['sales_stock_id'] = sales_stock_id
+                        
+                        # Reserve/sell stock based on approval status
+                        if invoice.approval_status == 'completed':
+                            stock_item.status = 'sold'
+                            stock_item.is_active = False
+                        else:
+                            stock_item.status = 'reserved'
+                
+                # Calculate line total
+                line_total = item_dict['quantity'] * item_dict['selling_price']
+                item_dict['line_total'] = line_total
+                
+                item = InvoiceItems(**item_dict)
+                db.add(item)
+        
+        # Update invoice fields
+        update_data = invoice_data.model_dump(exclude_unset=True, exclude={'items'})
+        
+        # Check if payment method is being updated to credit - if so, reset approval
+        if 'payment_method' in update_data:
+            payment_method = update_data['payment_method'].lower()
+            is_credit_payment = payment_method == "credit"
+            
+            if is_credit_payment:
+                # Credit payment - requires approval
+                update_data['approval'] = False
+                update_data['approval_status'] = "pending_approval"
+            else:
+                # Cash/Card/Cheque/Bank - auto-approved and completed
+                update_data['approval'] = True
+                update_data['approval_status'] = "completed"
+        
         for field, value in update_data.items():
             setattr(invoice, field, value)
         
@@ -228,12 +550,108 @@ class SalesService:
     
     def delete_invoice(self, db: Session, invoice_id: int):
         invoice = self.get_invoice(db, invoice_id)
+        
+        # Restore sales stock for items that were sold
+        items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+        for item in items:
+            if item.sales_stock_id:
+                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                if stock_item and stock_item.status == 'sold':
+                    # Restore the stock item to available
+                    stock_item.status = 'available'
+                    stock_item.is_active = True
+        
         db.delete(invoice)
         db.commit()
-        return {"message": "Invoice deleted successfully"}
+        return {"message": "Invoice deleted successfully and stock restored"}
+    
+    def approve_invoice(self, db: Session, invoice_id: int, user_id: int):
+        """
+        Approve a pending credit invoice and update stock status.
+        """
+        invoice = self.get_invoice(db, invoice_id)
+        
+        if invoice.approval_status != 'pending_approval':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invoice is already {invoice.approval_status}"
+            )
+        
+        # Update invoice approval status
+        invoice.approval = True
+        invoice.approval_status = 'approved'
+        
+        # Update sales stock status to 'sold' for all items with barcodes
+        items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+        for item in items:
+            if item.sales_stock_id:
+                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                if stock_item and stock_item.status == 'reserved':
+                    stock_item.status = 'sold'
+                    stock_item.is_active = False
+        
+        db.commit()
+        db.refresh(invoice)
+        return invoice
+    
+    def complete_invoice(self, db: Session, invoice_id: int, user_id: int):
+        """
+        Mark an approved invoice as completed (e.g., when delivered/paid).
+        """
+        invoice = self.get_invoice(db, invoice_id)
+        
+        if invoice.approval_status not in ['approved', 'pending_approval']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invoice cannot be completed from status: {invoice.approval_status}"
+            )
+        
+        invoice.approval = True
+        invoice.approval_status = 'completed'
+        
+        # Ensure all stock items are marked as sold
+        items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+        for item in items:
+            if item.sales_stock_id:
+                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                if stock_item:
+                    stock_item.status = 'sold'
+                    stock_item.is_active = False
+        
+        db.commit()
+        db.refresh(invoice)
+        return invoice
+    
+    def cancel_invoice(self, db: Session, invoice_id: int, user_id: int):
+        """
+        Cancel an invoice and restore stock to available.
+        """
+        invoice = self.get_invoice(db, invoice_id)
+        
+        if invoice.approval_status == 'completed':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot cancel a completed invoice. Please create a sale return instead."
+            )
+        
+        # Restore sales stock for all items
+        items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+        for item in items:
+            if item.sales_stock_id:
+                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                if stock_item:
+                    stock_item.status = 'available'
+                    stock_item.is_active = True
+        
+        invoice.status = False
+        invoice.approval_status = 'cancelled'
+        
+        db.commit()
+        db.refresh(invoice)
+        return invoice
     
     def get_all_sale_returns(self, db: Session, skip: int = 0, limit: int = 100):
-        return db.query(SaleReturn).offset(skip).limit(limit).all()
+        return db.query(SaleReturn).order_by(SaleReturn.added_date.desc()).offset(skip).limit(limit).all()
     
     def get_sale_return(self, db: Session, return_id: int):
         sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).first()
@@ -244,26 +662,341 @@ class SalesService:
             )
         return sale_return
     
-    def create_sale_return(self, db: Session, sale_return_data: schemas.SaleReturnCreate):
-        # Create sale return
+    def get_sale_return_with_items(self, db: Session, return_id: int):
+        """Get sale return with items and all related data"""
+        sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).first()
+        if not sale_return:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Sale return not found"
+            )
+        return sale_return
+    
+    def create_sale_return(self, db: Session, sale_return_data: schemas.SaleReturnCreate, user_id: int = None):
+        """
+        Create a new sale return with full validation and processing.
+        
+        Process:
+        1. Validate invoice exists and is completed
+        2. Validate items match invoice items (barcode/product)
+        3. Calculate return totals
+        4. Create sale return record
+        5. Create sale return items
+        """
+        # Get and validate the original invoice
+        invoice = db.query(Invoice).filter(Invoice.id == sale_return_data.invoice_id).first()
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Original invoice not found"
+            )
+        
+        if invoice.approval_status not in ['completed', 'approved']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot create return for invoice with status: {invoice.approval_status}"
+            )
+        
+        # Validate each return item
+        subtotal = Decimal("0")
+        validated_items = []
+        
+        for item_data in sale_return_data.items:
+            # Find the original invoice item
+            invoice_item = None
+            sales_stock = None
+            
+            if item_data.barcode:
+                # Find by barcode - look up in sales stock
+                sales_stock = db.query(SalesStock).filter(
+                    SalesStock.barcode == item_data.barcode
+                ).first()
+                
+                if sales_stock:
+                    # Find the invoice item that sold this stock
+                    invoice_item = db.query(InvoiceItems).filter(
+                        InvoiceItems.invoice_id == invoice.id,
+                        InvoiceItems.sales_stock_id == sales_stock.id
+                    ).first()
+                    
+                    if not invoice_item:
+                        # Try to find by barcode string match
+                        invoice_item = db.query(InvoiceItems).filter(
+                            InvoiceItems.invoice_id == invoice.id,
+                            InvoiceItems.barcode == item_data.barcode
+                        ).first()
+            
+            if item_data.invoice_item_id:
+                invoice_item = db.query(InvoiceItems).filter(
+                    InvoiceItems.id == item_data.invoice_item_id,
+                    InvoiceItems.invoice_id == invoice.id
+                ).first()
+                
+                if invoice_item and invoice_item.sales_stock_id:
+                    sales_stock = db.query(SalesStock).filter(
+                        SalesStock.id == invoice_item.sales_stock_id
+                    ).first()
+            
+            # Calculate return price (use sold price if not specified)
+            return_price = Decimal(str(item_data.return_price or item_data.sold_price))
+            quantity = item_data.quantity
+            
+            validated_items.append({
+                'item_data': item_data,
+                'invoice_item': invoice_item,
+                'sales_stock': sales_stock,
+                'return_price': return_price,
+                'quantity': quantity,
+                'product_id': invoice_item.product_id if invoice_item else (sales_stock.product_id if sales_stock else None)
+            })
+            
+            subtotal += return_price * quantity
+        
+        # Calculate tax refund based on original invoice tax rate
+        tax_rate = Decimal(str(invoice.tax_rate or 0))
+        tax_refund = subtotal * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
+        total_refund = subtotal + tax_refund
+        
+        # Create sale return record
         return_dict = sale_return_data.model_dump(exclude={'items'})
         return_dict['added_date'] = date.today()
         return_dict['cheque_date'] = date.today()
+        return_dict['status'] = 'pending'
+        return_dict['subtotal'] = float(subtotal)
+        return_dict['tax_refund'] = float(tax_refund)
+        return_dict['total_refund'] = float(total_refund)
+        return_dict['refund_status'] = 'pending'
+        return_dict['refund_amount'] = 0
+        return_dict['created_by'] = user_id
         
         sale_return = SaleReturn(**return_dict)
         db.add(sale_return)
         db.flush()
         
         # Create sale return items
-        for item_data in sale_return_data.items:
-            item_dict = item_data.model_dump()
-            item_dict['sale_return_id'] = sale_return.id
-            item_dict['added_date'] = datetime.now()
+        for validated in validated_items:
+            item_data = validated['item_data']
+            item_dict = {
+                'barcode': item_data.barcode,
+                'return_price': float(validated['return_price']),
+                'sold_price': item_data.sold_price,
+                'branch_code': item_data.branch_code or sale_return_data.branch_code,
+                'sale_return_id': sale_return.id,
+                'added_date': datetime.now(),
+                'invoice_item_id': item_data.invoice_item_id or (validated['invoice_item'].id if validated['invoice_item'] else None),
+                'sales_stock_id': validated['sales_stock'].id if validated['sales_stock'] else None,
+                'product_id': validated['product_id'],
+                'quantity': validated['quantity'],
+                'condition': item_data.condition,
+                'restockable': item_data.restockable,
+                'restocked': False
+            }
             item = SaleReturnItems(**item_dict)
             db.add(item)
         
         db.commit()
         db.refresh(sale_return)
         return sale_return
+    
+    def approve_sale_return(self, db: Session, return_id: int, user_id: int):
+        """
+        Approve a pending sale return.
+        """
+        sale_return = self.get_sale_return(db, return_id)
+        
+        if sale_return.status != 'pending':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Sale return is already {sale_return.status}"
+            )
+        
+        sale_return.status = 'approved'
+        sale_return.approved_by = user_id
+        
+        db.commit()
+        db.refresh(sale_return)
+        return sale_return
+    
+    def reject_sale_return(self, db: Session, return_id: int, user_id: int, reason: str = None):
+        """
+        Reject a pending sale return.
+        """
+        sale_return = self.get_sale_return(db, return_id)
+        
+        if sale_return.status not in ['pending', 'approved']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot reject sale return with status: {sale_return.status}"
+            )
+        
+        sale_return.status = 'rejected'
+        if reason:
+            sale_return.remark = f"{sale_return.remark or ''} | Rejected: {reason}".strip(' |')
+        
+        db.commit()
+        db.refresh(sale_return)
+        return sale_return
+    
+    def process_sale_return(self, db: Session, return_id: int, user_id: int):
+        """
+        Process an approved sale return:
+        1. Restore stock for restockable items
+        2. Create credit note or process refund
+        3. Update invoice payment status if needed
+        4. Mark return as processed
+        """
+        sale_return = self.get_sale_return(db, return_id)
+        
+        if sale_return.status not in ['pending', 'approved']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot process sale return with status: {sale_return.status}"
+            )
+        
+        # Get the original invoice
+        invoice = db.query(Invoice).filter(Invoice.id == sale_return.invoice_id).first()
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Original invoice not found"
+            )
+        
+        items_restocked = 0
+        
+        # Process each return item
+        for item in sale_return.items:
+            if item.restockable and item.condition == 'good':
+                # Restore stock to available
+                if item.sales_stock_id:
+                    stock = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                    if stock:
+                        stock.status = 'returned'  # Mark as returned (could also be 'available')
+                        stock.is_active = True
+                        item.restocked = True
+                        items_restocked += item.quantity
+                elif item.barcode:
+                    # Try to find the stock by barcode
+                    stock = db.query(SalesStock).filter(SalesStock.barcode == item.barcode).first()
+                    if stock:
+                        stock.status = 'returned'
+                        stock.is_active = True
+                        item.restocked = True
+                        items_restocked += item.quantity
+        
+        # Handle refund based on payment method
+        refund_reference = None
+        credit_note_id = None
+        
+        if sale_return.payment_method == 'credit_note':
+            # Create a credit note for the customer
+            from app.modules.customers.models import CustomerCreditNotes
+            
+            # Get customer from invoice
+            customer_id = invoice.customer_id
+            
+            credit_note = CustomerCreditNotes(
+                customer_id=customer_id,
+                date=datetime.now(),
+                amount=sale_return.total_refund,
+                remark=f"Sale Return: {sale_return.sale_return_no}",
+                invoice_no=invoice.invoice_no
+            )
+            db.add(credit_note)
+            db.flush()
+            
+            credit_note_id = credit_note.id
+            sale_return.credit_note_id = credit_note_id
+            refund_reference = f"CN-{credit_note.id}"
+            
+        elif sale_return.payment_method == 'cash':
+            # Cash refund - record as processed
+            refund_reference = f"CASH-{sale_return.sale_return_no}"
+            
+        elif sale_return.payment_method == 'bank_transfer':
+            # Bank transfer refund - would need bank details
+            refund_reference = f"BT-{sale_return.sale_return_no}"
+            
+        elif sale_return.payment_method == 'cheque':
+            # Cheque refund
+            refund_reference = f"CHQ-{sale_return.sale_return_no}"
+        
+        # Update sale return status
+        sale_return.status = 'processed'
+        sale_return.refund_status = 'processed'
+        sale_return.refund_amount = sale_return.total_refund
+        sale_return.refund_date = date.today()
+        sale_return.refund_reference = refund_reference
+        sale_return.processed_by = user_id
+        
+        # Update invoice totals if needed
+        # Reduce the paid amount and grand total
+        new_paid_amount = float(invoice.paid_amount or 0) - float(sale_return.total_refund)
+        new_grand_total = float(invoice.grand_total or 0) - float(sale_return.total_refund)
+        
+        if new_paid_amount < 0:
+            new_paid_amount = 0
+        if new_grand_total < 0:
+            new_grand_total = 0
+            
+        invoice.paid_amount = new_paid_amount
+        invoice.grand_total = new_grand_total
+        invoice.balance_due = max(0, new_grand_total - new_paid_amount)
+        
+        if invoice.grand_total > 0 and invoice.paid_amount >= invoice.grand_total:
+            invoice.payment_status = 'paid'
+        elif invoice.paid_amount > 0:
+            invoice.payment_status = 'partial'
+        else:
+            invoice.payment_status = 'unpaid'
+        
+        db.commit()
+        db.refresh(sale_return)
+        
+        return {
+            "sale_return": sale_return,
+            "credit_note_id": credit_note_id,
+            "refund_reference": refund_reference,
+            "items_restocked": items_restocked,
+            "message": f"Sale return processed successfully. {items_restocked} items restocked."
+        }
+    
+    def delete_sale_return(self, db: Session, return_id: int):
+        """Delete a pending sale return."""
+        sale_return = self.get_sale_return(db, return_id)
+        
+        if sale_return.status not in ['pending', 'rejected']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete a processed or approved sale return"
+            )
+        
+        db.delete(sale_return)
+        db.commit()
+        return {"message": "Sale return deleted successfully"}
+    
+    def get_return_statistics(self, db: Session):
+        """Get sale return statistics for dashboard."""
+        today = date.today()
+        current_month_start = today.replace(day=1)
+        
+        total_returns = db.query(func.count(SaleReturn.id)).scalar() or 0
+        pending_returns = db.query(func.count(SaleReturn.id)).filter(
+            SaleReturn.status == 'pending'
+        ).scalar() or 0
+        
+        current_month_returns = db.query(func.count(SaleReturn.id)).filter(
+            SaleReturn.added_date >= current_month_start
+        ).scalar() or 0
+        
+        total_refunded = db.query(func.coalesce(func.sum(SaleReturn.refund_amount), 0)).filter(
+            SaleReturn.refund_status == 'processed'
+        ).scalar() or 0
+        
+        return {
+            "total_returns": total_returns,
+            "pending_returns": pending_returns,
+            "current_month_returns": current_month_returns,
+            "total_refunded": float(total_refunded)
+        }
 
 sales_service = SalesService()

@@ -27,6 +27,7 @@ class Invoice(Base, TimestampMixin):
     sale_rep_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     customer_agent_id = Column(Integer, ForeignKey("customers.id"))
     approval = Column(Boolean, nullable=False)
+    approval_status = Column(String(30), nullable=False, default="pending_approval")  # pending_approval, approved, completed
     customer_advance_payments_id = Column(
         Integer, ForeignKey("customer_advance_payments.id")
     )
@@ -45,6 +46,25 @@ class Invoice(Base, TimestampMixin):
     sys_code = Column(Integer)
     created_date_time = Column(TIMESTAMP, nullable=False)
     status = Column(Boolean, nullable=False)
+    
+    # Tax fields
+    tax_rate = Column(Numeric(5, 2), nullable=False, default=0)  # Tax percentage
+    tax_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Calculated tax amount
+    
+    # Discount fields
+    discount_percent = Column(Numeric(5, 2), nullable=False, default=0)  # Discount percentage
+    discount_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Fixed discount amount
+    
+    # Payment tracking
+    subtotal = Column(Numeric(60, 2), nullable=False, default=0)  # Sum of line items before tax/discount
+    grand_total = Column(Numeric(60, 2), nullable=False, default=0)  # Final total after tax/discount
+    paid_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Amount paid so far
+    balance_due = Column(Numeric(60, 2), nullable=False, default=0)  # Outstanding balance
+    payment_status = Column(String(30), nullable=False, default="unpaid")  # unpaid, partial, paid
+    
+    # Service charges (for card payments)
+    service_charge_rate = Column(Numeric(5, 3), nullable=False, default=0)  # e.g., 0.03 for 3%
+    service_charge_amount = Column(Numeric(60, 2), nullable=False, default=0)
     cheque_payment_id = Column(Integer, ForeignKey("cheque_payments.id"))
     bank_transfer_id = Column(Integer, ForeignKey("bank_deposits.id"))
     credit_payment_id = Column(Integer, ForeignKey("credit_payments.id"))
@@ -97,10 +117,26 @@ class InvoiceItems(Base, TimestampMixin):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
     minimum_selling_price = Column(Numeric(60, 2), nullable=False)
+    
+    # Link to specific sales stock item (barcode-based tracking)
+    sales_stock_id = Column(Integer, ForeignKey("sales_stock.id"), nullable=True)
+    barcode = Column(String(200), nullable=True)  # Store barcode for reference
+    
+    # Tax at item level (inherits from product or override)
+    tax_rate = Column(Numeric(5, 2), nullable=False, default=0)
+    tax_amount = Column(Numeric(60, 2), nullable=False, default=0)
+    
+    # Discount at item level
+    discount_percent = Column(Numeric(5, 2), nullable=False, default=0)
+    discount_amount = Column(Numeric(60, 2), nullable=False, default=0)
+    
+    # Line total
+    line_total = Column(Numeric(60, 2), nullable=False, default=0)  # quantity * price - discount + tax
 
 
     invoice = relationship("Invoice", back_populates="items")
     product = relationship("Product", back_populates="invoice_items")
+    sales_stock = relationship("SalesStock", backref="invoice_items")
     barcodes = relationship("InvoiceItemsBarcode", back_populates="invoice_item")
     sale_return_items = relationship("SaleReturnItems", back_populates="invoice_item")
 
@@ -121,7 +157,7 @@ class InvoiceItemsBarcode(Base):
     invoice_item = relationship("InvoiceItems", back_populates="barcodes")
 
 
-class SaleReturn(Base):
+class SaleReturn(Base, TimestampMixin):
     __tablename__ = "sale_return"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -134,17 +170,43 @@ class SaleReturn(Base):
     )
     invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
     cheque_date = Column(Date, nullable=False)
-    payment_method = Column(String(30), nullable=False)
+    payment_method = Column(String(30), nullable=False)  # cash, bank_transfer, credit_note, cheque
     approval_id = Column(Integer, ForeignKey("approvals.id"))
+    
+    # Return status tracking
+    status = Column(String(30), nullable=False, default="pending")  # pending, approved, processed, rejected
+    
+    # Return reason
+    return_reason = Column(String(100), nullable=True)  # defective, wrong_item, customer_changed_mind, damaged, other
+    
+    # Return totals
+    subtotal = Column(Numeric(60, 2), nullable=False, default=0)  # Sum of return items
+    tax_refund = Column(Numeric(60, 2), nullable=False, default=0)  # Tax refund amount
+    total_refund = Column(Numeric(60, 2), nullable=False, default=0)  # Total refund amount
+    
+    # Refund tracking
+    refund_status = Column(String(30), nullable=False, default="pending")  # pending, processed, partial
+    refund_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Amount actually refunded
+    refund_date = Column(Date, nullable=True)  # When refund was processed
+    refund_reference = Column(String(200), nullable=True)  # Reference number for refund
+    
+    # Credit note reference (if refund method is credit_note)
+    credit_note_id = Column(Integer, ForeignKey("customer_credit_notes.id"), nullable=True)
+    
+    # User tracking
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    processed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     # Relationships
     location = relationship("Locations", back_populates="sale_returns")
     invoice = relationship("Invoice", back_populates="sale_returns")
     approval = relationship("Approvals", back_populates="sale_returns")
-    items = relationship("SaleReturnItems", back_populates="sale_return")
+    items = relationship("SaleReturnItems", back_populates="sale_return", cascade="all, delete-orphan")
+    credit_note = relationship("CustomerCreditNotes", backref="sale_returns")
 
 
-class SaleReturnItems(Base):
+class SaleReturnItems(Base, TimestampMixin):
     __tablename__ = "sale_return_items"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -155,9 +217,21 @@ class SaleReturnItems(Base):
     sale_return_id = Column(Integer, ForeignKey("sale_return.id"), nullable=False)
     sold_price = Column(Numeric(60, 2), nullable=False)
     invoice_item_id = Column(Integer, ForeignKey("invoice_items.id"))
+    
+    # Link to sales stock for tracking
+    sales_stock_id = Column(Integer, ForeignKey("sales_stock.id"), nullable=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    quantity = Column(Integer, nullable=False, default=1)
+    
+    # Condition of returned item
+    condition = Column(String(50), nullable=False, default="good")  # good, damaged, defective, opened
+    
+    # Whether item can be restocked
+    restockable = Column(Boolean, nullable=False, default=True)
+    restocked = Column(Boolean, nullable=False, default=False)  # Whether it was actually restocked
 
     # Relationships
     sale_return = relationship("SaleReturn", back_populates="items")
     invoice_item = relationship("InvoiceItems", back_populates="sale_return_items")
-    sale_return = relationship("SaleReturn", back_populates="items")
-    invoice_item = relationship("InvoiceItems", back_populates="sale_return_items")
+    sales_stock = relationship("SalesStock", backref="return_items")
+    product = relationship("Product", backref="sale_return_items")

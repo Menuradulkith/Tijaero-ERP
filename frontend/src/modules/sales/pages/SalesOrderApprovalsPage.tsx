@@ -31,7 +31,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 // Import tijaero components
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import {
     DetailPanelHeader,
     EmptyState,
@@ -41,6 +40,7 @@ import {
     SelectableListItem,
     SortOption,
     TBranchFilter,
+    TConfirmDialog,
     TFilterPanel,
     TStatusChip,
     TStatusFilter,
@@ -48,6 +48,7 @@ import {
     modernTableStyles,
     showErrorToast,
     showSuccessToast,
+    useTConfirmDialog,
 } from "@/components/tijaero";
 
 import { branchApi } from "@/modules/branches/api";
@@ -67,6 +68,7 @@ const SORT_OPTIONS: SortOption[] = [
 const SO_STATUS_FILTER_OPTIONS = [
     { value: "pending_approval", label: "Pending Approval", color: "warning" as const },
     { value: "approved", label: "Approved", color: "success" as const },
+    { value: "completed", label: "Completed", color: "info" as const },
     { value: "cancelled", label: "Cancelled", color: "error" as const },
 ];
 
@@ -77,7 +79,8 @@ export default function SalesOrderApprovalsPage() {
     const [selectedOrder, setSelectedOrder] = useState<InvoiceWithItems | null>(null);
 
     // Confirm dialog
-    const confirmDialog = useConfirmDialog();
+    const approveDialog = useTConfirmDialog();
+    const rejectDialog = useTConfirmDialog();
 
     // Filter states
     const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -135,8 +138,7 @@ export default function SalesOrderApprovalsPage() {
         let filtered = orders.filter((order) => {
             // Status filter
             if (filterStatus) {
-                const orderStatus = order.approval ? "approved" : "pending_approval";
-                if (orderStatus !== filterStatus) return false;
+                if (order.approval_status !== filterStatus) return false;
             }
             // Branch filter
             if (filterBranch && order.branch_code !== filterBranch) {
@@ -217,7 +219,7 @@ export default function SalesOrderApprovalsPage() {
         onError: () => showErrorToast("Failed to reject order"),
     });
 
-    const handleApprove = async () => {
+    const handleApprove = () => {
         if (!selectedOrder) return;
 
         // Check if it's after 6pm (18:00) - Copied logic from PO Approvals
@@ -225,24 +227,27 @@ export default function SalesOrderApprovalsPage() {
         const isAfterHours = currentHour >= 18;
 
         if (isAfterHours) {
-            const confirmed = await confirmDialog.confirm({
-                title: "After-Hours Approval Warning",
-                message: `It is currently after 6:00 PM (now: ${new Date().toLocaleTimeString()}). Approving orders after business hours is not recommended. Do you want to approve anyway?`,
-                confirmText: "Approve Anyway",
-                cancelText: "Cancel",
-                confirmColor: "warning",
-            });
-
-            if (!confirmed) return;
+            approveDialog.open(
+                "After-Hours Approval Warning",
+                `It is currently after 6:00 PM (now: ${new Date().toLocaleTimeString()}). Approving orders after business hours is not recommended. Do you want to approve anyway?`,
+                () => approveMutation.mutate(selectedOrder.id)
+            );
+        } else {
+            approveDialog.open(
+                "Approve Sales Order",
+                `Are you sure you want to approve sales order ${selectedOrder.invoice_no}?`,
+                () => approveMutation.mutate(selectedOrder.id)
+            );
         }
-
-        approveMutation.mutate(selectedOrder.id);
     };
 
     const handleReject = () => {
-        if (selectedOrder) {
-            rejectMutation.mutate({ id: selectedOrder.id });
-        }
+        if (!selectedOrder) return;
+        rejectDialog.open(
+            "Reject Sales Order",
+            `Are you sure you want to reject sales order ${selectedOrder.invoice_no}? This action cannot be undone.`,
+            () => rejectMutation.mutate({ id: selectedOrder.id })
+        );
     };
 
     const customer = selectedOrder ? customerMap.get(selectedOrder.customer_id) : null;
@@ -628,7 +633,8 @@ export default function SalesOrderApprovalsPage() {
                 detailPanel={detailPanel}
             />
 
-            <ConfirmDialog {...confirmDialog.dialogProps} />
+            <TConfirmDialog {...approveDialog.dialogProps} />
+            <TConfirmDialog {...rejectDialog.dialogProps} />
         </>
     );
 }

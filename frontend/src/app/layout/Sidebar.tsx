@@ -77,6 +77,7 @@ const menuItems: MenuItem[] = [
       { text: "Quotations", icon: <ReceiptLongIcon />, path: "/sales/quotations" },
       { text: "Sales Orders", icon: <PointOfSaleIcon />, path: "/sales/orders" },
       { text: "SO Approvals", icon: <FactCheckIcon />, path: "/sales/approvals" },
+      { text: "Payments", icon: <ReceiptLongIcon />, path: "/sales/payments" },
       { text: "Sales Returns", icon: <AssignmentReturnIcon />, path: "/sales/returns" },
     ],
   },

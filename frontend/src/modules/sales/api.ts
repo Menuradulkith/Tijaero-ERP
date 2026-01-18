@@ -7,6 +7,7 @@ import {
   SaleReturn,
   SaleReturnCreate,
   SaleReturnWithItems,
+  SaleReturnProcessResponse,
   SalesStats,
 } from "./types";
 
@@ -47,11 +48,21 @@ export const salesApi = {
     await apiClient.delete(`/sales/${id}`);
   },
 
-  // Approve an invoice
+  // Approve a pending credit invoice
   approve: async (id: number) => {
-    const response = await apiClient.put<InvoiceWithItems>(`/sales/${id}`, {
-      approval: true,
-    });
+    const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/approve`);
+    return response.data;
+  },
+
+  // Mark an invoice as completed (delivered/paid)
+  complete: async (id: number) => {
+    const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/complete`);
+    return response.data;
+  },
+
+  // Cancel an invoice and restore stock
+  cancel: async (id: number) => {
+    const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/cancel`);
     return response.data;
   },
 
@@ -65,6 +76,14 @@ export const salesApi = {
   getByCustomer: async (customerId: number, skip = 0, limit = 100) => {
     const response = await apiClient.get<Invoice[]>(`/sales/by-customer/${customerId}`, {
       params: { skip, limit },
+    });
+    return response.data;
+  },
+
+  // Get recent sales for a customer (last 5 from any branch)
+  getRecentByCustomer: async (customerId: number, limit = 5) => {
+    const response = await apiClient.get<Invoice[]>(`/sales/customer/${customerId}/recent`, {
+      params: { limit },
     });
     return response.data;
   },
@@ -95,6 +114,34 @@ export const saleReturnsApi = {
 
   create: async (data: SaleReturnCreate) => {
     const response = await apiClient.post<SaleReturn>("/sales/returns/", data);
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/sales/returns/${id}`);
+  },
+
+  // Workflow endpoints
+  approve: async (id: number) => {
+    const response = await apiClient.post<SaleReturn>(`/sales/returns/${id}/approve`);
+    return response.data;
+  },
+
+  reject: async (id: number, reason?: string) => {
+    const response = await apiClient.post<SaleReturn>(`/sales/returns/${id}/reject`, null, {
+      params: reason ? { reason } : undefined,
+    });
+    return response.data;
+  },
+
+  process: async (id: number) => {
+    const response = await apiClient.post<SaleReturnProcessResponse>(`/sales/returns/${id}/process`);
+    return response.data;
+  },
+
+  // Get statistics
+  getStatistics: async () => {
+    const response = await apiClient.get("/sales/returns/statistics");
     return response.data;
   },
 

@@ -151,7 +151,8 @@ export const STATUS_MAPS = {
   // Sales return status
   salesReturn: {
     pending: { label: "Pending", color: "warning" as StatusColor },
-    approved: { label: "Approved", color: "success" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
+    processed: { label: "Processed", color: "success" as StatusColor },
     rejected: { label: "Rejected", color: "error" as StatusColor },
   },
 
