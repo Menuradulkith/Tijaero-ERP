@@ -26,7 +26,6 @@ class QuoteStatus(str, enum.Enum):
     CANCELLED = "cancelled" 
     REVISED = "revised" 
 
-
 class DiscountType(str, enum.Enum):
     NONE = "none"
     PERCENTAGE = "percentage"
@@ -62,7 +61,11 @@ class SalesQuote(Base, TimestampMixin):
         Boolean, nullable=False, default=True
     )  
     remarks = Column(Text, nullable=True)  
-    customer_notes = Column(Text, nullable=True)  
+    customer_notes = Column(Text, nullable=True)
+    discount_type = Column(
+        String(30), nullable=False, default=DiscountType.NONE.value
+    )
+    discount_percentage = Column(Numeric(60, 2), nullable=False, default=0) 
     total_amount = Column(Numeric(60, 2), nullable=False, default=0)
 
     converted_to_invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
@@ -105,6 +108,7 @@ class SalesQuoteItem(Base, TimestampMixin):
     minimum_selling_price = Column(
         Numeric(60, 2), nullable=False
     )  
+    discount_percentage = Column(Numeric(60, 2), nullable=False, default=0) 
     warrenty_month = Column(String(30), nullable=False)
     created_date = Column(TIMESTAMP, nullable=False)
 
