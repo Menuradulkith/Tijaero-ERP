@@ -36,7 +36,8 @@ export type TPrintDocumentType =
   | "delivery-note"
   | "quotation"
   | "credit-note"
-  | "debit-note";
+  | "debit-note"
+  | "payroll";
 
 export interface TPrintButtonProps {
   /** Document type for generating report URL */

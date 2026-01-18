@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,7 +11,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
@@ -19,14 +20,14 @@
             background: #fff;
             padding: 15px;
         }
-        
+
         .document {
             max-width: 800px;
             margin: 0 auto;
             background: #fff;
             padding: 20px;
         }
-        
+
         /* Header */
         .header {
             display: flex;
@@ -36,11 +37,11 @@
             padding-bottom: 10px;
             border-bottom: 2px solid #1a4480;
         }
-        
+
         .company-info {
             flex: 1;
         }
-        
+
         .company-info .logo {
             width: 50px;
             height: 50px;
@@ -55,52 +56,52 @@
             float: left;
             margin-right: 10px;
         }
-        
+
         .company-info h1 {
             font-size: 20px;
             color: #1a4480;
             font-weight: bold;
             margin-bottom: 2px;
         }
-        
+
         .company-info h1 span {
             font-style: italic;
             font-weight: normal;
         }
-        
+
         .company-info p {
             color: #666;
             font-size: 10px;
             line-height: 1.3;
         }
-        
+
         /* Document Info Grid */
         .doc-info {
             width: 280px;
         }
-        
+
         .doc-info table {
             width: 100%;
             border-collapse: collapse;
             font-size: 10px;
         }
-        
+
         .doc-info td {
             border: 1px solid #1a4480;
             padding: 3px 6px;
         }
-        
+
         .doc-info td.label {
             background: #1a4480;
             color: #fff;
             font-weight: bold;
             width: 45%;
         }
-        
+
         .doc-info td.value {
             background: #fff;
         }
-        
+
         /* Supplier Info */
         .supplier-section {
             margin-bottom: 15px;
@@ -108,25 +109,25 @@
             border: 1px solid #ddd;
             background: #f9f9f9;
         }
-        
+
         .supplier-section table {
             width: 100%;
             border-collapse: collapse;
         }
-        
+
         .supplier-section td.label {
             font-weight: bold;
             width: 120px;
             color: #1a4480;
         }
-        
+
         /* Items Table */
         .items-table {
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 15px;
         }
-        
+
         .items-table th {
             background: #1a4480;
             color: #fff;
@@ -135,21 +136,25 @@
             font-weight: bold;
             border: 1px solid #1a4480;
         }
-        
+
         .items-table td {
             border: 1px solid #ccc;
             padding: 6px;
             text-align: center;
         }
-        
+
         .items-table td.description {
             text-align: left;
         }
-        
+
+        .items-table td.amount {
+            text-align: right;
+        }
+
         .items-table tbody tr:nth-child(even) {
             background: #f9f9f9;
         }
-        
+
         /* Barcode Display */
         .barcode-cell {
             font-family: 'Courier New', monospace;
@@ -157,40 +162,42 @@
             background: #f5f5f5;
             padding: 2px 4px;
             border-radius: 2px;
+            display: inline-block;
+            margin: 1px 0;
         }
-        
+
         /* Totals Box */
         .totals-section {
             display: flex;
             justify-content: flex-end;
             margin-bottom: 15px;
         }
-        
+
         .totals-box {
             width: 200px;
         }
-        
+
         .totals-box table {
             width: 100%;
             border-collapse: collapse;
         }
-        
+
         .totals-box td {
             border: 1px solid #1a4480;
             padding: 4px 8px;
         }
-        
+
         .totals-box td.label {
             background: #1a4480;
             color: #fff;
             font-weight: bold;
         }
-        
+
         .totals-box td.value {
             text-align: right;
             font-weight: bold;
         }
-        
+
         /* Remarks */
         .remarks-section {
             background: #f9f9f9;
@@ -198,14 +205,14 @@
             border: 1px solid #ddd;
             margin-bottom: 15px;
         }
-        
+
         .remarks-section h3 {
             font-size: 10px;
             text-transform: uppercase;
             color: #1a4480;
             margin-bottom: 5px;
         }
-        
+
         /* Signatures */
         .signatures {
             display: flex;
@@ -213,23 +220,23 @@
             margin-top: 30px;
             padding-top: 10px;
         }
-        
+
         .signature-box {
             text-align: center;
             width: 22%;
         }
-        
+
         .signature-box .line {
             border-top: 1px solid #333;
             margin-bottom: 5px;
             min-height: 40px;
         }
-        
+
         .signature-box .title {
             font-size: 10px;
             font-weight: bold;
         }
-        
+
         /* Print Info */
         .print-info {
             margin-top: 20px;
@@ -238,17 +245,26 @@
             font-size: 9px;
             color: #999;
             text-align: center;
+            width: 100%;
         }
-        
+
         @media print {
-            body { padding: 0; }
-            .document { border: none; padding: 10px; }
+            body {
+                padding: 0;
+            }
+
+            .document {
+                border: none;
+                padding: 10px;
+            }
         }
     </style>
 </head>
+
 <body>
     <div class="document">
         <!-- Header -->
+        {% if options.show_header %}
         <div class="header">
             <div class="company-info">
                 <div class="logo">T</div>
@@ -284,7 +300,8 @@
                 </table>
             </div>
         </div>
-        
+        {% endif %}
+
         <!-- Supplier Info -->
         <div class="supplier-section">
             <table>
@@ -302,7 +319,7 @@
                 </tr>
             </table>
         </div>
-        
+
         <!-- Items Table -->
         <table class="items-table">
             <thead>
@@ -322,21 +339,24 @@
                     <td>{{ loop.index }}</td>
                     <td class="description">{{ item.product_name | default('Product #' ~ item.product_id) }}</td>
                     <td>
+                        {% if item.barcodes %}
                         {% for barcode in item.barcodes %}
                         <span class="barcode-cell">{{ barcode }}</span>{% if not loop.last %}<br>{% endif %}
+                        {% endfor %}
                         {% else %}
                         <span class="barcode-cell">{{ item.barcode | default('-') }}</span>
-                        {% endfor %}
+                        {% endif %}
                     </td>
                     <td>{{ item.quantity | default(1) }}</td>
-                    <td style="text-align: right;">{{ "%.2f" | format(item.unit_price | default(0)) }}</td>
+                    <td class="amount">{{ "%.2f" | format(item.unit_price | default(0)) }}</td>
                     <td>{{ item.warranty_month | default('-') }}</td>
-                    <td style="text-align: right;">{{ "%.2f" | format((item.quantity | default(1)) * (item.unit_price | default(0))) }}</td>
+                    <td class="amount">{{ "%.2f" | format((item.quantity | default(1)) * (item.unit_price | default(0)))
+                        }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        
+
         <!-- Totals -->
         <div class="totals-section">
             <div class="totals-box">
@@ -356,16 +376,24 @@
                 </table>
             </div>
         </div>
-        
+
         <!-- Remarks -->
-        {% if grn.remarks %}
+        {% if grn.remarks or options.custom_remarks %}
         <div class="remarks-section">
-            <h3>Remarks</h3>
+            {% if grn.remarks %}
+            <h3>Internal Remarks</h3>
             <p>{{ grn.remarks }}</p>
+            {% endif %}
+
+            {% if options.custom_remarks %}
+            <h3>Additional Remarks</h3>
+            <p>{{ options.custom_remarks }}</p>
+            {% endif %}
         </div>
         {% endif %}
-        
+
         <!-- Signatures -->
+        {% if options.show_signatures %}
         <div class="signatures">
             <div class="signature-box">
                 <div class="line"></div>
@@ -384,11 +412,23 @@
                 <div class="title">Authorized By</div>
             </div>
         </div>
-        
+        {% endif %}
+
         <!-- Print Info -->
         <div class="print-info">
-            Generated on {{ generated_at }} | Document ID: {{ grn.id }}
+            Generated on {{ generated_at }} | GRN ID: {{ grn.id }}
         </div>
     </div>
+    <script>
+        window.onload = function () {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('auto_print') === 'true') {
+                setTimeout(() => {
+                    window.print();
+                }, 500);
+            }
+        }
+    </script>
 </body>
+
 </html>

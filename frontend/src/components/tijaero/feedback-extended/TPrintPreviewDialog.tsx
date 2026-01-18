@@ -33,13 +33,11 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
     documentId,
     title = "Print Preview",
 }) => {
-    // Report Options State
     const [showHeader, setShowHeader] = useState(true);
     const [showDiscount, setShowDiscount] = useState(true);
     const [showSignatures, setShowSignatures] = useState(true);
     const [customRemarks, setCustomRemarks] = useState("");
 
-    // Construct URL with query params
     const reportUrl = useMemo(() => {
         const baseUrl = getReportUrl(documentType, documentId);
         const params = new URLSearchParams();
@@ -49,7 +47,6 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
         if (!showSignatures) params.append("show_signatures", "false");
         if (customRemarks) params.append("custom_remarks", customRemarks);
 
-        // Add timestamp to force iframe reload
         params.append("t", Date.now().toString());
 
         const queryString = params.toString();
@@ -57,11 +54,8 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
     }, [documentType, documentId, showHeader, showDiscount, showSignatures, customRemarks]);
 
     const handlePrint = () => {
-        // Create print-specific URL with auto_print flag
         const printUrl = new URL(reportUrl);
         printUrl.searchParams.append("auto_print", "true");
-
-        // Open the current URL in new tab for printing
         window.open(printUrl.toString(), "_blank");
         onClose();
     };
@@ -130,16 +124,18 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
                                 label={<Typography variant="body2">Show Header</Typography>}
                             />
 
-                            <FormControlLabel
-                                control={
-                                    <Switch
-                                        checked={showDiscount}
-                                        onChange={(e) => setShowDiscount(e.target.checked)}
-                                        size="small"
-                                    />
-                                }
-                                label={<Typography variant="body2">Show Discounts</Typography>}
-                            />
+                            {(documentType === "quotation" || documentType === "invoice") && (
+                                <FormControlLabel
+                                    control={
+                                        <Switch
+                                            checked={showDiscount}
+                                            onChange={(e) => setShowDiscount(e.target.checked)}
+                                            size="small"
+                                        />
+                                    }
+                                    label={<Typography variant="body2">Show Discounts</Typography>}
+                                />
+                            )}
 
                             <FormControlLabel
                                 control={

@@ -1,16 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice - {{ invoice_number }}</title>
+    <title>Invoice - {{ invoice.invoice_no }}</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
@@ -19,14 +20,14 @@
             background: #fff;
             padding: 15px;
         }
-        
+
         .document {
             max-width: 800px;
             margin: 0 auto;
             background: #fff;
             padding: 20px;
         }
-        
+
         /* Header */
         .header {
             display: flex;
@@ -36,11 +37,11 @@
             padding-bottom: 10px;
             border-bottom: 2px solid #1a4480;
         }
-        
+
         .company-info {
             flex: 1;
         }
-        
+
         .company-info .logo {
             width: 50px;
             height: 50px;
@@ -55,52 +56,52 @@
             float: left;
             margin-right: 10px;
         }
-        
+
         .company-info h1 {
             font-size: 20px;
             color: #1a4480;
             font-weight: bold;
             margin-bottom: 2px;
         }
-        
+
         .company-info h1 span {
             font-style: italic;
             font-weight: normal;
         }
-        
+
         .company-info p {
             color: #666;
             font-size: 10px;
             line-height: 1.3;
         }
-        
+
         /* Document Info Grid */
         .doc-info {
             width: 280px;
         }
-        
+
         .doc-info table {
             width: 100%;
             border-collapse: collapse;
             font-size: 10px;
         }
-        
+
         .doc-info td {
             border: 1px solid #1a4480;
             padding: 3px 6px;
         }
-        
+
         .doc-info td.label {
             background: #1a4480;
             color: #fff;
             font-weight: bold;
             width: 45%;
         }
-        
+
         .doc-info td.value {
             background: #fff;
         }
-        
+
         /* Customer Info */
         .customer-section {
             margin-bottom: 15px;
@@ -108,25 +109,25 @@
             border: 1px solid #ddd;
             background: #f9f9f9;
         }
-        
+
         .customer-section table {
             width: 100%;
             border-collapse: collapse;
         }
-        
+
         .customer-section td.label {
             font-weight: bold;
             width: 120px;
             color: #1a4480;
         }
-        
+
         /* Items Table */
         .items-table {
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 15px;
         }
-        
+
         .items-table th {
             background: #1a4480;
             color: #fff;
@@ -135,81 +136,88 @@
             font-weight: bold;
             border: 1px solid #1a4480;
         }
-        
+
         .items-table td {
             border: 1px solid #ccc;
             padding: 6px;
             text-align: center;
         }
-        
+
         .items-table td.description {
             text-align: left;
         }
-        
+
+        .items-table td.amount {
+            text-align: right;
+        }
+
         .items-table tbody tr:nth-child(even) {
             background: #f9f9f9;
         }
-        
-        /* Payment Section */
-        .payment-section {
-            display: flex;
-            justify-content: space-between;
+
+        /* Payment Details */
+        .payment-breakdown {
             margin-bottom: 15px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: #f9f9f9;
         }
-        
-        .cheque-info {
-            flex: 1;
-            margin-right: 20px;
+
+        .payment-breakdown h3 {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: #1a4480;
+            margin-bottom: 5px;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 2px;
         }
-        
-        .cheque-info table {
+
+        .payment-breakdown table {
             width: 100%;
-            border-collapse: collapse;
             font-size: 10px;
         }
-        
-        .cheque-info th {
-            background: #1a4480;
-            color: #fff;
-            padding: 4px 6px;
-            border: 1px solid #1a4480;
+
+        .payment-breakdown td {
+            padding: 2px 0;
         }
-        
-        .cheque-info td {
-            border: 1px solid #ccc;
-            padding: 4px 6px;
+
+        .payment-breakdown td.amount {
+            text-align: right;
+            font-weight: bold;
         }
-        
+
+        /* Totals Box */
+        .totals-section {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 15px;
+        }
+
         .totals-box {
             width: 200px;
         }
-        
+
         .totals-box table {
             width: 100%;
             border-collapse: collapse;
         }
-        
+
         .totals-box td {
             border: 1px solid #1a4480;
             padding: 4px 8px;
         }
-        
+
         .totals-box td.label {
             background: #1a4480;
             color: #fff;
             font-weight: bold;
         }
-        
+
         .totals-box td.value {
             text-align: right;
             font-weight: bold;
         }
-        
-        .totals-box tr.grand-total td {
-            font-size: 12px;
-            padding: 6px 8px;
-        }
-        
+
         /* Footer Notes */
         .footer-notes {
             font-size: 9px;
@@ -219,11 +227,26 @@
             background: #f9f9f9;
             border: 1px solid #ddd;
         }
-        
+
         .footer-notes p {
             margin-bottom: 3px;
         }
-        
+
+        /* Remarks */
+        .remarks-section {
+            background: #f9f9f9;
+            padding: 10px;
+            border: 1px solid #ddd;
+            margin-bottom: 15px;
+        }
+
+        .remarks-section h3 {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: #1a4480;
+            margin-bottom: 5px;
+        }
+
         /* Signatures */
         .signatures {
             display: flex;
@@ -231,202 +254,272 @@
             margin-top: 30px;
             padding-top: 10px;
         }
-        
+
         .signature-box {
             text-align: center;
-            width: 18%;
+            width: 22%;
         }
-        
+
         .signature-box .line {
             border-top: 1px solid #333;
             margin-bottom: 5px;
             min-height: 40px;
         }
-        
+
         .signature-box .title {
             font-size: 10px;
             font-weight: bold;
         }
-        
+
         .signature-box .subtitle {
             font-size: 9px;
             color: #666;
         }
-        
-        /* Warranty Notice */
-        .warranty-notice {
+
+        /* Print Info */
+        .print-info {
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px dashed #ccc;
+            font-size: 9px;
+            color: #999;
             text-align: center;
-            font-size: 10px;
-            font-weight: bold;
-            color: #1a4480;
-            margin-top: 15px;
-            padding: 8px;
-            border: 2px solid #1a4480;
+            width: 100%;
         }
-        
+
         @media print {
-            body { padding: 0; }
-            .document { border: none; padding: 10px; }
+            body {
+                padding: 0;
+            }
+
+            .document {
+                border: none;
+                padding: 10px;
+            }
         }
     </style>
 </head>
+
 <body>
     <div class="document">
         <!-- Header -->
+        {% if options.show_header %}
         <div class="header">
             <div class="company-info">
-                <div class="logo">{{ company_initial | default('T') }}</div>
-                <h1>{{ company_name | default('TIJAERO') }} <span>Solutions</span></h1>
+                <div class="logo">T</div>
+                <h1>{{ company.name | default('TIJAERO') }} <span>Solutions</span></h1>
                 <p>
-                    {{ company_address | default('Ground Floor, Unity Plaza') }}<br>
-                    {{ company_city | default('Colombo') }}<br>
-                    Tel / Fax: {{ company_phone | default('011-2345678') }}<br>
-                    E-mail: {{ company_email | default('info@tijaero.lk') }}
+                    {{ company.address | default('Ground Floor, Unity Plaza') }}<br>
+                    Tel: {{ company.phone | default('011-2345678') }}<br>
+                    E-mail: {{ company.email | default('info@tijaero.lk') }}
                 </p>
             </div>
             <div class="doc-info">
                 <table>
                     <tr>
                         <td class="label">Invoice No.</td>
-                        <td class="value">{{ invoice_number }}</td>
+                        <td class="value">{{ invoice.invoice_no }}</td>
                     </tr>
                     <tr>
-                        <td class="label">VAT No.</td>
-                        <td class="value">{{ vat_number | default('') }}</td>
+                        <td class="label">Date</td>
+                        <td class="value">{{ invoice.created_date }}</td>
                     </tr>
                     <tr>
-                        <td class="label">Date / Time</td>
-                        <td class="value">{{ date }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Terms</td>
-                        <td class="value">{{ payment_terms | default('CASH') }}</td>
+                        <td class="label">Status</td>
+                        <td class="value">{% if invoice.status %}Active{% else %}Inactive{% endif %}</td>
                     </tr>
                     <tr>
                         <td class="label">Branch</td>
-                        <td class="value">{{ branch_code | default('') }}</td>
+                        <td class="value">{{ branch.branch_name | default(invoice.branch_code) }}</td>
                     </tr>
                     <tr>
-                        <td class="label">Rep. Code</td>
-                        <td class="value">{{ rep_code | default('') }}</td>
+                        <td class="label">Sales Rep</td>
+                        <td class="value">{{ invoice.sale_rep_id | default('-') }}</td>
                     </tr>
                 </table>
             </div>
         </div>
-        
+        {% endif %}
+
         <!-- Customer Info -->
         <div class="customer-section">
             <table>
                 <tr>
-                    <td class="label">Customer Code</td>
-                    <td>{{ customer_code | default('') }}</td>
+                    <td class="label">Customer</td>
+                    <td>{{ customer.customer_name | default('N/A') }}</td>
                 </tr>
                 <tr>
-                    <td class="label">Customer</td>
-                    <td>{{ customer_name }}<br>{{ customer_address | default('') }}</td>
+                    <td class="label">Address</td>
+                    <td>{{ customer.address | default('N/A') }}</td>
+                </tr>
+                <tr>
+                    <td class="label">Contact</td>
+                    <td>{{ customer.mobile_number | default('N/A') }}</td>
+                </tr>
+                <tr>
+                    <td class="label">Email</td>
+                    <td>{{ customer.email | default('N/A') }}</td>
                 </tr>
             </table>
         </div>
-        
+
         <!-- Items Table -->
         <table class="items-table">
             <thead>
                 <tr>
                     <th style="width: 30px;">NO</th>
-                    <th>Description</th>
-                    <th style="width: 80px;">Warranty</th>
+                    <th>Product / Description</th>
                     <th style="width: 50px;">Qty</th>
-                    <th style="width: 80px;">Unit Price</th>
-                    <th style="width: 90px;">Total Amount</th>
+                    <th style="width: 90px;">Unit Price</th>
+                    <th style="width: 70px;">Warranty</th>
+                    <th style="width: 100px;">Amount</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in items %}
                 <tr>
                     <td>{{ loop.index }}</td>
-                    <td class="description">{{ item.name }}{% if item.serial %}<br><small>{{ item.serial }}</small>{% endif %}</td>
-                    <td>{{ item.warranty_date | default('') }}</td>
-                    <td>{{ item.qty }}</td>
-                    <td style="text-align: right;">{{ "%.2f"|format(item.price) }}</td>
-                    <td style="text-align: right;">{{ "%.2f"|format(item.total) }}</td>
+                    <td class="description">
+                        {{ item.product_name | default('Product #' ~ item.product_id) }}
+                        {% if item.serial %}<br><small style="color: #666;">S/N: {{ item.serial }}</small>{% endif %}
+                    </td>
+                    <td>{{ item.quantity }}</td>
+                    <td class="amount">{{ "%.2f" | format(item.selling_price) }}</td>
+                    <td>{{ item.warrenty_month | default('-') }}</td>
+                    <td class="amount">{{ "%.2f" | format(item.total) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        
-        <!-- Payment Section -->
-        <div class="payment-section">
-            <div class="cheque-info">
-                <table>
-                    <thead>
+
+        <!-- Layout for Payments and Totals -->
+        <div style="display: flex; gap: 20px;">
+            <!-- Payment Breakdown -->
+            <div style="flex: 1;">
+                {% if payments %}
+                <div class="payment-breakdown">
+                    <h3>Payment Details ({{ invoice.payment_method }})</h3>
+                    <table>
+                        {% for payment in payments %}
                         <tr>
-                            <th>Cheque Number</th>
-                            <th>Name Of Bank</th>
-                            <th>Amount</th>
-                            <th>Date</th>
+                            <td>{{ payment.method }}</td>
+                            <td class="amount">{{ "%.2f" | format(payment.amount) }}</td>
                         </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-                    </tbody>
-                </table>
-                <p style="font-size: 9px; margin-top: 5px;">All Cheques to be written in favour of "{{ company_name | default('TIJAERO SOLUTIONS') }}"</p>
-                <p style="font-size: 9px; font-weight: bold;">Warranty Period one year less 14 working days</p>
+                        {% endfor %}
+                    </table>
+                </div>
+                {% endif %}
+
+                <div class="footer-notes">
+                    <p>→ Warranty covers only manufacturer's defects. Damages due to negligence, misuse, power
+                        fluctuation are NOT covered.</p>
+                    <p>→ A 5% Penalty per month will be imposed on all overdue invoices.</p>
+                    <p style="text-align: right; font-style: italic;">Goods Received in good condition & correct qty.
+                    </p>
+                </div>
             </div>
-            <div class="totals-box">
-                <table>
-                    <tr>
-                        <td class="label">Sub Total</td>
-                        <td class="value">{{ "%.2f"|format(subtotal) }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">VAT</td>
-                        <td class="value">{{ vat_amount | default('0.00') }}</td>
-                    </tr>
-                    <tr class="grand-total">
-                        <td class="label">Net Total</td>
-                        <td class="value">{{ "%.2f"|format(total) }}</td>
-                    </tr>
-                </table>
+
+            <!-- Totals -->
+            <div class="totals-section" style="align-items: flex-start;">
+                <div class="totals-box">
+                    <table>
+                        <tr>
+                            <td class="label">Items Count</td>
+                            <td class="value">{{ items | length }}</td>
+                        </tr>
+                        <tr>
+                            <td class="label">Sub Total</td>
+                            <td class="value">{{ "%.2f" | format(invoice.subtotal) }}</td>
+                        </tr>
+                        {% if options.show_discount and invoice.discount_amount > 0 %}
+                        <tr>
+                            <td class="label">Discount</td>
+                            <td class="value">-{{ "%.2f" | format(invoice.discount_amount) }}</td>
+                        </tr>
+                        {% endif %}
+                        {% if invoice.tax_amount > 0 %}
+                        <tr>
+                            <td class="label">Tax</td>
+                            <td class="value">{{ "%.2f" | format(invoice.tax_amount) }}</td>
+                        </tr>
+                        {% endif %}
+                        <tr>
+                            <td class="label">Grand Total</td>
+                            <td class="value">{{ "%.2f" | format(invoice.grand_total) }}</td>
+                        </tr>
+                        <tr>
+                            <td class="label">Paid</td>
+                            <td class="value">{{ "%.2f" | format(invoice.paid_amount) }}</td>
+                        </tr>
+                        {% if invoice.balance_due > 0 %}
+                        <tr>
+                            <td class="label" style="background: #a00;">Balance Due</td>
+                            <td class="value" style="color: #a00;">{{ "%.2f" | format(invoice.balance_due) }}</td>
+                        </tr>
+                        {% endif %}
+                    </table>
+                </div>
             </div>
         </div>
-        
-        <!-- Footer Notes -->
-        <div class="footer-notes">
-            <p>→ Warranty covers only manufacturer's defects. Damages due to negligence, misuse, power fluctuation are NOT covered.</p>
-            <p>→ A 5% Penalty per month will be imposed on all overdue invoices.</p>
-            <p style="text-align: right; font-style: italic;">Goods Received in good condition & correct qty.</p>
+
+        <!-- Remarks -->
+        {% if invoice.remarks or options.custom_remarks %}
+        <div class="remarks-section">
+            {% if invoice.remarks %}
+            <h3>Internal Remarks</h3>
+            <p>{{ invoice.remarks }}</p>
+            {% endif %}
+
+            {% if options.custom_remarks %}
+            <h3>Additional Remarks</h3>
+            <p>{{ options.custom_remarks }}</p>
+            {% endif %}
         </div>
-        
+        {% endif %}
+
         <!-- Signatures -->
+        {% if options.show_signatures %}
         <div class="signatures">
             <div class="signature-box">
                 <div class="line"></div>
-                <div class="title">Prepared by</div>
+                <div class="title">Prepared By</div>
             </div>
             <div class="signature-box">
                 <div class="line"></div>
-                <div class="title">Authorised by</div>
+                <div class="title">Authorized By</div>
             </div>
             <div class="signature-box">
                 <div class="line"></div>
-                <div class="title">Issued by</div>
+                <div class="title">Issued By</div>
             </div>
             <div class="signature-box">
                 <div class="line"></div>
-                <div class="title">Taken out by</div>
-            </div>
-            <div class="signature-box">
-                <div class="line"></div>
-                <div class="title">Received by</div>
+                <div class="title">Received By</div>
                 <div class="subtitle">Authorised Signatory &<br>Company Rubber Stamp</div>
             </div>
         </div>
-        
-        <!-- Warranty Notice -->
-        <div class="warranty-notice">
+        {% endif %}
+
+        <div
+            style="text-align: center; margin-top: 15px; font-weight: bold; border: 2px solid #1a4480; padding: 5px; color: #1a4480;">
             "PLEASE SUBMIT THE INVOICE FOR WARRANTY CLAIMS"
         </div>
+
+        <!-- Print Info -->
+        <div class="print-info">
+            Generated on {{ generated_at }} | Invoice ID: {{ invoice.id }}
+        </div>
     </div>
+    <script>
+        window.onload = function () {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('auto_print') === 'true') {
+                setTimeout(() => {
+                    window.print();
+                }, 500);
+            }
+        }
+    </script>
 </body>
+
 </html>
