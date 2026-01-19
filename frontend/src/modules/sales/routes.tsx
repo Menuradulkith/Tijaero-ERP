@@ -2,6 +2,7 @@ import CustomerPaymentDashboard from "@/modules/sales/pages/CustomerPaymentDashb
 import CustomersPage from "@/modules/sales/pages/CustomersPage";
 import QuotationsPage from "@/modules/sales/pages/QuotationsPage";
 import SaleReturnsPage from "@/modules/sales/pages/SaleReturnsPage";
+import SaleReturnApprovalsPage from "@/modules/sales/pages/SaleReturnApprovalsPage";
 import SalesDashboard from "@/modules/sales/pages/SalesDashboard";
 import SalesOrderApprovalsPage from "@/modules/sales/pages/SalesOrderApprovalsPage";
 import SalesPage from "@/modules/sales/pages/SalesPage";
@@ -15,6 +16,7 @@ export default function SalesRoutes() {
       <Route path="quotations" element={<QuotationsPage />} />
       <Route path="proforma" element={<QuotationsPage />} />
       <Route path="returns" element={<SaleReturnsPage />} />
+      <Route path="return-approvals" element={<SaleReturnApprovalsPage />} />
       <Route path="dashboard" element={<SalesDashboard />} />
       <Route path="customers" element={<CustomersPage />} />
       <Route path="approvals" element={<SalesOrderApprovalsPage />} />
@@ -22,3 +24,4 @@ export default function SalesRoutes() {
     </Routes>
   );
 }
+

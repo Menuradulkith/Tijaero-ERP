@@ -121,17 +121,37 @@ export const saleReturnsApi = {
     await apiClient.delete(`/sales/returns/${id}`);
   },
 
-  // Workflow endpoints
+  // Workflow endpoints - Use centralized approval API
   approve: async (id: number) => {
-    const response = await apiClient.post<SaleReturn>(`/sales/returns/${id}/approve`);
-    return response.data;
+    // Get the sale return to find its approval_id
+    const saleReturn = await saleReturnsApi.getById(id);
+
+    if (!saleReturn.approval_id) {
+      throw new Error('Sale return does not have an approval record');
+    }
+
+    // Use centralized approval API
+    const { approvalsApi } = await import('@/modules/common/api');
+    await approvalsApi.approve(saleReturn.approval_id);
+
+    // Return the updated sale return
+    return saleReturnsApi.getById(id);
   },
 
   reject: async (id: number, reason?: string) => {
-    const response = await apiClient.post<SaleReturn>(`/sales/returns/${id}/reject`, null, {
-      params: reason ? { reason } : undefined,
-    });
-    return response.data;
+    // Get the sale return to find its approval_id
+    const saleReturn = await saleReturnsApi.getById(id);
+
+    if (!saleReturn.approval_id) {
+      throw new Error('Sale return does not have an approval record');
+    }
+
+    // Use centralized approval API
+    const { approvalsApi } = await import('@/modules/common/api');
+    await approvalsApi.reject(saleReturn.approval_id, reason || 'Rejected');
+
+    // Return the updated sale return
+    return saleReturnsApi.getById(id);
   },
 
   process: async (id: number) => {
