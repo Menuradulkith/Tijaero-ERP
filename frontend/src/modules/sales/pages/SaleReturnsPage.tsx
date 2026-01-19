@@ -52,10 +52,12 @@ import {
     EmptyState,
     FormSection,
     MasterDetailLayout,
+    RETURN_STATUS_FILTER_OPTIONS,
     SearchableList,
     SelectableListItem,
     SortOption,
     TBranchFilter,
+    TConfirmDialog,
     TFilterPanel,
     TStatusChip,
     TStatusFilter,
@@ -63,7 +65,6 @@ import {
     modernTableStyles,
     useMasterDetailState,
     useTConfirmDialog,
-    TConfirmDialog,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -80,14 +81,6 @@ const SORT_OPTIONS: SortOption[] = [
     { value: "added_date", label: "Date" },
     { value: "sale_return_no", label: "Return Number" },
     { value: "total_refund", label: "Refund Amount" },
-];
-
-// Status filter options for sale returns
-const SALE_RETURN_STATUS_OPTIONS = [
-    { value: "pending", label: "Pending" },
-    { value: "approved", label: "Approved" },
-    { value: "processed", label: "Processed" },
-    { value: "rejected", label: "Rejected" },
 ];
 
 // Return reason options
@@ -520,7 +513,7 @@ export default function SaleReturnsPage() {
             listHeader={
                 <TFilterPanel>
                     <TStatusFilter
-                        options={SALE_RETURN_STATUS_OPTIONS}
+                        options={RETURN_STATUS_FILTER_OPTIONS}
                         value={filterStatus}
                         onChange={setFilterStatus}
                     />

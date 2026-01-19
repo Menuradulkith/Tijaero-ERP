@@ -203,7 +203,7 @@ export interface SalesStats {
 }
 
 // Payment Method Options
-export type PaymentMethod = 
+export type PaymentMethod =
   | "cash"
   | "card_visa"
   | "card_mastercard"
