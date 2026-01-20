@@ -53,6 +53,10 @@ export interface TConfirmDialogProps {
   message: string;
   /** Additional details */
   details?: string;
+  /** Structured detail lines */
+  detailsLines?: { label: string; value: string; color?: string; strong?: boolean }[];
+  /** Additional note below details */
+  detailsNote?: string;
   /** Confirm button text */
   confirmText?: string;
   /** Cancel button text */
@@ -91,6 +95,8 @@ export const TConfirmDialog: React.FC<TConfirmDialogProps> = ({
   title = "Confirm Action",
   message,
   details,
+  detailsLines,
+  detailsNote,
   confirmText = "Confirm",
   cancelText = "Cancel",
   confirmColor,
@@ -121,14 +127,36 @@ export const TConfirmDialog: React.FC<TConfirmDialogProps> = ({
         </Typography>
       </DialogTitle>
       <DialogContent>
-        <DialogContentText>{message}</DialogContentText>
+        <DialogContentText sx={{ whiteSpace: "pre-line" }}>{message}</DialogContentText>
+        {detailsLines && detailsLines.length > 0 && (
+          <Typography component="div" variant="body2" sx={{ mt: 1.5 }}>
+            {detailsLines.map((line, index) => (
+              <Typography
+                key={`${line.label}-${index}`}
+                variant="body2"
+                sx={{
+                  display: "block",
+                  color: line.color || "text.primary",
+                  fontWeight: line.strong ? 600 : 400,
+                }}
+              >
+                {line.label}: {line.value}
+              </Typography>
+            ))}
+          </Typography>
+        )}
         {details && (
           <Typography
             variant="body2"
             color="text.secondary"
-            sx={{ mt: 1, fontStyle: "italic" }}
+            sx={{ mt: 1, fontStyle: "italic", whiteSpace: "pre-line" }}
           >
             {details}
+          </Typography>
+        )}
+        {detailsNote && (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            {detailsNote}
           </Typography>
         )}
       </DialogContent>
@@ -153,6 +181,9 @@ export const TConfirmDialog: React.FC<TConfirmDialogProps> = ({
 export interface UseConfirmDialogOptions {
   title?: string;
   message?: string;
+  details?: string;
+  detailsLines?: { label: string; value: string; color?: string; strong?: boolean }[];
+  detailsNote?: string;
   confirmText?: string;
   cancelText?: string;
   confirmColor?: TConfirmDialogProps["confirmColor"];
@@ -234,6 +265,9 @@ export function useConfirmDialog(
     open: isOpen,
     title: options.title || "Confirm",
     message: options.message || "Are you sure?",
+    details: options.details,
+    detailsLines: options.detailsLines,
+    detailsNote: options.detailsNote,
     confirmText: options.confirmText,
     cancelText: options.cancelText,
     confirmColor: options.confirmColor,

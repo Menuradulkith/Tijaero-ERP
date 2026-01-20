@@ -56,16 +56,14 @@ import {
     SearchableList,
     SelectableListItem,
     SortOption,
-    TBranchFilter,
     TConfirmDialog,
-    TFilterPanel,
     TStatusChip,
-    TStatusFilter,
     getStatusProps,
     modernTableStyles,
     useMasterDetailState,
     useTConfirmDialog,
 } from "@/components/tijaero";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { useReferenceData } from "@/hooks";
 import { saleReturnsApi, salesApi } from "../api";
@@ -511,18 +509,14 @@ export default function SaleReturnsPage() {
             onSelectItem={handleSelectReturnWithItems}
             emptyMessage="No sale returns found"
             listHeader={
-                <TFilterPanel>
-                    <TStatusFilter
-                        options={RETURN_STATUS_FILTER_OPTIONS}
-                        value={filterStatus}
-                        onChange={setFilterStatus}
-                    />
-                    <TBranchFilter
-                        branches={branches}
-                        value={filterBranch}
-                        onChange={setFilterBranch}
-                    />
-                </TFilterPanel>
+                <SalesFilterPanel
+                    statusOptions={RETURN_STATUS_FILTER_OPTIONS}
+                    statusValue={filterStatus}
+                    onStatusChange={setFilterStatus}
+                    branches={branches}
+                    branchValue={filterBranch}
+                    onBranchChange={setFilterBranch}
+                />
             }
             renderItem={(ret, isSelected) => (
                 <SelectableListItem

@@ -69,6 +69,10 @@ class CustomerCreditService:
             "total_overdue_amount": sum(inv["remaining_amount"] for inv in overdue_invoices),
             "overdue_invoices": overdue_invoices
         }
+
+    def get_customer_credit_summary(self, db: Session, customer_id: int) -> Dict[str, Any]:
+        """Compatibility alias for API consumers expecting credit summary."""
+        return self.get_customer_credit_status(db, customer_id)
     
     def _calculate_outstanding_credit(self, db: Session, customer_id: int) -> Decimal:
         total_credit = db.query(func.coalesce(func.sum(Invoice.credit_amount), 0)).filter(
@@ -132,14 +136,15 @@ class CustomerCreditService:
 
         status = self.get_customer_credit_status(db, customer_id)
         
-        new_outstanding = status["outstanding_credit"] + float(credit_amount)
-        will_exceed = new_outstanding > status["max_credit_limit"]
+        current_outstanding = Decimal(str(status["outstanding_credit"]))
+        new_outstanding = current_outstanding + Decimal(str(credit_amount))
+        will_exceed = new_outstanding > Decimal(str(status["max_credit_limit"]))
         
         result = {
             "allowed": not will_exceed or allow_over_limit,
-            "current_outstanding": status["outstanding_credit"],
+            "current_outstanding": float(current_outstanding),
             "new_credit_amount": float(credit_amount),
-            "new_total_outstanding": new_outstanding,
+            "new_total_outstanding": float(new_outstanding),
             "max_credit_limit": status["max_credit_limit"],
             "available_credit": status["available_credit"],
             "will_exceed_limit": will_exceed,
@@ -157,6 +162,21 @@ class CustomerCreditService:
             result["message"] = "Credit sale approved"
         
         return result
+
+    def check_credit_availability(
+        self,
+        db: Session,
+        customer_id: int,
+        credit_amount: Decimal,
+        allow_over_limit: bool = False
+    ) -> Dict[str, Any]:
+        """Check credit availability for a proposed sale amount."""
+        return self.validate_credit_sale(
+            db,
+            customer_id,
+            credit_amount,
+            allow_over_limit=allow_over_limit
+        )
     
     def update_customer_credit_balance(self, db: Session, customer_id: int):
 

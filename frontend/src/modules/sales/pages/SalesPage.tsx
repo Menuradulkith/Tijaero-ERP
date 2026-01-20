@@ -13,14 +13,12 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
-  TBranchFilter,
   TConfirmDialog,
-  TFilterPanel,
   TStatusChip,
-  TStatusFilter,
   useMasterDetailState,
   useTConfirmDialog,
 } from "@/components/tijaero";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
 import { creditNotesApi } from "@/modules/finance/api";
@@ -180,6 +178,7 @@ export default function SalesPage() {
   const discardDialog = useTConfirmDialog();
   const approveDialog = useTConfirmDialog();
   const cancelDialog = useTConfirmDialog();
+  const creditWarningDialog = useTConfirmDialog();
 
   // Main state using Tijaero hook
   const state = useMasterDetailState<Invoice, Partial<InvoiceCreate>>({
@@ -532,27 +531,68 @@ export default function SalesPage() {
     setLineItems(existingItems);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const subtotal = calculateLineItemsTotal();
     const paymentMethod = state.formData.payment_method || "cash";
 
-    // Validate credit limit for credit sales
-    if (paymentMethod === "credit" && customerCreditStatus) {
-      if (subtotal > customerCreditStatus.available_credit) {
-        showErrorToast(
-          `Credit limit exceeded! Available credit: Rs. ${customerCreditStatus.available_credit.toLocaleString()}, ` +
-          `Order total: Rs. ${subtotal.toLocaleString()}. ` +
-          `Please reduce the order amount or use a different payment method.`
+    // Validate credit limit for credit sales (warning-only)
+    if (paymentMethod === "credit" && state.formData.customer_id) {
+      try {
+        const creditCheck = await customersApi.checkCredit(
+          state.formData.customer_id,
+          subtotal,
+          true
         );
-        return;
-      }
+        const requiresWarning =
+          creditCheck.will_exceed_limit || creditCheck.overdue_count > 0;
 
-      // Warn about overdue invoices
-      if (customerCreditStatus.overdue_count > 0) {
-        showErrorToast(
-          `Customer has ${customerCreditStatus.overdue_count} overdue invoice(s). ` +
-          `Please settle outstanding amounts before new credit sales.`
-        );
+        if (requiresWarning) {
+          const customer = customers?.find(
+            (c) => c.id === state.formData.customer_id
+          );
+          const customerName = customer?.customer_name || "Customer";
+          const detailLines: { label: string; value: string; color?: string; strong?: boolean }[] = [
+            { label: "Customer", value: customerName },
+            { label: "Credit Limit", value: `Rs. ${Number(creditCheck.max_credit_limit || 0).toLocaleString()}` },
+            { label: "Current Outstanding", value: `Rs. ${Number(creditCheck.current_outstanding || 0).toLocaleString()}` },
+            { label: "Available Credit", value: `Rs. ${Number(creditCheck.available_credit || 0).toLocaleString()}` },
+            { label: "This Order", value: `Rs. ${Number(creditCheck.new_credit_amount || 0).toLocaleString()}` },
+          ];
+          if (creditCheck.will_exceed_limit) {
+            detailLines.push({
+              label: "Exceeds by",
+              value: `Rs. ${Number(creditCheck.excess_amount || 0).toLocaleString()}`,
+              color: "error.main",
+              strong: true,
+            });
+          }
+          if (creditCheck.overdue_count > 0) {
+            detailLines.push({
+              label: "Overdue Invoices",
+              value: String(creditCheck.overdue_count),
+            });
+          }
+
+          const confirmed = await creditWarningDialog.confirm({
+            title: creditCheck.will_exceed_limit
+              ? "Credit Limit Warning"
+              : "Credit Warning",
+            message: "",
+            detailsLines: detailLines,
+            detailsNote: creditCheck.message ||
+              "Customer credit status requires approval to proceed.",
+            confirmText: "Continue Anyway",
+            cancelText: "Cancel",
+            type: "warning",
+          });
+
+          if (!confirmed) {
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("Credit check failed:", error);
+        showErrorToast("Failed to check customer credit. Please try again.");
         return;
       }
     }
@@ -577,7 +617,7 @@ export default function SalesPage() {
       card_amex_amount: paymentMethod === "card_amex" ? total : 0,
       cheque_amount: paymentMethod === "cheque" ? total : 0,
       bank_transfer_amount: paymentMethod === "bank_transfer" ? total : 0,
-      credit_amount: paymentMethod === "credit_note" ? total : 0,
+      credit_amount: paymentMethod === "credit" ? total : 0,
       // Include service charge in payment adjustments (for card payments)
       payment_adjustments: serviceCharge,
       items: lineItems,
@@ -1118,9 +1158,17 @@ export default function SalesPage() {
                   </TableHead>
                   <TableBody>
                     {recentCustomerSales.map((sale) => (
-                      <TableRow key={sale.id} hover>
+                      <TableRow
+                        key={sale.id}
+                        hover
+                        onClick={() => {
+                          setSelectedInvoiceForView(sale);
+                          setInvoiceDetailsOpen(true);
+                        }}
+                        sx={{ cursor: "pointer" }}
+                      >
                         <TableCell>
-                          <Typography variant="body2" fontWeight={500}>
+                          <Typography variant="body2" fontWeight={500} color="primary">
                             {sale.invoice_no}
                           </Typography>
                         </TableCell>
@@ -1612,18 +1660,14 @@ export default function SalesPage() {
             isLoading={isLoading}
             emptyMessage="No sales orders found"
             listHeader={
-              <TFilterPanel>
-                <TStatusFilter
-                  options={INVOICE_STATUS_OPTIONS}
-                  value={filterStatus}
-                  onChange={setFilterStatus}
-                />
-                <TBranchFilter
-                  branches={branches}
-                  value={filterBranch}
-                  onChange={setFilterBranch}
-                />
-              </TFilterPanel>
+              <SalesFilterPanel
+                statusOptions={INVOICE_STATUS_OPTIONS}
+                statusValue={filterStatus}
+                onStatusChange={setFilterStatus}
+                branches={branches}
+                branchValue={filterBranch}
+                onBranchChange={setFilterBranch}
+              />
             }
           >
             {filteredInvoices.map((invoice) => {
@@ -1652,7 +1696,7 @@ export default function SalesPage() {
                           component="span"
                           variant="caption"
                           fontWeight={600}
-                          sx={{ color: isSelected ? "inherit" : "success.main" }}
+                          sx={{ color: "text.primary" }}
                         >
                           Rs. {calculateTotal(invoice).toFixed(2)}
                         </Typography>
@@ -1770,6 +1814,7 @@ export default function SalesPage() {
       <TConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
       <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
       <TConfirmDialog {...cancelDialog.dialogProps} confirmText="Cancel Order" confirmColor="error" />
+      <TConfirmDialog {...creditWarningDialog.dialogProps} />
 
       {/* Invoice Details Dialog */}
       <InvoiceDetailsDialog

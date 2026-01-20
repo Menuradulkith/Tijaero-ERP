@@ -39,17 +39,15 @@ import {
     SearchableList,
     SelectableListItem,
     SortOption,
-    TBranchFilter,
     TConfirmDialog,
-    TFilterPanel,
     TStatusChip,
-    TStatusFilter,
     getStatusProps,
     modernTableStyles,
     showErrorToast,
     showSuccessToast,
     useTConfirmDialog,
 } from "@/components/tijaero";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { branchApi } from "@/modules/branches/api";
 import { customersApi } from "@/modules/customers/api";
@@ -266,18 +264,14 @@ export default function SalesOrderApprovalsPage() {
             selectedItem={selectedOrder}
             emptyMessage="No pending orders found"
             listHeader={
-                <TFilterPanel>
-                    <TStatusFilter
-                        options={SO_STATUS_FILTER_OPTIONS}
-                        value={filterStatus}
-                        onChange={setFilterStatus}
-                    />
-                    <TBranchFilter
-                        branches={branches}
-                        value={filterBranch}
-                        onChange={setFilterBranch}
-                    />
-                </TFilterPanel>
+                <SalesFilterPanel
+                    statusOptions={SO_STATUS_FILTER_OPTIONS}
+                    statusValue={filterStatus}
+                    onStatusChange={setFilterStatus}
+                    branches={branches}
+                    branchValue={filterBranch}
+                    onBranchChange={setFilterBranch}
+                />
             }
             renderItem={(order, isSelected) => {
                 const orderCustomer = customerMap.get(order.customer_id);

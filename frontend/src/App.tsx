@@ -1,20 +1,44 @@
-import { Box } from "@mui/material";
+import { Box, CircularProgress, Typography } from "@mui/material";
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "./app/layout/MainLayout";
-import DashboardPage from "./app/pages/DashboardPage";
 import ProtectedRoute from "./auth/components/ProtectedRoute";
 import LoginPage from "./auth/pages/LoginPage";
-import BranchesRoutes from "./modules/branches/routes";
-import FinanceRoutes from "./modules/finance/routes";
-import GroupsPage from "./modules/groups/pages/GroupsPage";
-import HRRoutes from "./modules/hr/routes";
-import InventoryRoutes from "./modules/inventory/routes";
-import PurchasingRoutes from "./modules/purchasing/routes";
-import ReportingRoutes from "./modules/reporting/routes";
-import SalesRoutes from "./modules/sales/routes";
-import SupportRoutes from "./modules/support/routes";
-import UsersPage from "./modules/users/pages/UsersPage";
-import WarehouseRoutes from "./modules/warehouse/routes";
+
+// Lazy load route modules for better initial load performance
+const DashboardPage = lazy(() => import("./app/pages/DashboardPage"));
+const SalesRoutes = lazy(() => import("./modules/sales/routes"));
+const InventoryRoutes = lazy(() => import("./modules/inventory/routes"));
+const PurchasingRoutes = lazy(() => import("./modules/purchasing/routes"));
+const FinanceRoutes = lazy(() => import("./modules/finance/routes"));
+const HRRoutes = lazy(() => import("./modules/hr/routes"));
+const WarehouseRoutes = lazy(() => import("./modules/warehouse/routes"));
+const SupportRoutes = lazy(() => import("./modules/support/routes"));
+const ReportingRoutes = lazy(() => import("./modules/reporting/routes"));
+const BranchesRoutes = lazy(() => import("./modules/branches/routes"));
+const UsersPage = lazy(() => import("./modules/users/pages/UsersPage"));
+const GroupsPage = lazy(() => import("./modules/groups/pages/GroupsPage"));
+
+// Loading fallback component
+function RouteLoadingFallback() {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "50vh",
+        gap: 2,
+      }}
+    >
+      <CircularProgress size={40} />
+      <Typography variant="body2" color="text.secondary">
+        Loading module...
+      </Typography>
+    </Box>
+  );
+}
 
 function App() {
   return (
@@ -38,18 +62,66 @@ function App() {
           }
         >
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/sales/*" element={<SalesRoutes />} />
-          <Route path="/inventory/*" element={<InventoryRoutes />} />
-          <Route path="/purchasing/*" element={<PurchasingRoutes />} />
-          <Route path="/finance/*" element={<FinanceRoutes />} />
-          <Route path="/hr/*" element={<HRRoutes />} />
-          <Route path="/warehouse/*" element={<WarehouseRoutes />} />
-          <Route path="/support/*" element={<SupportRoutes />} />
-          <Route path="/reporting/*" element={<ReportingRoutes />} />
-          <Route path="/branches/*" element={<BranchesRoutes />} />
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/roles" element={<GroupsPage />} />
+          <Route path="/dashboard" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <DashboardPage />
+            </Suspense>
+          } />
+          <Route path="/sales/*" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <SalesRoutes />
+            </Suspense>
+          } />
+          <Route path="/inventory/*" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <InventoryRoutes />
+            </Suspense>
+          } />
+          <Route path="/purchasing/*" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <PurchasingRoutes />
+            </Suspense>
+          } />
+          <Route path="/finance/*" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <FinanceRoutes />
+            </Suspense>
+          } />
+          <Route path="/hr/*" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <HRRoutes />
+            </Suspense>
+          } />
+          <Route path="/warehouse/*" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <WarehouseRoutes />
+            </Suspense>
+          } />
+          <Route path="/support/*" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <SupportRoutes />
+            </Suspense>
+          } />
+          <Route path="/reporting/*" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <ReportingRoutes />
+            </Suspense>
+          } />
+          <Route path="/branches/*" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <BranchesRoutes />
+            </Suspense>
+          } />
+          <Route path="/users" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <UsersPage />
+            </Suspense>
+          } />
+          <Route path="/roles" element={
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <GroupsPage />
+            </Suspense>
+          } />
         </Route>
       </Routes>
     </Box>

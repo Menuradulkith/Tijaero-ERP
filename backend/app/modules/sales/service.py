@@ -225,24 +225,7 @@ class SalesService:
         # Get payment method
         payment_method = invoice_data.payment_method.lower() if invoice_data.payment_method else ""
         is_credit_payment = payment_method == "credit"
-        
-        # Validate credit limit for credit sales
-        if is_credit_payment:
-            credit_validation = customer_credit_service.validate_credit_sale(
-                db, 
-                invoice_data.customer_id, 
-                Decimal(str(subtotal)),
-                allow_over_limit=False  # Don't allow exceeding credit limit
-            )
-            
-            if not credit_validation["allowed"]:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Credit limit exceeded. {credit_validation['message']}. "
-                           f"Available credit: Rs. {credit_validation['available_credit']:,.2f}, "
-                           f"Required: Rs. {subtotal:,.2f}"
-                )
-        
+        credit_validation = None
         # Calculate service charges for card payments
         service_charge_rate = Decimal("0")
         service_charge_amount = Decimal("0")
@@ -270,6 +253,15 @@ class SalesService:
         
         # Calculate grand total
         grand_total = Decimal(str(subtotal)) - calculated_discount + tax_amount + service_charge_amount
+
+        # Validate credit status for credit sales (warning-only, approval required)
+        if is_credit_payment:
+            credit_validation = customer_credit_service.validate_credit_sale(
+                db,
+                invoice_data.customer_id,
+                Decimal(str(grand_total)),
+                allow_over_limit=True
+            )
         
         # Create invoice dict
         invoice_dict = invoice_data.model_dump(exclude={
@@ -290,6 +282,7 @@ class SalesService:
         invoice_dict['service_charge_rate'] = float(service_charge_rate)
         invoice_dict['service_charge_amount'] = float(service_charge_amount)
         invoice_dict['grand_total'] = float(grand_total)
+        invoice_dict['credit_amount'] = float(grand_total) if is_credit_payment else 0
         
         # Set payment tracking fields
         if is_credit_payment:
@@ -459,6 +452,19 @@ class SalesService:
         
         # Create approval record for credit sales orders
         if is_credit_payment:
+            approval_remarks = f"Credit sales order pending approval. Amount: Rs. {grand_total:,.2f}"
+            if credit_validation:
+                warnings = []
+                if credit_validation.get("will_exceed_limit"):
+                    warnings.append(
+                        f"Credit limit exceeded by Rs. {credit_validation.get('excess_amount', 0):,.2f}"
+                    )
+                if credit_validation.get("overdue_count", 0) > 0:
+                    warnings.append(
+                        f"{credit_validation.get('overdue_count')} overdue invoice(s)"
+                    )
+                if warnings:
+                    approval_remarks = f"{approval_remarks} | Warning: " + "; ".join(warnings)
             approval_record = approval_service.create_approval_request(
                 db=db,
                 approval_type=ApprovalType.SALES_ORDER,
@@ -466,7 +472,7 @@ class SalesService:
                 reference_no=invoice.invoice_no,
                 branch_code=invoice.branch_code,
                 requested_by=user_id,
-                remarks=f"Credit sales order pending approval. Amount: Rs. {grand_total:,.2f}",
+                remarks=approval_remarks,
                 approval_group="sales_approvers"
             )
             invoice.approval_id = approval_record.id

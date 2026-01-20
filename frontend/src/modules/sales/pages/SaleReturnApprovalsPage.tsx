@@ -40,9 +40,6 @@ import {
     DetailPanelHeader,
     FormSection,
     EmptyState,
-    TFilterPanel,
-    TBranchFilter,
-    TStatusFilter,
     RETURN_STATUS_FILTER_OPTIONS,
     getStatusProps,
     SortOption,
@@ -50,6 +47,7 @@ import {
     showErrorToast,
     modernTableStyles,
 } from "@/components/tijaero";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { saleReturnsApi, salesApi } from "@/modules/sales/api";
 import { useReferenceData, ProductRef } from "@/hooks";
@@ -246,18 +244,14 @@ export default function SaleReturnApprovalsPage() {
             selectedItem={selectedReturn}
             emptyMessage="No returns found"
             listHeader={
-                <TFilterPanel>
-                    <TStatusFilter
-                        options={RETURN_STATUS_FILTER_OPTIONS}
-                        value={filterStatus}
-                        onChange={setFilterStatus}
-                    />
-                    <TBranchFilter
-                        branches={branches}
-                        value={filterBranch}
-                        onChange={setFilterBranch}
-                    />
-                </TFilterPanel>
+                <SalesFilterPanel
+                    statusOptions={RETURN_STATUS_FILTER_OPTIONS}
+                    statusValue={filterStatus}
+                    onStatusChange={setFilterStatus}
+                    branches={branches}
+                    branchValue={filterBranch}
+                    onBranchChange={setFilterBranch}
+                />
             }
             renderItem={(ret, isSelected) => {
                 const returnInvoice = invoiceMap.get(ret.invoice_id);

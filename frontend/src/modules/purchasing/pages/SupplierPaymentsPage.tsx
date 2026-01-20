@@ -65,6 +65,8 @@ import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import WarningIcon from "@mui/icons-material/Warning";
 import AssessmentIcon from "@mui/icons-material/Assessment";
+import PrintIcon from "@mui/icons-material/Print";
+import FilterListIcon from "@mui/icons-material/FilterList";
 import toast from "react-hot-toast";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
@@ -257,7 +259,7 @@ export default function SupplierPaymentsPage() {
   const loadPaymentHistory = useCallback(async (supplierId: number) => {
     try {
       setLoadingHistory(true);
-      
+
       // Load both credit settlements and non-credit payments (all statuses for history)
       const [creditSettlements, nonCreditPayments] = await Promise.all([
         supplierCreditsSettleApi.getBySupplier(supplierId).catch(() => []),
@@ -274,7 +276,7 @@ export default function SupplierPaymentsPage() {
             const poNos = [...new Set(fullSettlement.transactions?.map(t => t.po_no).filter(Boolean))].join(", ");
             const grnNos = [...new Set(fullSettlement.transactions?.map(t => t.grn_no).filter(Boolean))].join(", ");
             const paymentMethods = [...new Set(fullSettlement.transactions?.map(t => t.payment_method).filter(Boolean))].join(", ");
-            
+
             return {
               type: "credit_settlement",
               id: s.id,
@@ -338,7 +340,7 @@ export default function SupplierPaymentsPage() {
   const loadAdvancePayments = useCallback(async (supplierId: number) => {
     try {
       setLoadingAdvances(true);
-      
+
       // Load both advance payments list and balance summary
       const [advances, balance] = await Promise.all([
         supplierAdvancePaymentsApi.getBySupplier(supplierId).catch(() => []),
@@ -370,7 +372,7 @@ export default function SupplierPaymentsPage() {
 
     try {
       setSavingAdvance(true);
-      
+
       const data: SupplierAdvancePaymentCreate = {
         supplier_id: selectedSupplier.id,
         payment_date: advanceFormData.payment_date || new Date().toISOString().split("T")[0],
@@ -384,7 +386,7 @@ export default function SupplierPaymentsPage() {
 
       await supplierAdvancePaymentsApi.create(data);
       toast.success("Advance payment created successfully");
-      
+
       // Reset form and reload data
       setShowAdvanceForm(false);
       setAdvanceFormData({
@@ -720,7 +722,7 @@ export default function SupplierPaymentsPage() {
       // Process credit payments (use credit settlement API)
       if (hasCreditPayments) {
         const creditLines = paymentLines.filter((l) => l.document.payment_type === "credit");
-        
+
         for (const line of creditLines) {
           if (line.document.grn_id) {
             const transactionData: SupplierCreditsSettleTransactionCreate = {
@@ -747,7 +749,7 @@ export default function SupplierPaymentsPage() {
       // Process non-credit payments (use supplier payment API)
       if (hasNonCreditPayments) {
         const nonCreditLines = paymentLines.filter((l) => l.document.payment_type === "non_credit");
-        
+
         for (const line of nonCreditLines) {
           const payload: SupplierPaymentCreate = {
             supplier_id: selectedSupplier.id,
@@ -941,96 +943,793 @@ export default function SupplierPaymentsPage() {
     />
   );
 
+  // Payment history filter state
+  const [historyDateFrom, setHistoryDateFrom] = useState<string>(() => {
+    const date = new Date();
+    date.setMonth(date.getMonth() - 3); // Default to last 3 months
+    return date.toISOString().split("T")[0];
+  });
+  const [historyDateTo, setHistoryDateTo] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [historyBranchFilter, setHistoryBranchFilter] = useState<string>("all");
+  const [historyTypeFilter, setHistoryTypeFilter] = useState<string>("all");
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all");
+  const [historyPaymentMethodFilter, setHistoryPaymentMethodFilter] = useState<string>("all");
+
+  // Filtered payment history based on selected filters
+  const filteredPaymentHistory = useMemo(() => {
+    return paymentHistory.filter((item) => {
+      // Date filter
+      const itemDate = new Date(item.date);
+      const fromDate = historyDateFrom ? new Date(historyDateFrom) : null;
+      const toDate = historyDateTo ? new Date(historyDateTo) : null;
+
+      if (fromDate && itemDate < fromDate) return false;
+      if (toDate) {
+        const endOfDay = new Date(toDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        if (itemDate > endOfDay) return false;
+      }
+
+      // Branch filter
+      if (historyBranchFilter !== "all" && item.branch_code !== historyBranchFilter) return false;
+
+      // Type filter
+      if (historyTypeFilter !== "all") {
+        if (historyTypeFilter === "credit_settlement" && item.type !== "credit_settlement") return false;
+        if (historyTypeFilter === "payment" && item.type !== "payment") return false;
+      }
+
+      // Status filter
+      if (historyStatusFilter !== "all" && item.status !== historyStatusFilter) return false;
+
+      // Payment method filter
+      if (historyPaymentMethodFilter !== "all" && item.payment_method !== historyPaymentMethodFilter) return false;
+
+      return true;
+    });
+  }, [paymentHistory, historyDateFrom, historyDateTo, historyBranchFilter, historyTypeFilter, historyStatusFilter, historyPaymentMethodFilter]);
+
+  // Calculate summary statistics for payment history
+  const historySummary = useMemo(() => {
+    const summary = {
+      totalCount: filteredPaymentHistory.length,
+      totalAmount: 0,
+      creditSettlements: { count: 0, amount: 0 },
+      directPayments: { count: 0, amount: 0 },
+      byStatus: {
+        pending: { count: 0, amount: 0 },
+        verified: { count: 0, amount: 0 },
+        cancelled: { count: 0, amount: 0 },
+      },
+      byMethod: {} as Record<string, { count: number; amount: number }>,
+      byBranch: {} as Record<string, { count: number; amount: number }>,
+    };
+
+    filteredPaymentHistory.forEach((item) => {
+      const amount = item.type === "credit_settlement" ? (item.total_amount || 0) : (item.amount || 0);
+      summary.totalAmount += amount;
+
+      if (item.type === "credit_settlement") {
+        summary.creditSettlements.count++;
+        summary.creditSettlements.amount += amount;
+      } else {
+        summary.directPayments.count++;
+        summary.directPayments.amount += amount;
+      }
+
+      // By status
+      const status = item.status || "pending";
+      if (summary.byStatus[status as keyof typeof summary.byStatus]) {
+        summary.byStatus[status as keyof typeof summary.byStatus].count++;
+        summary.byStatus[status as keyof typeof summary.byStatus].amount += amount;
+      }
+
+      // By payment method
+      const method = item.payment_method || "Unknown";
+      if (!summary.byMethod[method]) {
+        summary.byMethod[method] = { count: 0, amount: 0 };
+      }
+      summary.byMethod[method].count++;
+      summary.byMethod[method].amount += amount;
+
+      // By branch
+      const branch = item.branch_code || "Unknown";
+      if (!summary.byBranch[branch]) {
+        summary.byBranch[branch] = { count: 0, amount: 0 };
+      }
+      summary.byBranch[branch].count++;
+      summary.byBranch[branch].amount += amount;
+    });
+
+    return summary;
+  }, [filteredPaymentHistory]);
+
+  // Print payment history report
+  const handlePrintPaymentHistory = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error("Please allow popups to print the report");
+      return;
+    }
+
+    const dateRangeText = historyDateFrom && historyDateTo
+      ? `${new Date(historyDateFrom).toLocaleDateString()} to ${new Date(historyDateTo).toLocaleDateString()}`
+      : "All Time";
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Supplier Payment History Report</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            padding: 20px; 
+            color: #333;
+            max-width: 1100px;
+            margin: 0 auto;
+          }
+          .header { 
+            text-align: center; 
+            margin-bottom: 30px; 
+            border-bottom: 3px solid #1976d2;
+            padding-bottom: 20px;
+          }
+          .header h1 { 
+            margin: 0 0 5px 0; 
+            color: #1976d2;
+            font-size: 24px;
+          }
+          .header h2 { 
+            margin: 0; 
+            font-weight: normal;
+            color: #666;
+            font-size: 18px;
+          }
+          .header .date-range {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #888;
+          }
+          .summary-grid { 
+            display: grid; 
+            grid-template-columns: repeat(4, 1fr); 
+            gap: 15px; 
+            margin-bottom: 25px;
+          }
+          .summary-card { 
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+            padding: 15px; 
+            border-radius: 8px; 
+            text-align: center;
+            border: 1px solid #ddd;
+          }
+          .summary-card.primary { 
+            background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+            color: white; 
+          }
+          .summary-card.success { 
+            background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
+            color: white; 
+          }
+          .summary-card.warning { 
+            background: linear-gradient(135deg, #ed6c02 0%, #e65100 100%);
+            color: white; 
+          }
+          .summary-card.info { 
+            background: linear-gradient(135deg, #0288d1 0%, #01579b 100%);
+            color: white; 
+          }
+          .summary-card .label { 
+            font-size: 11px; 
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.9;
+          }
+          .summary-card .value { 
+            font-size: 20px; 
+            font-weight: bold;
+            margin-top: 5px;
+          }
+          .summary-card .count {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 3px;
+          }
+          .section { 
+            margin-bottom: 25px; 
+          }
+          .section-title { 
+            font-size: 14px; 
+            font-weight: 600;
+            color: #1976d2;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #e0e0e0;
+          }
+          .breakdown-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 25px;
+          }
+          .breakdown-section {
+            background: #fafafa;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+          }
+          .breakdown-section h4 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            color: #555;
+          }
+          .breakdown-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px dotted #ddd;
+            font-size: 12px;
+          }
+          .breakdown-item:last-child {
+            border-bottom: none;
+          }
+          table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            font-size: 11px;
+          }
+          th, td { 
+            border: 1px solid #ddd; 
+            padding: 8px 10px; 
+            text-align: left; 
+          }
+          th { 
+            background: #1976d2; 
+            color: white;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.5px;
+          }
+          tr:nth-child(even) { 
+            background: #f9f9f9; 
+          }
+          tr:hover {
+            background: #f0f7ff;
+          }
+          .text-right { text-align: right; }
+          .text-center { text-align: center; }
+          .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 500;
+          }
+          .status-verified { background: #e8f5e9; color: #2e7d32; }
+          .status-pending { background: #fff3e0; color: #e65100; }
+          .status-cancelled { background: #ffebee; color: #c62828; }
+          .type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 500;
+          }
+          .type-credit { background: #e3f2fd; color: #1565c0; }
+          .type-payment { background: #e8f5e9; color: #2e7d32; }
+          .totals-row {
+            background: #f5f5f5 !important;
+            font-weight: bold;
+          }
+          .footer {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+            font-size: 11px;
+            color: #888;
+            text-align: center;
+          }
+          @media print {
+            body { padding: 10px; }
+            .header { margin-bottom: 20px; }
+            .summary-grid { gap: 10px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Supplier Payment History Report</h1>
+          <h2>${selectedSupplier?.full_name || "Unknown Supplier"}</h2>
+          ${selectedSupplier?.company_name ? `<div style="color: #888; font-size: 14px;">${selectedSupplier.company_name}</div>` : ''}
+          <div class="date-range">Report Period: ${dateRangeText}</div>
+        </div>
+
+        <div class="summary-grid">
+          <div class="summary-card primary">
+            <div class="label">Total Payments</div>
+            <div class="value">${formatCurrency(historySummary.totalAmount)}</div>
+            <div class="count">${historySummary.totalCount} Transaction${historySummary.totalCount !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="summary-card success">
+            <div class="label">Verified</div>
+            <div class="value">${formatCurrency(historySummary.byStatus.verified.amount)}</div>
+            <div class="count">${historySummary.byStatus.verified.count} Transaction${historySummary.byStatus.verified.count !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="summary-card warning">
+            <div class="label">Pending</div>
+            <div class="value">${formatCurrency(historySummary.byStatus.pending.amount)}</div>
+            <div class="count">${historySummary.byStatus.pending.count} Transaction${historySummary.byStatus.pending.count !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="summary-card info">
+            <div class="label">Credit Settlements</div>
+            <div class="value">${formatCurrency(historySummary.creditSettlements.amount)}</div>
+            <div class="count">${historySummary.creditSettlements.count} Settlement${historySummary.creditSettlements.count !== 1 ? 's' : ''}</div>
+          </div>
+        </div>
+
+        <div class="breakdown-grid">
+          <div class="breakdown-section">
+            <h4>By Payment Method</h4>
+            ${Object.entries(historySummary.byMethod).map(([method, data]) => `
+              <div class="breakdown-item">
+                <span>${method}</span>
+                <span><strong>${formatCurrency(data.amount)}</strong> (${data.count})</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="breakdown-section">
+            <h4>By Branch</h4>
+            ${Object.entries(historySummary.byBranch).map(([branch, data]) => `
+              <div class="breakdown-item">
+                <span>${branch}</span>
+                <span><strong>${formatCurrency(data.amount)}</strong> (${data.count})</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Payment Details</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Document No.</th>
+                <th>PO/Invoice</th>
+                <th>GRN No.</th>
+                <th>Payment Method</th>
+                <th>Reference</th>
+                <th class="text-right">Amount (Rs.)</th>
+                <th class="text-center">Status</th>
+                <th>Branch</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredPaymentHistory.map((item) => `
+                <tr>
+                  <td>${new Date(item.date).toLocaleDateString()}</td>
+                  <td>
+                    <span class="type-badge ${item.type === 'credit_settlement' ? 'type-credit' : 'type-payment'}">
+                      ${item.type === 'credit_settlement' ? 'Credit Settlement' : 'Payment'}
+                    </span>
+                  </td>
+                  <td>${item.type === 'credit_settlement' ? item.settle_no || '-' : item.payment_no || '-'}</td>
+                  <td>${item.po_no || item.invoice_reference || '-'}</td>
+                  <td>${item.grn_no || '-'}</td>
+                  <td>${item.payment_method || '-'}</td>
+                  <td>${item.reference_number || item.payment_method_number || '-'}</td>
+                  <td class="text-right"><strong>${item.type === 'credit_settlement'
+        ? (item.total_amount > 0 ? formatAmount(item.total_amount) : '-')
+        : formatAmount(item.amount)}</strong></td>
+                  <td class="text-center">
+                    <span class="status-badge status-${item.status || 'pending'}">
+                      ${(item.status || 'pending').toUpperCase()}
+                    </span>
+                  </td>
+                  <td>${item.branch_code || '-'}</td>
+                </tr>
+              `).join('')}
+              <tr class="totals-row">
+                <td colspan="7" style="text-align: right;">TOTAL:</td>
+                <td class="text-right">${formatCurrency(historySummary.totalAmount)}</td>
+                <td colspan="2"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="footer">
+          <p>Generated on ${new Date().toLocaleString()} | Tijaero ERP System</p>
+          <p>This is a computer-generated report.</p>
+        </div>
+
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
   // Render payment history
   const renderHistory = () => (
     <Box sx={{ p: 2 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+      {/* Header with actions */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
         <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <AssessmentIcon />
           Payment History
         </Typography>
-        <Button
-          variant="outlined"
-          startIcon={<ArrowBackIcon />}
-          onClick={() => setViewMode("overview")}
-        >
-          Back to Overview
-        </Button>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<PrintIcon />}
+            onClick={handlePrintPaymentHistory}
+            disabled={filteredPaymentHistory.length === 0}
+          >
+            Print Report
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<ArrowBackIcon />}
+            onClick={() => setViewMode("overview")}
+          >
+            Back to Overview
+          </Button>
+        </Box>
       </Box>
 
+      {/* Summary Cards */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={6} sm={3}>
+          <Card sx={{
+            background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
+            color: 'white',
+          }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Total Payments
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
+                {formatCurrency(historySummary.totalAmount)}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                {historySummary.totalCount} Transaction{historySummary.totalCount !== 1 ? 's' : ''}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Card sx={{
+            background: 'linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)',
+            color: 'white',
+          }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Verified
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
+                {formatCurrency(historySummary.byStatus.verified.amount)}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                {historySummary.byStatus.verified.count} Transaction{historySummary.byStatus.verified.count !== 1 ? 's' : ''}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Card sx={{
+            background: 'linear-gradient(135deg, #ed6c02 0%, #e65100 100%)',
+            color: 'white',
+          }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Pending
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
+                {formatCurrency(historySummary.byStatus.pending.amount)}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                {historySummary.byStatus.pending.count} Transaction{historySummary.byStatus.pending.count !== 1 ? 's' : ''}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Card sx={{
+            background: 'linear-gradient(135deg, #0288d1 0%, #01579b 100%)',
+            color: 'white',
+          }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Credit Settlements
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
+                {formatCurrency(historySummary.creditSettlements.amount)}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                {historySummary.creditSettlements.count} Settlement{historySummary.creditSettlements.count !== 1 ? 's' : ''}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Breakdown Cards */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12} sm={6}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <PaymentIcon fontSize="small" />
+              By Payment Method
+            </Typography>
+            <Divider sx={{ my: 1 }} />
+            {Object.entries(historySummary.byMethod).length > 0 ? (
+              Object.entries(historySummary.byMethod).map(([method, data]) => (
+                <Box key={method} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px dotted #eee' }}>
+                  <Typography variant="body2">{method}</Typography>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="body2" fontWeight="bold">{formatCurrency(data.amount)}</Typography>
+                    <Typography variant="caption" color="text.secondary">{data.count} transaction{data.count !== 1 ? 's' : ''}</Typography>
+                  </Box>
+                </Box>
+              ))
+            ) : (
+              <Typography variant="body2" color="text.secondary">No data available</Typography>
+            )}
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={6}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <BusinessIcon fontSize="small" />
+              By Branch
+            </Typography>
+            <Divider sx={{ my: 1 }} />
+            {Object.entries(historySummary.byBranch).length > 0 ? (
+              Object.entries(historySummary.byBranch).map(([branch, data]) => (
+                <Box key={branch} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px dotted #eee' }}>
+                  <Typography variant="body2">{branch}</Typography>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="body2" fontWeight="bold">{formatCurrency(data.amount)}</Typography>
+                    <Typography variant="caption" color="text.secondary">{data.count} transaction{data.count !== 1 ? 's' : ''}</Typography>
+                  </Box>
+                </Box>
+              ))
+            ) : (
+              <Typography variant="body2" color="text.secondary">No data available</Typography>
+            )}
+          </Paper>
+        </Grid>
+      </Grid>
+
+      {/* Filters */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <FilterListIcon fontSize="small" />
+          Filters
+        </Typography>
+        <Grid container spacing={2} sx={{ mt: 1 }}>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Date From"
+              type="date"
+              value={historyDateFrom}
+              onChange={(e) => setHistoryDateFrom(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Date To"
+              type="date"
+              value={historyDateTo}
+              onChange={(e) => setHistoryDateTo(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              fullWidth
+              select
+              size="small"
+              label="Branch"
+              value={historyBranchFilter}
+              onChange={(e) => setHistoryBranchFilter(e.target.value)}
+            >
+              <MenuItem value="all">All Branches</MenuItem>
+              {branches.map((b) => (
+                <MenuItem key={b.branch_code} value={b.branch_code}>
+                  {b.branch_name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              fullWidth
+              select
+              size="small"
+              label="Type"
+              value={historyTypeFilter}
+              onChange={(e) => setHistoryTypeFilter(e.target.value)}
+            >
+              <MenuItem value="all">All Types</MenuItem>
+              <MenuItem value="credit_settlement">Credit Settlement</MenuItem>
+              <MenuItem value="payment">Direct Payment</MenuItem>
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              fullWidth
+              select
+              size="small"
+              label="Status"
+              value={historyStatusFilter}
+              onChange={(e) => setHistoryStatusFilter(e.target.value)}
+            >
+              <MenuItem value="all">All Status</MenuItem>
+              <MenuItem value="pending">Pending</MenuItem>
+              <MenuItem value="verified">Verified</MenuItem>
+              <MenuItem value="cancelled">Cancelled</MenuItem>
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              fullWidth
+              select
+              size="small"
+              label="Payment Method"
+              value={historyPaymentMethodFilter}
+              onChange={(e) => setHistoryPaymentMethodFilter(e.target.value)}
+            >
+              <MenuItem value="all">All Methods</MenuItem>
+              <MenuItem value="Cash">Cash</MenuItem>
+              <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
+              <MenuItem value="Cheque">Cheque</MenuItem>
+            </TextField>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {/* Payment History Table */}
       {loadingHistory ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
           <CircularProgress />
         </Box>
-      ) : paymentHistory.length === 0 ? (
+      ) : filteredPaymentHistory.length === 0 ? (
         <Paper sx={{ p: 4, textAlign: "center" }}>
+          <Typography variant="body1" color="text.secondary" gutterBottom>
+            No payment history found
+          </Typography>
           <Typography variant="body2" color="text.secondary">
-            No payment history found for this supplier
+            {paymentHistory.length > 0
+              ? "Try adjusting the filters to see more results."
+              : "No payments have been recorded for this supplier yet."}
           </Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>Type</TableCell>
-                <TableCell>Document No.</TableCell>
-                <TableCell>PO/Invoice</TableCell>
-                <TableCell>Payment Method</TableCell>
-                <TableCell align="right">Amount (Rs.)</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Branch</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {paymentHistory.map((item, index) => (
-                <TableRow key={`${item.type}-${item.id}-${index}`} hover>
-                  <TableCell>{new Date(item.date).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={item.type === "credit_settlement" ? "Credit Settlement" : "Payment"}
-                      size="small"
-                      color={item.type === "credit_settlement" ? "info" : "success"}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {item.type === "credit_settlement" ? item.settle_no : item.payment_no}
-                  </TableCell>
-                  <TableCell>
-                    {item.type === "credit_settlement" 
-                      ? item.po_no || item.grn_no || "-"
-                      : item.po_no || item.invoice_reference || "-"}
-                  </TableCell>
-                  <TableCell>
-                    {item.type === "credit_settlement"
-                      ? item.payment_method || "-"
-                      : item.payment_method || "-"}
-                  </TableCell>
-                  <TableCell align="right">
-                    {item.type === "credit_settlement" 
-                      ? (item.total_amount > 0 ? formatAmount(item.total_amount) : "-")
-                      : formatAmount(item.amount)}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={item.status || "pending"}
-                      size="small"
-                      color={
-                        item.status === "verified"
-                          ? "success"
-                          : item.status === "cancelled"
-                          ? "error"
-                          : "default"
-                      }
-                    />
-                  </TableCell>
-                  <TableCell>{item.branch_code}</TableCell>
+        <Paper>
+          <TableContainer sx={{ maxHeight: 500 }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Date</TableCell>
+                  <TableCell>Type</TableCell>
+                  <TableCell>Document No.</TableCell>
+                  <TableCell>PO/Invoice</TableCell>
+                  <TableCell>GRN No.</TableCell>
+                  <TableCell>Payment Method</TableCell>
+                  <TableCell>Reference</TableCell>
+                  <TableCell align="right">Amount (Rs.)</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Branch</TableCell>
+                  <TableCell>Remarks</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {filteredPaymentHistory.map((item, index) => (
+                  <TableRow key={`${item.type}-${item.id}-${index}`} hover>
+                    <TableCell>{new Date(item.date).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={item.type === "credit_settlement" ? "Credit Settlement" : "Payment"}
+                        size="small"
+                        color={item.type === "credit_settlement" ? "info" : "success"}
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="medium">
+                        {item.type === "credit_settlement" ? item.settle_no : item.payment_no}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {item.type === "credit_settlement"
+                        ? item.po_no || "-"
+                        : item.po_no || item.invoice_reference || "-"}
+                    </TableCell>
+                    <TableCell>
+                      {item.grn_no || "-"}
+                    </TableCell>
+                    <TableCell>
+                      {item.payment_method || "-"}
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.reference_number || item.payment_method_number || "-"}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" fontWeight="bold" color="primary.main">
+                        {item.type === "credit_settlement"
+                          ? (item.total_amount > 0 ? formatAmount(item.total_amount) : "-")
+                          : formatAmount(item.amount)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={(item.status || "pending").toUpperCase()}
+                        size="small"
+                        color={
+                          item.status === "verified"
+                            ? "success"
+                            : item.status === "cancelled"
+                              ? "error"
+                              : "warning"
+                        }
+                      />
+                    </TableCell>
+                    <TableCell>{item.branch_code}</TableCell>
+                    <TableCell>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{
+                          maxWidth: 150,
+                          display: 'block',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={item.remarks || "-"}
+                      >
+                        {item.remarks || "-"}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {/* Table Footer with Totals */}
+          <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: 'grey.50' }}>
+            <Typography variant="body2" color="text.secondary">
+              Showing {filteredPaymentHistory.length} of {paymentHistory.length} record{paymentHistory.length !== 1 ? 's' : ''}
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 3 }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Total Amount</Typography>
+                <Typography variant="h6" color="primary.main" fontWeight="bold">
+                  {formatCurrency(historySummary.totalAmount)}
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+        </Paper>
       )}
     </Box>
   );
@@ -1454,9 +2153,9 @@ export default function SupplierPaymentsPage() {
           {/* Branch Filter */}
           <Autocomplete
             options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}
-            getOptionLabel={(option) => 
-              option.branch_code === "all" 
-                ? option.branch_name 
+            getOptionLabel={(option) =>
+              option.branch_code === "all"
+                ? option.branch_name
                 : `${option.branch_name} (${option.branch_code})`
             }
             value={branches.find(b => b.branch_code === selectedBranch) || { branch_code: "all", branch_name: "All Branches" }}
@@ -1594,9 +2293,9 @@ export default function SupplierPaymentsPage() {
         {/* Branch Filter */}
         <Autocomplete
           options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}
-          getOptionLabel={(option) => 
-            option.branch_code === "all" 
-              ? option.branch_name 
+          getOptionLabel={(option) =>
+            option.branch_code === "all"
+              ? option.branch_name
               : `${option.branch_name} (${option.branch_code})`
           }
           value={branches.find(b => b.branch_code === selectedBranch) || { branch_code: "all", branch_name: "All Branches" }}
@@ -1755,9 +2454,9 @@ export default function SupplierPaymentsPage() {
             {useFIFO
               ? `Will allocate to ${allocateFIFO(fifoAmount).length} document(s)`
               : `Total: Rs. ${outstandingDocuments
-                  .filter((d) => selectedDocumentIds.has(d.id))
-                  .reduce((sum, d) => sum + d.remaining_amount, 0)
-                  .toLocaleString()}`}
+                .filter((d) => selectedDocumentIds.has(d.id))
+                .reduce((sum, d) => sum + d.remaining_amount, 0)
+                .toLocaleString()}`}
           </Typography>
         </Box>
       </Paper>
@@ -2108,22 +2807,22 @@ export default function SupplierPaymentsPage() {
           { label: "Purchasing", href: "/purchasing" },
           { label: "Supplier Payments", href: "/purchasing/payments" },
           ...(selectedSupplier ? [{ label: selectedSupplier.full_name }] : []),
-          ...(viewMode === "history" ? [{ label: "Payment History" }] 
+          ...(viewMode === "history" ? [{ label: "Payment History" }]
             : viewMode === "advances" ? [{ label: "Advance Payments" }]
-            : viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
+              : viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
         ]}
         title={
           viewMode === "history"
             ? "Payment History"
             : viewMode === "advances"
-            ? "Advance Payments"
-            : viewMode === "review"
-            ? "Review & Post"
-            : viewMode === "payment"
-            ? "Payment Details"
-            : viewMode === "documents"
-            ? "Select Documents"
-            : selectedSupplier?.full_name || ""
+              ? "Advance Payments"
+              : viewMode === "review"
+                ? "Review & Post"
+                : viewMode === "payment"
+                  ? "Payment Details"
+                  : viewMode === "documents"
+                    ? "Select Documents"
+                    : selectedSupplier?.full_name || ""
         }
         titleIcon={
           viewMode === "history" ? (
@@ -2143,27 +2842,27 @@ export default function SupplierPaymentsPage() {
         chips={
           viewMode === "history"
             ? [
-                { label: `${paymentHistory.length} Payment${paymentHistory.length !== 1 ? "s" : ""}`, color: "info" as const },
-              ]
+              { label: `${paymentHistory.length} Payment${paymentHistory.length !== 1 ? "s" : ""}`, color: "info" as const },
+            ]
             : viewMode === "advances"
-            ? [
+              ? [
                 { label: `${advancePayments.length} Advance${advancePayments.length !== 1 ? "s" : ""}`, color: "secondary" as const },
                 ...(advanceBalance && advanceBalance.available_balance > 0
                   ? [{ label: formatCurrency(advanceBalance.available_balance) + " Available", color: "success" as const }]
                   : []),
               ]
-            : selectedSupplier && viewMode === "overview"
-            ? [
-                { label: `${outstandingDocuments.length} Open Docs`, variant: "outlined" as const },
-                ...(totalOutstanding > 0
-                  ? [{ label: formatCurrency(totalOutstanding) + " Outstanding", color: "warning" as const }]
-                  : []),
-              ]
-            : viewMode !== "overview"
-            ? [
-                { label: formatCurrency(totalPaymentAmount), color: "primary" as const },
-              ]
-            : []
+              : selectedSupplier && viewMode === "overview"
+                ? [
+                  { label: `${outstandingDocuments.length} Open Docs`, variant: "outlined" as const },
+                  ...(totalOutstanding > 0
+                    ? [{ label: formatCurrency(totalOutstanding) + " Outstanding", color: "warning" as const }]
+                    : []),
+                ]
+                : viewMode !== "overview"
+                  ? [
+                    { label: formatCurrency(totalPaymentAmount), color: "primary" as const },
+                  ]
+                  : []
         }
       />
 
