@@ -60,7 +60,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { useNavigate } from "react-router-dom";
+
 
 // Import tijaero components
 import {
@@ -158,7 +158,7 @@ const resetFormFromGRN = (grn: GoodReceivedNote): GoodReceivedNoteCreate => ({
 
 export default function GoodReceivedNotesPage() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
+
   const [lineItems, setLineItems] = useState<GRNLineItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [formStep, setFormStep] = useState(0);
@@ -533,20 +533,15 @@ export default function GoodReceivedNotesPage() {
       // Wait for refetch to complete
       await refetch();
 
-      // Navigate to supplier payments page for non-credit orders
-      // Credit orders will use the Credit Settlement page instead
-      const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === newGRN.purchasingorders_id);
-      if (po && po.payment_method?.toLowerCase() !== "credit") {
-        setTimeout(() => {
-          navigate("/purchasing/supplier-payments");
-        }, 1500); // Delay to show success message
-      } else {
-        // For credit orders, refetch and select the newly created GRN with full data
-        setTimeout(async () => {
+      // Select the newly created GRN to show it
+      setTimeout(async () => {
+        try {
           const refreshedGRNs = await goodReceivedNotesApi.getById(newGRN.id);
           handleSelectGRNWithItems(refreshedGRNs);
-        }, 100);
-      }
+        } catch (error) {
+          console.error("Failed to load new GRN details:", error);
+        }
+      }, 100);
     },
     onError: (error: any, variables) => {
       const errorDetail = error.response?.data?.detail || error.message || "Failed to create GRN";

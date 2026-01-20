@@ -16,17 +16,16 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
-  TBranchFilter,
   TConfirmDialog,
   TCurrency,
   TDate,
-  TFilterPanel,
   TPrintButton,
   TPrintPreviewDialog,
   TStatusChip,
   useMasterDetailState,
   useTConfirmDialog
 } from "@/components/tijaero";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { branchApi } from "@/modules/branches/api";
 import { customersApi } from "@/modules/customers/api";
 import { employeesApi } from "@/modules/employees/api";
@@ -1140,13 +1139,11 @@ export default function QuotationsPage() {
             isLoading={isLoading}
             listHeader={
               <Box>
-                <TFilterPanel>
-                  <TBranchFilter
-                    branches={branches}
-                    value={filterBranch}
-                    onChange={setFilterBranch}
-                  />
-                </TFilterPanel>
+                <SalesFilterPanel
+                  branches={branches}
+                  branchValue={filterBranch}
+                  onBranchChange={setFilterBranch}
+                />
               </Box>
             }
           >

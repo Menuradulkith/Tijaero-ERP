@@ -95,6 +95,18 @@ export const salesApi = {
     });
     return response.data;
   },
+
+  // Get payment history for an invoice
+  getPaymentHistory: async (invoiceId: number) => {
+    const response = await apiClient.get(`/sales/${invoiceId}/payment-history`);
+    return response.data;
+  },
+
+  // Complete invoice (alias for complete for clearer semantics)
+  completeInvoice: async (id: number) => {
+    const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/complete`);
+    return response.data;
+  },
 };
 
 export const saleReturnsApi = {

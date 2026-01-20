@@ -28,14 +28,13 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
-  TBranchFilter,
   TConfirmDialog,
-  TFilterPanel,
   TITLE_CHOICES,
   TStatusFilter,
   useMasterDetailState,
   useTConfirmDialog
 } from "@/components/tijaero";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { usePermission } from "@/auth/permissions";
 import { branchApi } from "@/modules/branches/api";
@@ -296,25 +295,21 @@ export default function CustomersPage() {
       onSelectItem={handleSelectCustomer}
       emptyMessage="No customers found"
       listHeader={
-        <TFilterPanel>
-          <TStatusFilter
-            options={CUSTOMER_STATUS_OPTIONS}
-            value={filterStatus}
-            onChange={setFilterStatus}
-            label="Status"
-          />
+        <SalesFilterPanel
+          statusOptions={CUSTOMER_STATUS_OPTIONS}
+          statusValue={filterStatus}
+          onStatusChange={setFilterStatus}
+          branches={branches}
+          branchValue={filterBranch}
+          onBranchChange={setFilterBranch}
+        >
           <TStatusFilter
             options={AGENT_FILTER_OPTIONS}
             value={filterAgent}
             onChange={setFilterAgent}
             label="Type"
           />
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-        </TFilterPanel>
+        </SalesFilterPanel>
       }
       renderItem={(customer, isSelected) => (
         <SelectableListItem

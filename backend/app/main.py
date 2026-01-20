@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from datetime import datetime, date
@@ -158,6 +159,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# GZip compression for responses > 500 bytes (improves network performance)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 setup_middleware(app)
 app.include_router(api_router, prefix=settings.API_V1_STR)

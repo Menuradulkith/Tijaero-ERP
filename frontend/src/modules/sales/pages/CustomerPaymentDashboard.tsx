@@ -35,9 +35,8 @@ import {
     SearchableList,
     SelectableListItem,
     SortOption,
-    TBranchFilter,
-    TFilterPanel,
 } from "@/components/tijaero";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
 import { salesApi } from "../api";
@@ -172,13 +171,11 @@ export default function CustomerPaymentDashboard() {
             isLoading={isLoading}
             emptyMessage="No completed orders found"
             listHeader={
-                <TFilterPanel>
-                    <TBranchFilter
-                        branches={branches}
-                        value={filterBranch}
-                        onChange={setFilterBranch}
-                    />
-                </TFilterPanel>
+                <SalesFilterPanel
+                    branches={branches}
+                    branchValue={filterBranch}
+                    onBranchChange={setFilterBranch}
+                />
             }
         >
             {filteredInvoices.map((invoice: Invoice) => {
