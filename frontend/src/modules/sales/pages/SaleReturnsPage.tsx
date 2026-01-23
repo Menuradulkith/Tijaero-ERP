@@ -23,6 +23,7 @@ import {
     Autocomplete,
     Box,
     Button,
+    Checkbox,
     Chip,
     IconButton,
     InputAdornment,
@@ -69,6 +70,7 @@ import { useReferenceData } from "@/hooks";
 import { saleReturnsApi, salesApi } from "../api";
 import {
     Invoice,
+    InvoiceWithItems,
     SaleReturn,
     SaleReturnCreate,
     SaleReturnItemCreate,
@@ -108,6 +110,7 @@ const INITIAL_FORM_DATA: SaleReturnCreate = {
 interface ReturnLineItem extends SaleReturnItemCreate {
     _id: string;
     added_date?: string;
+    product_name?: string;
 }
 
 const PAYMENT_OPTIONS = [
@@ -115,6 +118,13 @@ const PAYMENT_OPTIONS = [
     { value: "cash", label: "Cash Refund" },
     { value: "bank_transfer", label: "Bank Transfer" },
     { value: "cheque", label: "Cheque" },
+];
+
+const ITEM_CONDITION_OPTIONS = [
+    { value: "good", label: "Good" },
+    { value: "damaged", label: "Damaged" },
+    { value: "defective", label: "Defective" },
+    { value: "opened", label: "Opened" },
 ];
 
 const resetFormFromReturn = (ret: SaleReturn | SaleReturnWithItems): SaleReturnCreate => ({
@@ -159,6 +169,7 @@ export default function SaleReturnsPage() {
     // Barcode input state
     const [barcodeInput, setBarcodeInput] = useState("");
     const barcodeInputRef = useRef<HTMLInputElement>(null);
+    const [invoiceItems, setInvoiceItems] = useState<InvoiceWithItems["items"] | null>(null);
 
     const {
         searchQuery,
@@ -197,6 +208,7 @@ export default function SaleReturnsPage() {
         setFormData(prev => ({
             ...prev,
             sale_return_no: generateReturnNo(),
+            payment_method: "credit_note",
         }));
         setLineItems([]);
         setFormStep(0);
@@ -219,6 +231,9 @@ export default function SaleReturnsPage() {
                 sold_price: item.sold_price,
                 branch_code: item.branch_code,
                 invoice_item_id: item.invoice_item_id,
+                quantity: item.quantity || 1,
+                condition: item.condition || "good",
+                restockable: item.restockable !== false,
             })));
         }
     }, [handleStartEditBase, selectedReturn]);
@@ -248,6 +263,9 @@ export default function SaleReturnsPage() {
                     branch_code: item.branch_code,
                     invoice_item_id: item.invoice_item_id,
                     added_date: item.added_date,
+                    quantity: item.quantity || 1,
+                    condition: item.condition || "good",
+                    restockable: item.restockable !== false,
                 })));
             } else {
                 setLineItems([]);
@@ -267,9 +285,30 @@ export default function SaleReturnsPage() {
         queryFn: () => salesApi.getAll(),
     });
 
-    // Use aggregated endpoint for branches
-    const { data: refData } = useReferenceData(["branches"]);
+    // Use aggregated endpoint for branches/products
+    const { data: refData } = useReferenceData(["branches", "products"]);
     const branches = refData?.branches || [];
+    const products = refData?.products || [];
+
+    const getProductName = useCallback((productId?: number) => {
+        if (!productId) return "";
+        const product = products.find((p) => p.id === productId);
+        return product?.name || "";
+    }, [products]);
+
+    const { data: selectedInvoice } = useQuery({
+        queryKey: ["sales", formData.invoice_id],
+        queryFn: () => salesApi.getById(formData.invoice_id),
+        enabled: formData.invoice_id > 0,
+    });
+
+    useEffect(() => {
+        if (selectedInvoice?.items) {
+            setInvoiceItems(selectedInvoice.items);
+        } else {
+            setInvoiceItems(null);
+        }
+    }, [selectedInvoice]);
 
     const filteredReturns = useMemo(() => {
         if (!returns) return [];
@@ -277,7 +316,8 @@ export default function SaleReturnsPage() {
         let filtered = returns.filter(
             (ret) =>
                 ret.sale_return_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                String(ret.id).includes(searchQuery)
+                String(ret.id).includes(searchQuery) ||
+                getInvoiceNo(ret.invoice_id).toLowerCase().includes(searchQuery.toLowerCase())
         );
 
         // Apply branch filter
@@ -407,21 +447,43 @@ export default function SaleReturnsPage() {
     };
 
     // Line item handlers
-    const handleAddLineItem = () => {
+    const handleAddLineItemFromBarcode = useCallback(() => {
+        const barcode = barcodeInput.trim();
+        if (!barcode) return;
+
+        if (lineItems.some((item) => item.barcode === barcode)) {
+            toast.error("This barcode has already been added");
+            return;
+        }
+
+        if (!invoiceItems || invoiceItems.length === 0) {
+            toast.error("Please select an invoice first");
+            return;
+        }
+
+        const invoiceItemMatch = invoiceItems.find((item: any) => item.barcode === barcode);
+        if (!invoiceItemMatch) {
+            toast.error("Barcode not found in selected invoice");
+            return;
+        }
+
         const newItem: ReturnLineItem = {
-            _id: `new-${Date.now()}`,
-            barcode: barcodeInput.trim() || "",
-            return_price: 0,
-            sold_price: 0,
+            _id: `scan-${Date.now()}`,
+            barcode,
+            return_price: Number(invoiceItemMatch.selling_price || 0),
+            sold_price: Number(invoiceItemMatch.selling_price || 0),
             branch_code: formData.branch_code,
-            quantity: 1,
+            invoice_item_id: invoiceItemMatch.id,
+            product_id: invoiceItemMatch.product_id,
+            quantity: invoiceItemMatch.quantity || 1,
             condition: "good",
             restockable: true,
+            added_date: invoiceItemMatch.created_date || new Date().toISOString(),
         };
-        setLineItems([...lineItems, newItem]);
+        setLineItems((prev) => [...prev, newItem]);
         setBarcodeInput("");
         barcodeInputRef.current?.focus();
-    };
+    }, [barcodeInput, formData.branch_code, invoiceItems, lineItems]);
 
     const handleRemoveLineItem = (id: string) => {
         setLineItems(prev => prev.filter(item => item._id !== id));
@@ -436,14 +498,15 @@ export default function SaleReturnsPage() {
     const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === "Enter" && barcodeInput.trim()) {
             e.preventDefault();
-            handleAddLineItem();
+            handleAddLineItemFromBarcode();
         }
     };
 
     const handleSave = useCallback(() => {
         const dataToSave: SaleReturnCreate = {
             ...formData,
-            items: lineItems.map(({ _id, added_date, ...item }) => item),
+            payment_method: "credit_note",
+            items: lineItems.map(({ _id, added_date, product_name, ...item }) => item),
         };
 
         if (isCreating) {
@@ -605,6 +668,7 @@ export default function SaleReturnsPage() {
                 isSaving={isSaving}
                 isFormValid={!!isFormValid}
                 canDelete={canDelete && selectedReturn?.status === 'pending'}
+                canUpdate={selectedReturn?.status === 'pending'}
                 onNew={handleNewReturn}
                 onSave={handleSave}
                 onCancel={() => handleCancel(filteredReturns)}
@@ -718,6 +782,7 @@ export default function SaleReturnsPage() {
                                                     invoice_id: newValue.id,
                                                     branch_code: newValue.branch_code
                                                 });
+                                                setLineItems([]);
                                             } else {
                                                 setFormData({ ...formData, invoice_id: 0 });
                                             }
@@ -744,16 +809,12 @@ export default function SaleReturnsPage() {
                                 </FormSection>
 
                                 <FormSection title="Payment & Remarks" columns={2}>
-                                    <Autocomplete
+                                    <TextField
+                                        label="Refund Method"
                                         size="small"
-                                        options={PAYMENT_OPTIONS}
-                                        getOptionLabel={(option) => option.label}
-                                        value={PAYMENT_OPTIONS.find((p) => p.value === formData.payment_method) || null}
-                                        onChange={(_, newValue) => setFormData({ ...formData, payment_method: newValue?.value || "credit_note" })}
-                                        disabled={!isEditing && !isCreating}
-                                        renderInput={(params) => (
-                                            <TextField {...params} label="Refund Method" />
-                                        )}
+                                        value={PAYMENT_OPTIONS.find((p) => p.value === (formData.payment_method || "credit_note"))?.label || "Store Credit (Credit Note)"}
+                                        disabled
+                                        helperText="Refunds are issued as credit notes"
                                     />
                                     <TextField
                                         select
@@ -804,13 +865,13 @@ export default function SaleReturnsPage() {
                                                 <Typography variant="caption" color="text.secondary">Return Reason</Typography>
                                                 <Typography variant="body2" fontWeight={500}>
                                                     {RETURN_REASON_OPTIONS.find(r => r.value === selectedReturn.return_reason)?.label || selectedReturn.return_reason || "-"}
-                                                </Typography>
-                                            </Box>
-                                            <Box>
-                                                <Typography variant="caption" color="text.secondary">Refund Method</Typography>
-                                                <Typography variant="body2" fontWeight={500}>
-                                                    {PAYMENT_OPTIONS.find(p => p.value === selectedReturn.payment_method)?.label || selectedReturn.payment_method}
-                                                </Typography>
+                                        </Typography>
+                                    </Box>
+                                    <Box>
+                                        <Typography variant="caption" color="text.secondary">Refund Method</Typography>
+                                        <Typography variant="body2" fontWeight={500}>
+                                            {PAYMENT_OPTIONS.find(p => p.value === selectedReturn.payment_method)?.label || selectedReturn.payment_method}
+                                        </Typography>
                                             </Box>
                                         </FormSection>
 
@@ -946,7 +1007,7 @@ export default function SaleReturnsPage() {
                                             <Button
                                                 variant="contained"
                                                 color="warning"
-                                                onClick={handleAddLineItem}
+                                                onClick={handleAddLineItemFromBarcode}
                                                 disabled={!barcodeInput.trim() || formData.invoice_id === 0}
                                                 sx={{ minWidth: 100 }}
                                             >
@@ -959,7 +1020,13 @@ export default function SaleReturnsPage() {
                                 <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: isCreating ? 0 : 2 }}>
                                     <Typography variant="subtitle1" fontWeight="bold">Return Items</Typography>
                                     {(isEditing || isCreating) && (
-                                        <IconButton size="small" onClick={handleAddLineItem} color="warning" title="Add manual item">
+                                        <IconButton
+                                            size="small"
+                                            onClick={handleAddLineItemFromBarcode}
+                                            color="warning"
+                                            title="Add scanned item"
+                                            disabled={!barcodeInput.trim() || formData.invoice_id === 0}
+                                        >
                                             <AddIcon />
                                         </IconButton>
                                     )}
@@ -976,9 +1043,11 @@ export default function SaleReturnsPage() {
                                     <Table size="small">
                                         <TableHead>
                                             <TableRow sx={modernTableStyles.headerRow}>
-                                                <TableCell>Barcode</TableCell>
+                                                <TableCell>Product</TableCell>
                                                 <TableCell>Branch Code</TableCell>
                                                 <TableCell>Added Date</TableCell>
+                                                <TableCell sx={{ width: 100 }}>Condition</TableCell>
+                                                <TableCell sx={{ width: 120 }}>Restockable</TableCell>
                                                 <TableCell align="right" sx={{ width: 120 }}>Sold Price</TableCell>
                                                 <TableCell align="right" sx={{ width: 120 }}>Return Price</TableCell>
                                                 {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
@@ -987,7 +1056,7 @@ export default function SaleReturnsPage() {
                                         <TableBody>
                                             {lineItems.length === 0 ? (
                                                 <TableRow>
-                                                    <TableCell colSpan={isEditing || isCreating ? 6 : 5} sx={modernTableStyles.emptyCell}>
+                                                    <TableCell colSpan={isEditing || isCreating ? 8 : 7} sx={modernTableStyles.emptyCell}>
                                                         {(isEditing || isCreating)
                                                             ? "Scan barcodes above to add items"
                                                             : "No items in this return"}
@@ -1000,17 +1069,7 @@ export default function SaleReturnsPage() {
                                                         ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                                                     }}>
                                                         <TableCell>
-                                                            {(isEditing || isCreating) ? (
-                                                                <TextField
-                                                                    size="small"
-                                                                    fullWidth
-                                                                    value={item.barcode}
-                                                                    onChange={(e) => handleUpdateLineItem(item._id, "barcode", e.target.value)}
-                                                                    placeholder="Barcode"
-                                                                />
-                                                            ) : (
-                                                                <Typography variant="body2">{item.barcode}</Typography>
-                                                            )}
+                                                            {item.product_name || getProductName(item.product_id) || "-"}
                                                         </TableCell>
                                                         <TableCell>
                                                             {item.branch_code || formData.branch_code}
@@ -1018,19 +1077,37 @@ export default function SaleReturnsPage() {
                                                         <TableCell>
                                                             {item.added_date ? new Date(item.added_date).toLocaleDateString() : (isCreating ? "New" : "-")}
                                                         </TableCell>
-                                                        <TableCell align="right">
+                                                        <TableCell>
                                                             {(isEditing || isCreating) ? (
                                                                 <TextField
+                                                                    select
                                                                     size="small"
-                                                                    type="number"
-                                                                    value={item.sold_price}
-                                                                    onChange={(e) => handleUpdateLineItem(item._id, "sold_price", parseFloat(e.target.value) || 0)}
-                                                                    sx={{ width: 100 }}
-                                                                    inputProps={{ min: 0, step: 0.01 }}
+                                                                    fullWidth
+                                                                    value={item.condition || "good"}
+                                                                    onChange={(e) => handleUpdateLineItem(item._id, "condition", e.target.value)}
+                                                                >
+                                                                    {ITEM_CONDITION_OPTIONS.map((option) => (
+                                                                        <MenuItem key={option.value} value={option.value}>
+                                                                            {option.label}
+                                                                        </MenuItem>
+                                                                    ))}
+                                                                </TextField>
+                                                            ) : (
+                                                                ITEM_CONDITION_OPTIONS.find((opt) => opt.value === item.condition)?.label || item.condition || "-"
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {(isEditing || isCreating) ? (
+                                                                <Checkbox
+                                                                    checked={item.restockable !== false}
+                                                                    onChange={(e) => handleUpdateLineItem(item._id, "restockable", e.target.checked)}
                                                                 />
                                                             ) : (
-                                                                `Rs. ${(Number(item.sold_price) || 0).toFixed(2)}`
+                                                                item.restockable !== false ? "Yes" : "No"
                                                             )}
+                                                        </TableCell>
+                                                        <TableCell align="right">
+                                                            {`Rs. ${(Number(item.sold_price) || 0).toFixed(2)}`}
                                                         </TableCell>
                                                         <TableCell align="right">
                                                             {(isEditing || isCreating) ? (
@@ -1057,7 +1134,7 @@ export default function SaleReturnsPage() {
                                                 ))
                                             )}
                                             <TableRow sx={{ bgcolor: "action.hover" }}>
-                                                <TableCell colSpan={isEditing || isCreating ? 4 : 4} align="right">
+                                                <TableCell colSpan={isEditing || isCreating ? 6 : 6} align="right">
                                                     <Typography fontWeight="bold">Total Return:</Typography>
                                                 </TableCell>
                                                 <TableCell align="right">

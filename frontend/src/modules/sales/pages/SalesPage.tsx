@@ -65,7 +65,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+// import { useNavigate } from "react-router-dom";
 import { salesApi } from "../api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate } from "../types";
@@ -122,7 +122,7 @@ const emptyInvoiceForm: Partial<InvoiceCreate> = {
 
 export default function SalesPage() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
 
   // Line items state (separate from main form for complex management)
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
@@ -325,23 +325,17 @@ export default function SalesPage() {
       if (isCreditPayment) {
         // Credit payment - needs approval, stay on this page
         showSuccessToast("Sales order created. Credit payment requires approval.");
-        state.setIsCreating(false);
-        setLineItems([]);
-        setFormStep(0);
-        state.setFormData(emptyInvoiceForm);
-        // Select the newly created invoice so it appears at the top
-        state.setSelectedItem(createdInvoice as Invoice);
       } else {
-        // Cash/Card/Cheque/Bank Transfer - auto-approved, go to payment dashboard
-        showSuccessToast("Payment completed! Redirecting to payment dashboard...");
-        state.setIsCreating(false);
-        setLineItems([]);
-        setFormStep(0);
-        state.setFormData(emptyInvoiceForm);
-        // Navigate to payment dashboard with the invoice number for highlighting
-        const invoiceNo = (createdInvoice as any)?.invoice_no;
-        navigate(`/sales/payments${invoiceNo ? `?invoice=${invoiceNo}` : ""}`);
+        // Cash/Card/Cheque/Bank Transfer - auto-approved
+        showSuccessToast("Sales order created and payment completed successfully.");
       }
+
+      state.setIsCreating(false);
+      setLineItems([]);
+      setFormStep(0);
+      state.setFormData(emptyInvoiceForm);
+      // Select the newly created invoice so it appears at the top
+      state.setSelectedItem(createdInvoice as Invoice);
       setPendingPaymentMethod("");
     },
     onError: () => {

@@ -1033,16 +1033,18 @@ class SalesService:
                 if item.sales_stock_id:
                     stock = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
                     if stock:
-                        stock.status = 'returned'  # Mark as returned (could also be 'available')
+                        stock.status = 'available'
                         stock.is_active = True
+                        stock.returned_date = datetime.now()
                         item.restocked = True
                         items_restocked += item.quantity
                 elif item.barcode:
                     # Try to find the stock by barcode
                     stock = db.query(SalesStock).filter(SalesStock.barcode == item.barcode).first()
                     if stock:
-                        stock.status = 'returned'
+                        stock.status = 'available'
                         stock.is_active = True
+                        stock.returned_date = datetime.now()
                         item.restocked = True
                         items_restocked += item.quantity
         

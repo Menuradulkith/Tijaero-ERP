@@ -57,11 +57,10 @@ import {
   showErrorToast,
 } from "@/components/tijaero";
 
-import { transferNotesApi, transferNoteItemsApi, transferNoteApprovalsApi, transferWorkflowApi } from "@/modules/warehouse/api";
+import { transferNotesApi, transferNoteItemsApi, transferWorkflowApi } from "@/modules/warehouse/api";
 import { locationsApi } from "@/modules/common/api";
 import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
-import { salesStockApi } from "@/modules/inventory/api";
 import { 
   ItemTransferNote, 
   ItemTransferNoteCreate,
@@ -111,14 +110,6 @@ const resetFormFromITN = (itn: ItemTransferNote): ItemTransferNoteCreate => ({
 
 // Get status based on approval records
 const getITNStatus = (itn: ItemTransferNote | ItemTransferNoteWithItems): string => {
-  if ('approved_records' in itn && itn.approved_records && itn.approved_records.length > 0) {
-    const latestApproval = itn.approved_records[itn.approved_records.length - 1];
-    switch (latestApproval.approved_status) {
-      case 1: return "approved";
-      case 2: return "rejected";
-      default: return "pending";
-    }
-  }
   return itn.status || "pending";
 };
 
@@ -397,23 +388,7 @@ export default function ItemTransferNotesPage() {
           item_recieved: false,
           itemtransfernote_id: newITN.id,
         });
-        
-        // Update sales stock status to "transferred"
-        if (item.sales_stock_id) {
-          try {
-            await salesStockApi.updateStatus(item.sales_stock_id, "transferred");
-          } catch (error) {
-            console.error("Failed to update stock status:", error);
-          }
-        }
       }
-      
-      // Create pending approval record
-      await transferNoteApprovalsApi.create({
-        item_transfer_note_id: newITN.id,
-        approved_status: 0, // Pending
-        approval_note: "Awaiting approval",
-      });
       
       return { itn: newITN, itemCount: lineItems.length };
     },

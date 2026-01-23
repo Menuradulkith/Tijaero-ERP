@@ -54,7 +54,7 @@ import {
   getStatusProps,
 } from "@/components/tijaero";
 
-import { transferNotesApi, transferNoteItemsApi, transferNoteApprovalsApi } from "@/modules/warehouse/api";
+import { transferNotesApi, transferNoteItemsApi } from "@/modules/warehouse/api";
 import { locationsApi } from "@/modules/common/api";
 import { branchApi } from "@/modules/branches/api";
 import { productsApi, salesStockApi } from "@/modules/inventory/api";
@@ -327,13 +327,6 @@ export default function ItemTransferNotesPage() {
           }
         }
       }
-      
-      // Create pending approval record
-      await transferNoteApprovalsApi.create({
-        item_transfer_note_id: newITN.id,
-        approved_status: 0, // Pending
-        approval_note: "Awaiting approval",
-      });
       
       return { itn: newITN, itemCount: lineItems.length };
     },

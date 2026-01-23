@@ -51,15 +51,14 @@ import {
   useTConfirmDialog,
 } from "@/components/tijaero";
 
-import { transferNotesApi, transferNoteApprovalsApi } from "@/modules/warehouse/api";
-import { locationsApi, Location } from "@/modules/common/api";
+import { transferNotesApi } from "@/modules/warehouse/api";
+import { approvalsApi, locationsApi, Location } from "@/modules/common/api";
 import { useReferenceData, ProductRef } from "@/hooks";
 // OPTIMIZED: Removed branchApi, productsApi imports - using aggregated endpoint
 import {
   ItemTransferNote, 
   ItemTransferNoteItem,
   ItemTransferNoteWithItems,
-  ItemTransferNoteApproved,
 } from "@/modules/warehouse/types";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -74,19 +73,6 @@ const STATUS_FILTER_OPTIONS = [
   { value: "rejected", label: "Rejected" },
 ];
 
-// Get status from approval records
-const getITNApprovalStatus = (itn: ItemTransferNoteWithItems): { status: string; approvalRecord?: ItemTransferNoteApproved } => {
-  if (itn.approved_records && itn.approved_records.length > 0) {
-    const latestApproval = itn.approved_records[itn.approved_records.length - 1];
-    switch (latestApproval.approved_status) {
-      case 1: return { status: "approved", approvalRecord: latestApproval };
-      case 2: return { status: "rejected", approvalRecord: latestApproval };
-      default: return { status: "pending", approvalRecord: latestApproval };
-    }
-  }
-  return { status: "pending" };
-};
-
 export default function ItemTransferNoteApprovalsPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -99,7 +85,7 @@ export default function ItemTransferNoteApprovalsPage() {
   const confirmDialog = useTConfirmDialog();
 
   // Filter states
-  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>("pending");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // Dialogs
@@ -112,29 +98,6 @@ export default function ItemTransferNoteApprovalsPage() {
     queryKey: ["transfer-notes"],
     queryFn: () => transferNotesApi.getAll(),
   });
-
-  // Fetch approval status for all ITNs
-  const [itnStatusMap, setItnStatusMap] = useState<Map<number, string>>(new Map());
-  
-  useEffect(() => {
-    const fetchAllStatuses = async () => {
-      const statusMap = new Map<number, string>();
-      for (const itn of transferNotes) {
-        try {
-          const fullITN = await transferNotesApi.getById(itn.id);
-          const { status } = getITNApprovalStatus(fullITN);
-          statusMap.set(itn.id, status);
-        } catch {
-          statusMap.set(itn.id, "pending");
-        }
-      }
-      setItnStatusMap(statusMap);
-    };
-    
-    if (transferNotes.length > 0) {
-      fetchAllStatuses();
-    }
-  }, [transferNotes]);
 
   // Fetch locations
   const { data: locationsData } = useQuery({
@@ -173,7 +136,7 @@ export default function ItemTransferNoteApprovalsPage() {
 
     // Filter by approval status
     if (filterStatus) {
-      filtered = filtered.filter(itn => itnStatusMap.get(itn.id) === filterStatus);
+      filtered = filtered.filter(itn => (itn.status || "pending") === filterStatus);
     }
     
     // Filter by branch
@@ -198,7 +161,7 @@ export default function ItemTransferNoteApprovalsPage() {
     });
 
     return filtered;
-  }, [transferNotes, searchQuery, sortField, filterBranch, filterStatus, locationMap, itnStatusMap]);
+  }, [transferNotes, searchQuery, sortField, filterBranch, filterStatus, locationMap]);
 
   // Handle selection
   const handleSelectITN = useCallback(async (itn: ItemTransferNote) => {
@@ -224,30 +187,12 @@ export default function ItemTransferNoteApprovalsPage() {
 
   // Approve mutation
   const approveMutation = useMutation({
-    mutationFn: async (id: number) => {
-      // Get existing approval record or create new one
-      const itn = await fetchITNDetails(id);
-      const existingApproval = itn.approved_records?.[0];
-      
-      if (existingApproval) {
-        return transferNoteApprovalsApi.update(existingApproval.id, {
-          item_transfer_note_id: id,
-          approved_status: 1, // Approved
-          approval_note: "Transfer approved",
-        });
-      } else {
-        return transferNoteApprovalsApi.create({
-          item_transfer_note_id: id,
-          approved_status: 1, // Approved
-          approval_note: "Transfer approved",
-        });
-      }
-    },
-    onSuccess: async (_data, id) => {
+    mutationFn: async ({ approvalId }: { approvalId: number; itnId: number }) => approvalsApi.approve(approvalId),
+    onSuccess: async (_data, { itnId }) => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
       showSuccessToast("Transfer note approved successfully");
       // Refresh the selected ITN
-      const updatedITN = await fetchITNDetails(id);
+      const updatedITN = await fetchITNDetails(itnId);
       setSelectedITN(updatedITN);
     },
     onError: () => showErrorToast("Failed to approve transfer note"),
@@ -255,24 +200,8 @@ export default function ItemTransferNoteApprovalsPage() {
 
   // Reject mutation
   const rejectMutation = useMutation({
-    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
-      const itn = await fetchITNDetails(id);
-      const existingApproval = itn.approved_records?.[0];
-      
-      if (existingApproval) {
-        return transferNoteApprovalsApi.update(existingApproval.id, {
-          item_transfer_note_id: id,
-          approved_status: 2, // Rejected
-          approval_note: reason,
-        });
-      } else {
-        return transferNoteApprovalsApi.create({
-          item_transfer_note_id: id,
-          approved_status: 2, // Rejected
-          approval_note: reason,
-        });
-      }
-    },
+    mutationFn: async ({ approvalId, reason }: { approvalId: number; id: number; reason: string }) =>
+      approvalsApi.reject(approvalId, reason),
     onSuccess: async (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
       showSuccessToast("Transfer note rejected");
@@ -287,6 +216,10 @@ export default function ItemTransferNoteApprovalsPage() {
 
   const handleApprove = async () => {
     if (!selectedITN) return;
+    if (!selectedITN.approval_id) {
+      showErrorToast("Approval record missing for this transfer note");
+      return;
+    }
     
     // Check if it's after 6pm
     const currentHour = new Date().getHours();
@@ -304,12 +237,16 @@ export default function ItemTransferNoteApprovalsPage() {
       if (!confirmed) return;
     }
     
-    approveMutation.mutate(selectedITN.id);
+    approveMutation.mutate({ approvalId: selectedITN.approval_id, itnId: selectedITN.id });
   };
 
   const handleReject = () => {
     if (selectedITN && rejectReason.trim()) {
-      rejectMutation.mutate({ id: selectedITN.id, reason: rejectReason });
+      if (!selectedITN.approval_id) {
+        showErrorToast("Approval record missing for this transfer note");
+        return;
+      }
+      rejectMutation.mutate({ approvalId: selectedITN.approval_id, id: selectedITN.id, reason: rejectReason });
     }
   };
 
@@ -321,7 +258,7 @@ export default function ItemTransferNoteApprovalsPage() {
     return productMap.get(productId)?.name || `Product #${productId}`;
   };
 
-  const selectedIsPending = selectedITN ? getITNApprovalStatus(selectedITN).status === "pending" : false;
+  const selectedIsPending = selectedITN ? (selectedITN.status || "pending") === "pending" : false;
 
   // Master Panel
   const masterPanel = (
@@ -351,8 +288,7 @@ export default function ItemTransferNoteApprovalsPage() {
         </TFilterPanel>
       }
       renderItem={(itn, isSelected) => {
-        // Get status from cached map
-        const status = itnStatusMap.get(itn.id) || "pending";
+        const status = itn.status || "pending";
         const statusProps = getStatusProps(status, "orderStatus");
         
         return (
@@ -436,7 +372,7 @@ export default function ItemTransferNoteApprovalsPage() {
         chips={
           selectedITN
             ? (() => {
-                const { status } = getITNApprovalStatus(selectedITN);
+                const status = selectedITN.status || "pending";
                 const s = getStatusProps(status, "orderStatus");
                 return [{ label: s.label, color: s.color }];
               })()
@@ -511,7 +447,7 @@ export default function ItemTransferNoteApprovalsPage() {
               <TextField
                 label="Status"
                 size="small"
-                value={getITNApprovalStatus(selectedITN).status}
+                value={selectedITN.status || "pending"}
                 disabled
               />
             </FormSection>
@@ -586,38 +522,6 @@ export default function ItemTransferNoteApprovalsPage() {
               </Box>
             </FormSection>
 
-            {/* Approval History */}
-            {selectedITN.approved_records && selectedITN.approved_records.length > 0 && (
-              <FormSection title="Approval History" columns={1}>
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  {selectedITN.approved_records.map((record, index) => {
-                    const { status } = getITNApprovalStatus({ ...selectedITN, approved_records: [record] });
-                    const statusProps = getStatusProps(status, "orderStatus");
-                    return (
-                      <Box key={record.id || index} sx={{ mb: index < selectedITN.approved_records!.length - 1 ? 2 : 0 }}>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                          <Chip
-                            label={statusProps.label}
-                            size="small"
-                            color={statusProps.color}
-                          />
-                          {record.approved_date && (
-                            <Typography variant="caption" color="text.secondary">
-                              {new Date(record.approved_date).toLocaleString()}
-                            </Typography>
-                          )}
-                        </Box>
-                        {record.approval_note && (
-                          <Typography variant="body2" sx={{ mt: 0.5, ml: 1 }}>
-                            {record.approval_note}
-                          </Typography>
-                        )}
-                      </Box>
-                    );
-                  })}
-                </Paper>
-              </FormSection>
-            )}
           </>
         )}
       </Box>
