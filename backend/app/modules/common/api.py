@@ -269,6 +269,10 @@ def approve_request(
                 from app.modules.purchasing.service import PurchasingOrderService
                 po_service = PurchasingOrderService(db)
                 po_service.approve_order(reference_id, approve=True, remarks=request.remarks, user_id=current_user.id)
+            elif approval_type == ApprovalType.ITEM_TRANSFER.value:
+                from app.modules.warehouse.service import ItemTransferNoteService
+                transfer_service = ItemTransferNoteService(db)
+                transfer_service.approve_transfer_note(reference_id, user_id=current_user.id, remarks=request.remarks)
             else:
                 # Generic approval update
                 approval.status = 'approved'
@@ -335,6 +339,10 @@ def reject_request(
                 from app.modules.purchasing.service import PurchasingOrderService
                 po_service = PurchasingOrderService(db)
                 po_service.approve_order(reference_id, approve=False, remarks=request.remarks, user_id=current_user.id)
+            elif approval_type == ApprovalType.ITEM_TRANSFER.value:
+                from app.modules.warehouse.service import ItemTransferNoteService
+                transfer_service = ItemTransferNoteService(db)
+                transfer_service.reject_transfer_note(reference_id, user_id=current_user.id, remarks=request.remarks)
             elif approval_type == ApprovalType.SALES_ORDER.value:
                 # Cancel the credit sales order
                 from app.modules.sales.service import sales_service

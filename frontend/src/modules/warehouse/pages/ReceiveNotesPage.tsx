@@ -58,6 +58,7 @@ interface ReceivedItem {
   transferItemId: number;
   productId: number;
   productName: string;
+  barcode?: string;
   expectedQuantity: number;
   receivedQuantity: number;
   scannedSerials: string[];
@@ -144,7 +145,12 @@ export default function ReceiveNotesPage() {
         const notesWithItems = await Promise.all(
           allNotes.map((note) => transferNotesApi.getById(note.id))
         );
-        return notesWithItems;
+        return notesWithItems.filter(
+          (note) =>
+            ["approved", "dispatched", "in_transit", "partially_received"].includes(
+              note.status || ""
+            )
+        );
       } catch (err) {
         console.error("Error fetching transfer notes:", err);
         return [];
@@ -154,33 +160,16 @@ export default function ReceiveNotesPage() {
   });
 
   // Mutations
-  const createIRNMutation = useMutation({
+  const receiveItemsMutation = useMutation({
     mutationFn: async (data: {
       transferNoteId: number;
-      items: Array<{
-        transferItemId: number;
-        receivedQuantity: number;
-        damageQuantity: number;
-        notes: string;
-      }>;
+      barcodes: string[];
       notes: string;
     }) => {
-      // Create receive note
-      const receiveNote = await receiveNotesApi.create({
-        item_transfer_note_id: data.transferNoteId,
-        received_approval_status: 0, // Pending
+      return receiveNotesApi.receiveItems(data.transferNoteId, {
+        barcodes: data.barcodes,
         received_note: data.notes,
       });
-      
-      // Mark items as received
-      for (const item of data.items) {
-        if (item.receivedQuantity > 0) {
-          // Update transfer note item to mark as received
-          // Note: API may need to be extended to handle quantities
-        }
-      }
-      
-      return receiveNote;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["itemReceiveNotes"] });
@@ -188,7 +177,7 @@ export default function ReceiveNotesPage() {
       handleCancelCreate();
       setScanResult({
         success: true,
-        message: "Receive note created successfully!",
+        message: "Items received successfully!",
       });
     },
     onError: (error: any) => {
@@ -246,9 +235,10 @@ export default function ReceiveNotesPage() {
       transferItemId: item.id,
       productId: item.product_id,
       productName: item.product_name || `Product #${item.product_id}`,
+      barcode: item.barcode,
       expectedQuantity: 1, // Each item represents 1 barcode
-      receivedQuantity: 0,
-      scannedSerials: [],
+      receivedQuantity: item.item_recieved ? 1 : 0,
+      scannedSerials: item.item_recieved && item.barcode ? [item.barcode] : [],
       damageQuantity: 0,
       notes: "",
     }));
@@ -259,11 +249,9 @@ export default function ReceiveNotesPage() {
   const handleBarcodeScan = useCallback(() => {
     if (!barcodeInput.trim()) return;
 
-    const matchedItem = receivedItems.find((item) => {
-      // Match by product name, part number, or serial
-      const matchString = barcodeInput.toLowerCase();
-      return item.productName.toLowerCase().includes(matchString);
-    });
+    const matchedItem = receivedItems.find(
+      (item) => item.barcode && item.barcode.toLowerCase() === barcodeInput.toLowerCase()
+    );
 
     if (matchedItem) {
       setReceivedItems((prev) =>
@@ -271,11 +259,10 @@ export default function ReceiveNotesPage() {
           item.transferItemId === matchedItem.transferItemId
             ? {
                 ...item,
-                receivedQuantity: Math.min(
-                  item.receivedQuantity + 1,
-                  item.expectedQuantity
-                ),
-                scannedSerials: [...item.scannedSerials, barcodeInput],
+                receivedQuantity: Math.min(1, item.expectedQuantity),
+                scannedSerials: item.scannedSerials.includes(barcodeInput)
+                  ? item.scannedSerials
+                  : [...item.scannedSerials, barcodeInput],
               }
             : item
         )
@@ -305,7 +292,7 @@ export default function ReceiveNotesPage() {
       setReceivedItems((prev) =>
         prev.map((item) =>
           item.transferItemId === transferItemId
-            ? { ...item, receivedQuantity: Math.max(0, quantity) }
+            ? { ...item, receivedQuantity: Math.max(0, Math.min(1, quantity)) }
             : item
         )
       );
@@ -342,24 +329,23 @@ export default function ReceiveNotesPage() {
       prev.map((item) => ({
         ...item,
         receivedQuantity: item.expectedQuantity,
+        scannedSerials: item.barcode ? [item.barcode] : item.scannedSerials,
       }))
     );
   }, []);
 
   const handleSubmit = useCallback(() => {
     if (!selectedITN) return;
+    const receivedBarcodes = receivedItems
+      .filter((item) => item.receivedQuantity > 0 && item.barcode)
+      .map((item) => item.barcode as string);
 
-    createIRNMutation.mutate({
+    receiveItemsMutation.mutate({
       transferNoteId: selectedITN.id,
-      items: receivedItems.map((item) => ({
-        transferItemId: item.transferItemId,
-        receivedQuantity: item.receivedQuantity,
-        damageQuantity: item.damageQuantity,
-        notes: item.notes,
-      })),
+      barcodes: receivedBarcodes,
       notes,
     });
-  }, [selectedITN, receivedItems, notes, createIRNMutation]);
+  }, [selectedITN, receivedItems, notes, receiveItemsMutation]);
 
   const handleNext = useCallback(() => {
     if (activeStep === 0 && !selectedITN) {
@@ -1002,9 +988,9 @@ export default function ReceiveNotesPage() {
                     color="primary"
                     startIcon={<SaveIcon />}
                     onClick={handleSubmit}
-                    disabled={createIRNMutation.isPending}
+                    disabled={receiveItemsMutation.isPending}
                   >
-                    {createIRNMutation.isPending ? "Creating..." : "Create Receive Note"}
+                    {receiveItemsMutation.isPending ? "Receiving..." : "Receive Items"}
                   </Button>
                 ) : (
                   <Button

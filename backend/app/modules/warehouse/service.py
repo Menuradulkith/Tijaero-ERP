@@ -11,7 +11,8 @@ from .models import (
     TransferNoteStatus,
 )
 from app.modules.inventory.models import SalesStock
-from app.modules.common.models import Locations
+from app.modules.common.models import Locations, Approvals
+from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 
 # Item Transfer Note Service
 class ItemTransferNoteService:
@@ -20,10 +21,25 @@ class ItemTransferNoteService:
     
     def create_transfer_note(self, transfer_note: schemas.ItemTransferNoteCreate) -> ItemTransferNote:
         db_transfer_note = ItemTransferNote(
-            **transfer_note.model_dump(),
-            added_date=datetime.now()
+            **transfer_note.model_dump(exclude={'status', 'approval_id'}),
+            added_date=datetime.now(),
+            status=TransferNoteStatus.PENDING
         )
         self.db.add(db_transfer_note)
+        self.db.flush()
+
+        approval_record = approval_service.create_approval_request(
+            db=self.db,
+            approval_type=ApprovalType.ITEM_TRANSFER,
+            reference_id=db_transfer_note.id,
+            reference_no=db_transfer_note.item_transfer_note,
+            branch_code=db_transfer_note.branch_code,
+            requested_by=0,  # TODO: Use current user
+            remarks=f"Item transfer pending approval - {db_transfer_note.item_transfer_note}",
+            approval_group="warehouse_approvers",
+        )
+        db_transfer_note.approval_id = approval_record.id
+
         self.db.commit()
         self.db.refresh(db_transfer_note)
         return db_transfer_note
@@ -137,7 +153,13 @@ class ItemTransferNoteService:
     def dispatch_transfer_note(self, transfer_note_id: int) -> ItemTransferNote:
         """Dispatch transfer note and mark items as in_transit"""
         db_transfer_note = self.get_transfer_note(transfer_note_id)
-        
+
+        if db_transfer_note.status != TransferNoteStatus.APPROVED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Transfer note must be approved before dispatch"
+            )
+
         # Check if already dispatched
         if db_transfer_note.status in [TransferNoteStatus.DISPATCHED, TransferNoteStatus.IN_TRANSIT]:
             raise HTTPException(
@@ -187,16 +209,22 @@ class ItemTransferNoteService:
             Locations.id == db_transfer_note.to_location_id
         ).first()
         
-        # Get approval status
-        approval = self.db.query(ItemTransferNoteApproved).filter(
-            ItemTransferNoteApproved.item_transfer_note_id == transfer_note_id
-        ).first()
+        approval_status = None
+        if db_transfer_note.approval_id:
+            approval = self.db.query(Approvals).filter(
+                Approvals.id == db_transfer_note.approval_id
+            ).first()
+            if approval:
+                if approval.status == ApprovalStatus.APPROVED.value:
+                    approval_status = 1
+                elif approval.status == ApprovalStatus.REJECTED.value:
+                    approval_status = 2
+                else:
+                    approval_status = 0
         
         # Determine what actions are available
         can_dispatch = (
-            db_transfer_note.status == TransferNoteStatus.APPROVED or
-            (approval and approval.approved_status == 1 and 
-             db_transfer_note.status == TransferNoteStatus.PENDING)
+            db_transfer_note.status == TransferNoteStatus.APPROVED
         )
         can_receive = db_transfer_note.status in [
             TransferNoteStatus.DISPATCHED, 
@@ -214,10 +242,89 @@ class ItemTransferNoteService:
             from_location_name=from_location.name if from_location else None,
             to_location_name=to_location.name if to_location else None,
             created_date=db_transfer_note.created_date,
-            approval_status=approval.approved_status if approval else None,
+            approval_status=approval_status,
             can_dispatch=can_dispatch,
             can_receive=can_receive
         )
+
+    def approve_transfer_note(self, transfer_note_id: int, user_id: int = 0, remarks: Optional[str] = None) -> ItemTransferNote:
+        transfer_note = self.get_transfer_note(transfer_note_id)
+        if transfer_note.status != TransferNoteStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Transfer note is not pending. Current status: {transfer_note.status}"
+            )
+
+        if transfer_note.approval_id:
+            approval_record = self.db.query(Approvals).filter(
+                Approvals.id == transfer_note.approval_id
+            ).first()
+            if approval_record:
+                if approval_record.status != ApprovalStatus.PENDING.value:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Approval record is already {approval_record.status}"
+                    )
+                approval_record.status = ApprovalStatus.APPROVED.value
+                approval_record.status_changed_by = user_id
+                approval_record.remark = remarks or f"Approved by user {user_id}"
+
+        transfer_note.status = TransferNoteStatus.APPROVED
+
+        items = self.db.query(ItemTransferNoteItems).filter(
+            ItemTransferNoteItems.itemtransfernote_id == transfer_note.id
+        ).all()
+        for item in items:
+            if item.barcode:
+                stock_item = self.db.query(SalesStock).filter(
+                    SalesStock.barcode == item.barcode
+                ).first()
+                if stock_item:
+                    stock_item.status = "transfer_pending"
+
+        self.db.commit()
+        self.db.refresh(transfer_note)
+        return transfer_note
+
+    def reject_transfer_note(self, transfer_note_id: int, user_id: int = 0, remarks: Optional[str] = None) -> ItemTransferNote:
+        transfer_note = self.get_transfer_note(transfer_note_id)
+        if transfer_note.status != TransferNoteStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Transfer note is not pending. Current status: {transfer_note.status}"
+            )
+
+        if transfer_note.approval_id:
+            approval_record = self.db.query(Approvals).filter(
+                Approvals.id == transfer_note.approval_id
+            ).first()
+            if approval_record:
+                if approval_record.status != ApprovalStatus.PENDING.value:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Approval record is already {approval_record.status}"
+                    )
+                approval_record.status = ApprovalStatus.REJECTED.value
+                approval_record.status_changed_by = user_id
+                approval_record.remark = remarks or f"Rejected by user {user_id}"
+
+        transfer_note.status = TransferNoteStatus.REJECTED
+
+        items = self.db.query(ItemTransferNoteItems).filter(
+            ItemTransferNoteItems.itemtransfernote_id == transfer_note.id
+        ).all()
+        for item in items:
+            if item.barcode:
+                stock_item = self.db.query(SalesStock).filter(
+                    SalesStock.barcode == item.barcode
+                ).first()
+                if stock_item and stock_item.status in ["transfer_pending", "in_transit"]:
+                    stock_item.status = "available"
+                    stock_item.is_active = True
+
+        self.db.commit()
+        self.db.refresh(transfer_note)
+        return transfer_note
 
 # Item Transfer Note Items Service
 class ItemTransferNoteItemService:
@@ -230,6 +337,12 @@ class ItemTransferNoteItemService:
             created_date=datetime.now()
         )
         self.db.add(db_item)
+        if item.barcode:
+            stock_item = self.db.query(SalesStock).filter(
+                SalesStock.barcode == item.barcode
+            ).first()
+            if stock_item:
+                stock_item.status = "transfer_pending"
         self.db.commit()
         self.db.refresh(db_item)
         return db_item
@@ -423,6 +536,17 @@ class ItemReceiveNoteService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Transfer note not found"
             )
+
+        if transfer_note.status not in [
+            TransferNoteStatus.APPROVED,
+            TransferNoteStatus.DISPATCHED,
+            TransferNoteStatus.IN_TRANSIT,
+            TransferNoteStatus.PARTIALLY_RECEIVED,
+        ]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot receive items for transfer note with status: {transfer_note.status}"
+            )
         
         # Get all items for this transfer note
         transfer_items = self.db.query(ItemTransferNoteItems).filter(
@@ -470,6 +594,7 @@ class ItemReceiveNoteService:
                 stock_item.location_id = transfer_note.to_location_id
                 # Update status back to available
                 stock_item.status = "available"
+                stock_item.is_active = True
                 product_name = stock_item.product.name if stock_item.product else None
             
             results.append(schemas.ReceivedItemResult(

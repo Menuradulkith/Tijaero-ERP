@@ -5,8 +5,6 @@ import {
   ItemTransferNoteWithItems,
   ItemTransferNoteItem,
   ItemTransferNoteItemCreate,
-  ItemTransferNoteApproved,
-  ItemTransferNoteApprovedCreate,
   ItemReceiveNote,
   ItemReceiveNoteCreate,
   BarcodeValidationRequest,
@@ -42,22 +40,9 @@ export const transferNotesApi = {
     const itemsResponse = await apiClient.get<ItemTransferNoteItem[]>(
       `/warehouse/transfer-notes/${id}/items`
     );
-    // Try to get approval status
-    let approved_records: ItemTransferNoteApproved[] = [];
-    try {
-      const approvalResponse = await apiClient.get<ItemTransferNoteApproved>(
-        `/warehouse/transfer-notes/${id}/approval`
-      );
-      if (approvalResponse.data) {
-        approved_records = [approvalResponse.data];
-      }
-    } catch {
-      // No approval record exists yet
-    }
     return {
       ...response.data,
       items: itemsResponse.data,
-      approved_records,
     };
   },
 
@@ -123,39 +108,6 @@ export const transferNoteItemsApi = {
 
   delete: async (id: number) => {
     await apiClient.delete(`/warehouse/transfer-note-items/${id}`);
-  },
-};
-
-// Transfer Note Approvals API
-export const transferNoteApprovalsApi = {
-  getById: async (id: number) => {
-    const response = await apiClient.get<ItemTransferNoteApproved>(
-      `/warehouse/transfer-note-approvals/${id}`
-    );
-    return response.data;
-  },
-
-  getByTransferNote: async (transferNoteId: number) => {
-    const response = await apiClient.get<ItemTransferNoteApproved>(
-      `/warehouse/transfer-notes/${transferNoteId}/approval`
-    );
-    return response.data;
-  },
-
-  create: async (data: ItemTransferNoteApprovedCreate) => {
-    const response = await apiClient.post<ItemTransferNoteApproved>(
-      "/warehouse/transfer-note-approvals",
-      data
-    );
-    return response.data;
-  },
-
-  update: async (id: number, data: ItemTransferNoteApprovedCreate) => {
-    const response = await apiClient.put<ItemTransferNoteApproved>(
-      `/warehouse/transfer-note-approvals/${id}`,
-      data
-    );
-    return response.data;
   },
 };
 

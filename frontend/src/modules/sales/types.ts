@@ -5,6 +5,7 @@ export interface InvoiceItem {
   selling_price: number;
   minimum_selling_price: number;
   warrenty_month: string;
+  barcode?: string;
   invoice_id: number;
   created_date: string;
 }
