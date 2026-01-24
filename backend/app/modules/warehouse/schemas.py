@@ -20,6 +20,8 @@ class ItemTransferNote(ItemTransferNoteBase):
     added_date: datetime
     approval_id: Optional[int] = None
     status: str = "pending"
+    from_location_name: Optional[str] = None
+    to_location_name: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -39,6 +41,7 @@ class ItemTransferNoteItem(ItemTransferNoteItemBase):
     id: int
     itemtransfernote_id: int
     created_date: datetime
+    product_name: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -84,8 +87,10 @@ class ItemTransferNoteWithItems(ItemTransferNote):
 # Filter Schemas
 class WarehouseListFilter(BaseModel):
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # For multi-branch access control
     from_location_id: Optional[int] = None
     to_location_id: Optional[int] = None
+    to_location_branch: Optional[str] = None
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     approved_status: Optional[int] = None

@@ -14,10 +14,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import DeleteIcon from "@mui/icons-material/Delete";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
-import ThumbUpIcon from "@mui/icons-material/ThumbUp";
-import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import {
     Alert,
     Autocomplete,
@@ -38,7 +35,6 @@ import {
     TableHead,
     TableRow,
     TextField,
-    Tooltip,
     Typography
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -364,47 +360,6 @@ export default function SaleReturnsPage() {
         },
     });
 
-    // Workflow mutations
-    const approveMutation = useMutation({
-        mutationFn: saleReturnsApi.approve,
-        onSuccess: (updated) => {
-            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-            toast.success("Sale return approved successfully");
-            handleSelectReturnWithItems(updated);
-        },
-        onError: (error: any) => {
-            toast.error(error.response?.data?.detail || "Failed to approve sale return");
-        },
-    });
-
-    const rejectMutation = useMutation({
-        mutationFn: ({ id, reason }: { id: number; reason?: string }) => saleReturnsApi.reject(id, reason),
-        onSuccess: (updated) => {
-            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-            toast.success("Sale return rejected");
-            handleSelectReturnWithItems(updated);
-        },
-        onError: (error: any) => {
-            toast.error(error.response?.data?.detail || "Failed to reject sale return");
-        },
-    });
-
-    const processMutation = useMutation({
-        mutationFn: saleReturnsApi.process,
-        onSuccess: (result) => {
-            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-            queryClient.invalidateQueries({ queryKey: ["sales"] });
-            queryClient.invalidateQueries({ queryKey: ["credit-notes"] });
-            toast.success(result.message || "Sale return processed successfully");
-            if (result.sale_return) {
-                handleSelectReturnWithItems(result.sale_return);
-            }
-        },
-        onError: (error: any) => {
-            toast.error(error.response?.data?.detail || "Failed to process sale return");
-        },
-    });
-
     const deleteMutation = useMutation({
         mutationFn: saleReturnsApi.delete,
         onSuccess: () => {
@@ -418,13 +373,9 @@ export default function SaleReturnsPage() {
     });
 
     // Workflow dialogs
-    const approveDialog = useTConfirmDialog();
-    const rejectDialog = useTConfirmDialog();
-    const processDialog = useTConfirmDialog();
     const deleteDialog2 = useTConfirmDialog();
 
     // Permissions
-    const canApprove = usePermission("sales", "approve");
     const canDelete = usePermission("sales", "delete");
 
     // Helper functions
@@ -682,61 +633,6 @@ export default function SaleReturnsPage() {
                         );
                     }
                 }}
-                customActions={selectedReturn && !isCreating && !isEditing ? (
-                    <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                        {/* Approve button - only for pending returns */}
-                        {canApprove && selectedReturn.status === "pending" && (
-                            <Tooltip title="Approve Return">
-                                <IconButton
-                                    size="small"
-                                    color="success"
-                                    onClick={() => approveDialog.open(
-                                        "Approve Sale Return",
-                                        `Approve return ${selectedReturn.sale_return_no}?`,
-                                        () => approveMutation.mutate(selectedReturn.id)
-                                    )}
-                                    disabled={approveMutation.isPending}
-                                >
-                                    <ThumbUpIcon />
-                                </IconButton>
-                            </Tooltip>
-                        )}
-                        {/* Reject button - only for pending returns */}
-                        {canApprove && selectedReturn.status === "pending" && (
-                            <Tooltip title="Reject Return">
-                                <IconButton
-                                    size="small"
-                                    color="error"
-                                    onClick={() => rejectDialog.open(
-                                        "Reject Sale Return",
-                                        `Reject return ${selectedReturn.sale_return_no}?`,
-                                        () => rejectMutation.mutate({ id: selectedReturn.id })
-                                    )}
-                                    disabled={rejectMutation.isPending}
-                                >
-                                    <ThumbDownIcon />
-                                </IconButton>
-                            </Tooltip>
-                        )}
-                        {/* Process button - only for approved returns */}
-                        {canApprove && (selectedReturn.status === "pending" || selectedReturn.status === "approved") && (
-                            <Tooltip title="Process Return (Refund & Restock)">
-                                <IconButton
-                                    size="small"
-                                    color="primary"
-                                    onClick={() => processDialog.open(
-                                        "Process Sale Return",
-                                        `Process return ${selectedReturn.sale_return_no}? This will:\n• Restock applicable items\n• Issue ${selectedReturn.payment_method === 'credit_note' ? 'a credit note' : 'refund'}\n• Update the original invoice`,
-                                        () => processMutation.mutate(selectedReturn.id)
-                                    )}
-                                    disabled={processMutation.isPending}
-                                >
-                                    <PlayArrowIcon />
-                                </IconButton>
-                            </Tooltip>
-                        )}
-                    </Box>
-                ) : undefined}
             />
 
             <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -1163,9 +1059,6 @@ export default function SaleReturnsPage() {
                 detailPanel={detailPanel}
             />
             <ConfirmDialog {...confirmDialog.dialogProps} />
-            <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
-            <TConfirmDialog {...rejectDialog.dialogProps} confirmText="Reject" confirmColor="error" />
-            <TConfirmDialog {...processDialog.dialogProps} confirmText="Process" confirmColor="primary" />
             <TConfirmDialog {...deleteDialog2.dialogProps} confirmText="Delete" confirmColor="error" />
         </>
     );

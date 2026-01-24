@@ -10,20 +10,21 @@ from app.modules.common.approval_service import approval_service, ApprovalType, 
 from decimal import Decimal
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
+from typing import List, Optional
 
 # Initialize credit service
 customer_credit_service = CustomerCreditService()
 
 class SalesService:
-    def get_all_invoices(self, db: Session, skip: int = 0, limit: int = 100):
-        return repository.sales_repository.get_all(db, skip, limit)
+    def get_all_invoices(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
+        return repository.sales_repository.get_all(db, skip, limit, branch_codes)
     
-    def get_all_invoices_with_items(self, db: Session, skip: int = 0, limit: int = 100):
+    def get_all_invoices_with_items(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
         """Get invoices with items eagerly loaded"""
-        return repository.sales_repository.get_all_with_items(db, skip, limit)
+        return repository.sales_repository.get_all_with_items(db, skip, limit, branch_codes)
     
-    def search_invoices(self, db: Session, query: str, skip: int = 0, limit: int = 100):
-        return repository.sales_repository.search(db, query, skip, limit)
+    def search_invoices(self, db: Session, query: str, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
+        return repository.sales_repository.search(db, query, skip, limit, branch_codes)
     
     def get_invoice(self, db: Session, invoice_id: int):
         invoice = repository.sales_repository.get_by_id(db, invoice_id)
@@ -34,42 +35,53 @@ class SalesService:
             )
         return invoice
     
-    def get_pending_approval(self, db: Session, skip: int = 0, limit: int = 100):
+    def get_pending_approval(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
         """Get invoices pending approval - server-side filtered"""
-        return repository.sales_repository.get_pending_approval(db, skip, limit)
+        return repository.sales_repository.get_pending_approval(db, skip, limit, branch_codes)
     
-    def get_by_customer(self, db: Session, customer_id: int, skip: int = 0, limit: int = 100):
+    def get_by_customer(self, db: Session, customer_id: int, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
         """Get invoices for a specific customer"""
-        return repository.sales_repository.get_by_customer(db, customer_id, skip, limit)
+        return repository.sales_repository.get_by_customer(db, customer_id, skip, limit, branch_codes)
     
-    def get_recent_by_customer(self, db: Session, customer_id: int, limit: int = 5):
-        """Get most recent invoices for a customer from any branch"""
-        return repository.sales_repository.get_recent_by_customer(db, customer_id, limit)
+    def get_recent_by_customer(self, db: Session, customer_id: int, limit: int = 5, branch_codes: Optional[List[str]] = None):
+        """Get most recent invoices for a customer from allowed branches"""
+        return repository.sales_repository.get_recent_by_customer(db, customer_id, limit, branch_codes)
     
     def get_returns_by_invoice(self, db: Session, invoice_id: int, skip: int = 0, limit: int = 100):
         """Get sale returns for a specific invoice"""
         return repository.sales_repository.get_returns_by_invoice(db, invoice_id, skip, limit)
     
-    def get_sales_statistics(self, db: Session):
+    def get_all_sale_returns(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
+        """Get all sale returns"""
+        return repository.sales_repository.get_all_sale_returns(db, skip, limit, branch_codes)
+    
+    def get_sales_statistics(self, db: Session, branch_codes: Optional[List[str]] = None):
         """Get sales statistics for dashboard"""
         today = date.today()
         current_month_start = today.replace(day=1)
         last_month_start = (today - relativedelta(months=1)).replace(day=1)
         last_month_end = current_month_start - relativedelta(days=1)
         
+        # Base query with branch filtering
+        def base_query():
+            q = db.query(Invoice)
+            if branch_codes:
+                q = q.filter(Invoice.branch_code.in_(branch_codes))
+            return q
+        
         # Total invoices count
-        total_invoices = db.query(func.count(Invoice.id)).scalar() or 0
+        total_invoices = base_query().with_entities(func.count(Invoice.id)).scalar() or 0
         
         # Current month invoices
-        current_month_invoices = db.query(func.count(Invoice.id)).filter(
+        current_month_invoices = base_query().filter(
             Invoice.created_date >= current_month_start
-        ).scalar() or 0
+        ).with_entities(func.count(Invoice.id)).scalar() or 0
         
         # Last month invoices
-        last_month_invoices = db.query(func.count(Invoice.id)).filter(
+        last_month_invoices = base_query().filter(
             Invoice.created_date >= last_month_start,
             Invoice.created_date <= last_month_end
-        ).scalar() or 0
+        ).with_entities(func.count(Invoice.id)).scalar() or 0
         
         # Revenue calculations
         def calc_revenue(query):
@@ -83,18 +95,21 @@ class SalesService:
                 func.coalesce(func.sum(Invoice.credit_amount), 0)
             ).scalar() or 0
         
-        total_revenue = calc_revenue(db.query(Invoice))
+        total_revenue = calc_revenue(base_query())
         current_month_revenue = calc_revenue(
-            db.query(Invoice).filter(Invoice.created_date >= current_month_start)
+            base_query().filter(Invoice.created_date >= current_month_start)
         )
         
         # Pending approval count
-        pending_approval = db.query(func.count(Invoice.id)).filter(
+        pending_approval = base_query().filter(
             Invoice.approval == False
-        ).scalar() or 0
+        ).with_entities(func.count(Invoice.id)).scalar() or 0
         
-        # Total sale returns
-        sale_returns_count = db.query(func.count(SaleReturn.id)).scalar() or 0
+        # Total sale returns (with branch filtering)
+        returns_query = db.query(SaleReturn)
+        if branch_codes:
+            returns_query = returns_query.filter(SaleReturn.branch_code.in_(branch_codes))
+        sale_returns_count = returns_query.with_entities(func.count(SaleReturn.id)).scalar() or 0
         
         return {
             "total_orders": total_invoices,
@@ -761,9 +776,6 @@ class SalesService:
         db.commit()
         db.refresh(invoice)
         return invoice
-    
-    def get_all_sale_returns(self, db: Session, skip: int = 0, limit: int = 100):
-        return db.query(SaleReturn).order_by(SaleReturn.added_date.desc()).offset(skip).limit(limit).all()
     
     def get_sale_return(self, db: Session, return_id: int):
         sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).first()

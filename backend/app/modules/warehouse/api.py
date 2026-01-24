@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
 from app.db.session import get_db
+from app.auth.models import User
+from app.auth.dependencies import get_current_user, get_user_branch_filter, validate_branch_access
 from . import schemas, service
 
 router = APIRouter(prefix="/warehouse", tags=["warehouse"])
@@ -11,9 +13,16 @@ router = APIRouter(prefix="/warehouse", tags=["warehouse"])
 @router.post("/transfer-notes", response_model=schemas.ItemTransferNote, status_code=status.HTTP_201_CREATED)
 def create_transfer_note(
     transfer_note: schemas.ItemTransferNoteCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Create a new item transfer note"""
+    # Validate user has access to the specified branch
+    if not validate_branch_access(current_user, transfer_note.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {transfer_note.branch_code}"
+        )
     transfer_note_service = service.ItemTransferNoteService(db)
     return transfer_note_service.create_transfer_note(transfer_note)
 
@@ -28,18 +37,34 @@ def list_transfer_notes(
     branch_code: Optional[str] = None,
     from_location_id: Optional[int] = None,
     to_location_id: Optional[int] = None,
+    to_location_branch: Optional[str] = Query(None, description="Filter by receiving location's branch code"),
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     """List all transfer notes with optional filters"""
+    # Apply branch-based access control
+    if branch_code:
+        if user_branches is not None and branch_code not in user_branches:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {branch_code}"
+            )
+        filter_branch = branch_code
+    else:
+        filter_branch = None
+    
     transfer_note_service = service.ItemTransferNoteService(db)
     filters = schemas.WarehouseListFilter(
-        branch_code=branch_code,
+        branch_code=filter_branch,
+        branch_codes=user_branches,  # Pass list of allowed branches for filtering
         from_location_id=from_location_id,
         to_location_id=to_location_id,
+        to_location_branch=to_location_branch,
         date_from=date.fromisoformat(date_from) if date_from else None,
         date_to=date.fromisoformat(date_to) if date_to else None,
         skip=skip,
@@ -176,14 +201,27 @@ def get_receive_note_by_transfer_note(transfer_note_id: int, db: Session = Depen
 @router.get("/receive-notes", response_model=List[schemas.ItemReceiveNote])
 def list_receive_notes(
     approved_status: Optional[int] = None,
+    to_location_branch: Optional[str] = Query(None, description="Filter by receiving branch"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     """List all receive notes with optional filters"""
+    # Apply branch-based access control for to_location_branch
+    if to_location_branch:
+        if user_branches is not None and to_location_branch not in user_branches:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {to_location_branch}"
+            )
+    
     receive_note_service = service.ItemReceiveNoteService(db)
     filters = schemas.WarehouseListFilter(
         approved_status=approved_status,
+        to_location_branch=to_location_branch,
+        branch_codes=user_branches,  # For multi-branch access control
         skip=skip,
         limit=limit
     )

@@ -16,6 +16,7 @@ class SalesStockService:
     def get_all(
         self,
         branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
         product_id: Optional[int] = None,
         status: Optional[str] = None
     ) -> List[dict]:
@@ -29,6 +30,9 @@ class SalesStockService:
         
         if branch_code:
             query = query.filter(models.SalesStock.branch_code == branch_code)
+        elif branch_codes:
+            # Multi-branch filtering for branch-based access control
+            query = query.filter(models.SalesStock.branch_code.in_(branch_codes))
         if product_id:
             query = query.filter(models.SalesStock.product_id == product_id)
         if status:
@@ -44,13 +48,14 @@ class SalesStockService:
                 "product_id": item.product_id,
                 "barcode": item.barcode,
                 "branch_code": item.branch_code,
+                "location_id": item.location_id,
                 "good_received_note_id": item.good_received_note_id,
                 "purchasing_order_items_id": item.purchasing_order_items_id,
                 "warranty_month": item.warranty_month,
                 "status": item.status,
                 "added_date": item.added_date,
                 "grn_no": item.good_received_note.good_received_no if item.good_received_note else None,
-                "location_name": None,  # Will be fetched from location
+                "location_name": None,  # Will be fetched from current location
                 "cost_price": item.product.cost_price if item.product else None,
                 "selling_price": item.product.selling_price if item.product else None,
                 # Add product details directly
@@ -59,11 +64,16 @@ class SalesStockService:
                 "brand_id": item.product.items_brand_id if item.product else None,
             }
             
-            # Get location name from GRN if available
-            if item.good_received_note and item.good_received_note.good_received_locations_id:
-                from app.modules.common.models import Locations
+            # Get location name from the item's CURRENT location_id (updated by transfers)
+            # Falls back to GRN location if location_id is not set
+            from app.modules.common.models import Locations
+            location_id_to_use = item.location_id
+            if not location_id_to_use and item.good_received_note:
+                location_id_to_use = item.good_received_note.good_received_locations_id
+            
+            if location_id_to_use:
                 location = self.db.query(Locations).filter(
-                    Locations.id == item.good_received_note.good_received_locations_id
+                    Locations.id == location_id_to_use
                 ).first()
                 if location:
                     item_dict["location_name"] = location.name
@@ -123,6 +133,13 @@ class SalesStockService:
         if not item:
             return None
         
+        # Get minimum price from MinimumPrice table
+        minimum_price = None
+        if item.product and item.product.minimum_prices:
+            # Get the most recent minimum price
+            latest_min_price = max(item.product.minimum_prices, key=lambda x: x.created_date)
+            minimum_price = float(latest_min_price.minimum_price) if latest_min_price else None
+        
         # Return enriched data similar to get_all
         return {
             "id": item.id,
@@ -136,6 +153,7 @@ class SalesStockService:
             "added_date": item.added_date,
             "cost_price": item.product.cost_price if item.product else None,
             "selling_price": item.product.selling_price if item.product else None,
+            "minimum_price": minimum_price,
             "product_name": item.product.name if item.product else None,
             "item_code": item.product.item_code if item.product else None,
             "product": {
@@ -145,6 +163,7 @@ class SalesStockService:
                 "item_code": item.product.item_code if item.product else None,
                 "selling_price": item.product.selling_price if item.product else None,
                 "cost_price": item.product.cost_price if item.product else None,
+                "minimum_price": minimum_price,
             } if item.product else None,
         }
     

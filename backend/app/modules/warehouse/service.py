@@ -45,7 +45,11 @@ class ItemTransferNoteService:
         return db_transfer_note
     
     def get_transfer_note(self, transfer_note_id: int) -> ItemTransferNote:
-        transfer_note = self.db.query(ItemTransferNote).filter(
+        from sqlalchemy.orm import joinedload
+        transfer_note = self.db.query(ItemTransferNote).options(
+            joinedload(ItemTransferNote.from_location),
+            joinedload(ItemTransferNote.to_location)
+        ).filter(
             ItemTransferNote.id == transfer_note_id
         ).first()
         if not transfer_note:
@@ -53,19 +57,40 @@ class ItemTransferNoteService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Transfer note not found"
             )
+        
+        # Populate location names
+        if transfer_note.from_location:
+            transfer_note.from_location_name = transfer_note.from_location.name
+        if transfer_note.to_location:
+            transfer_note.to_location_name = transfer_note.to_location.name
+        
         return transfer_note
     
     def list_transfer_notes(self, filters: schemas.WarehouseListFilter) -> List[ItemTransferNote]:
-        query = self.db.query(ItemTransferNote)
+        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import aliased
+        query = self.db.query(ItemTransferNote).options(
+            joinedload(ItemTransferNote.from_location),
+            joinedload(ItemTransferNote.to_location)
+        )
         
         if filters.branch_code:
             query = query.filter(ItemTransferNote.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            # Multi-branch filtering for branch-based access control
+            query = query.filter(ItemTransferNote.branch_code.in_(filters.branch_codes))
         
         if filters.from_location_id:
             query = query.filter(ItemTransferNote.from_location_id == filters.from_location_id)
         
         if filters.to_location_id:
             query = query.filter(ItemTransferNote.to_location_id == filters.to_location_id)
+
+        if filters.to_location_branch:
+            to_loc_alias = aliased(Locations)
+            query = query.join(to_loc_alias, ItemTransferNote.to_location).filter(
+                to_loc_alias.branch_code == filters.to_location_branch
+            )
         
         if filters.date_from:
             query = query.filter(ItemTransferNote.created_date >= filters.date_from)
@@ -73,12 +98,29 @@ class ItemTransferNoteService:
         if filters.date_to:
             query = query.filter(ItemTransferNote.created_date <= filters.date_to)
         
-        return query.offset(filters.skip).limit(filters.limit).all()
+        transfer_notes = query.offset(filters.skip).limit(filters.limit).all()
+        
+        # Populate location names for each transfer note
+        for tn in transfer_notes:
+            if tn.from_location:
+                tn.from_location_name = tn.from_location.name
+            if tn.to_location:
+                tn.to_location_name = tn.to_location.name
+        
+        return transfer_notes
     
     def update_transfer_note(
         self, transfer_note_id: int, transfer_note: schemas.ItemTransferNoteCreate
     ) -> ItemTransferNote:
         db_transfer_note = self.get_transfer_note(transfer_note_id)
+        
+        # Only allow editing pending transfer notes (before approval)
+        if db_transfer_note.status != TransferNoteStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot edit transfer note with status '{db_transfer_note.status}'. Only pending transfer notes can be edited."
+            )
+        
         for key, value in transfer_note.model_dump().items():
             setattr(db_transfer_note, key, value)
         self.db.commit()
@@ -87,6 +129,14 @@ class ItemTransferNoteService:
     
     def delete_transfer_note(self, transfer_note_id: int):
         db_transfer_note = self.get_transfer_note(transfer_note_id)
+        
+        # Only allow deleting pending transfer notes (before approval)
+        if db_transfer_note.status != TransferNoteStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete transfer note with status '{db_transfer_note.status}'. Only pending transfer notes can be deleted."
+            )
+        
         self.db.delete(db_transfer_note)
         self.db.commit()
     
@@ -337,12 +387,8 @@ class ItemTransferNoteItemService:
             created_date=datetime.now()
         )
         self.db.add(db_item)
-        if item.barcode:
-            stock_item = self.db.query(SalesStock).filter(
-                SalesStock.barcode == item.barcode
-            ).first()
-            if stock_item:
-                stock_item.status = "transfer_pending"
+        # Note: Stock status is NOT changed here. It only changes to "transfer_pending" 
+        # when the ITN is approved (see approve_transfer_note method)
         self.db.commit()
         self.db.refresh(db_item)
         return db_item
@@ -359,9 +405,19 @@ class ItemTransferNoteItemService:
         return item
     
     def list_items_by_transfer_note(self, transfer_note_id: int) -> List[ItemTransferNoteItems]:
-        return self.db.query(ItemTransferNoteItems).filter(
+        from sqlalchemy.orm import joinedload
+        items = self.db.query(ItemTransferNoteItems).options(
+            joinedload(ItemTransferNoteItems.product)
+        ).filter(
             ItemTransferNoteItems.itemtransfernote_id == transfer_note_id
         ).all()
+        
+        # Populate product_name from relationship
+        for item in items:
+            if item.product:
+                item.product_name = item.product.name or item.product.item_code
+        
+        return items
     
     def update_item(
         self, item_id: int, item: schemas.ItemTransferNoteItemCreate
@@ -497,7 +553,22 @@ class ItemReceiveNoteService:
         ).first()
     
     def list_receive_notes(self, filters: schemas.WarehouseListFilter) -> List[ItemReceiveNote]:
+        from sqlalchemy.orm import aliased
         query = self.db.query(ItemReceiveNote)
+        
+        if filters.to_location_branch:
+            itn_alias = aliased(ItemTransferNote)
+            to_loc_alias = aliased(Locations)
+            query = query.join(itn_alias, ItemReceiveNote.item_transfer_note).join(
+                to_loc_alias, itn_alias.to_location
+            ).filter(to_loc_alias.branch_code == filters.to_location_branch)
+        elif filters.branch_codes:
+            # Multi-branch filtering for branch-based access control
+            itn_alias = aliased(ItemTransferNote)
+            to_loc_alias = aliased(Locations)
+            query = query.join(itn_alias, ItemReceiveNote.item_transfer_note).join(
+                to_loc_alias, itn_alias.to_location
+            ).filter(to_loc_alias.branch_code.in_(filters.branch_codes))
         
         if filters.approved_status is not None:
             query = query.filter(
