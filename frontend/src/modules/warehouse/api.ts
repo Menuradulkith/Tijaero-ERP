@@ -20,6 +20,7 @@ export const transferNotesApi = {
     branch_code?: string;
     from_location_id?: number;
     to_location_id?: number;
+    to_location_branch?: string;
     date_from?: string;
     date_to?: string;
     skip?: number;
@@ -115,6 +116,7 @@ export const transferNoteItemsApi = {
 export const receiveNotesApi = {
   getAll: async (params?: {
     approved_status?: number;
+    to_location_branch?: string;
     skip?: number;
     limit?: number;
   }) => {

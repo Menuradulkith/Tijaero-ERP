@@ -34,6 +34,7 @@ export interface User {
   middle_name?: string;
   groups: Group[];
   permissions?: Permission[];
+  branches?: Branch[];  // User's assigned branches for access control
 }
 
 // Branch types

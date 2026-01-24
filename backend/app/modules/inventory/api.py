@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, status, Query, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.db.session import get_db
+from app.auth.models import User
+from app.auth.dependencies import get_current_user, get_user_branch_filter, validate_branch_access
 from app.modules.inventory import schemas, service
 
 router = APIRouter()
@@ -11,12 +13,27 @@ router = APIRouter()
 def get_all_sales_stock(
     branch_code: Optional[str] = None,
     product_id: Optional[int] = None,
-    status: Optional[str] = None,
-    db: Session = Depends(get_db)
+    stock_status: Optional[str] = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     """Get all sales stock items with optional filters"""
+    # Apply branch-based access control
+    if branch_code:
+        if user_branches is not None and branch_code not in user_branches:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {branch_code}"
+            )
+    
     sales_stock_service = service.SalesStockService(db)
-    return sales_stock_service.get_all(branch_code=branch_code, product_id=product_id, status=status)
+    return sales_stock_service.get_all(
+        branch_code=branch_code,
+        branch_codes=user_branches,  # Pass list of allowed branches for filtering
+        product_id=product_id,
+        status=stock_status
+    )
 
 
 @router.post("/sales-stock", response_model=schemas.SalesStock, status_code=status.HTTP_201_CREATED)
@@ -48,8 +65,18 @@ def get_sales_stock_by_grn(grn_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/sales-stock/branch/{branch_code}", response_model=List[schemas.SalesStock])
-def get_available_sales_stock(branch_code: str, db: Session = Depends(get_db)):
+def get_available_sales_stock(
+    branch_code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get all available sales stock items for a branch"""
+    # Validate user has access to the specified branch
+    if not validate_branch_access(current_user, branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {branch_code}"
+        )
     sales_stock_service = service.SalesStockService(db)
     return sales_stock_service.get_available_by_branch(branch_code)
 
@@ -108,8 +135,18 @@ def get_company_assets_by_grn(grn_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/company-assets/branch/{branch_code}", response_model=List[schemas.CompanyAsset])
-def get_company_assets_by_branch(branch_code: str, db: Session = Depends(get_db)):
+def get_company_assets_by_branch(
+    branch_code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get all company assets for a branch"""
+    # Validate user has access to the specified branch
+    if not validate_branch_access(current_user, branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {branch_code}"
+        )
     company_asset_service = service.CompanyAssetService(db)
     return company_asset_service.get_by_branch(branch_code)
 

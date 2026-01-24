@@ -214,6 +214,7 @@ class PurchaseOrderListFilter(BaseModel):
     status: Optional[str] = None
     supplier_id: Optional[int] = None
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # For branch-based access control
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     skip: int = 0
@@ -270,6 +271,7 @@ class GoodReceivedItemWithDetails(GoodReceivedItem):
 
 class GoodReceivedNoteListFilter(BaseModel):
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # For multi-branch access control
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     skip: int = 0

@@ -9,6 +9,7 @@ import {
   Stepper,
   Step,
   StepLabel,
+  Autocomplete,
   Table,
   TableHead,
   TableBody,
@@ -29,6 +30,7 @@ import {
 } from "@mui/icons-material";
 import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import useReferenceData from "@/hooks/useReferenceData";
 
 // Tijaero UI Components
 import {
@@ -93,11 +95,16 @@ export default function ReceiveNotesPage() {
   const queryClient = useQueryClient();
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
+  // Reference data
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
+
   // State
   const [selectedIRN, setSelectedIRN] = useState<ItemReceiveNote | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [statusFilter, setStatusFilter] = useState("");
+  const [branchFilter, setBranchFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Create Mode State
@@ -108,6 +115,14 @@ export default function ReceiveNotesPage() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [notes, setNotes] = useState("");
 
+  // Reset selection when branch filter changes during creation
+  useEffect(() => {
+    if (!isCreating) return;
+    setSelectedITN(null);
+    setReceivedItems([]);
+    setActiveStep(0);
+  }, [branchFilter, isCreating]);
+
   // Fetch Item Receive Notes
   const {
     data: receiveNotesData,
@@ -115,11 +130,12 @@ export default function ReceiveNotesPage() {
     error: irnError,
     refetch: refetchIRNs,
   } = useQuery({
-    queryKey: ["itemReceiveNotes", statusFilter],
+    queryKey: ["itemReceiveNotes", statusFilter, branchFilter],
     queryFn: async () => {
       try {
         const response = await receiveNotesApi.getAll({
           approved_status: statusFilter ? (statusFilter === "approved" ? 1 : 0) : undefined,
+          to_location_branch: branchFilter || undefined,
           skip: 0,
           limit: 100,
         });
@@ -133,12 +149,13 @@ export default function ReceiveNotesPage() {
 
   // Fetch Available Transfer Notes (approved, not yet received)
   const { data: availableITNs, isLoading: isLoadingITNs } = useQuery<ItemTransferNoteWithItems[]>({
-    queryKey: ["availableTransferNotes"],
+    queryKey: ["availableTransferNotes", branchFilter],
     queryFn: async () => {
       try {
         const response = await transferNotesApi.getAll({
           skip: 0,
           limit: 100,
+          to_location_branch: branchFilter || undefined,
         });
         const allNotes = Array.isArray(response) ? response : [];
         // Fetch each note with items
@@ -415,6 +432,22 @@ export default function ReceiveNotesPage() {
               </MenuItem>
             ))}
           </TextField>
+          <Autocomplete
+            size="small"
+            options={branches}
+            value={branches.find((b) => b.branch_code === branchFilter) || null}
+            isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
+            getOptionLabel={(option) => `${option.branch_name} (${option.branch_code})`}
+            onChange={(_, value) => setBranchFilter(value?.branch_code || "")}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Receiving Branch"
+                placeholder="Search branch"
+                sx={{ minWidth: 220 }}
+              />
+            )}
+          />
         </TFilterPanel>
       }
     >
@@ -444,6 +477,23 @@ export default function ReceiveNotesPage() {
       case 0:
         return (
           <FormSection title="Select Transfer Note" columns={1}>
+            <Box sx={{ maxWidth: 360, mb: 2 }}>
+              <Autocomplete
+                size="small"
+                options={branches}
+                value={branches.find((b) => b.branch_code === branchFilter) || null}
+                getOptionLabel={(option) => `${option.branch_name} (${option.branch_code})`}
+                isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
+                onChange={(_, value) => setBranchFilter(value?.branch_code || "")}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Receiving Branch"
+                    placeholder="Search branch"
+                  />
+                )}
+              />
+            </Box>
             {isLoadingITNs ? (
               <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
                 <CircularProgress size={24} />
@@ -807,10 +857,21 @@ export default function ReceiveNotesPage() {
     }
   };
 
+  // Fetch related transfer note when IRN is selected
+  const { data: relatedTransferNote } = useQuery({
+    queryKey: ["transferNoteDetail", selectedIRN?.item_transfer_note_id],
+    queryFn: async () => {
+      if (!selectedIRN) return null;
+      return transferNotesApi.getById(selectedIRN.item_transfer_note_id);
+    },
+    enabled: !!selectedIRN && !isCreating,
+  });
+
   // Render View Mode (Selected IRN)
   const renderViewMode = () => {
     if (!selectedIRN) return null;
     const statusLabel = selectedIRN.received_approval_status === 1 ? "approved" : "pending";
+    const itnStatusLabel = relatedTransferNote?.status || "unknown";
 
     return (
       <>
@@ -833,7 +894,7 @@ export default function ReceiveNotesPage() {
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">
-              Status
+              Approval Status
             </Typography>
             <Box sx={{ mt: 0.5 }}>
               <TStatusChip
@@ -845,7 +906,50 @@ export default function ReceiveNotesPage() {
           </Box>
         </FormSection>
 
+        {relatedTransferNote && (
+          <FormSection title="Transfer Note Details" columns={3}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                From Location
+              </Typography>
+              <Typography variant="body1">
+                {relatedTransferNote.from_location_name || "-"}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                To Location
+              </Typography>
+              <Typography variant="body1">
+                {relatedTransferNote.to_location_name || "-"}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Transfer Status
+              </Typography>
+              <Box sx={{ mt: 0.5 }}>
+                <TStatusChip
+                  status={itnStatusLabel}
+                  {...getStatusProps(itnStatusLabel, "orderStatus")}
+                  size="small"
+                />
+              </Box>
+            </Box>
+          </FormSection>
+        )}
+
         <FormSection title="Dates" columns={3}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Transfer Created Date
+            </Typography>
+            <Typography variant="body1">
+              {relatedTransferNote?.created_date
+                ? format(new Date(relatedTransferNote.created_date), "dd MMM yyyy")
+                : "-"}
+            </Typography>
+          </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">
               Received Date
@@ -864,15 +968,62 @@ export default function ReceiveNotesPage() {
               {selectedIRN.recieved_user ? `User #${selectedIRN.recieved_user}` : "-"}
             </Typography>
           </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Approval Status
-            </Typography>
-            <Typography variant="body1">
-              {selectedIRN.received_approval_status === 1 ? "Approved" : "Pending"}
-            </Typography>
-          </Box>
         </FormSection>
+
+        {relatedTransferNote?.items && relatedTransferNote.items.length > 0 && (
+          <FormSection title="Items Transferred" columns={1}>
+            <Box sx={{ overflowX: "auto" }}>
+              <Table size="small" sx={{ minWidth: 500 }}>
+                <TableHead>
+                  <TableRow sx={{ backgroundColor: "#f5f5f5" }}>
+                    <TableCell sx={{ fontWeight: 600 }}>Product</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Barcode</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Received</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {relatedTransferNote.items.map((item, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{item.product_name || "-"}</TableCell>
+                      <TableCell>{item.barcode || "-"}</TableCell>
+                      <TableCell>
+                        {item.item_recieved ? (
+                          <Box
+                            sx={{
+                              display: "inline-block",
+                              px: 1,
+                              py: 0.5,
+                              backgroundColor: "#e8f5e9",
+                              borderRadius: 1,
+                              fontSize: "0.875rem",
+                              color: "#2e7d32",
+                            }}
+                          >
+                            ✓ Received
+                          </Box>
+                        ) : (
+                          <Box
+                            sx={{
+                              display: "inline-block",
+                              px: 1,
+                              py: 0.5,
+                              backgroundColor: "#fff3e0",
+                              borderRadius: 1,
+                              fontSize: "0.875rem",
+                              color: "#e65100",
+                            }}
+                          >
+                            Pending
+                          </Box>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          </FormSection>
+        )}
 
         {selectedIRN.received_note && (
           <FormSection title="Notes" columns={1}>

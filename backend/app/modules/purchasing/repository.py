@@ -113,6 +113,9 @@ class PurchasingOrderRepository:
             )
         if filters.branch_code:
             query = query.filter(models.PurchasingOrder.branch_code == filters.branch_code)
+        # Branch-based access control: filter by allowed branches
+        elif filters.branch_codes:
+            query = query.filter(models.PurchasingOrder.branch_code.in_(filters.branch_codes))
         if filters.date_from:
             query = query.filter(models.PurchasingOrder.purchasing_order_date >= filters.date_from)
         if filters.date_to:
@@ -233,6 +236,9 @@ class GoodReceivedNoteRepository:
         
         if filters.branch_code:
             query = query.filter(models.GoodReceivedNote.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            # Multi-branch filtering for branch-based access control
+            query = query.filter(models.GoodReceivedNote.branch_code.in_(filters.branch_codes))
         if filters.date_from:
             query = query.filter(models.GoodReceivedNote.good_received_date >= filters.date_from)
         if filters.date_to:

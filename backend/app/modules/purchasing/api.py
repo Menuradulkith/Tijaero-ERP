@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.db.session import get_db
-from app.auth.dependencies import get_current_user, require_permission
+from app.auth.dependencies import get_current_user, require_permission, get_user_branch_filter, validate_branch_access
 from app.auth.rbac import Permissions
 from app.auth.models import User
 from . import schemas, service
@@ -78,6 +78,12 @@ def create_purchase_order(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # Validate user has access to the specified branch
+    if not validate_branch_access(current_user, order.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {order.branch_code}"
+        )
     order_service = service.PurchasingOrderService(db)
     return order_service.create_order(order, created_by=current_user.id)
 
@@ -95,15 +101,32 @@ def list_purchase_orders(
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     from datetime import date as date_type
+    
+    # Apply branch-based access control
+    # If user requested a specific branch, validate they have access
+    if branch_code:
+        if user_branches is not None and branch_code not in user_branches:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {branch_code}"
+            )
+        filter_branch = branch_code
+    else:
+        # If no branch specified, filter by user's allowed branches
+        # For superusers (user_branches is None), don't filter
+        filter_branch = None
     
     order_service = service.PurchasingOrderService(db)
     filters = schemas.PurchaseOrderListFilter(
         status=status,
         supplier_id=supplier_id,
-        branch_code=branch_code,
+        branch_code=filter_branch,
+        branch_codes=user_branches,  # Pass list of allowed branches for filtering
         date_from=date_type.fromisoformat(date_from) if date_from else None,
         date_to=date_type.fromisoformat(date_to) if date_to else None,
         skip=skip,
@@ -247,9 +270,15 @@ def list_purchase_returns(
 def create_grn(
     grn: schemas.GoodReceivedNoteCreate,
     allow_credit_override: bool = Query(False, description="Allow GRN creation even if credit limit exceeded (requires authorization)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-
+    # Validate user has access to the specified branch
+    if not validate_branch_access(current_user, grn.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {grn.branch_code}"
+        )
     grn_service = service.GoodReceivedNoteService(db)
     return grn_service.create(grn, allow_credit_override=allow_credit_override)
 
@@ -266,14 +295,27 @@ def list_grns(
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
-
     from datetime import date as date_type
+    
+    # Apply branch-based access control
+    if branch_code:
+        if user_branches is not None and branch_code not in user_branches:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {branch_code}"
+            )
+        filter_branch = branch_code
+    else:
+        filter_branch = None
     
     grn_service = service.GoodReceivedNoteService(db)
     filters = schemas.GoodReceivedNoteListFilter(
-        branch_code=branch_code,
+        branch_code=filter_branch,
+        branch_codes=user_branches,  # Pass list of allowed branches for filtering
         date_from=date_type.fromisoformat(date_from) if date_from else None,
         date_to=date_type.fromisoformat(date_to) if date_to else None,
         skip=skip,

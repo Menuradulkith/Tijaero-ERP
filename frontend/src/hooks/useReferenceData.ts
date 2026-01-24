@@ -7,17 +7,23 @@
  * BEFORE: 6 separate API calls
  * AFTER: 1 aggregated API call
  * 
+ * Branch-based access control: When fetching branches, the returned data will
+ * be filtered based on the user's assigned branches. Superusers see all branches.
+ * 
  * @example
  * // Fetch branches, categories, and brands in one call
- * const { data, isLoading } = useReferenceData(["branches", "categories", "brands"]);
+ * const { data, isLoading, filteredBranches } = useReferenceData(["branches", "categories", "brands"]);
  * 
- * // Access individual datasets
- * const branches = data?.branches || [];
+ * // Use filteredBranches for dropdowns (respects user's branch access)
+ * const branches = filteredBranches || [];
+ * 
+ * // Access other individual datasets
  * const categories = data?.categories || [];
  */
 
 import apiClient from "@/api/client";
 import { useQuery, UseQueryOptions } from "@tanstack/react-query";
+import { useBranchFilter } from "./useBranchFilter";
 
 // Types for reference data items
 export interface BranchRef {
@@ -149,18 +155,19 @@ async function fetchReferenceData(
  * 
  * @param include - Array of reference data types to include
  * @param options - Additional options like productsLimit and React Query options
- * @returns Query result with aggregated reference data
+ * @returns Query result with aggregated reference data plus filteredBranches for access control
  */
 export function useReferenceData(
   include: ReferenceDataType[] = ["branches"],
   options: UseReferenceDataOptions = {}
 ) {
   const { productsLimit = 500, enabled = true, queryOptions = {} } = options;
+  const { filterBranches, canAccessBranch, hasAllBranchAccess, getDefaultBranchCode } = useBranchFilter();
 
   // Sort include array to ensure consistent query keys
   const sortedInclude = [...include].sort();
 
-  return useQuery<ReferenceDataResponse, Error>({
+  const query = useQuery<ReferenceDataResponse, Error>({
     queryKey: ["referenceData", sortedInclude.join(","), productsLimit],
     queryFn: () => fetchReferenceData(sortedInclude, productsLimit),
     // Reference data rarely changes, use longer stale time
@@ -170,6 +177,30 @@ export function useReferenceData(
     enabled,
     ...queryOptions,
   });
+
+  // Filter branches based on user's access rights
+  const filteredBranches = query.data?.branches 
+    ? filterBranches(query.data.branches)
+    : [];
+
+  // Filter locations to only show those from accessible branches
+  const filteredLocations = query.data?.locations
+    ? query.data.locations.filter((loc) => canAccessBranch(loc.branch_code))
+    : [];
+
+  return {
+    ...query,
+    /** Branches filtered by user's access rights - use this for dropdowns */
+    filteredBranches,
+    /** Locations filtered by user's branch access */
+    filteredLocations,
+    /** Check if user can access a specific branch */
+    canAccessBranch,
+    /** True if user has access to all branches (superuser) */
+    hasAllBranchAccess,
+    /** User's default/first branch code for form defaults */
+    defaultBranchCode: getDefaultBranchCode,
+  };
 }
 
 /**

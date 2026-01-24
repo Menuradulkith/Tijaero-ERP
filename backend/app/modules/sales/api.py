@@ -1,9 +1,10 @@
-from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, Query, status
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, Query, status, HTTPException
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.auth.models import User
 from app.auth.rbac import require_permission, Permissions
+from app.auth.dependencies import get_current_user, get_user_branch_filter, validate_branch_access
 from app.modules.sales import schemas, service
 
 router = APIRouter()
@@ -31,10 +32,11 @@ def get_available_products(
 )
 def get_sales_statistics(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     """Get sales statistics for dashboard."""
-    return service.sales_service.get_sales_statistics(db)
+    return service.sales_service.get_sales_statistics(db, user_branches)
 
 # Invoice/Sales Order Endpoints
 @router.get(
@@ -47,10 +49,11 @@ def list_invoices(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     """Get list of all sales orders/invoices with pagination."""
-    return service.sales_service.get_all_invoices(db, skip, limit)
+    return service.sales_service.get_all_invoices(db, skip, limit, user_branches)
 
 @router.get(
     "/search",
@@ -63,10 +66,11 @@ def search_invoices(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     """Search sales orders by invoice number or customer."""
-    return service.sales_service.search_invoices(db, q, skip, limit)
+    return service.sales_service.search_invoices(db, q, skip, limit, user_branches)
 
 @router.get(
     "/pending-approval",
@@ -78,10 +82,11 @@ def get_pending_approval_invoices(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     """Get invoices pending approval - server-side filtered for efficiency."""
-    return service.sales_service.get_pending_approval(db, skip, limit)
+    return service.sales_service.get_pending_approval(db, skip, limit, user_branches)
 
 @router.get(
     "/by-customer/{customer_id}",
@@ -94,10 +99,11 @@ def get_invoices_by_customer(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     """Get all invoices for a specific customer."""
-    return service.sales_service.get_by_customer(db, customer_id, skip, limit)
+    return service.sales_service.get_by_customer(db, customer_id, skip, limit, user_branches)
 
 @router.get(
     "/customer/{customer_id}/recent",
@@ -109,10 +115,11 @@ def get_recent_customer_sales(
     customer_id: int,
     limit: int = Query(5, ge=1, le=20),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
-    """Get the most recent sales records for a customer from any branch."""
-    return service.sales_service.get_recent_by_customer(db, customer_id, limit)
+    """Get the most recent sales records for a customer from allowed branches."""
+    return service.sales_service.get_recent_by_customer(db, customer_id, limit, user_branches)
 
 @router.get(
     "/{invoice_id}",
@@ -141,6 +148,12 @@ def create_invoice(
     current_user: User = Depends(require_permission(*Permissions.SALES_CREATE))
 ):
     """Create a new sales order/invoice with items."""
+    # Validate user has access to the specified branch
+    if not validate_branch_access(current_user, invoice.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {invoice.branch_code}"
+        )
     return service.sales_service.create_invoice(db, invoice, current_user.id)
 
 @router.put(
@@ -183,10 +196,11 @@ def list_sale_returns(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
 ):
     """Get list of all sale returns."""
-    return service.sales_service.get_all_sale_returns(db, skip, limit)
+    return service.sales_service.get_all_sale_returns(db, skip, limit, user_branches)
 
 @router.get(
     "/returns/by-invoice/{invoice_id}",

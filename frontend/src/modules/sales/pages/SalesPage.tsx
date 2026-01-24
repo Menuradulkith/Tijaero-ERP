@@ -526,6 +526,13 @@ export default function SalesPage() {
   };
 
   const handleSave = async () => {
+    // Validate that all selling prices are not below minimum prices
+    const invalidItems = lineItems.filter(item => item.selling_price < item.minimum_selling_price);
+    if (invalidItems.length > 0) {
+      showErrorToast("Cannot save: Some items have selling price below minimum price");
+      return;
+    }
+
     const subtotal = calculateLineItemsTotal();
     const paymentMethod = state.formData.payment_method || "cash";
 
@@ -700,17 +707,6 @@ export default function SalesPage() {
 
   const updateLineItem = (index: number, field: keyof ItemFormData, value: number | string) => {
     const updated = [...lineItems];
-
-    // Prevent selling price from going below minimum price
-    if (field === 'selling_price') {
-      const numValue = typeof value === 'number' ? value : parseFloat(value as string) || 0;
-      const minPrice = updated[index].minimum_selling_price;
-      if (numValue < minPrice) {
-        showErrorToast(`Selling price cannot be less than minimum price (Rs. ${minPrice.toFixed(2)})`);
-        return;
-      }
-    }
-
     updated[index] = { ...updated[index], [field]: value };
     setLineItems(updated);
   };
@@ -753,6 +749,7 @@ export default function SalesPage() {
 
       // Get prices from product relationship or top-level fields
       const sellingPrice = stockItem.selling_price || stockItem.product?.selling_price || 0;
+      const minimumPrice = stockItem.minimum_price || stockItem.product?.minimum_price || sellingPrice;
       const warrantyMonths = stockItem.warranty_month || stockItem.product?.warrenty_month || "0";
       const productName = stockItem.product_name || stockItem.product?.product_name || stockItem.product?.name || "";
 
@@ -761,7 +758,7 @@ export default function SalesPage() {
         product_id: stockItem.product_id,
         quantity: 1,
         selling_price: sellingPrice,
-        minimum_selling_price: sellingPrice,
+        minimum_selling_price: minimumPrice,
         warrenty_month: warrantyMonths?.toString() || "0",
         barcode: barcode.trim(),
         product_name: productName,
@@ -1537,9 +1534,9 @@ export default function SalesPage() {
                             size="small"
                             type="number"
                             value={item.selling_price}
-                            onChange={(e) => updateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)}
+                            onChange={(e) => updateLineItem(index, "selling_price", e.target.value === '' ? 0 : parseFloat(e.target.value))}
                             sx={{ width: 100 }}
-                            inputProps={{ min: item.minimum_selling_price, step: 0.01 }}
+                            inputProps={{ step: 0.01 }}
                             error={item.selling_price < item.minimum_selling_price}
                             helperText={item.selling_price < item.minimum_selling_price ? `Min: ${item.minimum_selling_price}` : ""}
                           />
