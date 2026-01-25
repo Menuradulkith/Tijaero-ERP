@@ -20,7 +20,8 @@ import {
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { useReferenceData } from "@/hooks";
-import { customersApi } from "@/modules/customers/api";
+import { customersApi, couponsApi } from "@/modules/customers/api";
+import { CouponValidationResponse } from "@/modules/customers/types";
 import { creditNotesApi } from "@/modules/finance/api";
 import {
   Add as AddIcon,
@@ -31,6 +32,7 @@ import {
   Print as PrintIcon,
   Receipt as ReceiptIcon,
   ThumbUp as ApproveIcon,
+  LocalOffer as CouponIcon,
 } from "@mui/icons-material";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
@@ -145,6 +147,12 @@ export default function SalesPage() {
 
   // Validated items tracking (for visual feedback on scanned items)
   const [validatedBarcodes, setValidatedBarcodes] = useState<string[]>([]);
+
+  // Coupon/Discount code state
+  const [couponCode, setCouponCode] = useState("");
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  const [couponValidation, setCouponValidation] = useState<CouponValidationResponse | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
 
   // Payment details state for different payment methods
   const [paymentDetails, setPaymentDetails] = useState({
@@ -318,6 +326,10 @@ export default function SalesPage() {
     onSuccess: (createdInvoice) => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
+      // Invalidate the specific invoice detail query
+      if (createdInvoice?.id) {
+        queryClient.invalidateQueries({ queryKey: ["sales", createdInvoice.id] });
+      }
 
       const paymentMethod = pendingPaymentMethod.toLowerCase();
       const isCreditPayment = paymentMethod === "credit";
@@ -349,6 +361,10 @@ export default function SalesPage() {
     onSuccess: (updatedInvoice) => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
+      // Invalidate the specific invoice detail query
+      if (state.selectedItem?.id) {
+        queryClient.invalidateQueries({ queryKey: ["sales", state.selectedItem.id] });
+      }
 
       const paymentMethod = pendingPaymentMethod.toLowerCase();
       const isCreditPayment = paymentMethod === "credit";
@@ -432,6 +448,10 @@ export default function SalesPage() {
     setBarcodeInput("");
     setBarcodeError(null);
     setValidatedBarcodes([]);
+    // Reset coupon state
+    setCouponCode("");
+    setCouponValidation(null);
+    setCouponError(null);
     setPaymentDetails({
       cheque_number: "",
       cheque_bank: "",
@@ -478,6 +498,10 @@ export default function SalesPage() {
     setBarcodeInput("");
     setBarcodeError(null);
     setValidatedBarcodes([]);
+    // Reset coupon state when editing
+    setCouponCode("");
+    setCouponValidation(null);
+    setCouponError(null);
 
     // Reset payment details - could be enhanced to load from related tables
     setPaymentDetails({
@@ -600,14 +624,15 @@ export default function SalesPage() {
 
     // Calculate service charges for card payments
     let serviceCharge = 0;
-    let total = subtotal;
+    let couponDiscount = couponValidation?.calculated_discount || 0;
+    let total = subtotal - couponDiscount; // Apply coupon discount first
 
     if (paymentMethod === "card_amex") {
-      serviceCharge = subtotal * 0.03; // 3% for Amex
-      total = subtotal + serviceCharge;
+      serviceCharge = total * 0.03; // 3% for Amex (on discounted amount)
+      total = total + serviceCharge;
     } else if (paymentMethod === "card_visa" || paymentMethod === "card_mastercard") {
-      serviceCharge = subtotal * 0.027; // 2.7% for Visa/Mastercard
-      total = subtotal + serviceCharge;
+      serviceCharge = total * 0.027; // 2.7% for Visa/Mastercard (on discounted amount)
+      total = total + serviceCharge;
     }
 
     const invoiceData: InvoiceCreate = {
@@ -622,6 +647,11 @@ export default function SalesPage() {
       // Include service charge in payment adjustments (for card payments)
       payment_adjustments: serviceCharge,
       items: lineItems,
+      // Coupon/Discount code fields
+      ...(couponValidation?.coupon_id && {
+        cupon_id: couponValidation.coupon_id,
+        cupon_amount: couponDiscount,
+      }),
       // Include payment details based on payment method
       ...(paymentMethod === "cheque" && {
         cheque_number: paymentDetails.cheque_number,
@@ -662,6 +692,10 @@ export default function SalesPage() {
     setLineItems([]);
     setFormStep(0);
     setValidatedBarcodes([]);
+    // Reset coupon state
+    setCouponCode("");
+    setCouponValidation(null);
+    setCouponError(null);
   };
 
   const handleDelete = () => {
@@ -777,6 +811,105 @@ export default function SalesPage() {
       setIsValidatingBarcode(false);
     }
   }, [lineItems, products, state.formData.branch_code]);
+
+  // Coupon validation handler
+  const handleValidateCoupon = useCallback(async () => {
+    if (!couponCode.trim()) {
+      setCouponError("Please enter a coupon code");
+      return;
+    }
+
+    if (!state.formData.customer_id) {
+      setCouponError("Please select a customer first");
+      return;
+    }
+
+    setIsValidatingCoupon(true);
+    setCouponError(null);
+
+    try {
+      const subtotal = calculateLineItemsTotal();
+      const productIds = lineItems.map(item => item.product_id);
+
+      const response = await couponsApi.validate({
+        coupon_code: couponCode.trim(),
+        customer_id: state.formData.customer_id,
+        invoice_subtotal: subtotal,
+        product_ids: productIds,
+        line_items: lineItems.map(item => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          selling_price: item.selling_price,
+        })),
+      });
+
+      if (response.valid) {
+        setCouponValidation(response);
+        showSuccessToast(`Coupon applied! Discount: Rs. ${(response.calculated_discount || 0).toLocaleString()}`);
+      } else {
+        setCouponError(response.message);
+        setCouponValidation(null);
+      }
+    } catch (error: any) {
+      console.error("Coupon validation error:", error);
+      setCouponError(error.response?.data?.detail || "Failed to validate coupon");
+      setCouponValidation(null);
+    } finally {
+      setIsValidatingCoupon(false);
+    }
+  }, [couponCode, state.formData.customer_id, lineItems]);
+
+  // Clear coupon
+  const handleClearCoupon = () => {
+    setCouponCode("");
+    setCouponValidation(null);
+    setCouponError(null);
+  };
+
+  // Auto-revalidate coupon when line items change
+  useEffect(() => {
+    if (couponValidation && couponCode && lineItems.length > 0 && state.formData.customer_id) {
+      // Silently revalidate the coupon in the background
+      const revalidateCoupon = async () => {
+        try {
+          const subtotal = calculateLineItemsTotal();
+          const productIds = lineItems.map(item => item.product_id);
+
+          const response = await couponsApi.validate({
+            coupon_code: couponCode.trim(),
+            customer_id: state.formData.customer_id!,
+            invoice_subtotal: subtotal,
+            product_ids: productIds,
+            line_items: lineItems.map(item => ({
+              product_id: item.product_id,
+              quantity: item.quantity,
+              selling_price: item.selling_price,
+            })),
+          });
+
+          if (response.valid) {
+            setCouponValidation(response);
+            setCouponError(null);
+          } else {
+            // Coupon is no longer valid, clear it
+            setCouponValidation(null);
+            setCouponError(response.message);
+            showErrorToast(`Coupon no longer valid: ${response.message}`);
+          }
+        } catch (error: any) {
+          console.error("Coupon revalidation error:", error);
+          setCouponValidation(null);
+          setCouponError("Coupon validation failed");
+        }
+      };
+
+      revalidateCoupon();
+    } else if (couponValidation && lineItems.length === 0) {
+      // Clear coupon if all items removed
+      setCouponValidation(null);
+      setCouponError("No items in invoice");
+    }
+  }, [lineItems, couponCode, couponValidation, state.formData.customer_id]);
 
   // Handle view invoice details
   const handleViewDetails = () => {
@@ -962,6 +1095,21 @@ export default function SalesPage() {
                       <strong>{(fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                     </TableCell>
                   </TableRow>
+                  {/* Coupon Discount Row */}
+                  {fullInvoice.cupon_amount > 0 && (
+                    <TableRow sx={{ bgcolor: "info.lighter" }}>
+                      <TableCell colSpan={5} align="right">
+                        <Typography fontWeight="medium" color="info.dark">
+                          Coupon Discount:
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="medium" color="info.dark">
+                          -{fullInvoice.cupon_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {/* Service Charge Row - Only for card payments */}
                   {(fullInvoice.payment_method === "card_amex" ||
                     fullInvoice.payment_method === "card_visa" ||
@@ -988,7 +1136,7 @@ export default function SalesPage() {
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
-                        {((fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0) + (fullInvoice.service_charge_amount || 0)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {((fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0) - (fullInvoice.cupon_amount || 0) + (fullInvoice.service_charge_amount || 0)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -1563,6 +1711,25 @@ export default function SalesPage() {
                     </TableCell>
                     <TableCell />
                   </TableRow>
+                  {/* Coupon Discount Row - Only if coupon is applied */}
+                  {couponValidation && couponValidation.calculated_discount && couponValidation.calculated_discount > 0 && (
+                    <TableRow sx={{ bgcolor: "success.lighter" }}>
+                      <TableCell colSpan={7} align="right">
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                          <CouponIcon fontSize="small" color="success" />
+                          <Typography fontWeight="medium" color="success.dark">
+                            Coupon Discount ({couponCode}):
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="medium" color="success.dark">
+                          -{couponValidation.calculated_discount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+                  )}
                   {/* Service Charge Row - Only for card payments */}
                   {(state.formData.payment_method === "card_amex" ||
                     state.formData.payment_method === "card_visa" ||
@@ -1575,7 +1742,13 @@ export default function SalesPage() {
                         </TableCell>
                         <TableCell align="right">
                           <Typography fontWeight="medium" color="warning.dark">
-                            {(calculateLineItemsTotal() * (state.formData.payment_method === "card_amex" ? 0.03 : 0.027)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {(() => {
+                              const subtotal = calculateLineItemsTotal();
+                              const couponDiscount = couponValidation?.calculated_discount || 0;
+                              const afterCoupon = subtotal - couponDiscount;
+                              const rate = state.formData.payment_method === "card_amex" ? 0.03 : 0.027;
+                              return (afterCoupon * rate).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                            })()}
                           </Typography>
                         </TableCell>
                         <TableCell />
@@ -1590,13 +1763,15 @@ export default function SalesPage() {
                       <Typography fontWeight="bold" color="primary.main" fontSize="1.1rem">
                         {(() => {
                           const subtotal = calculateLineItemsTotal();
+                          const couponDiscount = couponValidation?.calculated_discount || 0;
+                          const afterCoupon = subtotal - couponDiscount;
                           let serviceCharge = 0;
                           if (state.formData.payment_method === "card_amex") {
-                            serviceCharge = subtotal * 0.03;
+                            serviceCharge = afterCoupon * 0.03;
                           } else if (state.formData.payment_method === "card_visa" || state.formData.payment_method === "card_mastercard") {
-                            serviceCharge = subtotal * 0.027;
+                            serviceCharge = afterCoupon * 0.027;
                           }
-                          return (subtotal + serviceCharge).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                          return (afterCoupon + serviceCharge).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                         })()}
                       </Typography>
                     </TableCell>
@@ -1606,6 +1781,98 @@ export default function SalesPage() {
               </Table>
             </Paper>
           </Box>
+
+          {/* Coupon/Discount Code Section - After adding items */}
+          {lineItems.length > 0 && (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                mb: 2,
+                bgcolor: couponValidation ? "success.50" : "grey.50",
+                borderColor: couponValidation ? "success.main" : "divider",
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                <CouponIcon color={couponValidation ? "success" : "action"} />
+                <Typography variant="subtitle2" fontWeight="bold">
+                  Apply Coupon / Discount Code
+                </Typography>
+              </Box>
+              
+              {!couponValidation ? (
+                <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    placeholder="Scan barcode or enter coupon code..."
+                    value={couponCode}
+                    onChange={(e) => {
+                      setCouponCode(e.target.value.toUpperCase());
+                      if (couponError) setCouponError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleValidateCoupon();
+                      }
+                    }}
+                    disabled={isValidatingCoupon || !state.formData.customer_id || lineItems.length === 0}
+                    error={!!couponError}
+                    helperText={couponError || (lineItems.length === 0 ? "Add items first" : "Scan barcode or type code and press Enter/Apply")}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <QrCodeScannerIcon fontSize="small" color="action" />
+                        </InputAdornment>
+                      ),
+                      endAdornment: isValidatingCoupon ? (
+                        <InputAdornment position="end">
+                          <CircularProgress size={20} />
+                        </InputAdornment>
+                      ) : null,
+                    }}
+                  />
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleValidateCoupon}
+                    disabled={isValidatingCoupon || !couponCode.trim() || !state.formData.customer_id || lineItems.length === 0}
+                    sx={{ minWidth: 100 }}
+                  >
+                    {isValidatingCoupon ? <CircularProgress size={20} /> : "Apply"}
+                  </Button>
+                </Box>
+              ) : (
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <Box>
+                    <Chip
+                      icon={<CouponIcon />}
+                      label={couponCode}
+                      color="success"
+                      variant="filled"
+                      sx={{ mr: 1 }}
+                    />
+                    <Typography variant="body2" component="span" color="success.dark" fontWeight="medium">
+                      {couponValidation.discount_type === "PERCENT" 
+                        ? `${couponValidation.discount_value}% off` 
+                        : `Rs. ${couponValidation.discount_value?.toLocaleString()} off`}
+                      {" - Discount: Rs. "}
+                      {(couponValidation.calculated_discount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    color="error"
+                    onClick={handleClearCoupon}
+                    startIcon={<DeleteIcon />}
+                  >
+                    Remove
+                  </Button>
+                </Box>
+              )}
+            </Paper>
+          )}
 
           {/* Step 2 Navigation */}
           <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
@@ -1687,7 +1954,7 @@ export default function SalesPage() {
                           component="span"
                           variant="caption"
                           fontWeight={600}
-                          sx={{ color: "text.primary" }}
+                          sx={{ color: isSelected ? "common.white" : "text.primary" }}
                         >
                           Rs. {calculateTotal(invoice).toFixed(2)}
                         </Typography>

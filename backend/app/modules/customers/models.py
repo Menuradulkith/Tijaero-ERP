@@ -1,8 +1,16 @@
-from sqlalchemy import Column, Integer, String, Text, Enum as SQLEnum, ForeignKey, Date, Boolean, TIMESTAMP, Numeric, BigInteger
+from sqlalchemy import Column, Integer, String, Text, Enum as SQLEnum, ForeignKey, Date, Boolean, TIMESTAMP, Numeric, BigInteger, func, Table
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.common.base_models import AuditMixin
 from app.modules.customers.enums import CustomerType
+
+# Association table for coupon-product many-to-many relationship
+coupon_products = Table(
+    'coupon_products',
+    Base.metadata,
+    Column('coupon_id', Integer, ForeignKey('customer_cupon_codes.id', ondelete='CASCADE'), primary_key=True),
+    Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True)
+)
 
 class Customer(Base, AuditMixin):
     __tablename__ = "customers"
@@ -110,14 +118,43 @@ class CustomerCuponCodes(Base):
     __tablename__ = "customer_cupon_codes"
     
     id = Column(Integer, primary_key=True, index=True)
-    cupon_code = Column(String(10), nullable=False)
-    limit_by_usage = Column(Integer, nullable=False, default=1000)
-    limit_for_customer = Column(Integer, nullable=False, default=10)
+    cupon_code = Column(String(50), unique=True, nullable=False)  # Barcode/coupon code
+    description = Column(String(255))  # Optional description
+    discount_type = Column(String(20), nullable=False, default="PERCENT")  # PERCENT or AMOUNT
+    discount_value = Column(Numeric(60, 2), nullable=False, default=0)  # Discount value
+    minimum_invoice_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Minimum invoice amount required
+    limit_by_usage = Column(Integer, nullable=False, default=1000)  # Total global usage limit
+    limit_for_customer = Column(Integer, nullable=False, default=10)  # Per customer usage limit
     valid_until_date = Column(Date, nullable=False)
-    limit_validity_product_id = Column(Integer, ForeignKey("products.id"))
+    active = Column(Boolean, nullable=False, default=True)
+    usage_count = Column(Integer, nullable=False, default=0)  # Track total usage count
+    created_date = Column(TIMESTAMP, server_default=func.now())
+    
+    # Legacy single product field (deprecated - use products relationship instead)
+    limit_validity_product_id = Column(Integer, ForeignKey("products.id"))  # Specific product
 
-    product = relationship("Product", back_populates="cupon_codes")
+    # Many-to-many relationship with products for restriction
+    products = relationship("Product", secondary=coupon_products, backref="restricted_coupons")
+    # Legacy single product relationship (deprecated)
+    product = relationship("Product", foreign_keys=[limit_validity_product_id], back_populates="cupon_codes")
     invoices = relationship("Invoice", back_populates="cupon")
+    usages = relationship("CouponUsage", back_populates="coupon", cascade="all, delete-orphan")
+
+
+class CouponUsage(Base):
+    """Track coupon usage per customer"""
+    __tablename__ = "coupon_usage"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    coupon_id = Column(Integer, ForeignKey("customer_cupon_codes.id"), nullable=False)
+    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
+    discount_amount = Column(Numeric(60, 2), nullable=False)
+    used_date = Column(TIMESTAMP, nullable=False)
+    
+    coupon = relationship("CustomerCuponCodes", back_populates="usages")
+    customer = relationship("Customer")
+    invoice = relationship("Invoice")
 
 
 class CustomerGiftVoucher(Base):

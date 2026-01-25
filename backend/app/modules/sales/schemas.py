@@ -51,6 +51,9 @@ class InvoiceBase(BaseModel):
     # Discount fields
     discount_percent: float = Field(default=0, ge=0, le=100)
     discount_amount: float = Field(default=0, ge=0)
+    # Coupon/Discount code fields
+    cupon_id: Optional[int] = None
+    cupon_amount: float = Field(default=0, ge=0)
 
 class InvoiceCreate(InvoiceBase):
     items: List[InvoiceItemCreate]
@@ -69,7 +72,6 @@ class Invoice(InvoiceBase):
     status: bool
     approval: bool
     approval_status: str
-    cupon_amount: float
     # Calculated totals
     subtotal: float = 0
     tax_amount: float = 0
