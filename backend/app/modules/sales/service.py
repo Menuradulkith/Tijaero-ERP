@@ -282,7 +282,8 @@ class SalesService:
         invoice_dict = invoice_data.model_dump(exclude={
             'items', 'cheque_number', 'cheque_bank', 'cheque_date', 
             'card_ref_number', 'card_holder_name', 'bank_transfer_ref', 
-            'bank_name', 'tax_rate', 'discount_percent', 'discount_amount'
+            'bank_name', 'tax_rate', 'discount_percent', 'discount_amount',
+            'cupon_id', 'cupon_amount'  # We'll set these explicitly below
         })
         invoice_dict['created_date'] = date.today()
         invoice_dict['created_date_time'] = datetime.now()
@@ -315,7 +316,11 @@ class SalesService:
             invoice_dict['balance_due'] = 0
             invoice_dict['payment_status'] = "paid"
         
-        invoice_dict['cupon_amount'] = 0
+        # Handle coupon/discount code
+        coupon_id = getattr(invoice_data, 'cupon_id', None)
+        coupon_amount = getattr(invoice_data, 'cupon_amount', 0) or 0
+        invoice_dict['cupon_id'] = coupon_id
+        invoice_dict['cupon_amount'] = float(coupon_amount)
         
         # Handle cheque date
         if cheque_date_str:
@@ -491,6 +496,25 @@ class SalesService:
                 approval_group="sales_approvers"
             )
             invoice.approval_id = approval_record.id
+        
+        # Record coupon usage if coupon was applied
+        if coupon_id and coupon_amount > 0:
+            from app.modules.customers.models import CouponUsage, CustomerCuponCodes
+            
+            # Create usage record
+            coupon_usage = CouponUsage(
+                coupon_id=coupon_id,
+                invoice_id=invoice.id,
+                customer_id=invoice_data.customer_id,
+                discount_amount=coupon_amount,
+                used_date=datetime.now()
+            )
+            db.add(coupon_usage)
+            
+            # Increment coupon usage count
+            coupon = db.query(CustomerCuponCodes).filter(CustomerCuponCodes.id == coupon_id).first()
+            if coupon:
+                coupon.usage_count = (coupon.usage_count or 0) + 1
         
         db.commit()
         db.refresh(invoice)

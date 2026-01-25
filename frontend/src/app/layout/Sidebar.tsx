@@ -13,6 +13,7 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
+import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import PaymentIcon from "@mui/icons-material/Payment";
 import PeopleIcon from "@mui/icons-material/People";
 import PersonIcon from "@mui/icons-material/Person";
@@ -80,6 +81,7 @@ const menuItems: MenuItem[] = [
       { text: "Payments", icon: <ReceiptLongIcon />, path: "/sales/payments" },
       { text: "Sales Returns", icon: <AssignmentReturnIcon />, path: "/sales/returns" },
       { text: "Return Approvals", icon: <FactCheckIcon />, path: "/sales/return-approvals" },
+      { text: "Coupons", icon: <LocalOfferIcon />, path: "/sales/coupons" },
     ],
   },
   {

@@ -95,6 +95,9 @@ export interface InvoiceCreate {
   tax_rate?: number;
   discount_percent?: number;
   discount_amount?: number;
+  // Coupon/discount code
+  cupon_id?: number;
+  cupon_amount?: number;
 }
 
 export interface InvoiceUpdate {

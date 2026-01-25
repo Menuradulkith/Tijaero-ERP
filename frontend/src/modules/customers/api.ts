@@ -6,6 +6,12 @@ import {
   CustomerCreditsSettle,
   CustomerCreditsSettleCreate,
   CustomerCreditsSettleWithTransactions,
+  CustomerCuponCodes,
+  CustomerCuponCodesCreate,
+  CustomerCuponCodesUpdate,
+  CouponUsage,
+  CouponValidationRequest,
+  CouponValidationResponse,
 } from "./types";
 
 // Type definitions for credit management responses
@@ -198,6 +204,58 @@ export const customersApi = {
   getCreditSettlement: async (customerId: number, settlementId: number) => {
     const response = await apiClient.get<CustomerCreditsSettleWithTransactions>(
       `/customers/${customerId}/credit-settlements/${settlementId}`
+    );
+    return response.data;
+  },
+};
+
+
+// ==================== COUPON API ====================
+
+export const couponsApi = {
+  getAll: async (skip = 0, limit = 100, activeOnly = false) => {
+    const response = await apiClient.get<CustomerCuponCodes[]>("/customers/coupons/", {
+      params: { skip, limit, active_only: activeOnly },
+    });
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<CustomerCuponCodes>(`/customers/coupons/${id}`);
+    return response.data;
+  },
+
+  getByCode: async (code: string) => {
+    const response = await apiClient.get<CustomerCuponCodes>(`/customers/coupons/code/${code}`);
+    return response.data;
+  },
+
+  create: async (data: CustomerCuponCodesCreate) => {
+    const response = await apiClient.post<CustomerCuponCodes>("/customers/coupons/", data);
+    return response.data;
+  },
+
+  update: async (id: number, data: CustomerCuponCodesUpdate) => {
+    const response = await apiClient.put<CustomerCuponCodes>(`/customers/coupons/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/customers/coupons/${id}`);
+  },
+
+  validate: async (request: CouponValidationRequest) => {
+    const response = await apiClient.post<CouponValidationResponse>(
+      "/customers/coupons/validate",
+      request
+    );
+    return response.data;
+  },
+
+  getUsageHistory: async (couponId: number, skip = 0, limit = 100) => {
+    const response = await apiClient.get<CouponUsage[]>(
+      `/customers/coupons/${couponId}/usage`,
+      { params: { skip, limit } }
     );
     return response.data;
   },

@@ -185,26 +185,79 @@ export interface CustomerCreditsSettleWithTransactions extends CustomerCreditsSe
 export interface CustomerCuponCodes {
   id: number;
   cupon_code: string;
+  description?: string;
+  discount_type: 'PERCENT' | 'AMOUNT';
+  discount_value: number;
+  minimum_invoice_amount: number;
   limit_by_usage: number;
   limit_for_customer: number;
   valid_until_date: string;
+  active: boolean;
   limit_validity_product_id?: number;
+  product_ids?: number[];
+  created_date: string;
+  usage_count: number;
 }
 
 export interface CustomerCuponCodesCreate {
   cupon_code: string;
+  description?: string;
+  discount_type: 'PERCENT' | 'AMOUNT';
+  discount_value: number;
+  minimum_invoice_amount?: number;
   limit_by_usage?: number;
   limit_for_customer?: number;
   valid_until_date: string;
+  active?: boolean;
   limit_validity_product_id?: number;
+  product_ids?: number[];
 }
 
 export interface CustomerCuponCodesUpdate {
   cupon_code?: string;
+  description?: string;
+  discount_type?: 'PERCENT' | 'AMOUNT';
+  discount_value?: number;
+  minimum_invoice_amount?: number;
   limit_by_usage?: number;
   limit_for_customer?: number;
   valid_until_date?: string;
+  active?: boolean;
   limit_validity_product_id?: number;
+  product_ids?: number[];
+}
+
+export interface CouponUsage {
+  id: number;
+  coupon_id: number;
+  customer_id: number;
+  invoice_id: number;
+  discount_amount: number;
+  used_date: string;
+  invoice_no?: string;
+  customer_name?: string;
+}
+
+export interface CouponValidationRequest {
+  coupon_code: string;
+  customer_id: number;
+  invoice_subtotal: number;
+  product_ids?: number[];
+  category_ids?: number[];
+  line_items?: Array<{
+    product_id: number;
+    quantity: number;
+    selling_price: number;
+  }>;
+}
+
+export interface CouponValidationResponse {
+  valid: boolean;
+  coupon_id?: number;
+  discount_type?: 'PERCENT' | 'AMOUNT';
+  discount_value?: number;
+  calculated_discount?: number;
+  message: string;
 }
 
 

@@ -165,27 +165,85 @@ class CustomerCreditsSettleWithTransactions(CustomerCreditsSettle):
 
 # Customer Coupon Codes Schemas
 class CustomerCuponCodesBase(BaseModel):
-    cupon_code: str
-    limit_by_usage: int = 1000
-    limit_for_customer: int = 10
+    cupon_code: str = Field(..., min_length=1, max_length=50, description="Coupon barcode/code")
+    description: Optional[str] = Field(None, max_length=255, description="Coupon description")
+    discount_type: str = Field(default="PERCENT", description="PERCENT or AMOUNT")
+    discount_value: Decimal = Field(default=0, ge=0, description="Discount value")
+    minimum_invoice_amount: Decimal = Field(default=0, ge=0, description="Minimum invoice amount required")
+    limit_by_usage: int = Field(default=1000, ge=1, description="Total global usage limit")
+    limit_for_customer: int = Field(default=10, ge=1, description="Per customer usage limit")
     valid_until_date: date
-    limit_validity_product_id: Optional[int] = None
+    active: bool = Field(default=True, description="Is coupon active")
+    limit_validity_product_id: Optional[int] = Field(None, description="Legacy single product ID (deprecated)")
+    product_ids: Optional[List[int]] = Field(default=[], description="List of product IDs for validity restriction")
 
 class CustomerCuponCodesCreate(CustomerCuponCodesBase):
     pass
 
 class CustomerCuponCodesUpdate(BaseModel):
-    cupon_code: Optional[str] = None
+    cupon_code: Optional[str] = Field(None, min_length=1, max_length=50)
+    description: Optional[str] = Field(None, max_length=255)
+    discount_type: Optional[str] = None
+    discount_value: Optional[Decimal] = None
+    minimum_invoice_amount: Optional[Decimal] = None
     limit_by_usage: Optional[int] = None
     limit_for_customer: Optional[int] = None
     valid_until_date: Optional[date] = None
+    active: Optional[bool] = None
     limit_validity_product_id: Optional[int] = None
+    product_ids: Optional[List[int]] = None
 
 class CustomerCuponCodes(CustomerCuponCodesBase):
     id: int
+    created_date: Optional[datetime] = None
+    usage_count: int = 0  # Track total usage count
+    product_ids: List[int] = []  # Computed field for restricted product IDs
     
     class Config:
         from_attributes = True
+
+
+# Coupon Usage Schemas
+class CouponUsageBase(BaseModel):
+    coupon_id: int
+    customer_id: int
+    invoice_id: int
+    discount_amount: Decimal
+
+class CouponUsageCreate(CouponUsageBase):
+    pass
+
+class CouponUsage(CouponUsageBase):
+    id: int
+    used_date: datetime
+    invoice_no: Optional[str] = None
+    customer_name: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+# Coupon Validation Request/Response
+class LineItemForCoupon(BaseModel):
+    product_id: int
+    quantity: int
+    selling_price: Decimal
+
+class CouponValidationRequest(BaseModel):
+    coupon_code: str
+    customer_id: int
+    invoice_subtotal: Decimal
+    product_ids: Optional[List[int]] = Field(default=[], description="List of product IDs in invoice")
+    category_ids: Optional[List[int]] = Field(default=[], description="List of category IDs in invoice")
+    line_items: Optional[List[LineItemForCoupon]] = Field(default=[], description="Line items with quantities and prices")
+
+class CouponValidationResponse(BaseModel):
+    valid: bool
+    coupon_id: Optional[int] = None
+    discount_type: Optional[str] = None
+    discount_value: Optional[Decimal] = None
+    calculated_discount: Optional[Decimal] = None
+    message: str
 
 
 # Customer Gift Voucher Schemas
