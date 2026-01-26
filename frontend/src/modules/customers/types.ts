@@ -264,26 +264,68 @@ export interface CouponValidationResponse {
 // Customer Gift Voucher Types
 export interface CustomerGiftVoucher {
   id: number;
-  date: string;
-  amount: number;
-  barcode_no: number;
+  barcode_no: string;  // Voucher code
+  amount: number;      // Original amount
+  balance: number;     // Remaining balance
+  date: string;        // Issue date
   valid_period_in_months: number;
-  claimed_date?: string;
-  purchased_invoice_no?: string;
-  claimed_invoice_no?: string;
+  status: 'active' | 'fully_claimed' | 'expired';
+  purchased_invoice_no?: string;  // Invoice where purchased
+  claimed_date?: string;          // When fully claimed
+  claimed_invoice_no?: string;    // Invoice where fully claimed
+  created_at?: string;
 }
 
 export interface CustomerGiftVoucherCreate {
-  date: string;
+  barcode_no: string;
   amount: number;
-  barcode_no: number;
   valid_period_in_months?: number;
   purchased_invoice_no?: string;
 }
 
 export interface CustomerGiftVoucherUpdate {
-  claimed_date?: string;
-  claimed_invoice_no?: string;
+  amount?: number;
+  valid_period_in_months?: number;
+  status?: string;
+}
+
+export interface VoucherValidationRequest {
+  barcode_no: string;
+  invoice_amount_due: number;
+}
+
+export interface VoucherValidationResponse {
+  valid: boolean;
+  voucher_id?: number;
+  barcode_no?: string;
+  original_amount?: number;
+  balance?: number;
+  redeemable_amount?: number;
+  expiry_date?: string;
+  message: string;
+}
+
+export interface VoucherRedeemRequest {
+  barcode_no: string;
+  invoice_id: number;
+  amount_to_redeem: number;
+}
+
+export interface VoucherRedeemResponse {
+  success: boolean;
+  voucher_id: number;
+  amount_redeemed: number;
+  remaining_balance: number;
+  message: string;
+}
+
+export interface VoucherUsage {
+  id: number;
+  voucher_id: number;
+  invoice_id: number;
+  amount_used: number;
+  used_date: string;
+  invoice_no?: string;
 }
 
 

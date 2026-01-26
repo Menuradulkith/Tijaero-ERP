@@ -318,3 +318,76 @@ class CustomerSupport(CustomerSupportBase):
 
 class CustomerSupportWithCallLogs(CustomerSupport):
     call_logs: List[CustomerCallLog] = []
+
+
+# =============================================================================
+# Gift Voucher Schemas
+# =============================================================================
+
+class GiftVoucherBase(BaseModel):
+    barcode_no: str = Field(..., min_length=1, max_length=50, description="Voucher barcode/code")
+    amount: Decimal = Field(..., gt=0, description="Voucher amount")
+    valid_period_in_months: int = Field(default=12, ge=1, le=60, description="Validity period in months")
+
+class GiftVoucherCreate(GiftVoucherBase):
+    purchased_invoice_no: Optional[str] = Field(None, description="Invoice number where voucher was purchased")
+
+class GiftVoucherUpdate(BaseModel):
+    amount: Optional[Decimal] = None
+    valid_period_in_months: Optional[int] = None
+    status: Optional[str] = None
+
+class GiftVoucher(GiftVoucherBase):
+    id: int
+    balance: Decimal
+    date: date
+    status: str
+    purchased_invoice_no: Optional[str] = None
+    claimed_date: Optional[datetime] = None
+    claimed_invoice_no: Optional[str] = None
+    created_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class VoucherUsageBase(BaseModel):
+    voucher_id: int
+    invoice_id: int
+    amount_used: Decimal
+
+class VoucherUsageCreate(VoucherUsageBase):
+    pass
+
+class VoucherUsage(VoucherUsageBase):
+    id: int
+    used_date: datetime
+    invoice_no: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class VoucherValidationRequest(BaseModel):
+    barcode_no: str = Field(..., description="Voucher barcode/code to validate")
+    invoice_amount_due: Decimal = Field(..., ge=0, description="Invoice amount due")
+
+class VoucherValidationResponse(BaseModel):
+    valid: bool
+    voucher_id: Optional[int] = None
+    barcode_no: Optional[str] = None
+    original_amount: Optional[Decimal] = None
+    balance: Optional[Decimal] = None
+    redeemable_amount: Optional[Decimal] = None  # min(balance, invoice_amount_due)
+    expiry_date: Optional[date] = None
+    message: str
+
+class VoucherRedeemRequest(BaseModel):
+    barcode_no: str = Field(..., description="Voucher barcode/code")
+    invoice_id: int = Field(..., description="Invoice to apply voucher to")
+    amount_to_redeem: Decimal = Field(..., gt=0, description="Amount to redeem")
+
+class VoucherRedeemResponse(BaseModel):
+    success: bool
+    voucher_id: int
+    amount_redeemed: Decimal
+    remaining_balance: Decimal
+    message: str

@@ -20,8 +20,8 @@ import {
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { useReferenceData } from "@/hooks";
-import { customersApi, couponsApi } from "@/modules/customers/api";
-import { CouponValidationResponse } from "@/modules/customers/types";
+import { customersApi, couponsApi, vouchersApi } from "@/modules/customers/api";
+import { CouponValidationResponse, VoucherValidationResponse } from "@/modules/customers/types";
 import { creditNotesApi } from "@/modules/finance/api";
 import {
   Add as AddIcon,
@@ -153,6 +153,15 @@ export default function SalesPage() {
   const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
   const [couponValidation, setCouponValidation] = useState<CouponValidationResponse | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
+
+  // Gift Voucher payment state - Support multiple vouchers
+  const [voucherCode, setVoucherCode] = useState("");
+  const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
+  const [appliedVouchers, setAppliedVouchers] = useState<Array<{
+    validation: VoucherValidationResponse;
+    amountToRedeem: number;
+  }>>([]);
+  const [voucherError, setVoucherError] = useState<string | null>(null);
 
   // Payment details state for different payment methods
   const [paymentDetails, setPaymentDetails] = useState({
@@ -452,6 +461,10 @@ export default function SalesPage() {
     setCouponCode("");
     setCouponValidation(null);
     setCouponError(null);
+    // Reset voucher state
+    setVoucherCode("");
+    setAppliedVouchers([]);
+    setVoucherError(null);
     setPaymentDetails({
       cheque_number: "",
       cheque_bank: "",
@@ -502,6 +515,10 @@ export default function SalesPage() {
     setCouponCode("");
     setCouponValidation(null);
     setCouponError(null);
+    // Reset voucher state when editing
+    setVoucherCode("");
+    setAppliedVouchers([]);
+    setVoucherError(null);
 
     // Reset payment details - could be enhanced to load from related tables
     setPaymentDetails({
@@ -625,6 +642,10 @@ export default function SalesPage() {
     // Calculate service charges for card payments
     let serviceCharge = 0;
     let couponDiscount = couponValidation?.calculated_discount || 0;
+    
+    // Calculate total voucher payment from all applied vouchers
+    let totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+    
     let total = subtotal - couponDiscount; // Apply coupon discount first
 
     if (paymentMethod === "card_amex") {
@@ -635,15 +656,18 @@ export default function SalesPage() {
       total = total + serviceCharge;
     }
 
+    // Remaining amount after voucher payment
+    const amountAfterVoucher = Math.max(0, total - totalVoucherPayment);
+
     const invoiceData: InvoiceCreate = {
       ...(state.formData as InvoiceCreate),
-      cash_amount: paymentMethod === "cash" ? total : 0,
-      card_visa_amount: paymentMethod === "card_visa" ? total : 0,
-      card_mastercard_amount: paymentMethod === "card_mastercard" ? total : 0,
-      card_amex_amount: paymentMethod === "card_amex" ? total : 0,
-      cheque_amount: paymentMethod === "cheque" ? total : 0,
-      bank_transfer_amount: paymentMethod === "bank_transfer" ? total : 0,
-      credit_amount: paymentMethod === "credit" ? total : 0,
+      cash_amount: paymentMethod === "cash" ? amountAfterVoucher : 0,
+      card_visa_amount: paymentMethod === "card_visa" ? amountAfterVoucher : 0,
+      card_mastercard_amount: paymentMethod === "card_mastercard" ? amountAfterVoucher : 0,
+      card_amex_amount: paymentMethod === "card_amex" ? amountAfterVoucher : 0,
+      cheque_amount: paymentMethod === "cheque" ? amountAfterVoucher : 0,
+      bank_transfer_amount: paymentMethod === "bank_transfer" ? amountAfterVoucher : 0,
+      credit_amount: paymentMethod === "credit" ? amountAfterVoucher : 0,
       // Include service charge in payment adjustments (for card payments)
       payment_adjustments: serviceCharge,
       items: lineItems,
@@ -651,6 +675,17 @@ export default function SalesPage() {
       ...(couponValidation?.coupon_id && {
         cupon_id: couponValidation.coupon_id,
         cupon_amount: couponDiscount,
+      }),
+      // Gift voucher payment fields - send as array for multiple vouchers
+      ...(appliedVouchers.length > 0 && totalVoucherPayment > 0 && {
+        gift_voucher_id: appliedVouchers[0].validation.voucher_id, // Legacy field
+        gift_voucher_amount: totalVoucherPayment, // Total from all vouchers
+        voucher_redemptions: appliedVouchers
+          .filter(v => v.validation.voucher_id) // Ensure voucher_id exists
+          .map(v => ({
+            voucher_id: v.validation.voucher_id!,
+            amount_to_redeem: Number(v.amountToRedeem)
+          }))
       }),
       // Include payment details based on payment method
       ...(paymentMethod === "cheque" && {
@@ -864,6 +899,66 @@ export default function SalesPage() {
     setCouponCode("");
     setCouponValidation(null);
     setCouponError(null);
+  };
+
+  // Gift Voucher validation handler
+  const handleValidateVoucher = useCallback(async () => {
+    if (!voucherCode.trim()) {
+      setVoucherError("Please enter a voucher code");
+      return;
+    }
+
+    setIsValidatingVoucher(true);
+    setVoucherError(null);
+
+    try {
+      // Calculate amount due after coupon discount AND previously applied vouchers
+      const subtotal = calculateLineItemsTotal();
+      const couponDiscount = couponValidation?.calculated_discount || 0;
+      const previousVouchersTotal = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+      const amountDue = subtotal - couponDiscount - previousVouchersTotal;
+
+      const response = await vouchersApi.validate({
+        barcode_no: voucherCode.trim(),
+        invoice_amount_due: amountDue,
+      });
+
+      if (response.valid) {
+        // Check if this voucher is already applied
+        const alreadyApplied = appliedVouchers.some(v => v.validation.voucher_id === response.voucher_id);
+        if (alreadyApplied) {
+          setVoucherError("This voucher has already been applied");
+          showErrorToast("This voucher has already been applied");
+        } else {
+          // Add voucher to the list
+          setAppliedVouchers(prev => [...prev, {
+            validation: response,
+            amountToRedeem: Number(response.redeemable_amount) || 0
+          }]);
+          setVoucherCode(""); // Clear input for next voucher
+          showSuccessToast(`Voucher added! Balance: Rs. ${(response.balance || 0).toLocaleString()}`);
+        }
+      } else {
+        setVoucherError(response.message);
+      }
+    } catch (error: any) {
+      console.error("Voucher validation error:", error);
+      setVoucherError(error.response?.data?.detail || "Failed to validate voucher");
+    } finally {
+      setIsValidatingVoucher(false);
+    }
+  }, [voucherCode, lineItems, couponValidation, appliedVouchers]);
+
+  // Remove a specific voucher
+  const handleRemoveVoucher = (voucherId: number) => {
+    setAppliedVouchers(prev => prev.filter(v => v.validation.voucher_id !== voucherId));
+  };
+
+  // Clear all vouchers
+  const handleClearAllVouchers = () => {
+    setVoucherCode("");
+    setAppliedVouchers([]);
+    setVoucherError(null);
   };
 
   // Auto-revalidate coupon when line items change
@@ -1118,7 +1213,7 @@ export default function SalesPage() {
                       <TableRow sx={{ bgcolor: "warning.lighter" }}>
                         <TableCell colSpan={5} align="right">
                           <Typography fontWeight="medium" color="warning.dark">
-                            Service Charge ({fullInvoice.service_charge_rate}%):
+                            Service Charge ({(fullInvoice.service_charge_rate * 100).toFixed(1)}%):
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
@@ -1128,18 +1223,60 @@ export default function SalesPage() {
                         </TableCell>
                       </TableRow>
                     )}
-                  <TableRow sx={{ bgcolor: "success.lighter" }}>
+                  <TableRow sx={{ bgcolor: "grey.100" }}>
                     <TableCell colSpan={5} align="right">
-                      <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
+                      <Typography fontWeight="bold" fontSize="1rem">
                         Grand Total:
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
-                        {((fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0) - (fullInvoice.cupon_amount || 0) + (fullInvoice.service_charge_amount || 0)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <Typography fontWeight="bold" fontSize="1rem">
+                        {(fullInvoice.grand_total || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Typography>
                     </TableCell>
                   </TableRow>
+                  {/* Gift Voucher Payment Row */}
+                  {fullInvoice.gift_voucher_amount > 0 && (
+                    <TableRow sx={{ bgcolor: "info.lighter" }}>
+                      <TableCell colSpan={5} align="right">
+                        <Typography fontWeight="medium" color="info.main">
+                          Gift Voucher Payment:
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="medium" color="info.main">
+                          -{fullInvoice.gift_voucher_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  <TableRow sx={{ bgcolor: "success.lighter" }}>
+                    <TableCell colSpan={5} align="right">
+                      <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
+                        Amount Paid:
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
+                        {((fullInvoice.grand_total || 0) - (fullInvoice.gift_voucher_amount || 0)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                  {/* Balance Due Row */}
+                  {fullInvoice.balance_due > 0 && (
+                    <TableRow sx={{ bgcolor: "error.lighter" }}>
+                      <TableCell colSpan={5} align="right">
+                        <Typography fontWeight="bold" color="error.main">
+                          Balance Due:
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="bold" color="error.main">
+                          {fullInvoice.balance_due.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </Paper>
@@ -1777,6 +1914,55 @@ export default function SalesPage() {
                     </TableCell>
                     <TableCell />
                   </TableRow>
+                  {/* Gift Voucher Payment Row - Only if vouchers are applied */}
+                  {appliedVouchers.length > 0 && appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0) > 0 && (
+                    <TableRow sx={{ bgcolor: "info.lighter" }}>
+                      <TableCell colSpan={7} align="right">
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                          <ReceiptIcon fontSize="small" color="info" />
+                          <Typography fontWeight="medium" color="info.dark">
+                            Gift Voucher Payment ({appliedVouchers.length} voucher{appliedVouchers.length > 1 ? 's' : ''}):
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="medium" color="info.dark">
+                          -{appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+                  )}
+                  {/* Amount to Pay Row - Final amount after voucher */}
+                  {appliedVouchers.length > 0 && appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0) > 0 ? (
+                    <TableRow sx={{ bgcolor: "success.lighter" }}>
+                      <TableCell colSpan={7} align="right">
+                        <Typography fontWeight="bold" color="success.dark" fontSize="1.05rem">
+                          Amount to Pay ({state.formData.payment_method?.replace('_', ' ').toUpperCase()}):
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="bold" color="success.dark" fontSize="1.1rem">
+                          {(() => {
+                            const subtotal = calculateLineItemsTotal();
+                            const couponDiscount = couponValidation?.calculated_discount || 0;
+                            const afterCoupon = subtotal - couponDiscount;
+                            let serviceCharge = 0;
+                            if (state.formData.payment_method === "card_amex") {
+                              serviceCharge = afterCoupon * 0.03;
+                            } else if (state.formData.payment_method === "card_visa" || state.formData.payment_method === "card_mastercard") {
+                              serviceCharge = afterCoupon * 0.027;
+                            }
+                            const grandTotal = afterCoupon + serviceCharge;
+                            const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                            const amountToPay = Math.max(0, grandTotal - totalVoucherPayment);
+                            return amountToPay.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                          })()}
+                        </Typography>
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+                  ) : null}
                 </TableBody>
               </Table>
             </Paper>
@@ -1869,6 +2055,182 @@ export default function SalesPage() {
                   >
                     Remove
                   </Button>
+                </Box>
+              )}
+            </Paper>
+          )}
+
+          {/* Gift Voucher Payment Section - After adding items */}
+          {lineItems.length > 0 && (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                mb: 2,
+                bgcolor: appliedVouchers.length > 0 ? "info.50" : "grey.50",
+                borderColor: appliedVouchers.length > 0 ? "info.main" : "divider",
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <ReceiptIcon color={appliedVouchers.length > 0 ? "info" : "action"} />
+                  <Typography variant="subtitle2" fontWeight="bold">
+                    Apply Gift Vouchers
+                  </Typography>
+                  {appliedVouchers.length > 0 && (
+                    <Chip 
+                      label={`${appliedVouchers.length} applied`} 
+                      size="small" 
+                      color="info"
+                      sx={{ height: 20 }}
+                    />
+                  )}
+                </Box>
+                {appliedVouchers.length > 0 && (
+                  <Button
+                    size="small"
+                    color="error"
+                    onClick={handleClearAllVouchers}
+                    startIcon={<DeleteIcon />}
+                  >
+                    Remove All
+                  </Button>
+                )}
+              </Box>
+              
+              {/* Voucher input - always visible */}
+              <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", mb: appliedVouchers.length > 0 ? 2 : 0 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="Scan barcode or enter voucher code..."
+                  value={voucherCode}
+                  onChange={(e) => {
+                    setVoucherCode(e.target.value.toUpperCase());
+                    if (voucherError) setVoucherError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleValidateVoucher();
+                    }
+                  }}
+                  disabled={isValidatingVoucher || lineItems.length === 0}
+                  error={!!voucherError}
+                  helperText={voucherError || (lineItems.length === 0 ? "Add items first" : "Scan voucher barcode or type code and press Enter/Apply")}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <QrCodeScannerIcon fontSize="small" color="action" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: isValidatingVoucher ? (
+                      <InputAdornment position="end">
+                        <CircularProgress size={20} />
+                      </InputAdornment>
+                    ) : null,
+                  }}
+                />
+                <Button
+                  variant="contained"
+                  color="info"
+                  onClick={handleValidateVoucher}
+                  disabled={isValidatingVoucher || !voucherCode.trim() || lineItems.length === 0}
+                  sx={{ minWidth: 100 }}
+                >
+                  {isValidatingVoucher ? <CircularProgress size={20} /> : "Apply"}
+                </Button>
+              </Box>
+
+              {/* List of applied vouchers */}
+              {appliedVouchers.length > 0 && (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  {appliedVouchers.map((voucher, index) => (
+                    <Box
+                      key={voucher.validation.voucher_id}
+                      sx={{
+                        p: 1.5,
+                        bgcolor: "white",
+                        borderRadius: 1,
+                        border: "1px solid",
+                        borderColor: "info.light",
+                      }}
+                    >
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <Chip
+                            icon={<ReceiptIcon />}
+                            label={voucher.validation.barcode_no}
+                            color="info"
+                            size="small"
+                          />
+                          <Typography variant="caption" color="text.secondary">
+                            Balance: Rs. {(voucher.validation.balance || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                            {voucher.validation.expiry_date && (
+                              ` • Expires: ${new Date(voucher.validation.expiry_date).toLocaleDateString()}`
+                            )}
+                          </Typography>
+                        </Box>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => voucher.validation.voucher_id && handleRemoveVoucher(voucher.validation.voucher_id)}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                      <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+                        <TextField
+                          size="small"
+                          label="Amount to Redeem"
+                          type="number"
+                          value={voucher.amountToRedeem}
+                          onChange={(e) => {
+                            const inputValue = parseFloat(e.target.value) || 0;
+                            
+                            // Calculate remaining amount after other vouchers
+                            const subtotal = calculateLineItemsTotal();
+                            const couponDiscount = couponValidation?.calculated_discount || 0;
+                            const otherVouchersTotal = appliedVouchers
+                              .filter((_, i) => i !== index)
+                              .reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                            const remainingAmount = subtotal - couponDiscount - otherVouchersTotal;
+                            
+                            // Max is the minimum of: voucher's redeemable amount, or remaining invoice amount
+                            const maxAllowed = Math.min(
+                              voucher.validation.redeemable_amount || 0,
+                              remainingAmount
+                            );
+                            
+                            const value = Math.min(inputValue, maxAllowed);
+                            
+                            setAppliedVouchers(prev => prev.map((v, i) => 
+                              i === index ? { ...v, amountToRedeem: Math.max(0, value) } : v
+                            ));
+                          }}
+                          InputProps={{
+                            startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                            inputProps: { 
+                              min: 0, 
+                              max: voucher.validation.redeemable_amount || 0,
+                              step: 0.01 
+                            },
+                          }}
+                          helperText={`Max: Rs. ${(voucher.validation.redeemable_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                          sx={{ width: 200 }}
+                        />
+                        <Typography variant="body2" color="info.dark" fontWeight="bold">
+                          Redeeming: Rs. {voucher.amountToRedeem.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ))}
+                  {/* Total voucher payment */}
+                  <Box sx={{ p: 1, bgcolor: "success.lighter", borderRadius: 1, textAlign: "right" }}>
+                    <Typography variant="body2" color="success.dark" fontWeight="bold">
+                      Total Voucher Payment: Rs. {appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                    </Typography>
+                  </Box>
                 </Box>
               )}
             </Paper>

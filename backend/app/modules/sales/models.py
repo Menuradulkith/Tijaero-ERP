@@ -69,7 +69,10 @@ class Invoice(Base, TimestampMixin):
     credit_payment_id = Column(Integer, ForeignKey("credit_payments.id"))
     card_payment_id = Column(Integer, ForeignKey("card_payments.id"))
     voucher_id = Column(Integer, ForeignKey("vouchers.id"))
+    gift_voucher_id = Column(Integer, ForeignKey("customer_gift_voucher.id"))  # Gift voucher used
+    gift_voucher_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Amount redeemed from gift voucher
     cupon_id = Column(Integer, ForeignKey("customer_cupon_codes.id"))
+    cupon_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Coupon discount amount
     approval_id = Column(Integer, ForeignKey("approvals.id"))
 
     # Source tracking - for invoices converted from quotes/proforma

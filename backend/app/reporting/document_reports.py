@@ -492,7 +492,11 @@ class DocumentReportService:
                 "subtotal": invoice.subtotal,
                 "tax_amount": invoice.tax_amount,
                 "discount_amount": invoice.discount_amount,
+                "cupon_amount": invoice.cupon_amount,
+                "service_charge_rate": invoice.service_charge_rate,
+                "service_charge_amount": invoice.service_charge_amount,
                 "grand_total": invoice.grand_total,
+                "gift_voucher_amount": invoice.gift_voucher_amount,
                 "paid_amount": invoice.paid_amount,
                 "balance_due": invoice.balance_due,
                 "remarks": invoice.remarks
