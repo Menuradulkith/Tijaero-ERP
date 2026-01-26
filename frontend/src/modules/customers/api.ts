@@ -12,6 +12,14 @@ import {
   CouponUsage,
   CouponValidationRequest,
   CouponValidationResponse,
+  CustomerGiftVoucher,
+  CustomerGiftVoucherCreate,
+  CustomerGiftVoucherUpdate,
+  VoucherValidationRequest,
+  VoucherValidationResponse,
+  VoucherRedeemRequest,
+  VoucherRedeemResponse,
+  VoucherUsage,
 } from "./types";
 
 // Type definitions for credit management responses
@@ -255,6 +263,66 @@ export const couponsApi = {
   getUsageHistory: async (couponId: number, skip = 0, limit = 100) => {
     const response = await apiClient.get<CouponUsage[]>(
       `/customers/coupons/${couponId}/usage`,
+      { params: { skip, limit } }
+    );
+    return response.data;
+  },
+};
+
+
+// ==================== GIFT VOUCHER API ====================
+
+export const vouchersApi = {
+  getAll: async (skip = 0, limit = 100, activeOnly = false) => {
+    const response = await apiClient.get<CustomerGiftVoucher[]>("/customers/vouchers/", {
+      params: { skip, limit, active_only: activeOnly },
+    });
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<CustomerGiftVoucher>(`/customers/vouchers/${id}`);
+    return response.data;
+  },
+
+  getByBarcode: async (barcodeNo: string) => {
+    const response = await apiClient.get<CustomerGiftVoucher>(`/customers/vouchers/barcode/${barcodeNo}`);
+    return response.data;
+  },
+
+  create: async (data: CustomerGiftVoucherCreate) => {
+    const response = await apiClient.post<CustomerGiftVoucher>("/customers/vouchers/", data);
+    return response.data;
+  },
+
+  update: async (id: number, data: CustomerGiftVoucherUpdate) => {
+    const response = await apiClient.put<CustomerGiftVoucher>(`/customers/vouchers/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/customers/vouchers/${id}`);
+  },
+
+  validate: async (request: VoucherValidationRequest) => {
+    const response = await apiClient.post<VoucherValidationResponse>(
+      "/customers/vouchers/validate",
+      request
+    );
+    return response.data;
+  },
+
+  redeem: async (request: VoucherRedeemRequest) => {
+    const response = await apiClient.post<VoucherRedeemResponse>(
+      "/customers/vouchers/redeem",
+      request
+    );
+    return response.data;
+  },
+
+  getUsageHistory: async (voucherId: number, skip = 0, limit = 100) => {
+    const response = await apiClient.get<VoucherUsage[]>(
+      `/customers/vouchers/${voucherId}/usage`,
       { params: { skip, limit } }
     );
     return response.data;

@@ -1,4 +1,5 @@
 import CouponsPage from "@/modules/sales/pages/CouponsPage";
+import VouchersPage from "@/modules/sales/pages/VouchersPage";
 import CustomerPaymentDashboard from "@/modules/sales/pages/CustomerPaymentDashboard";
 import CustomersPage from "@/modules/sales/pages/CustomersPage";
 import QuotationsPage from "@/modules/sales/pages/QuotationsPage";
@@ -25,6 +26,7 @@ export default function SalesRoutes() {
       <Route path="payments" element={<CustomerPaymentDashboard />} />
       <Route path="payment/:invoiceId" element={<SalesPaymentPage />} />
       <Route path="coupons" element={<CouponsPage />} />
+      <Route path="vouchers" element={<VouchersPage />} />
     </Routes>
   );
 }

@@ -35,6 +35,9 @@ export interface Invoice {
   payment_adjustments: number;
   cupon_amount: number;
   credit_note_amount: number;
+  // Gift voucher
+  gift_voucher_id?: number;
+  gift_voucher_amount: number;
   remarks?: string;
   special: boolean;
   created_date: string;
@@ -98,6 +101,14 @@ export interface InvoiceCreate {
   // Coupon/discount code
   cupon_id?: number;
   cupon_amount?: number;
+  // Gift voucher (legacy single voucher)
+  gift_voucher_id?: number;
+  gift_voucher_amount?: number;
+  // Multiple voucher redemptions
+  voucher_redemptions?: Array<{
+    voucher_id: number;
+    amount_to_redeem: number;
+  }>;
 }
 
 export interface InvoiceUpdate {

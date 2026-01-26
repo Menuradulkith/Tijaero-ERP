@@ -431,6 +431,18 @@
                             <td class="label">Sub Total</td>
                             <td class="value">{{ "%.2f" | format(invoice.subtotal) }}</td>
                         </tr>
+                        {% if options.show_discount and invoice.cupon_amount > 0 %}
+                        <tr>
+                            <td class="label" style="color: #d32f2f;">Coupon Discount</td>
+                            <td class="value" style="color: #d32f2f;">-{{ "%.2f" | format(invoice.cupon_amount) }}</td>
+                        </tr>
+                        {% endif %}
+                        {% if invoice.service_charge_amount > 0 %}
+                        <tr>
+                            <td class="label" style="color: #ff9800;">Service Charge ({{ "%.1f" | format(invoice.service_charge_rate * 100) }}%)</td>
+                            <td class="value" style="color: #ff9800;">{{ "%.2f" | format(invoice.service_charge_amount) }}</td>
+                        </tr>
+                        {% endif %}
                         {% if options.show_discount and invoice.discount_amount > 0 %}
                         <tr>
                             <td class="label">Discount</td>
@@ -444,12 +456,18 @@
                         </tr>
                         {% endif %}
                         <tr>
-                            <td class="label">Grand Total</td>
-                            <td class="value">{{ "%.2f" | format(invoice.grand_total) }}</td>
+                            <td class="label" style="font-weight: 600;">Grand Total</td>
+                            <td class="value" style="font-weight: 600;">{{ "%.2f" | format(invoice.grand_total) }}</td>
                         </tr>
+                        {% if invoice.gift_voucher_amount > 0 %}
                         <tr>
-                            <td class="label">Paid</td>
-                            <td class="value">{{ "%.2f" | format(invoice.paid_amount) }}</td>
+                            <td class="label" style="color: #0288d1;">Gift Voucher Payment</td>
+                            <td class="value" style="color: #0288d1;">-{{ "%.2f" | format(invoice.gift_voucher_amount) }}</td>
+                        </tr>
+                        {% endif %}
+                        <tr>
+                            <td class="label" style="font-weight: 700; background: #4caf50; color: white;">Amount Paid</td>
+                            <td class="value" style="font-weight: 700; background: #4caf50; color: white;">{{ "%.2f" | format(invoice.paid_amount) }}</td>
                         </tr>
                         {% if invoice.balance_due > 0 %}
                         <tr>

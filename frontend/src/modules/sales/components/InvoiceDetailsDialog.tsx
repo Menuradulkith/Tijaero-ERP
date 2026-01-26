@@ -286,29 +286,56 @@ export default function InvoiceDetailsDialog({
                 >
                   <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                     <Typography variant="body2">Subtotal</Typography>
-                    <Typography variant="body2">{formatCurrency(calculateSubtotal())}</Typography>
+                    <Typography variant="body2">{formatCurrency(invoiceDetails.subtotal || calculateSubtotal())}</Typography>
                   </Box>
-                  {invoiceDetails.payment_adjustments !== 0 && (
+                  {invoiceDetails.cupon_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                      <Typography variant="body2">Adjustments</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.payment_adjustments)}</Typography>
+                      <Typography variant="body2" color="error.main">Coupon Discount</Typography>
+                      <Typography variant="body2" color="error.main">-{formatCurrency(invoiceDetails.cupon_amount)}</Typography>
                     </Box>
                   )}
-                  {invoiceDetails.cupon_amount !== 0 && (
+                  {invoiceDetails.service_charge_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                      <Typography variant="body2">Coupon</Typography>
-                      <Typography variant="body2" color="error">-{formatCurrency(invoiceDetails.cupon_amount)}</Typography>
+                      <Typography variant="body2">Service Charge ({(invoiceDetails.service_charge_rate * 100).toFixed(1)}%)</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.service_charge_amount)}</Typography>
                     </Box>
                   )}
-                  {invoiceDetails.credit_note_amount !== 0 && (
+                  {invoiceDetails.tax_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                      <Typography variant="body2">Credit Note</Typography>
-                      <Typography variant="body2" color="error">-{formatCurrency(invoiceDetails.credit_note_amount)}</Typography>
+                      <Typography variant="body2">Tax ({invoiceDetails.tax_rate}%)</Typography>
+                      <Typography variant="body2">{formatCurrency(invoiceDetails.tax_amount)}</Typography>
+                    </Box>
+                  )}
+                  {invoiceDetails.discount_amount > 0 && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+                      <Typography variant="body2" color="error.main">Discount</Typography>
+                      <Typography variant="body2" color="error.main">-{formatCurrency(invoiceDetails.discount_amount)}</Typography>
                     </Box>
                   )}
                   <Divider sx={{ my: 1 }} />
+                  <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+                    <Typography variant="subtitle1" fontWeight={600}>Grand Total</Typography>
+                    <Typography variant="subtitle1" fontWeight={600}>
+                      {formatCurrency(invoiceDetails.grand_total)}
+                    </Typography>
+                  </Box>
+                  {invoiceDetails.gift_voucher_amount > 0 && (
+                    <>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+                        <Typography variant="body2" color="info.main">Gift Voucher Payment</Typography>
+                        <Typography variant="body2" color="info.main">-{formatCurrency(invoiceDetails.gift_voucher_amount)}</Typography>
+                      </Box>
+                      <Divider sx={{ my: 1 }} />
+                    </>
+                  )}
+                  {invoiceDetails.credit_note_amount > 0 && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+                      <Typography variant="body2" color="error.main">Credit Note</Typography>
+                      <Typography variant="body2" color="error.main">-{formatCurrency(invoiceDetails.credit_note_amount)}</Typography>
+                    </Box>
+                  )}
                   <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                    <Typography variant="h6" fontWeight={700}>Total</Typography>
+                    <Typography variant="h6" fontWeight={700}>Amount Paid</Typography>
                     <Typography variant="h5" fontWeight={700} color="success.main">
                       {formatCurrency(calculateTotal())}
                     </Typography>

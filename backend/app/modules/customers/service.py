@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from datetime import datetime, date
 from decimal import Decimal
 from app.modules.customers import repository, schemas
-from app.modules.customers.models import Customer, CustomerCuponCodes, CouponUsage
+from app.modules.customers.models import Customer, CustomerCuponCodes, CouponUsage, CustomerGiftVoucher, VoucherUsage
 from app.modules.products.models import Product
 
 class CustomerService:
@@ -371,3 +371,272 @@ class CouponService:
         return result
 
 coupon_service = CouponService()
+
+
+class VoucherService:
+    """Service for managing gift vouchers"""
+    
+    def get_all_vouchers(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[CustomerGiftVoucher]:
+        """Get all vouchers"""
+        query = db.query(CustomerGiftVoucher)
+        if active_only:
+            query = query.filter(CustomerGiftVoucher.status == "active")
+        return query.order_by(CustomerGiftVoucher.created_at.desc()).offset(skip).limit(limit).all()
+    
+    def get_voucher(self, db: Session, voucher_id: int) -> CustomerGiftVoucher:
+        """Get a single voucher by ID"""
+        voucher = db.query(CustomerGiftVoucher).filter(CustomerGiftVoucher.id == voucher_id).first()
+        if not voucher:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Voucher with id {voucher_id} not found"
+            )
+        return voucher
+    
+    def get_voucher_by_barcode(self, db: Session, barcode_no: str) -> Optional[CustomerGiftVoucher]:
+        """Get a voucher by its barcode"""
+        return db.query(CustomerGiftVoucher).filter(
+            CustomerGiftVoucher.barcode_no == barcode_no
+        ).first()
+    
+    def create_voucher(self, db: Session, voucher_data: schemas.GiftVoucherCreate) -> CustomerGiftVoucher:
+        """Create a new gift voucher"""
+        # Check if barcode already exists
+        existing = db.query(CustomerGiftVoucher).filter(
+            CustomerGiftVoucher.barcode_no == voucher_data.barcode_no
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Voucher with barcode '{voucher_data.barcode_no}' already exists"
+            )
+        
+        voucher = CustomerGiftVoucher(
+            barcode_no=voucher_data.barcode_no,
+            amount=voucher_data.amount,
+            balance=voucher_data.amount,  # Initially, balance equals amount
+            date=date.today(),
+            valid_period_in_months=voucher_data.valid_period_in_months,
+            status="active",
+            purchased_invoice_no=voucher_data.purchased_invoice_no,
+        )
+        
+        db.add(voucher)
+        db.commit()
+        db.refresh(voucher)
+        return voucher
+    
+    def _get_expiry_date(self, voucher: CustomerGiftVoucher) -> date:
+        """Calculate voucher expiry date"""
+        from dateutil.relativedelta import relativedelta
+        return voucher.date + relativedelta(months=voucher.valid_period_in_months)
+    
+    def _is_expired(self, voucher: CustomerGiftVoucher) -> bool:
+        """Check if voucher is expired"""
+        return date.today() > self._get_expiry_date(voucher)
+    
+    def validate_voucher(
+        self,
+        db: Session,
+        request: schemas.VoucherValidationRequest
+    ) -> schemas.VoucherValidationResponse:
+        """Validate a voucher for use on an invoice"""
+        
+        # Find voucher by barcode
+        voucher = self.get_voucher_by_barcode(db, request.barcode_no)
+        if not voucher:
+            return schemas.VoucherValidationResponse(
+                valid=False,
+                message="Voucher not found"
+            )
+        
+        # Check if voucher is active
+        if voucher.status != "active":
+            return schemas.VoucherValidationResponse(
+                valid=False,
+                message=f"Voucher is {voucher.status}"
+            )
+        
+        # Check if expired
+        expiry_date = self._get_expiry_date(voucher)
+        if self._is_expired(voucher):
+            # Update status to expired
+            voucher.status = "expired"
+            db.commit()
+            return schemas.VoucherValidationResponse(
+                valid=False,
+                message=f"Voucher expired on {expiry_date}"
+            )
+        
+        # Check if balance is available
+        if voucher.balance <= 0:
+            voucher.status = "fully_claimed"
+            db.commit()
+            return schemas.VoucherValidationResponse(
+                valid=False,
+                message="Voucher has no remaining balance"
+            )
+        
+        # Calculate redeemable amount
+        redeemable_amount = min(voucher.balance, request.invoice_amount_due)
+        
+        return schemas.VoucherValidationResponse(
+            valid=True,
+            voucher_id=voucher.id,
+            barcode_no=voucher.barcode_no,
+            original_amount=voucher.amount,
+            balance=voucher.balance,
+            redeemable_amount=redeemable_amount,
+            expiry_date=expiry_date,
+            message=f"Voucher valid! Available balance: Rs. {voucher.balance:.2f}"
+        )
+    
+    def redeem_voucher(
+        self,
+        db: Session,
+        voucher_id: int,
+        invoice_id: int,
+        invoice_no: str,
+        amount_to_redeem: Decimal
+    ) -> VoucherUsage:
+        """Redeem voucher for an invoice"""
+        voucher = self.get_voucher(db, voucher_id)
+        
+        # Validate amount
+        if amount_to_redeem <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Redeem amount must be greater than 0"
+            )
+        
+        if amount_to_redeem > voucher.balance:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Amount exceeds voucher balance. Available: Rs. {voucher.balance}"
+            )
+        
+        # Create usage record
+        usage = VoucherUsage(
+            voucher_id=voucher_id,
+            invoice_id=invoice_id,
+            amount_used=amount_to_redeem,
+            used_date=datetime.now()
+        )
+        db.add(usage)
+        
+        # Update voucher balance
+        voucher.balance = voucher.balance - amount_to_redeem
+        
+        # If fully claimed, update status
+        if voucher.balance <= 0:
+            voucher.status = "fully_claimed"
+            voucher.claimed_date = datetime.now()
+            voucher.claimed_invoice_no = invoice_no
+        
+        db.commit()
+        db.refresh(usage)
+        return usage
+    
+    def get_voucher_usage_history(self, db: Session, voucher_id: int, skip: int = 0, limit: int = 100) -> List[VoucherUsage]:
+        """Get usage history for a voucher"""
+        from app.modules.sales.models import Invoice
+        
+        usage_records = db.query(
+            VoucherUsage,
+            Invoice.invoice_no
+        ).join(
+            Invoice, VoucherUsage.invoice_id == Invoice.id, isouter=True
+        ).filter(
+            VoucherUsage.voucher_id == voucher_id
+        ).order_by(VoucherUsage.used_date.desc()).offset(skip).limit(limit).all()
+        
+        result = []
+        for usage, invoice_no in usage_records:
+            usage.invoice_no = invoice_no
+            result.append(usage)
+        
+        return result
+    
+    def update_voucher(self, db: Session, voucher_id: int, voucher_data: schemas.GiftVoucherUpdate) -> CustomerGiftVoucher:
+        """Update an existing voucher"""
+        voucher = self.get_voucher(db, voucher_id)
+        
+        # Check if voucher has been used - only allow limited updates
+        usage_count = db.query(func.count(VoucherUsage.id)).filter(
+            VoucherUsage.voucher_id == voucher_id
+        ).scalar() or 0
+        
+        if usage_count > 0 and voucher_data.amount is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot change amount of a voucher that has been used"
+            )
+        
+        update_data = voucher_data.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            if hasattr(voucher, key):
+                setattr(voucher, key, value)
+        
+        db.commit()
+        db.refresh(voucher)
+        return voucher
+    
+    def delete_voucher(self, db: Session, voucher_id: int) -> dict:
+        """Delete a voucher (only if not used)"""
+        voucher = self.get_voucher(db, voucher_id)
+        
+        # Check if voucher has been used
+        usage_count = db.query(func.count(VoucherUsage.id)).filter(
+            VoucherUsage.voucher_id == voucher_id
+        ).scalar() or 0
+        
+        if usage_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete voucher that has been used {usage_count} time(s)"
+            )
+        
+        db.delete(voucher)
+        db.commit()
+        return {"message": "Voucher deleted successfully"}
+    
+    def redeem_voucher_api(self, db: Session, request: schemas.VoucherRedeemRequest) -> schemas.VoucherRedeemResponse:
+        """API wrapper for redeeming a voucher"""
+        # Find voucher by barcode
+        voucher = self.get_voucher_by_barcode(db, request.barcode_no)
+        if not voucher:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Voucher not found"
+            )
+        
+        # Get invoice to get the invoice_no
+        from app.modules.sales.models import Invoice
+        invoice = db.query(Invoice).filter(Invoice.id == request.invoice_id).first()
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Invoice not found"
+            )
+        
+        # Redeem
+        self.redeem_voucher(
+            db, 
+            voucher.id, 
+            request.invoice_id, 
+            invoice.invoice_no, 
+            request.amount_to_redeem
+        )
+        
+        # Refresh voucher to get updated balance
+        db.refresh(voucher)
+        
+        return schemas.VoucherRedeemResponse(
+            success=True,
+            voucher_id=voucher.id,
+            amount_redeemed=request.amount_to_redeem,
+            remaining_balance=voucher.balance,
+            message=f"Successfully redeemed Rs. {request.amount_to_redeem:.2f}. Remaining balance: Rs. {voucher.balance:.2f}"
+        )
+
+voucher_service = VoucherService()

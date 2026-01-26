@@ -241,23 +241,15 @@ class SalesService:
         payment_method = invoice_data.payment_method.lower() if invoice_data.payment_method else ""
         is_credit_payment = payment_method == "credit"
         credit_validation = None
-        # Calculate service charges for card payments
-        service_charge_rate = Decimal("0")
-        service_charge_amount = Decimal("0")
-        if payment_method == "card_amex":
-            service_charge_rate = Decimal("0.03")  # 3% for Amex
-            service_charge_amount = Decimal(str(subtotal)) * service_charge_rate
-        elif payment_method in ["card_visa", "card_mastercard"]:
-            service_charge_rate = Decimal("0.027")  # 2.7% for Visa/Mastercard
-            service_charge_amount = Decimal(str(subtotal)) * service_charge_rate
         
         # Calculate tax and discount (from invoice data if provided)
         tax_rate = Decimal(str(getattr(invoice_data, 'tax_rate', 0) or 0))
         discount_percent = Decimal(str(getattr(invoice_data, 'discount_percent', 0) or 0))
         discount_amount = Decimal(str(getattr(invoice_data, 'discount_amount', 0) or 0))
         
-        # Calculate tax amount
-        tax_amount = Decimal(str(subtotal)) * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
+        # Get coupon discount (separate from percentage discount)
+        coupon_id = getattr(invoice_data, 'cupon_id', None)
+        coupon_amount = Decimal(str(getattr(invoice_data, 'cupon_amount', 0) or 0))
         
         # Calculate discount (percentage takes priority, then fixed amount)
         calculated_discount = Decimal("0")
@@ -266,8 +258,24 @@ class SalesService:
         elif discount_amount > 0:
             calculated_discount = discount_amount
         
-        # Calculate grand total
-        grand_total = Decimal(str(subtotal)) - calculated_discount + tax_amount + service_charge_amount
+        # Amount after coupon discount (used for service charge calculation)
+        amount_after_coupon = Decimal(str(subtotal)) - coupon_amount
+        
+        # Calculate service charges for card payments (on amount AFTER coupon discount)
+        service_charge_rate = Decimal("0")
+        service_charge_amount = Decimal("0")
+        if payment_method == "card_amex":
+            service_charge_rate = Decimal("0.03")  # 3% for Amex
+            service_charge_amount = amount_after_coupon * service_charge_rate
+        elif payment_method in ["card_visa", "card_mastercard"]:
+            service_charge_rate = Decimal("0.027")  # 2.7% for Visa/Mastercard
+            service_charge_amount = amount_after_coupon * service_charge_rate
+        
+        # Calculate tax amount
+        tax_amount = Decimal(str(subtotal)) * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
+        
+        # Calculate grand total: subtotal - coupon - other_discount + tax + service_charge
+        grand_total = Decimal(str(subtotal)) - coupon_amount - calculated_discount + tax_amount + service_charge_amount
 
         # Validate credit status for credit sales (warning-only, approval required)
         if is_credit_payment:
@@ -283,7 +291,9 @@ class SalesService:
             'items', 'cheque_number', 'cheque_bank', 'cheque_date', 
             'card_ref_number', 'card_holder_name', 'bank_transfer_ref', 
             'bank_name', 'tax_rate', 'discount_percent', 'discount_amount',
-            'cupon_id', 'cupon_amount'  # We'll set these explicitly below
+            'cupon_id', 'cupon_amount',  # We'll set these explicitly below
+            'gift_voucher_id', 'gift_voucher_amount',  # We'll handle voucher separately
+            'voucher_redemptions'  # Array field - not stored in Invoice table
         })
         invoice_dict['created_date'] = date.today()
         invoice_dict['created_date_time'] = datetime.now()
@@ -300,19 +310,41 @@ class SalesService:
         invoice_dict['grand_total'] = float(grand_total)
         invoice_dict['credit_amount'] = float(grand_total) if is_credit_payment else 0
         
+        # Handle voucher payment - calculate total voucher amount
+        gift_voucher_id = getattr(invoice_data, 'gift_voucher_id', None)
+        gift_voucher_amount = Decimal(str(getattr(invoice_data, 'gift_voucher_amount', 0) or 0))
+        
+        # Check for multiple voucher redemptions
+        voucher_redemptions = getattr(invoice_data, 'voucher_redemptions', []) or []
+        total_voucher_amount = Decimal("0")
+        if voucher_redemptions:
+            # Use total from multiple vouchers
+            total_voucher_amount = sum(Decimal(str(r.amount_to_redeem)) for r in voucher_redemptions)
+        elif gift_voucher_amount > 0:
+            # Use legacy single voucher
+            total_voucher_amount = gift_voucher_amount
+        
+        invoice_dict['gift_voucher_id'] = gift_voucher_id
+        invoice_dict['gift_voucher_amount'] = float(total_voucher_amount)
+        
+        # Adjust grand total for voucher (voucher reduces amount due)
+        amount_after_voucher = grand_total - total_voucher_amount
+        if amount_after_voucher < 0:
+            amount_after_voucher = Decimal("0")
+        
         # Set payment tracking fields
         if is_credit_payment:
             # Credit payment - needs approval, unpaid until settled
             invoice_dict['approval'] = False
             invoice_dict['approval_status'] = "pending_approval"
-            invoice_dict['paid_amount'] = 0
-            invoice_dict['balance_due'] = float(grand_total)
-            invoice_dict['payment_status'] = "unpaid"
+            invoice_dict['paid_amount'] = float(total_voucher_amount)  # Only voucher is paid upfront
+            invoice_dict['balance_due'] = float(amount_after_voucher)
+            invoice_dict['payment_status'] = "unpaid" if amount_after_voucher > 0 else "paid"
         else:
-            # Cash/Card/Cheque/Bank Transfer - auto-approved and paid
+            # Cash/Card/Cheque/Bank Transfer - auto-approved and fully paid
             invoice_dict['approval'] = True
             invoice_dict['approval_status'] = "completed"
-            invoice_dict['paid_amount'] = float(grand_total)
+            invoice_dict['paid_amount'] = float(grand_total)  # Full grand total is paid (voucher + payment method)
             invoice_dict['balance_due'] = 0
             invoice_dict['payment_status'] = "paid"
         
@@ -515,6 +547,54 @@ class SalesService:
             coupon = db.query(CustomerCuponCodes).filter(CustomerCuponCodes.id == coupon_id).first()
             if coupon:
                 coupon.usage_count = (coupon.usage_count or 0) + 1
+        
+        # Record voucher redemptions - prioritize multiple vouchers over legacy single voucher
+        voucher_redemptions = getattr(invoice_data, 'voucher_redemptions', []) or []
+        
+        if voucher_redemptions:
+            # Multiple vouchers - create usage record for each
+            from app.modules.customers.models import CustomerGiftVoucher, VoucherUsage
+            
+            for redemption in voucher_redemptions:
+                # Create voucher usage record
+                voucher_usage = VoucherUsage(
+                    voucher_id=redemption.voucher_id,
+                    invoice_id=invoice.id,
+                    amount_used=Decimal(str(redemption.amount_to_redeem)),
+                    used_date=datetime.now()
+                )
+                db.add(voucher_usage)
+                
+                # Update voucher balance
+                voucher = db.query(CustomerGiftVoucher).filter(CustomerGiftVoucher.id == redemption.voucher_id).first()
+                if voucher:
+                    voucher.balance = voucher.balance - Decimal(str(redemption.amount_to_redeem))
+                    if voucher.balance <= 0:
+                        voucher.status = "fully_claimed"
+                        voucher.claimed_date = datetime.now()
+                        voucher.claimed_invoice_no = invoice_data.invoice_no
+        
+        elif gift_voucher_id and gift_voucher_amount > 0:
+            # Legacy single voucher (backwards compatibility)
+            from app.modules.customers.models import CustomerGiftVoucher, VoucherUsage
+            
+            # Create voucher usage record
+            voucher_usage = VoucherUsage(
+                voucher_id=gift_voucher_id,
+                invoice_id=invoice.id,
+                amount_used=gift_voucher_amount,
+                used_date=datetime.now()
+            )
+            db.add(voucher_usage)
+            
+            # Update voucher balance
+            voucher = db.query(CustomerGiftVoucher).filter(CustomerGiftVoucher.id == gift_voucher_id).first()
+            if voucher:
+                voucher.balance = voucher.balance - gift_voucher_amount
+                if voucher.balance <= 0:
+                    voucher.status = "fully_claimed"
+                    voucher.claimed_date = datetime.now()
+                    voucher.claimed_invoice_no = invoice_data.invoice_no
         
         db.commit()
         db.refresh(invoice)

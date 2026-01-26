@@ -161,13 +161,33 @@ class CustomerGiftVoucher(Base):
     __tablename__ = "customer_gift_voucher"
     
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(Date, nullable=False)
-    amount = Column(Numeric(60, 2), nullable=False)
-    barcode_no = Column(Integer, nullable=False)
+    barcode_no = Column(String(50), unique=True, nullable=False)  # Voucher code/barcode
+    amount = Column(Numeric(60, 2), nullable=False)  # Original voucher amount
+    balance = Column(Numeric(60, 2), nullable=False)  # Remaining balance
+    date = Column(Date, nullable=False)  # Issue date
     valid_period_in_months = Column(Integer, nullable=False, default=12)
-    claimed_date = Column(TIMESTAMP)
-    purchased_invoice_no = Column(String(200))
-    claimed_invoice_no = Column(String(200))
+    status = Column(String(20), nullable=False, default="active")  # active, fully_claimed, expired
+    purchased_invoice_no = Column(String(200))  # Invoice where voucher was purchased
+    claimed_date = Column(TIMESTAMP)  # When fully claimed
+    claimed_invoice_no = Column(String(200))  # Invoice where fully claimed
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    
+    # Relationship to track usage history
+    usages = relationship("VoucherUsage", back_populates="voucher", cascade="all, delete-orphan")
+
+
+class VoucherUsage(Base):
+    """Track voucher usage per invoice (supports partial redemptions)"""
+    __tablename__ = "voucher_usage"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    voucher_id = Column(Integer, ForeignKey("customer_gift_voucher.id"), nullable=False)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
+    amount_used = Column(Numeric(60, 2), nullable=False)
+    used_date = Column(TIMESTAMP, nullable=False)
+    
+    voucher = relationship("CustomerGiftVoucher", back_populates="usages")
+    invoice = relationship("Invoice")
 
 
 
