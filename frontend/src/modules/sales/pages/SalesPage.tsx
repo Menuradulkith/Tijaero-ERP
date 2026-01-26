@@ -646,18 +646,18 @@ export default function SalesPage() {
     // Calculate total voucher payment from all applied vouchers
     let totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
     
-    let total = subtotal - couponDiscount; // Apply coupon discount first
-
+    // Amount after coupon and voucher
+    let amountAfterCouponAndVoucher = subtotal - couponDiscount - totalVoucherPayment;
+    
+    // Apply service charge on the amount that will be charged to the card (after coupon and voucher)
     if (paymentMethod === "card_amex") {
-      serviceCharge = total * 0.03; // 3% for Amex (on discounted amount)
-      total = total + serviceCharge;
+      serviceCharge = amountAfterCouponAndVoucher * 0.03; // 3% for Amex
     } else if (paymentMethod === "card_visa" || paymentMethod === "card_mastercard") {
-      serviceCharge = total * 0.027; // 2.7% for Visa/Mastercard (on discounted amount)
-      total = total + serviceCharge;
+      serviceCharge = amountAfterCouponAndVoucher * 0.027; // 2.7% for Visa/Mastercard
     }
 
-    // Remaining amount after voucher payment
-    const amountAfterVoucher = Math.max(0, total - totalVoucherPayment);
+    // Final amount to pay (amount after coupon/voucher + service charge)
+    const amountAfterVoucher = Math.max(0, amountAfterCouponAndVoucher + serviceCharge);
 
     const invoiceData: InvoiceCreate = {
       ...(state.formData as InvoiceCreate),
@@ -961,50 +961,53 @@ export default function SalesPage() {
     setVoucherError(null);
   };
 
-  // Auto-revalidate coupon when line items change
+  // Auto-revalidate coupon when line items change (with debouncing)
   useEffect(() => {
-    if (couponValidation && couponCode && lineItems.length > 0 && state.formData.customer_id) {
-      // Silently revalidate the coupon in the background
-      const revalidateCoupon = async () => {
-        try {
-          const subtotal = calculateLineItemsTotal();
-          const productIds = lineItems.map(item => item.product_id);
-
-          const response = await couponsApi.validate({
-            coupon_code: couponCode.trim(),
-            customer_id: state.formData.customer_id!,
-            invoice_subtotal: subtotal,
-            product_ids: productIds,
-            line_items: lineItems.map(item => ({
-              product_id: item.product_id,
-              quantity: item.quantity,
-              selling_price: item.selling_price,
-            })),
-          });
-
-          if (response.valid) {
-            setCouponValidation(response);
-            setCouponError(null);
-          } else {
-            // Coupon is no longer valid, clear it
-            setCouponValidation(null);
-            setCouponError(response.message);
-            showErrorToast(`Coupon no longer valid: ${response.message}`);
-          }
-        } catch (error: any) {
-          console.error("Coupon revalidation error:", error);
-          setCouponValidation(null);
-          setCouponError("Coupon validation failed");
-        }
-      };
-
-      revalidateCoupon();
-    } else if (couponValidation && lineItems.length === 0) {
-      // Clear coupon if all items removed
-      setCouponValidation(null);
-      setCouponError("No items in invoice");
+    if (!couponValidation || !couponCode || lineItems.length === 0 || !state.formData.customer_id) {
+      if (couponValidation && lineItems.length === 0) {
+        // Clear coupon if all items removed
+        setCouponValidation(null);
+        setCouponError("No items in invoice");
+      }
+      return;
     }
-  }, [lineItems, couponCode, couponValidation, state.formData.customer_id]);
+
+    // Debounce the revalidation to avoid excessive API calls
+    const timeoutId = setTimeout(async () => {
+      try {
+        const subtotal = calculateLineItemsTotal();
+        const productIds = lineItems.map(item => item.product_id);
+
+        const response = await couponsApi.validate({
+          coupon_code: couponCode.trim(),
+          customer_id: state.formData.customer_id!,
+          invoice_subtotal: subtotal,
+          product_ids: productIds,
+          line_items: lineItems.map(item => ({
+            product_id: item.product_id,
+            quantity: item.quantity,
+            selling_price: item.selling_price,
+          })),
+        });
+
+        if (response.valid) {
+          setCouponValidation(response);
+          setCouponError(null);
+        } else {
+          // Coupon is no longer valid, clear it
+          setCouponValidation(null);
+          setCouponError(response.message);
+          showErrorToast(`Coupon no longer valid: ${response.message}`);
+        }
+      } catch (error: any) {
+        console.error("Coupon revalidation error:", error);
+        setCouponValidation(null);
+        setCouponError("Coupon validation failed");
+      }
+    }, 500); // Wait 500ms after last change before revalidating
+
+    return () => clearTimeout(timeoutId);
+  }, [lineItems.length, couponCode, state.formData.customer_id]); // Only trigger on length change, not full array
 
   // Handle view invoice details
   const handleViewDetails = () => {
@@ -1092,7 +1095,7 @@ export default function SalesPage() {
         </FormSection>
 
         {/* Dates & Payment */}
-        <FormSection title="Dates & Payment" columns={3}>
+        <FormSection title="Dates & Payment" columns={2}>
           <TextField
             label="Order Date"
             size="small"
@@ -1103,12 +1106,6 @@ export default function SalesPage() {
             label="Credit Amount"
             size="small"
             value={`Rs. ${(state.selectedItem?.credit_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            disabled
-          />
-          <TextField
-            label="Cash Amount"
-            size="small"
-            value={`Rs. ${(state.selectedItem?.cash_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             disabled
           />
         </FormSection>
@@ -1205,6 +1202,21 @@ export default function SalesPage() {
                       </TableCell>
                     </TableRow>
                   )}
+                  {/* Gift Voucher Payment Row */}
+                  {fullInvoice.gift_voucher_amount > 0 && (
+                    <TableRow sx={{ bgcolor: "info.lighter" }}>
+                      <TableCell colSpan={5} align="right">
+                        <Typography fontWeight="medium" color="info.main">
+                          Voucher Payment:
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="medium" color="info.main">
+                          -{fullInvoice.gift_voucher_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {/* Service Charge Row - Only for card payments */}
                   {(fullInvoice.payment_method === "card_amex" ||
                     fullInvoice.payment_method === "card_visa" ||
@@ -1223,42 +1235,15 @@ export default function SalesPage() {
                         </TableCell>
                       </TableRow>
                     )}
-                  <TableRow sx={{ bgcolor: "grey.100" }}>
-                    <TableCell colSpan={5} align="right">
-                      <Typography fontWeight="bold" fontSize="1rem">
-                        Grand Total:
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight="bold" fontSize="1rem">
-                        {(fullInvoice.grand_total || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                  {/* Gift Voucher Payment Row */}
-                  {fullInvoice.gift_voucher_amount > 0 && (
-                    <TableRow sx={{ bgcolor: "info.lighter" }}>
-                      <TableCell colSpan={5} align="right">
-                        <Typography fontWeight="medium" color="info.main">
-                          Gift Voucher Payment:
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="medium" color="info.main">
-                          -{fullInvoice.gift_voucher_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
                   <TableRow sx={{ bgcolor: "success.lighter" }}>
                     <TableCell colSpan={5} align="right">
                       <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
-                        Amount Paid:
+                        Grand Total (Amount Paid):
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
-                        {((fullInvoice.grand_total || 0) - (fullInvoice.gift_voucher_amount || 0)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {(fullInvoice.grand_total || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -1882,9 +1867,10 @@ export default function SalesPage() {
                             {(() => {
                               const subtotal = calculateLineItemsTotal();
                               const couponDiscount = couponValidation?.calculated_discount || 0;
-                              const afterCoupon = subtotal - couponDiscount;
+                              const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                              const afterCouponAndVoucher = subtotal - couponDiscount - totalVoucherPayment;
                               const rate = state.formData.payment_method === "card_amex" ? 0.03 : 0.027;
-                              return (afterCoupon * rate).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                              return (afterCouponAndVoucher * rate).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                             })()}
                           </Typography>
                         </TableCell>
@@ -1901,14 +1887,15 @@ export default function SalesPage() {
                         {(() => {
                           const subtotal = calculateLineItemsTotal();
                           const couponDiscount = couponValidation?.calculated_discount || 0;
-                          const afterCoupon = subtotal - couponDiscount;
+                          const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                          const afterCouponAndVoucher = subtotal - couponDiscount - totalVoucherPayment;
                           let serviceCharge = 0;
                           if (state.formData.payment_method === "card_amex") {
-                            serviceCharge = afterCoupon * 0.03;
+                            serviceCharge = afterCouponAndVoucher * 0.03;
                           } else if (state.formData.payment_method === "card_visa" || state.formData.payment_method === "card_mastercard") {
-                            serviceCharge = afterCoupon * 0.027;
+                            serviceCharge = afterCouponAndVoucher * 0.027;
                           }
-                          return (afterCoupon + serviceCharge).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                          return (afterCouponAndVoucher + serviceCharge).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                         })()}
                       </Typography>
                     </TableCell>
@@ -1946,16 +1933,15 @@ export default function SalesPage() {
                           {(() => {
                             const subtotal = calculateLineItemsTotal();
                             const couponDiscount = couponValidation?.calculated_discount || 0;
-                            const afterCoupon = subtotal - couponDiscount;
+                            const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                            const afterCouponAndVoucher = subtotal - couponDiscount - totalVoucherPayment;
                             let serviceCharge = 0;
                             if (state.formData.payment_method === "card_amex") {
-                              serviceCharge = afterCoupon * 0.03;
+                              serviceCharge = afterCouponAndVoucher * 0.03;
                             } else if (state.formData.payment_method === "card_visa" || state.formData.payment_method === "card_mastercard") {
-                              serviceCharge = afterCoupon * 0.027;
+                              serviceCharge = afterCouponAndVoucher * 0.027;
                             }
-                            const grandTotal = afterCoupon + serviceCharge;
-                            const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
-                            const amountToPay = Math.max(0, grandTotal - totalVoucherPayment);
+                            const amountToPay = afterCouponAndVoucher + serviceCharge;
                             return amountToPay.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                           })()}
                         </Typography>

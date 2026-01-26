@@ -258,24 +258,38 @@ class SalesService:
         elif discount_amount > 0:
             calculated_discount = discount_amount
         
-        # Amount after coupon discount (used for service charge calculation)
-        amount_after_coupon = Decimal(str(subtotal)) - coupon_amount
+        # Get voucher payment amount first (needed for service charge calculation)
+        gift_voucher_id = getattr(invoice_data, 'gift_voucher_id', None)
+        gift_voucher_amount = Decimal(str(getattr(invoice_data, 'gift_voucher_amount', 0) or 0))
         
-        # Calculate service charges for card payments (on amount AFTER coupon discount)
+        # Check for multiple voucher redemptions
+        voucher_redemptions = getattr(invoice_data, 'voucher_redemptions', []) or []
+        total_voucher_amount = Decimal("0")
+        if voucher_redemptions:
+            # Use total from multiple vouchers
+            total_voucher_amount = sum(Decimal(str(r.amount_to_redeem)) for r in voucher_redemptions)
+        elif gift_voucher_amount > 0:
+            # Use legacy single voucher
+            total_voucher_amount = gift_voucher_amount
+        
+        # Amount after coupon and voucher (base for service charge)
+        amount_after_coupon_and_voucher = Decimal(str(subtotal)) - coupon_amount - total_voucher_amount
+        
+        # Calculate service charges for card payments (on amount AFTER coupon AND voucher)
         service_charge_rate = Decimal("0")
         service_charge_amount = Decimal("0")
         if payment_method == "card_amex":
             service_charge_rate = Decimal("0.03")  # 3% for Amex
-            service_charge_amount = amount_after_coupon * service_charge_rate
+            service_charge_amount = amount_after_coupon_and_voucher * service_charge_rate
         elif payment_method in ["card_visa", "card_mastercard"]:
             service_charge_rate = Decimal("0.027")  # 2.7% for Visa/Mastercard
-            service_charge_amount = amount_after_coupon * service_charge_rate
+            service_charge_amount = amount_after_coupon_and_voucher * service_charge_rate
         
         # Calculate tax amount
         tax_amount = Decimal(str(subtotal)) * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
         
-        # Calculate grand total: subtotal - coupon - other_discount + tax + service_charge
-        grand_total = Decimal(str(subtotal)) - coupon_amount - calculated_discount + tax_amount + service_charge_amount
+        # Calculate grand total: subtotal - coupon - voucher - other_discount + tax + service_charge
+        grand_total = Decimal(str(subtotal)) - coupon_amount - total_voucher_amount - calculated_discount + tax_amount + service_charge_amount
 
         # Validate credit status for credit sales (warning-only, approval required)
         if is_credit_payment:
@@ -310,25 +324,13 @@ class SalesService:
         invoice_dict['grand_total'] = float(grand_total)
         invoice_dict['credit_amount'] = float(grand_total) if is_credit_payment else 0
         
-        # Handle voucher payment - calculate total voucher amount
-        gift_voucher_id = getattr(invoice_data, 'gift_voucher_id', None)
-        gift_voucher_amount = Decimal(str(getattr(invoice_data, 'gift_voucher_amount', 0) or 0))
-        
-        # Check for multiple voucher redemptions
-        voucher_redemptions = getattr(invoice_data, 'voucher_redemptions', []) or []
-        total_voucher_amount = Decimal("0")
-        if voucher_redemptions:
-            # Use total from multiple vouchers
-            total_voucher_amount = sum(Decimal(str(r.amount_to_redeem)) for r in voucher_redemptions)
-        elif gift_voucher_amount > 0:
-            # Use legacy single voucher
-            total_voucher_amount = gift_voucher_amount
-        
+        # Set voucher fields (already calculated above)
         invoice_dict['gift_voucher_id'] = gift_voucher_id
         invoice_dict['gift_voucher_amount'] = float(total_voucher_amount)
         
-        # Adjust grand total for voucher (voucher reduces amount due)
-        amount_after_voucher = grand_total - total_voucher_amount
+        # Amount after voucher is already included in grand_total
+        amount_after_voucher = grand_total
+
         if amount_after_voucher < 0:
             amount_after_voucher = Decimal("0")
         
