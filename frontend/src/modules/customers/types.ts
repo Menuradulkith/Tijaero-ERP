@@ -242,6 +242,8 @@ export interface CouponValidationRequest {
   coupon_code: string;
   customer_id: number;
   invoice_subtotal: number;
+  invoice_discount_type?: 'percent' | 'amount';
+  invoice_discount_value?: number;
   product_ids?: number[];
   category_ids?: number[];
   line_items?: Array<{

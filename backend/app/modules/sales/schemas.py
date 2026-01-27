@@ -9,6 +9,8 @@ class InvoiceItemBase(BaseModel):
     minimum_selling_price: float = Field(..., ge=0)
     warrenty_month: str = Field(..., max_length=30)
     barcode: Optional[str] = None
+    discount_percent: Optional[float] = Field(default=0, ge=0, le=100)
+    discount_amount: Optional[float] = Field(default=0, ge=0)
 
 class InvoiceItemCreate(InvoiceItemBase):
     pass
@@ -17,6 +19,7 @@ class InvoiceItem(InvoiceItemBase):
     id: int
     invoice_id: int
     created_date: datetime
+    line_total: Optional[float] = 0
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -222,3 +225,41 @@ class InvoicePaymentHistory(BaseModel):
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+
+# Bank Transfer Confirmation Schemas
+class PendingBankTransfer(BaseModel):
+    id: int
+    invoice_no: str
+    customer_id: int
+    customer_name: str
+    branch_code: str
+    bank_transfer_amount: float
+    bank_transfer_ref: Optional[str] = None
+    bank_name: Optional[str] = None
+    grand_total: float
+    created_date: datetime
+    created_by_name: Optional[str] = None
+    bank_transfer_status: str
+    bank_transfer_verified_by_name: Optional[str] = None
+    bank_transfer_verified_at: Optional[datetime] = None
+    bank_transfer_rejection_reason: Optional[str] = None
+    items: Optional[List[InvoiceItem]] = []
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BankTransferConfirmRequest(BaseModel):
+    action: str = Field(..., description="'verify' or 'reject'")
+    rejection_reason: Optional[str] = None
+
+
+class BankTransferRejectRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class BankTransferConfirmResponse(BaseModel):
+    success: bool
+    message: str
+    invoice_no: str
+    status: str

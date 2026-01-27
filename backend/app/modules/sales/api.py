@@ -369,3 +369,78 @@ def get_invoice_payment_history(
     Get payment history for a credit invoice showing all settlement transactions.
     """
     return service.sales_service.get_invoice_payment_history(db, invoice_id)
+
+
+# Bank Transfer Confirmation Endpoints
+@router.get(
+    "/bank-transfers/pending",
+    response_model=List[schemas.PendingBankTransfer],
+    summary="Get Pending Bank Transfers",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_pending_bank_transfers(
+    branch_code: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
+):
+    """Get all invoices pending bank transfer verification."""
+    return service.sales_service.get_pending_bank_transfers(db, branch_code, user_branches)
+
+
+@router.post(
+    "/{invoice_id}/bank-transfer/confirm",
+    response_model=schemas.BankTransferConfirmResponse,
+    summary="Confirm/Reject Bank Transfer",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def confirm_bank_transfer(
+    invoice_id: int,
+    request: schemas.BankTransferConfirmRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """
+    Confirm (verify) or reject a bank transfer payment.
+    - verify: Marks the bank transfer as verified and completes the sale
+    - reject: Marks the bank transfer as rejected and cancels the order
+    """
+    return service.sales_service.confirm_bank_transfer(
+        db, invoice_id, request.action, current_user.id, request.rejection_reason
+    )
+
+
+@router.post(
+    "/{invoice_id}/bank-transfer/verify",
+    response_model=schemas.BankTransferConfirmResponse,
+    summary="Verify Bank Transfer",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def verify_bank_transfer(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """Verify (approve) a bank transfer payment. Marks as verified and completes the sale."""
+    return service.sales_service.confirm_bank_transfer(
+        db, invoice_id, "verify", current_user.id, None
+    )
+
+
+@router.post(
+    "/{invoice_id}/bank-transfer/reject",
+    response_model=schemas.BankTransferConfirmResponse,
+    summary="Reject Bank Transfer",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def reject_bank_transfer(
+    invoice_id: int,
+    request: schemas.BankTransferRejectRequest = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """Reject a bank transfer payment. Marks as rejected and cancels the order."""
+    reason = request.reason if request else None
+    return service.sales_service.confirm_bank_transfer(
+        db, invoice_id, "reject", current_user.id, reason
+    )

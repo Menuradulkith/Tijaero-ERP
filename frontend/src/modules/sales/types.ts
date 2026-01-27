@@ -8,6 +8,8 @@ export interface InvoiceItem {
   barcode?: string;
   invoice_id: number;
   created_date: string;
+  discount_percent?: number;
+  discount_amount?: number;
 }
 
 export interface InvoiceItemCreate {
@@ -16,6 +18,8 @@ export interface InvoiceItemCreate {
   selling_price: number;
   minimum_selling_price: number;
   warrenty_month: string;
+  discount_percent?: number;
+  discount_amount?: number;
 }
 
 export interface Invoice {
