@@ -176,3 +176,18 @@ def get_customer_credit_notes(customer_id: int, db: Session = Depends(get_db)):
     """Get all credit notes for a customer"""
     credit_note_service = service.CustomerCreditNoteService(db)
     return credit_note_service.get_customer_credit_notes(customer_id)
+
+@router.get("/customers/{customer_id}/credit-balance")
+def get_customer_credit_balance(customer_id: int, db: Session = Depends(get_db)):
+    """Get customer's available credit note balance"""
+    credit_note_service = service.CustomerCreditNoteService(db)
+    available_balance = credit_note_service.get_customer_credit_balance(customer_id)
+    return {"customer_id": customer_id, "available_credit_balance": available_balance}
+
+@router.get("/customers/{customer_id}/credit-balance")
+def get_customer_credit_balance(customer_id: int, db: Session = Depends(get_db)):
+    """Get customer's available credit note balance"""
+    credit_note_service = service.CustomerCreditNoteService(db)
+    balance = credit_note_service.get_customer_credit_balance(customer_id)
+    return {"customer_id": customer_id, "available_credit_balance": balance}
+

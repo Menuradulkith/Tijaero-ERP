@@ -118,3 +118,4 @@ def get_payroll_report(
         show_signatures=show_signatures,
         custom_remarks=custom_remarks
     )
+

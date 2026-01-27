@@ -14,6 +14,8 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import DeleteIcon from "@mui/icons-material/Delete";
+import PrintIcon from "@mui/icons-material/Print";
+import ReceiptIcon from "@mui/icons-material/Receipt";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
     Alert,
@@ -54,6 +56,7 @@ import {
     SelectableListItem,
     SortOption,
     TConfirmDialog,
+    TPrintPreviewDialog,
     TStatusChip,
     getStatusProps,
     modernTableStyles,
@@ -166,6 +169,10 @@ export default function SaleReturnsPage() {
     const [barcodeInput, setBarcodeInput] = useState("");
     const barcodeInputRef = useRef<HTMLInputElement>(null);
     const [invoiceItems, setInvoiceItems] = useState<InvoiceWithItems["items"] | null>(null);
+
+    // Print Dialog State
+    const [printDialogOpen, setPrintDialogOpen] = useState(false);
+    const [selectedReturnForPrint, setSelectedReturnForPrint] = useState<SaleReturn | null>(null);
 
     const {
         searchQuery,
@@ -635,6 +642,25 @@ export default function SaleReturnsPage() {
                 }}
             />
 
+            {/* Credit Note Print Button - Show for processed returns */}
+            {selectedReturn && selectedReturn.status === 'processed' && !isCreating && !isEditing && (
+                <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+                    <Button
+                        variant="contained"
+                        color="primary"
+                        startIcon={<PrintIcon />}
+                        onClick={() => {
+                            setSelectedReturnForPrint(selectedReturn);
+                            setPrintDialogOpen(true);
+                        }}
+                        fullWidth
+                    >
+                        <ReceiptIcon sx={{ mr: 1 }} />
+                        View & Print Credit Note
+                    </Button>
+                </Box>
+            )}
+
             <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
                 {!selectedReturn && !isCreating ? (
                     <EmptyState message="Select a sale return from the list or create a new one" />
@@ -1060,6 +1086,20 @@ export default function SaleReturnsPage() {
             />
             <ConfirmDialog {...confirmDialog.dialogProps} />
             <TConfirmDialog {...deleteDialog2.dialogProps} confirmText="Delete" confirmColor="error" />
+            
+            {/* Print Preview Dialog */}
+            {selectedReturnForPrint && (
+                <TPrintPreviewDialog
+                    open={printDialogOpen}
+                    onClose={() => {
+                        setPrintDialogOpen(false);
+                        setSelectedReturnForPrint(null);
+                    }}
+                    documentType="credit-note"
+                    documentId={selectedReturnForPrint.id}
+                    title={`Print Credit Note: ${selectedReturnForPrint.sale_return_no}`}
+                />
+            )}
         </>
     );
 }

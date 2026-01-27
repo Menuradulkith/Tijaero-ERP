@@ -591,6 +591,102 @@ class DocumentReportService:
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
+    def generate_credit_note_report(
+        self, 
+        sale_return_id: int,
+        show_header: bool = True,
+        show_signatures: bool = True,
+        custom_remarks: Optional[str] = None
+    ) -> str:
+        """Generate a credit note report for a sale return."""
+        from app.modules.sales.models import SaleReturn, SaleReturnItems
+        
+        sale_return = self.db.query(SaleReturn).options(
+            joinedload(SaleReturn.items),
+            joinedload(SaleReturn.invoice)
+        ).filter(SaleReturn.id == sale_return_id).first()
+        
+        if not sale_return:
+            raise HTTPException(status_code=404, detail=f"Sale Return #{sale_return_id} not found")
+        
+        # Only generate credit note for processed returns
+        if sale_return.status != "processed":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Credit note can only be generated for processed returns. Current status: {sale_return.status}"
+            )
+        
+        company = self._get_company_info()
+        customer = self._get_customer_info(sale_return.invoice.customer_id) if sale_return.invoice else {}
+        branch = self._get_branch_info(sale_return.branch_code)
+        
+        # Get processed by user name
+        processed_by_name = None
+        if sale_return.processed_by:
+            from app.auth.models import User
+            user = self.db.query(User).filter(User.id == sale_return.processed_by).first()
+            if user:
+                processed_by_name = f"{user.first_name} {user.last_name}".strip() or user.username
+        
+        items = []
+        subtotal = 0
+        
+        for item in sale_return.items:
+            product = self.db.query(Product).filter(Product.id == item.product_id).first()
+            
+            quantity = item.quantity or 1
+            return_price = float(item.return_price or 0)
+            total_amount = quantity * return_price
+            
+            items.append({
+                "product_id": item.product_id,
+                "product_name": product.name if product else f"Product #{item.product_id}",
+                "barcode": item.barcode,
+                "quantity": quantity,
+                "sold_price": float(item.sold_price or 0),
+                "return_price": return_price,
+                "condition": item.condition or "good",
+                "restockable": item.restockable,
+                "total_amount": total_amount
+            })
+            
+            subtotal += total_amount
+
+        template = self.env.get_template("credit_note.html")
+        return template.render(
+            company=company,
+            credit_note={
+                "id": sale_return.id,
+                "sale_return_no": sale_return.sale_return_no,
+                "added_date": str(sale_return.added_date) if sale_return.added_date else "",
+                "status": sale_return.status or "pending",
+                "branch_code": sale_return.branch_code,
+                "return_reason": sale_return.return_reason,
+                "remark": sale_return.remark,
+                "payment_method": sale_return.payment_method or "credit_note",
+                "refund_date": str(sale_return.refund_date) if sale_return.refund_date else None,
+                "refund_reference": sale_return.refund_reference,
+                "processed_by_name": processed_by_name
+            },
+            invoice={
+                "invoice_no": sale_return.invoice.invoice_no if sale_return.invoice else "N/A"
+            },
+            customer=customer,
+            branch=branch,
+            items=items,
+            totals={
+                "subtotal": subtotal,
+                "tax_refund": float(sale_return.tax_refund or 0),
+                "total_refund": float(sale_return.total_refund or 0)
+            },
+            options={
+                "show_header": show_header,
+                "show_signatures": show_signatures,
+                "custom_remarks": custom_remarks
+            },
+            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+
 def get_document_report_service(db: Session) -> DocumentReportService:
 
     return DocumentReportService(db)

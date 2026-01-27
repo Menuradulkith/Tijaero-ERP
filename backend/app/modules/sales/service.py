@@ -331,18 +331,41 @@ class SalesService:
         # Step 5: After voucher
         after_voucher = after_tax - total_voucher_amount
         
-        # Step 6: Calculate service charges for card payments (on amount after voucher)
+        # Step 6: Credit note redemption
+        credit_note_amount = Decimal(str(getattr(invoice_data, 'credit_note_amount', 0) or 0))
+        if credit_note_amount > 0:
+            # Validate customer has sufficient credit balance
+            from app.modules.finance.service import CustomerCreditNoteService
+            credit_service = CustomerCreditNoteService(db)
+            available_balance = Decimal(str(credit_service.get_customer_credit_balance(invoice_data.customer_id)))
+            
+            if credit_note_amount > available_balance:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Insufficient credit balance. Available: Rs. {available_balance:.2f}, Requested: Rs. {credit_note_amount:.2f}"
+                )
+            
+            # Credit note cannot exceed amount due
+            if credit_note_amount > after_voucher:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Credit note amount (Rs. {credit_note_amount:.2f}) cannot exceed invoice amount (Rs. {after_voucher:.2f})"
+                )
+        
+        after_credit_note = after_voucher - credit_note_amount
+        
+        # Step 7: Calculate service charges for card payments (on remaining amount after credit note)
         service_charge_rate = Decimal("0")
         service_charge_amount = Decimal("0")
         if payment_method == "card_amex":
             service_charge_rate = Decimal("0.03")  # 3% for Amex
-            service_charge_amount = after_voucher * service_charge_rate
+            service_charge_amount = after_credit_note * service_charge_rate
         elif payment_method in ["card_visa", "card_mastercard"]:
             service_charge_rate = Decimal("0.027")  # 2.7% for Visa/Mastercard
-            service_charge_amount = after_voucher * service_charge_rate
+            service_charge_amount = after_credit_note * service_charge_rate
         
-        # Step 7: Calculate grand total
-        grand_total = after_voucher + service_charge_amount
+        # Step 8: Calculate grand total (remaining amount to pay)
+        grand_total = after_credit_note + service_charge_amount
 
         # Validate credit status for credit sales (warning-only, approval required)
         if is_credit_payment:
@@ -381,18 +404,24 @@ class SalesService:
         invoice_dict['gift_voucher_id'] = gift_voucher_id
         invoice_dict['gift_voucher_amount'] = float(total_voucher_amount)
         
-        # Amount after voucher is already included in grand_total
+        # Set credit note amount
+        invoice_dict['credit_note_amount'] = float(credit_note_amount)
+        
+        # Amount after voucher and credit note is in grand_total
         amount_after_voucher = grand_total
 
         if amount_after_voucher < 0:
             amount_after_voucher = Decimal("0")
+        
+        # Total amount prepaid (voucher + credit note)
+        total_prepaid = total_voucher_amount + credit_note_amount
         
         # Set payment tracking fields
         if is_credit_payment:
             # Credit payment - needs approval, unpaid until settled
             invoice_dict['approval'] = False
             invoice_dict['approval_status'] = "pending_approval"
-            invoice_dict['paid_amount'] = float(total_voucher_amount)  # Only voucher is paid upfront
+            invoice_dict['paid_amount'] = float(total_prepaid)  # Voucher + credit note paid
             invoice_dict['balance_due'] = float(amount_after_voucher)
             invoice_dict['payment_status'] = "unpaid" if amount_after_voucher > 0 else "paid"
         elif payment_method == "bank_transfer":
@@ -400,7 +429,7 @@ class SalesService:
             invoice_dict['approval'] = False
             invoice_dict['approval_status'] = "pending_bank_verification"
             invoice_dict['bank_transfer_status'] = "pending_verification"
-            invoice_dict['paid_amount'] = float(total_voucher_amount)  # Only voucher is paid upfront
+            invoice_dict['paid_amount'] = float(total_prepaid)  # Voucher + credit note paid
             invoice_dict['balance_due'] = float(amount_after_voucher)
             invoice_dict['payment_status'] = "pending"
         else:

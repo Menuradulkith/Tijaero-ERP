@@ -172,3 +172,22 @@ def get_quotation_report(
         show_signatures=show_signatures,
         custom_remarks=custom_remarks
     )
+
+
+@router.get("/documents/credit-note/{sale_return_id}", response_class=HTMLResponse)
+def get_credit_note_report(
+    sale_return_id: int,
+    show_header: bool = Query(True),
+    show_signatures: bool = Query(True),
+    custom_remarks: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Generate a credit note report for a processed sale return."""
+    from app.reporting.document_reports import get_document_report_service
+    report_service = get_document_report_service(db)
+    return report_service.generate_credit_note_report(
+        sale_return_id,
+        show_header=show_header,
+        show_signatures=show_signatures,
+        custom_remarks=custom_remarks
+    )

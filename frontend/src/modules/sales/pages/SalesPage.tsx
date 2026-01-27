@@ -170,6 +170,11 @@ export default function SalesPage() {
   }>>([]);
   const [voucherError, setVoucherError] = useState<string | null>(null);
 
+  // Credit Note state
+  const [creditNoteAmount, setCreditNoteAmount] = useState(0);
+  const [availableCreditBalance, setAvailableCreditBalance] = useState(0);
+  const [isLoadingCreditBalance, setIsLoadingCreditBalance] = useState(false);
+
   // Payment details state for different payment methods
   const [paymentDetails, setPaymentDetails] = useState({
     // Cheque payment details
@@ -241,6 +246,30 @@ export default function SalesPage() {
     queryFn: () => customersApi.getCreditSummary(selectedCustomerId as number),
     enabled: !!selectedCustomerId && selectedCustomerId > 0 && (state.isCreating || state.isEditing),
   });
+
+  // Fetch customer credit balance
+  useEffect(() => {
+    const fetchCreditBalance = async () => {
+      if (!selectedCustomerId || selectedCustomerId <= 0) {
+        setAvailableCreditBalance(0);
+        return;
+      }
+      
+      setIsLoadingCreditBalance(true);
+      try {
+        const response = await fetch(`/api/v1/finance/customers/${selectedCustomerId}/credit-balance`);
+        const data = await response.json();
+        setAvailableCreditBalance(data.available_credit_balance || 0);
+      } catch (error) {
+        console.error("Error fetching credit balance:", error);
+        setAvailableCreditBalance(0);
+      } finally {
+        setIsLoadingCreditBalance(false);
+      }
+    };
+
+    fetchCreditBalance();
+  }, [selectedCustomerId]);
 
   // Fetch recent sales for selected customer (last 5 from any branch)
   const { data: recentCustomerSales, isLoading: loadingRecentSales } = useQuery({
@@ -503,6 +532,8 @@ export default function SalesPage() {
     setVoucherCode("");
     setAppliedVouchers([]);
     setVoucherError(null);
+    // Reset credit note state
+    setCreditNoteAmount(0);
     // Reset discount and tax state
     setDiscountType("percent");
     setDiscountValue(0);
@@ -744,16 +775,20 @@ export default function SalesPage() {
     const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
     const afterVoucher = afterTax - totalVoucherPayment;
     
-    // Service charge for card payments (on remaining amount after voucher)
+    // Credit note redemption (limited to available balance and remaining amount)
+    const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
+    const afterCreditNote = afterVoucher - appliedCreditNote;
+    
+    // Service charge for card payments (on remaining amount after credit note)
     let serviceCharge = 0;
     if (paymentMethod === "card_amex") {
-      serviceCharge = afterVoucher * 0.03; // 3% for Amex
+      serviceCharge = afterCreditNote * 0.03; // 3% for Amex
     } else if (paymentMethod === "card_visa" || paymentMethod === "card_mastercard") {
-      serviceCharge = afterVoucher * 0.027; // 2.7% for Visa/Mastercard
+      serviceCharge = afterCreditNote * 0.027; // 2.7% for Visa/Mastercard
     }
 
-    // Final amount to pay
-    const grandTotal = Math.max(0, afterVoucher + serviceCharge);
+    // Final amount to pay (remaining balance)
+    const grandTotal = Math.max(0, afterCreditNote + serviceCharge);
 
     const invoiceData: InvoiceCreate = {
       ...(state.formData as InvoiceCreate),
@@ -776,6 +811,8 @@ export default function SalesPage() {
         cupon_id: couponValidation.coupon_id,
         cupon_amount: couponDiscount,
       }),
+      // Credit note redemption
+      credit_note_amount: appliedCreditNote,
       // Gift voucher payment fields - send as array for multiple vouchers
       ...(appliedVouchers.length > 0 && totalVoucherPayment > 0 && {
         gift_voucher_id: appliedVouchers[0].validation.voucher_id, // Legacy field
@@ -2159,6 +2196,36 @@ export default function SalesPage() {
                       <TableCell />
                     </TableRow>
                   )}
+                  {/* Credit Note Payment Row - Only if applied */}
+                  {creditNoteAmount > 0 && (
+                    <TableRow sx={{ bgcolor: "success.lighter" }}>
+                      <TableCell colSpan={8} align="right">
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                          <ReceiptIcon fontSize="small" color="success" />
+                          <Typography fontWeight="medium" color="success.dark">
+                            Credit Note Applied:
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="medium" color="success.dark">
+                          -{Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, (() => {
+                            const subtotal = calculateLineItemsTotal();
+                            const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                            const afterInvoiceDiscount = subtotal - invoiceDiscount;
+                            const couponDiscount = couponValidation?.calculated_discount || 0;
+                            const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                            const taxRate = parseFloat(state.formData.tax_rate?.toString() || "0");
+                            const taxAmount = afterDiscount * (taxRate / 100);
+                            const afterTax = afterDiscount + taxAmount;
+                            const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                            return afterTax - totalVoucherPayment;
+                          })())).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+                  )}
                   {/* Service Charge Row - Only for card payments */}
                   {(state.formData.payment_method === "card_amex" ||
                     state.formData.payment_method === "card_visa" ||
@@ -2187,9 +2254,12 @@ export default function SalesPage() {
                               // Voucher
                               const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
                               const afterVoucher = afterTax - totalVoucherPayment;
-                              // Service charge on remaining amount
+                              // Credit note
+                              const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
+                              const afterCreditNote = afterVoucher - appliedCreditNote;
+                              // Service charge on remaining amount after credit note
                               const rate = state.formData.payment_method === "card_amex" ? 0.03 : 0.027;
-                              return (afterVoucher * rate).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                              return (afterCreditNote * rate).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                             })()}
                           </Typography>
                         </TableCell>
@@ -2663,6 +2733,95 @@ export default function SalesPage() {
                     </Typography>
                   </Box>
                 </Box>
+              )}
+            </Paper>
+          )}
+
+          {/* Credit Note Payment Section */}
+          {lineItems.length > 0 && selectedCustomerId && selectedCustomerId > 0 && (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                mb: 2,
+                bgcolor: creditNoteAmount > 0 ? "success.50" : "grey.50",
+                borderColor: creditNoteAmount > 0 ? "success.main" : "divider",
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                <ReceiptIcon color={creditNoteAmount > 0 ? "success" : "action"} />
+                <Typography variant="subtitle2" fontWeight="bold">
+                  Apply Credit Note Balance
+                </Typography>
+                {isLoadingCreditBalance && <CircularProgress size={16} />}
+              </Box>
+
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
+                Available Balance: Rs. {availableCreditBalance.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Typography>
+
+              {availableCreditBalance > 0 ? (
+                <Box>
+                  <TextField
+                    size="small"
+                    label="Credit Note Amount to Apply"
+                    type="number"
+                    fullWidth
+                    value={creditNoteAmount}
+                    onChange={(e) => {
+                      const inputValue = parseFloat(e.target.value) || 0;
+                      // Calculate remaining invoice amount
+                      const subtotal = calculateLineItemsTotal();
+                      const couponDiscount = couponValidation?.calculated_discount || 0;
+                      const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                      const afterDiscount = subtotal - invoiceDiscount - couponDiscount;
+                      const taxRate = parseFloat(state.formData.tax_rate?.toString() || "0");
+                      const taxAmount = afterDiscount * (taxRate / 100);
+                      const afterTax = afterDiscount + taxAmount;
+                      const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                      const afterVoucher = afterTax - totalVoucherPayment;
+                      
+                      // Max is minimum of: available balance or remaining invoice amount
+                      const maxAllowed = Math.min(availableCreditBalance, Math.max(0, afterVoucher));
+                      const value = Math.min(inputValue, maxAllowed);
+                      
+                      setCreditNoteAmount(Math.max(0, value));
+                    }}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                      inputProps: { 
+                        min: 0, 
+                        max: availableCreditBalance,
+                        step: 0.01 
+                      },
+                    }}
+                    helperText={`Max: Rs. ${Math.min(
+                      availableCreditBalance,
+                      Math.max(0, (() => {
+                        const subtotal = calculateLineItemsTotal();
+                        const couponDiscount = couponValidation?.calculated_discount || 0;
+                        const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                        const afterDiscount = subtotal - invoiceDiscount - couponDiscount;
+                        const taxRate = parseFloat(state.formData.tax_rate?.toString() || "0");
+                        const taxAmount = afterDiscount * (taxRate / 100);
+                        const afterTax = afterDiscount + taxAmount;
+                        const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                        return afterTax - totalVoucherPayment;
+                      })())
+                    ).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                  />
+                  {creditNoteAmount > 0 && (
+                    <Box sx={{ mt: 2, p: 1, bgcolor: "success.lighter", borderRadius: 1, textAlign: "right" }}>
+                      <Typography variant="body2" color="success.dark" fontWeight="bold">
+                        Credit Note Applied: Rs. {creditNoteAmount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No credit balance available for this customer
+                </Typography>
               )}
             </Paper>
           )}
