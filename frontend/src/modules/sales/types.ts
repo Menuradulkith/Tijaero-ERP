@@ -105,6 +105,8 @@ export interface InvoiceCreate {
   // Coupon/discount code
   cupon_id?: number;
   cupon_amount?: number;
+  // Credit note redemption
+  credit_note_amount?: number;
   // Gift voucher (legacy single voucher)
   gift_voucher_id?: number;
   gift_voucher_amount?: number;

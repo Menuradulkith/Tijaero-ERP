@@ -57,6 +57,8 @@ class InvoiceBase(BaseModel):
     # Coupon/Discount code fields
     cupon_id: Optional[int] = None
     cupon_amount: float = Field(default=0, ge=0)
+    # Credit note redemption
+    credit_note_amount: float = Field(default=0, ge=0)
     # Gift voucher payment fields (legacy single voucher support)
     gift_voucher_id: Optional[int] = None
     gift_voucher_amount: float = Field(default=0, ge=0)

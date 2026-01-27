@@ -80,6 +80,8 @@ class Invoice(Base, TimestampMixin):
     gift_voucher_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Amount redeemed from gift voucher
     cupon_id = Column(Integer, ForeignKey("customer_cupon_codes.id"))
     cupon_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Coupon discount amount
+    credit_note_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Credit note redeemed amount
+    
     approval_id = Column(Integer, ForeignKey("approvals.id"))
 
     # Source tracking - for invoices converted from quotes/proforma

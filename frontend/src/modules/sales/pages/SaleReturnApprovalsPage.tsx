@@ -28,6 +28,8 @@ import {
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import PrintIcon from "@mui/icons-material/Print";
+import ReceiptIcon from "@mui/icons-material/Receipt";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
@@ -43,6 +45,7 @@ import {
     RETURN_STATUS_FILTER_OPTIONS,
     getStatusProps,
     SortOption,
+    TPrintPreviewDialog,
     showSuccessToast,
     showErrorToast,
     modernTableStyles,
@@ -72,6 +75,10 @@ export default function SaleReturnApprovalsPage() {
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
     const [rejectReason, setRejectReason] = useState("");
     const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
+
+    // Print Dialog State
+    const [printDialogOpen, setPrintDialogOpen] = useState(false);
+    const [selectedReturnForPrint, setSelectedReturnForPrint] = useState<SaleReturn | null>(null);
 
     // Fetch returns
     const { data: returns = [], isLoading, refetch } = useQuery({
@@ -392,6 +399,25 @@ export default function SaleReturnApprovalsPage() {
                 </Box>
             )}
 
+            {/* Credit Note Print Button - Show for processed returns */}
+            {selectedReturn && selectedReturn.status === 'processed' && (
+                <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+                    <Button
+                        variant="contained"
+                        color="primary"
+                        startIcon={<PrintIcon />}
+                        onClick={() => {
+                            setSelectedReturnForPrint(selectedReturn);
+                            setPrintDialogOpen(true);
+                        }}
+                        fullWidth
+                    >
+                        <ReceiptIcon sx={{ mr: 1 }} />
+                        View & Print Credit Note
+                    </Button>
+                </Box>
+            )}
+
             <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
                 {!selectedReturn ? (
                     <EmptyState message="Select a sale return from the list to review" />
@@ -585,13 +611,29 @@ export default function SaleReturnApprovalsPage() {
     );
 
     return (
-        <MasterDetailLayout
-            title="Sale Return Approvals"
-            icon={<FactCheckIcon color="primary" />}
-            onRefresh={() => refetch()}
-            isLoading={isLoading}
-            masterPanel={masterPanel}
-            detailPanel={detailPanel}
-        />
+        <>
+            <MasterDetailLayout
+                title="Sale Return Approvals"
+                icon={<FactCheckIcon color="primary" />}
+                onRefresh={() => refetch()}
+                isLoading={isLoading}
+                masterPanel={masterPanel}
+                detailPanel={detailPanel}
+            />
+            
+            {/* Print Preview Dialog */}
+            {selectedReturnForPrint && (
+                <TPrintPreviewDialog
+                    open={printDialogOpen}
+                    onClose={() => {
+                        setPrintDialogOpen(false);
+                        setSelectedReturnForPrint(null);
+                    }}
+                    documentType="credit-note"
+                    documentId={selectedReturnForPrint.id}
+                    title={`Print Credit Note: ${selectedReturnForPrint.sale_return_no}`}
+                />
+            )}
+        </>
     );
 }

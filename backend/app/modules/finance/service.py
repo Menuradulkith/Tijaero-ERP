@@ -134,3 +134,32 @@ class CustomerCreditNoteService:
     
     def get_customer_credit_notes(self, customer_id: int) -> List[CustomerCreditNotes]:
         return self.repo.get_by_customer(customer_id)
+    
+    def get_customer_credit_balance(self, customer_id: int) -> float:
+        """
+        Calculate customer's available credit note balance.
+        Total credit issued minus credit already redeemed.
+        """
+        from sqlalchemy import func
+        from app.modules.sales.models import Invoice
+        
+        db = self.repo.db
+        
+        # Sum of all credit notes issued to customer
+        total_credit_issued = db.query(
+            func.coalesce(func.sum(CustomerCreditNotes.amount), 0)
+        ).filter(
+            CustomerCreditNotes.customer_id == customer_id
+        ).scalar() or 0
+        
+        # Sum of credit notes already redeemed in invoices
+        total_credit_redeemed = db.query(
+            func.coalesce(func.sum(Invoice.credit_note_amount), 0)
+        ).filter(
+            Invoice.customer_id == customer_id,
+            Invoice.status == True
+        ).scalar() or 0
+        
+        available_balance = float(total_credit_issued) - float(total_credit_redeemed)
+        return max(0, available_balance)
+
