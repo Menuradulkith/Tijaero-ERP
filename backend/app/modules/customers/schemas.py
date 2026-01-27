@@ -233,6 +233,8 @@ class CouponValidationRequest(BaseModel):
     coupon_code: str
     customer_id: int
     invoice_subtotal: Decimal
+    invoice_discount_type: Optional[str] = Field(default=None, description="'percent' or 'amount'")
+    invoice_discount_value: Optional[Decimal] = Field(default=0, description="Invoice discount percentage or amount")
     product_ids: Optional[List[int]] = Field(default=[], description="List of product IDs in invoice")
     category_ids: Optional[List[int]] = Field(default=[], description="List of category IDs in invoice")
     line_items: Optional[List[LineItemForCoupon]] = Field(default=[], description="Line items with quantities and prices")

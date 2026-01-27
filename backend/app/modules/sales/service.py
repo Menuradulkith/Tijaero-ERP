@@ -211,11 +211,35 @@ class SalesService:
             )
     
     def create_invoice(self, db: Session, invoice_data: schemas.InvoiceCreate, user_id: int):
-        # Calculate subtotal from items
-        subtotal = sum(
-            item.quantity * item.selling_price 
-            for item in invoice_data.items
-        )
+        # Calculate subtotal from items (after item-level discounts)
+        subtotal = Decimal("0")
+        gross_total = Decimal("0")
+        for item in invoice_data.items:
+            item_gross = Decimal(str(item.quantity)) * Decimal(str(item.selling_price))
+            gross_total += item_gross
+            item_discount_percent = Decimal(str(getattr(item, 'discount_percent', 0) or 0))
+            item_discount = item_gross * (item_discount_percent / 100)
+            subtotal += (item_gross - item_discount)
+        
+        # Get discount parameters for combined validation
+        # New Flow: Item Discount → Invoice Discount → Coupon → Tax → Voucher → Service Charge
+        coupon_amount = Decimal(str(getattr(invoice_data, 'cupon_amount', 0) or 0))
+        discount_percent = Decimal(str(getattr(invoice_data, 'discount_percent', 0) or 0))
+        discount_amount_input = Decimal(str(getattr(invoice_data, 'discount_amount', 0) or 0))
+        
+        # Calculate invoice discount percentage (percentage takes priority, then fixed amount)
+        # Invoice discount is applied on subtotal (after item discounts)
+        invoice_discount_percent = Decimal("0")
+        if discount_percent > 0:
+            invoice_discount_percent = discount_percent
+        elif discount_amount_input > 0 and subtotal > 0:
+            invoice_discount_percent = (discount_amount_input / subtotal * 100)
+        
+        # Calculate amount after invoice discount for coupon percentage
+        after_invoice_discount = subtotal * (1 - invoice_discount_percent / 100)
+        
+        # Calculate coupon discount as percentage (applied after invoice discount)
+        coupon_discount_percent = (coupon_amount / after_invoice_discount * 100) if after_invoice_discount > 0 else Decimal("0")
         
         # Validate all products are available in sales stock before creating invoice
         for item_data in invoice_data.items:
@@ -226,6 +250,24 @@ class SalesService:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Selling price ({item_data.selling_price}) cannot be less than minimum price ({item_data.minimum_selling_price}) for product ID {item_data.product_id}"
+                )
+            
+            # Validate effective price after ALL discounts (item + coupon + invoice) is not below minimum price
+            item_discount_percent = Decimal(str(getattr(item_data, 'discount_percent', 0) or 0))
+            
+            # Step 1: Apply item discount
+            price_after_item_discount = Decimal(str(item_data.selling_price)) * (Decimal('1') - item_discount_percent / Decimal('100'))
+            
+            # Step 2: Apply invoice discount (proportionally)
+            price_after_invoice_discount = price_after_item_discount * (Decimal('1') - invoice_discount_percent / Decimal('100'))
+            
+            # Step 3: Apply coupon discount (proportionally)
+            effective_price = price_after_invoice_discount * (Decimal('1') - coupon_discount_percent / Decimal('100'))
+            
+            if effective_price < Decimal(str(item_data.minimum_selling_price)):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Effective price after all discounts ({float(effective_price):.2f}) cannot be less than minimum price ({item_data.minimum_selling_price}) for product ID {item_data.product_id}"
                 )
         
         # Extract payment details before creating invoice dict
@@ -242,23 +284,37 @@ class SalesService:
         is_credit_payment = payment_method == "credit"
         credit_validation = None
         
-        # Calculate tax and discount (from invoice data if provided)
+        # Calculate tax rate (discount values already calculated above)
         tax_rate = Decimal(str(getattr(invoice_data, 'tax_rate', 0) or 0))
-        discount_percent = Decimal(str(getattr(invoice_data, 'discount_percent', 0) or 0))
-        discount_amount = Decimal(str(getattr(invoice_data, 'discount_amount', 0) or 0))
         
-        # Get coupon discount (separate from percentage discount)
+        # Get coupon ID for storage
         coupon_id = getattr(invoice_data, 'cupon_id', None)
-        coupon_amount = Decimal(str(getattr(invoice_data, 'cupon_amount', 0) or 0))
         
-        # Calculate discount (percentage takes priority, then fixed amount)
+        # Calculation Order:
+        # 1. Subtotal (after item discounts)
+        # 2. Invoice Discount (-)
+        # 3. Coupon Discount (-)
+        # 4. Tax (+)
+        # 5. Voucher Payment (-)
+        # 6. Service Charge (+)
+        # 7. Grand Total
+        
+        # Step 2: Calculate invoice discount (percentage takes priority, then fixed amount)
         calculated_discount = Decimal("0")
         if discount_percent > 0:
-            calculated_discount = Decimal(str(subtotal)) * (discount_percent / 100)
-        elif discount_amount > 0:
-            calculated_discount = discount_amount
+            calculated_discount = Decimal(str(subtotal)) * (discount_percent / Decimal('100'))
+        elif discount_amount_input > 0:
+            calculated_discount = discount_amount_input
+        after_invoice_discount_calc = Decimal(str(subtotal)) - calculated_discount
         
-        # Get voucher payment amount first (needed for service charge calculation)
+        # Step 3: After coupon (applied after invoice discount)
+        after_discount = after_invoice_discount_calc - coupon_amount
+        
+        # Step 4: Calculate tax amount (on amount after discounts)
+        tax_amount = after_discount * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
+        after_tax = after_discount + tax_amount
+        
+        # Get voucher payment amount
         gift_voucher_id = getattr(invoice_data, 'gift_voucher_id', None)
         gift_voucher_amount = Decimal(str(getattr(invoice_data, 'gift_voucher_amount', 0) or 0))
         
@@ -272,24 +328,21 @@ class SalesService:
             # Use legacy single voucher
             total_voucher_amount = gift_voucher_amount
         
-        # Amount after coupon and voucher (base for service charge)
-        amount_after_coupon_and_voucher = Decimal(str(subtotal)) - coupon_amount - total_voucher_amount
+        # Step 5: After voucher
+        after_voucher = after_tax - total_voucher_amount
         
-        # Calculate service charges for card payments (on amount AFTER coupon AND voucher)
+        # Step 6: Calculate service charges for card payments (on amount after voucher)
         service_charge_rate = Decimal("0")
         service_charge_amount = Decimal("0")
         if payment_method == "card_amex":
             service_charge_rate = Decimal("0.03")  # 3% for Amex
-            service_charge_amount = amount_after_coupon_and_voucher * service_charge_rate
+            service_charge_amount = after_voucher * service_charge_rate
         elif payment_method in ["card_visa", "card_mastercard"]:
             service_charge_rate = Decimal("0.027")  # 2.7% for Visa/Mastercard
-            service_charge_amount = amount_after_coupon_and_voucher * service_charge_rate
+            service_charge_amount = after_voucher * service_charge_rate
         
-        # Calculate tax amount
-        tax_amount = Decimal(str(subtotal)) * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
-        
-        # Calculate grand total: subtotal - coupon - voucher - other_discount + tax + service_charge
-        grand_total = Decimal(str(subtotal)) - coupon_amount - total_voucher_amount - calculated_discount + tax_amount + service_charge_amount
+        # Step 7: Calculate grand total
+        grand_total = after_voucher + service_charge_amount
 
         # Validate credit status for credit sales (warning-only, approval required)
         if is_credit_payment:
@@ -342,8 +395,16 @@ class SalesService:
             invoice_dict['paid_amount'] = float(total_voucher_amount)  # Only voucher is paid upfront
             invoice_dict['balance_due'] = float(amount_after_voucher)
             invoice_dict['payment_status'] = "unpaid" if amount_after_voucher > 0 else "paid"
+        elif payment_method == "bank_transfer":
+            # Bank transfer - needs verification by finance manager
+            invoice_dict['approval'] = False
+            invoice_dict['approval_status'] = "pending_bank_verification"
+            invoice_dict['bank_transfer_status'] = "pending_verification"
+            invoice_dict['paid_amount'] = float(total_voucher_amount)  # Only voucher is paid upfront
+            invoice_dict['balance_due'] = float(amount_after_voucher)
+            invoice_dict['payment_status'] = "pending"
         else:
-            # Cash/Card/Cheque/Bank Transfer - auto-approved and fully paid
+            # Cash/Card/Cheque - auto-approved and fully paid
             invoice_dict['approval'] = True
             invoice_dict['approval_status'] = "completed"
             invoice_dict['paid_amount'] = float(grand_total)  # Full grand total is paid (voucher + payment method)
@@ -463,16 +524,21 @@ class SalesService:
                     
                     # Update stock status based on approval status
                     if invoice_dict['approval_status'] == 'completed':
-                        # Cash/Card/Cheque/Bank orders - mark as sold immediately
+                        # Cash/Card/Cheque orders - mark as sold immediately
                         stock_item.status = 'sold'
                         stock_item.is_active = False
-                    elif invoice_dict['approval_status'] == 'pending_approval':
-                        # Credit orders - reserve stock until approved
+                    elif invoice_dict['approval_status'] in ['pending_approval', 'pending_bank_verification']:
+                        # Credit orders or bank transfers - reserve stock until approved/verified
                         stock_item.status = 'reserved'
             
-            # Calculate line total
-            line_total = item_dict['quantity'] * item_dict['selling_price']
-            item_dict['line_total'] = line_total
+            # Calculate line total with item discount
+            gross_line_total = Decimal(str(item_dict['quantity'])) * Decimal(str(item_dict['selling_price']))
+            item_discount_percent = Decimal(str(item_dict.get('discount_percent', 0) or 0))
+            item_discount_amount = gross_line_total * (item_discount_percent / Decimal('100'))
+            item_dict['discount_percent'] = float(item_discount_percent)
+            item_dict['discount_amount'] = float(item_discount_amount)
+            line_total = gross_line_total - item_discount_amount
+            item_dict['line_total'] = float(line_total)
             
             item = InvoiceItems(**item_dict)
             db.add(item)
@@ -1457,5 +1523,191 @@ class SalesService:
         
         # Return in descending order (most recent first)
         return list(reversed(history))
+
+    def get_pending_bank_transfers(
+        self, 
+        db: Session, 
+        branch_code: Optional[str] = None,
+        user_branches: Optional[List[str]] = None
+    ):
+        """Get all invoices with bank transfer payments (all statuses)."""
+        from app.auth.models import User
+        
+        query = db.query(Invoice).filter(
+            Invoice.payment_method == "bank_transfer"
+        )
+        
+        # Apply branch filter
+        if user_branches:
+            query = query.filter(Invoice.branch_code.in_(user_branches))
+        elif branch_code:
+            query = query.filter(Invoice.branch_code == branch_code)
+        
+        invoices = query.order_by(Invoice.created_date.desc()).all()
+        
+        result = []
+        for inv in invoices:
+            # Get customer name
+            customer_name = inv.customer.customer_name if inv.customer else "Unknown"
+            
+            # Get created by user name
+            created_by_name = None
+            if inv.sale_rep_id:
+                user = db.query(User).filter(User.id == inv.sale_rep_id).first()
+                if user:
+                    created_by_name = f"{user.first_name} {user.last_name}".strip() or user.username
+            
+            # Get items
+            items = []
+            for item in inv.items:
+                items.append({
+                    "id": item.id,
+                    "product_id": item.product_id,
+                    "quantity": item.quantity,
+                    "selling_price": float(item.selling_price),
+                    "minimum_selling_price": float(item.minimum_selling_price),
+                    "warrenty_month": item.warrenty_month,
+                    "barcode": item.barcode,
+                    "discount_percent": float(item.discount_percent or 0),
+                    "discount_amount": float(item.discount_amount or 0),
+                    "line_total": float(item.line_total or 0),
+                    "invoice_id": item.invoice_id,
+                    "created_date": item.created_date
+                })
+            
+            # Get verified by user name
+            verified_by_name = None
+            if inv.bank_transfer_verified_by:
+                verified_user = db.query(User).filter(User.id == inv.bank_transfer_verified_by).first()
+                if verified_user:
+                    verified_by_name = f"{verified_user.first_name} {verified_user.last_name}".strip() or verified_user.username
+            
+            result.append({
+                "id": inv.id,
+                "invoice_no": inv.invoice_no,
+                "customer_id": inv.customer_id,
+                "customer_name": customer_name,
+                "branch_code": inv.branch_code,
+                "bank_transfer_amount": float(inv.bank_transfer_amount),
+                "bank_transfer_ref": inv.bank_transfer.remarks if inv.bank_transfer else None,
+                "bank_name": inv.bank_transfer.bank_name if inv.bank_transfer else None,
+                "grand_total": float(inv.grand_total),
+                "created_date": inv.created_date_time,
+                "created_by_name": created_by_name,
+                "bank_transfer_status": inv.bank_transfer_status,
+                "bank_transfer_verified_by_name": verified_by_name,
+                "bank_transfer_verified_at": inv.bank_transfer_verified_date,
+                "bank_transfer_rejection_reason": inv.bank_transfer_rejection_reason,
+                "items": items
+            })
+        
+        return result
+
+    def confirm_bank_transfer(
+        self, 
+        db: Session, 
+        invoice_id: int, 
+        action: str, 
+        user_id: int,
+        rejection_reason: Optional[str] = None
+    ):
+        """Confirm (verify) or reject a bank transfer payment."""
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+        
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Invoice not found"
+            )
+        
+        if invoice.payment_method != "bank_transfer":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invoice is not a bank transfer payment"
+            )
+        
+        if invoice.bank_transfer_status != "pending_verification":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Bank transfer is not pending verification. Current status: {invoice.bank_transfer_status}"
+            )
+        
+        if action == "verify":
+            # Mark as verified and complete the sale
+            invoice.bank_transfer_status = "verified"
+            invoice.bank_transfer_verified_by = user_id
+            invoice.bank_transfer_verified_date = datetime.now()
+            invoice.approval = True
+            invoice.approval_status = "completed"
+            invoice.paid_amount = float(invoice.grand_total)
+            invoice.balance_due = 0
+            invoice.payment_status = "paid"
+            
+            # Mark bank deposit as verified
+            if invoice.bank_transfer:
+                invoice.bank_transfer.verified = True
+            
+            # Mark reserved stock as sold
+            for item in invoice.items:
+                if item.sales_stock_id:
+                    stock_item = db.query(SalesStock).filter(
+                        SalesStock.id == item.sales_stock_id
+                    ).first()
+                    if stock_item and stock_item.status == 'reserved':
+                        stock_item.status = 'sold'
+                        stock_item.is_active = False
+            
+            db.commit()
+            db.refresh(invoice)
+            
+            return {
+                "success": True,
+                "message": f"Bank transfer verified. Sales order {invoice.invoice_no} is now complete.",
+                "invoice_no": invoice.invoice_no,
+                "status": "completed"
+            }
+        
+        elif action == "reject":
+            if not rejection_reason:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Rejection reason is required"
+                )
+            
+            # Mark as rejected and cancel the order
+            invoice.bank_transfer_status = "rejected"
+            invoice.bank_transfer_verified_by = user_id
+            invoice.bank_transfer_verified_date = datetime.now()
+            invoice.bank_transfer_rejection_reason = rejection_reason
+            invoice.approval = False
+            invoice.approval_status = "cancelled"
+            invoice.payment_status = "cancelled"
+            invoice.status = False
+            
+            # Release reserved stock back to available
+            for item in invoice.items:
+                if item.sales_stock_id:
+                    stock_item = db.query(SalesStock).filter(
+                        SalesStock.id == item.sales_stock_id
+                    ).first()
+                    if stock_item and stock_item.status == 'reserved':
+                        stock_item.status = 'available'
+                        stock_item.is_active = True
+            
+            db.commit()
+            db.refresh(invoice)
+            
+            return {
+                "success": True,
+                "message": f"Bank transfer rejected. Sales order {invoice.invoice_no} has been cancelled.",
+                "invoice_no": invoice.invoice_no,
+                "status": "cancelled"
+            }
+        
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid action. Use 'verify' or 'reject'."
+            )
 
 sales_service = SalesService()

@@ -277,6 +277,7 @@ class CouponService:
             restricted_product_ids = [coupon.limit_validity_product_id]
         
         # Calculate the applicable subtotal (excluding restricted products)
+        # This is the subtotal AFTER item discounts but BEFORE invoice discount
         applicable_subtotal = Decimal("0")
         
         if restricted_product_ids:
@@ -309,11 +310,22 @@ class CouponService:
                     message=f"Minimum invoice amount is Rs. {coupon.minimum_invoice_amount}"
                 )
         
-        # Calculate discount on applicable subtotal only
+        # Apply invoice discount first (following correct flow: Item Discount → Invoice Discount → Coupon)
+        invoice_discount_amount = Decimal("0")
+        if request.invoice_discount_type and request.invoice_discount_value:
+            if request.invoice_discount_type == "percent":
+                invoice_discount_amount = (applicable_subtotal * Decimal(str(request.invoice_discount_value))) / 100
+            else:  # amount
+                invoice_discount_amount = Decimal(str(request.invoice_discount_value))
+        
+        # Amount after invoice discount (this is the base for coupon calculation)
+        amount_after_invoice_discount = applicable_subtotal - invoice_discount_amount
+        
+        # Calculate coupon discount on amount AFTER invoice discount
         if coupon.discount_type == "PERCENT":
-            calculated_discount = (applicable_subtotal * coupon.discount_value) / 100
+            calculated_discount = (amount_after_invoice_discount * coupon.discount_value) / 100
         else:  # AMOUNT
-            calculated_discount = min(coupon.discount_value, applicable_subtotal)
+            calculated_discount = min(coupon.discount_value, amount_after_invoice_discount)
         
         return schemas.CouponValidationResponse(
             valid=True,

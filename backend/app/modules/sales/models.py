@@ -64,6 +64,13 @@ class Invoice(Base, TimestampMixin):
     # Service charges (for card payments)
     service_charge_rate = Column(Numeric(5, 3), nullable=False, default=0)  # e.g., 0.03 for 3%
     service_charge_amount = Column(Numeric(60, 2), nullable=False, default=0)
+    
+    # Bank transfer status tracking
+    bank_transfer_status = Column(String(30), nullable=True)  # pending_verification, verified, rejected
+    bank_transfer_verified_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+    bank_transfer_verified_date = Column(TIMESTAMP, nullable=True)
+    bank_transfer_rejection_reason = Column(Text, nullable=True)
+    
     cheque_payment_id = Column(Integer, ForeignKey("cheque_payments.id"))
     bank_transfer_id = Column(Integer, ForeignKey("bank_deposits.id"))
     credit_payment_id = Column(Integer, ForeignKey("credit_payments.id"))
@@ -87,6 +94,7 @@ class Invoice(Base, TimestampMixin):
         "Customer", foreign_keys=[customer_agent_id], back_populates="agent_invoices"
     )
     sale_rep = relationship("User", foreign_keys=[sale_rep_id])
+    bank_transfer_verifier = relationship("User", foreign_keys=[bank_transfer_verified_by])
     advance_payment = relationship("CustomerAdvancePayments", back_populates="invoices")
     cheque_payment = relationship("ChequePayments", back_populates="invoices")
     bank_transfer = relationship("BankDeposits", back_populates="invoices")
