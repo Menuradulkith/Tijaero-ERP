@@ -300,6 +300,23 @@ def get_return_statistics(
 # Use POST /api/v1/common/approvals/{approval_id}/approve instead
 
 @router.post(
+    "/{invoice_id}/approve",
+    response_model=schemas.InvoiceWithItems,
+    summary="Approve Sales Order",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def approve_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """
+    Approve a sales order.
+    For credit orders, this marks it as approved and completed.
+    """
+    return service.sales_service.approve_invoice(db, invoice_id, current_user.id)
+
+@router.post(
     "/{invoice_id}/complete",
     response_model=schemas.InvoiceWithItems,
     summary="Complete Sales Order",
