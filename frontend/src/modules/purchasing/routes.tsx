@@ -4,12 +4,8 @@ import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
 import PurchaseReturnsPage from "./pages/PurchaseReturnsPage";
 import GoodReceivedNotesPage from "./pages/GoodReceivedNotesPage";
 import PurchasingDashboard from "./pages/PurchasingDashboard";
-// CreditSettlementPage is kept but redirected to unified SupplierPaymentsPage
-// import CreditSettlementPage from "./pages/CreditSettlementPage";
 import POApprovalsPage from "./pages/POApprovalsPage";
 import PurchaseReturnApprovalsPage from "./pages/PurchaseReturnApprovalsPage";
-import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
-import PaymentApprovalsPage from "./pages/PaymentApprovalsPage";
 
 export default function PurchasingRoutes() {
   return (
@@ -21,10 +17,10 @@ export default function PurchasingRoutes() {
       <Route path="grn" element={<GoodReceivedNotesPage />} />
       <Route path="returns" element={<PurchaseReturnsPage />} />
       <Route path="return-approvals" element={<PurchaseReturnApprovalsPage />} />
-      {/* Redirect old settlements route to unified payments page */}
-      <Route path="settlements" element={<Navigate to="/purchasing/payments" replace />} />
-      <Route path="payments" element={<SupplierPaymentsPage />} />
-      <Route path="payment-approvals" element={<PaymentApprovalsPage />} />
+      {/* Redirect old routes to finance module */}
+      <Route path="settlements" element={<Navigate to="/finance/supplier-payments" replace />} />
+      <Route path="payments" element={<Navigate to="/finance/supplier-payments" replace />} />
+      <Route path="payment-approvals" element={<Navigate to="/finance/payment-approvals" replace />} />
     </Routes>
   );
 }
