@@ -1,6 +1,9 @@
 from app.auth.models import Branch, Group, Permission, User
-from app.modules.attendance.models import Attendance, Leaves
+from app.common.attachments import Attachment
+from app.common.audit import AuditLog
 from app.modules.common.models import Approvals, Country, Locations
+from app.common.workflow import WorkflowStep
+from app.modules.attendance.models import Attendance, Leaves
 from app.modules.customers.models import (
     Customer,
     CustomerAdvancePayments,
@@ -28,6 +31,7 @@ from app.modules.finance.models import (
 )
 from app.modules.hr.models import Reimbursements, SalaryDeductions
 from app.modules.inventory.models import CompanyAssets, SalesStock
+from app.modules.marketing.models import AdvanceReceipt, WebPosts
 from app.modules.products.models import Category, ItemsBrand, MinimumPrice, Product
 from app.modules.purchasing.models import (
     GoodReceivedItems,
@@ -40,6 +44,7 @@ from app.modules.purchasing.models import (
     SupplierCreditsSettle,
     SupplierCreditsSettleTransaction,
 )
+from app.modules.reporting.models import Report, ReportExecution
 from app.modules.sales.models import (
     Invoice,
     InvoiceItems,
@@ -48,6 +53,7 @@ from app.modules.sales.models import (
     SaleReturnItems,
 )
 from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
+from app.modules.settings.models import Settings, UserNotification, UserPreferences
 from app.modules.support.models import (
     CSJobItem,
     CustomerCallLog,
@@ -87,4 +93,14 @@ __all__ = [
     "CustomerSupport",
     "Attendance",
     "Country",
+    "WorkflowStep",
+    "Attachment",
+    "AuditLog",
+    "AdvanceReceipt",
+    "WebPosts",
+    "Settings",
+    "UserNotification",
+    "UserPreferences",
+    "Report",
+    "ReportExecution",
 ]
