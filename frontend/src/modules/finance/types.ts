@@ -132,3 +132,68 @@ export interface CustomerCreditNoteCreate {
   remark: string;
   invoice_no?: string;
 }
+
+// Cashbook Types
+export type CashbookEntryType = 
+  | "invoice_receipt"
+  | "customer_credit_settle"
+  | "customer_advance"
+  | "supplier_payment"
+  | "expense"
+  | "bank_deposit"
+  | "adjustment";
+
+export interface CashbookEntry {
+  id: number;
+  entry_type: CashbookEntryType;
+  transaction_date: string;
+  reference_no: string;
+  description: string;
+  party_name?: string;
+  payment_method?: string;
+  money_in: number;
+  money_out: number;
+  running_balance: number;  // Cumulative balance after this transaction
+  branch_code?: string;
+  source_table: string;
+  source_id: number;
+}
+
+export interface CashbookSummary {
+  total_money_in: number;
+  total_money_out: number;
+  net_movement: number;
+  opening_balance: number;
+  closing_balance: number;
+  // Breakdown by type - amounts
+  invoice_receipts: number;
+  customer_credit_settlements: number;
+  customer_advances: number;
+  supplier_payments: number;
+  expenses: number;
+  bank_deposits: number;
+  // Breakdown by type - counts
+  invoice_receipts_count: number;
+  customer_credit_settlements_count: number;
+  customer_advances_count: number;
+  supplier_payments_count: number;
+  expenses_count: number;
+  bank_deposits_count: number;
+}
+
+export interface CashbookReport {
+  entries: CashbookEntry[];
+  summary: CashbookSummary;
+  date_from?: string;
+  date_to?: string;
+  branch_code?: string;
+  entry_count: number;
+}
+
+export interface CashbookFilter {
+  date_from?: string;
+  date_to?: string;
+  branch_code?: string;
+  entry_type?: CashbookEntryType;
+  payment_method?: string;
+}

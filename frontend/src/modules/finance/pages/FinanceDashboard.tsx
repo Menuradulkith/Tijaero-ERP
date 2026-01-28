@@ -11,6 +11,7 @@ import {
 } from "@mui/material";
 import {
   AccountBalance,
+  AccountBalanceWallet,
   CreditCard,
   Receipt,
   TrendingUp,
@@ -39,6 +40,13 @@ export default function FinanceDashboard() {
   const [tabValue, setTabValue] = useState(0);
 
   const modules = [
+    {
+      title: "Cashbook",
+      icon: <AccountBalanceWallet sx={{ fontSize: 40 }} />,
+      description: "View all cash inflows and outflows",
+      path: "/finance/cashbook",
+      color: "#0288d1",
+    },
     {
       title: "Bank Deposits",
       icon: <AccountBalance sx={{ fontSize: 40 }} />,

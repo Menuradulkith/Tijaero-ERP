@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Box, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem } from "@mui/material";
-import { Add as AddIcon, FilterList as FilterIcon } from "@mui/icons-material";
+import { Add as AddIcon } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
 import {
@@ -11,20 +11,26 @@ import {
   showSuccessToast,
   showErrorToast,
   EXPENSES_METHOD,
+  TBranchFilter,
+  TFilterPanel,
 } from "@/components/tijaero";
 import { expensesApi } from "@/modules/finance/api";
 import { ExpenseCreate } from "@/modules/finance/types";
+import { useReferenceData } from "@/hooks";
 
 export default function ExpensesPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
-  const [filterBranch, setFilterBranch] = useState("");
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const { data: expenses, isLoading } = useQuery({
     queryKey: ["expenses", filterBranch],
     queryFn: () =>
       expensesApi.getAll({
-        branch_code: filterBranch || undefined,
+        branch_code: filterBranch ?? undefined,
       }),
   });
 
@@ -100,18 +106,13 @@ export default function ExpensesPage() {
         }
       />
 
-      <Paper sx={{ mb: 2, p: 2 }}>
-        <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-          <FilterIcon />
-          <TextField
-            label="Branch Code"
-            size="small"
-            value={filterBranch}
-            onChange={(e) => setFilterBranch(e.target.value)}
-            sx={{ width: 200 }}
-          />
-        </Box>
-      </Paper>
+      <TFilterPanel>
+        <TBranchFilter
+          branches={branches}
+          value={filterBranch}
+          onChange={setFilterBranch}
+        />
+      </TFilterPanel>
 
       <Paper sx={{ height: 600 }}>
         <DataGrid

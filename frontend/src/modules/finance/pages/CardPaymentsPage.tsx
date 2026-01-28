@@ -20,15 +20,22 @@ import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
 import { cardPaymentsApi } from "@/modules/finance/api";
 import { CardPaymentCreate } from "@/modules/finance/types";
-import { CARD_TYPE } from "@/components/tijaero";
+import { CARD_TYPE, TBranchFilter, TFilterPanel } from "@/components/tijaero";
+import { useReferenceData } from "@/hooks";
 
 export default function CardPaymentsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const { data: payments, isLoading } = useQuery({
-    queryKey: ["card-payments"],
-    queryFn: () => cardPaymentsApi.getAll(),
+    queryKey: ["card-payments", filterBranch],
+    queryFn: () => cardPaymentsApi.getAll({
+      branch_code: filterBranch ?? undefined,
+    }),
   });
 
   const { control, handleSubmit, reset } = useForm<CardPaymentCreate>({
@@ -122,6 +129,14 @@ export default function CardPaymentsPage() {
           Record Payment
         </Button>
       </Box>
+
+      <TFilterPanel>
+        <TBranchFilter
+          branches={branches}
+          value={filterBranch}
+          onChange={setFilterBranch}
+        />
+      </TFilterPanel>
 
       <Paper sx={{ height: 600 }}>
         <DataGrid
