@@ -100,8 +100,6 @@ const menuItems: MenuItem[] = [
       { text: "Good Received Notes", icon: <LocalShippingOutlinedIcon />, path: "/purchasing/grn" },
       { text: "Purchase Returns", icon: <AssignmentReturnIcon />, path: "/purchasing/returns" },
       { text: "Return Approvals", icon: <FactCheckIcon />, path: "/purchasing/return-approvals" },
-      { text: "Supplier Payments", icon: <PaymentIcon />, path: "/purchasing/payments" },
-      { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/purchasing/payment-approvals" },
     ],
   },
   {
@@ -130,6 +128,8 @@ const menuItems: MenuItem[] = [
       { text: "Expenses", icon: <ReceiptLongIcon />, path: "/finance/expenses" },
       { text: "Advance Payments", icon: <PaymentIcon />, path: "/finance/advance-payments" },
       { text: "Credit Notes", icon: <ReceiptIcon />, path: "/finance/credit-notes" },
+      { text: "Supplier Payments", icon: <PaymentIcon />, path: "/finance/supplier-payments" },
+      { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/finance/payment-approvals" },
     ],
   },
   {

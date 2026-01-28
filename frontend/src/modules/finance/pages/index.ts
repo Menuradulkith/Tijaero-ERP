@@ -6,3 +6,5 @@ export { default as ExpensesPage } from "./ExpensesPage";
 export { default as AdvancePaymentsPage } from "./AdvancePaymentsPage";
 export { default as CreditNotesPage } from "./CreditNotesPage";
 export { default as CashbookPage } from "./CashbookPage";
+export { default as SupplierPaymentsPage } from "./SupplierPaymentsPage";
+export { default as PaymentApprovalsPage } from "./PaymentApprovalsPage";

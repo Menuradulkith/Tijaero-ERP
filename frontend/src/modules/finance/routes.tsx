@@ -8,6 +8,8 @@ import AdvancePaymentsPage from "./pages/AdvancePaymentsPage";
 import CreditNotesPage from "./pages/CreditNotesPage";
 import CashbookPage from "./pages/CashbookPage";
 import BankTransferVerifyPage from "./pages/BankTransferVerifyPage";
+import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
+import PaymentApprovalsPage from "./pages/PaymentApprovalsPage";
 
 export default function FinanceRoutes() {
   return (
@@ -21,6 +23,8 @@ export default function FinanceRoutes() {
       <Route path="advance-payments" element={<AdvancePaymentsPage />} />
       <Route path="credit-notes" element={<CreditNotesPage />} />
       <Route path="bank-transfer-verify" element={<BankTransferVerifyPage />} />
+      <Route path="supplier-payments" element={<SupplierPaymentsPage />} />
+      <Route path="payment-approvals" element={<PaymentApprovalsPage />} />
     </Routes>
   );
 }
