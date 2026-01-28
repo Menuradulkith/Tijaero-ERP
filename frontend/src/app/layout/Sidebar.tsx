@@ -1,6 +1,7 @@
 import { hasPermission, PERMISSIONS } from "@/auth/permissions";
 import { useAuthStore } from "@/state/authStore";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
@@ -120,6 +121,16 @@ const menuItems: MenuItem[] = [
     icon: <AccountBalanceIcon />,
     path: "/finance",
     permission: PERMISSIONS.FINANCE_VIEW,
+    subItems: [
+      { text: "Dashboard", icon: <SpeedIcon />, path: "/finance" },
+      { text: "Cashbook", icon: <AccountBalanceWalletIcon />, path: "/finance/cashbook" },
+      { text: "Bank Deposits", icon: <AccountBalanceIcon />, path: "/finance/bank-deposits" },
+      { text: "Card Payments", icon: <PaymentIcon />, path: "/finance/card-payments" },
+      { text: "Cheque Payments", icon: <ReceiptIcon />, path: "/finance/cheque-payments" },
+      { text: "Expenses", icon: <ReceiptLongIcon />, path: "/finance/expenses" },
+      { text: "Advance Payments", icon: <PaymentIcon />, path: "/finance/advance-payments" },
+      { text: "Credit Notes", icon: <ReceiptIcon />, path: "/finance/credit-notes" },
+    ],
   },
   {
     text: "HR",

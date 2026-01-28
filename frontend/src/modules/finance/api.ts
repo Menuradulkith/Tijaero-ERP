@@ -12,6 +12,8 @@ import {
   CustomerAdvancePaymentCreate,
   CustomerCreditNote,
   CustomerCreditNoteCreate,
+  CashbookReport,
+  CashbookFilter,
 } from "./types";
 
 // Bank Deposits API
@@ -57,6 +59,7 @@ export const bankDepositsApi = {
 // Card Payments API
 export const cardPaymentsApi = {
   getAll: async (params?: {
+    branch_code?: string;
     date_from?: string;
     date_to?: string;
     skip?: number;
@@ -88,6 +91,7 @@ export const cardPaymentsApi = {
 // Cheque Payments API
 export const chequePaymentsApi = {
   getAll: async (params?: {
+    branch_code?: string;
     date_from?: string;
     date_to?: string;
     skip?: number;
@@ -144,6 +148,17 @@ export const expensesApi = {
 
 // Customer Advance Payments API
 export const advancePaymentsApi = {
+  getAll: async (params?: {
+    branch_code?: string;
+    customer_id?: number;
+  }) => {
+    const response = await apiClient.get<CustomerAdvancePayment[]>(
+      "/finance/advance-payments",
+      { params }
+    );
+    return response.data;
+  },
+
   getById: async (id: number) => {
     const response = await apiClient.get<CustomerAdvancePayment>(
       `/finance/advance-payments/${id}`
@@ -169,6 +184,16 @@ export const advancePaymentsApi = {
 
 // Customer Credit Notes API
 export const creditNotesApi = {
+  getAll: async (params?: {
+    customer_id?: number;
+  }) => {
+    const response = await apiClient.get<CustomerCreditNote[]>(
+      "/finance/credit-notes",
+      { params }
+    );
+    return response.data;
+  },
+
   getById: async (id: number) => {
     const response = await apiClient.get<CustomerCreditNote>(
       `/finance/credit-notes/${id}`
@@ -188,6 +213,16 @@ export const creditNotesApi = {
     const response = await apiClient.get<CustomerCreditNote[]>(
       `/finance/customers/${customerId}/credit-notes`
     );
+    return response.data;
+  },
+};
+
+// Cashbook API
+export const cashbookApi = {
+  getReport: async (params?: CashbookFilter) => {
+    const response = await apiClient.get<CashbookReport>("/finance/cashbook", {
+      params,
+    });
     return response.data;
   },
 };

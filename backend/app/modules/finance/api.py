@@ -61,6 +61,7 @@ def get_card_payment(payment_id: int, db: Session = Depends(get_db)):
 
 @router.get("/card-payments", response_model=List[schemas.CardPayment])
 def list_card_payments(
+    branch_code: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
@@ -69,6 +70,7 @@ def list_card_payments(
 ):
     payment_service = service.CardPaymentService(db)
     filters = schemas.PaymentListFilter(
+        branch_code=branch_code,
         date_from=date.fromisoformat(date_from) if date_from else None,
         date_to=date.fromisoformat(date_to) if date_to else None,
         skip=skip,
@@ -91,6 +93,7 @@ def get_cheque_payment(payment_id: int, db: Session = Depends(get_db)):
 
 @router.get("/cheque-payments", response_model=List[schemas.ChequePayment])
 def list_cheque_payments(
+    branch_code: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
@@ -99,6 +102,7 @@ def list_cheque_payments(
 ):
     payment_service = service.ChequePaymentService(db)
     filters = schemas.PaymentListFilter(
+        branch_code=branch_code,
         date_from=date.fromisoformat(date_from) if date_from else None,
         date_to=date.fromisoformat(date_to) if date_to else None,
         skip=skip,
@@ -158,6 +162,16 @@ def get_customer_advances(customer_id: int, db: Session = Depends(get_db)):
     advance_service = service.CustomerAdvancePaymentService(db)
     return advance_service.get_customer_advances(customer_id)
 
+@router.get("/advance-payments", response_model=List[schemas.CustomerAdvancePayment])
+def list_all_advance_payments(
+    branch_code: Optional[str] = None,
+    customer_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """List all advance payments with optional branch and customer filters"""
+    advance_service = service.CustomerAdvancePaymentService(db)
+    return advance_service.list_all_advances(branch_code=branch_code, customer_id=customer_id)
+
 @router.post("/credit-notes", response_model=schemas.CustomerCreditNote, status_code=status.HTTP_201_CREATED)
 def create_credit_note(
     credit_note: schemas.CustomerCreditNoteCreate,
@@ -177,6 +191,15 @@ def get_customer_credit_notes(customer_id: int, db: Session = Depends(get_db)):
     credit_note_service = service.CustomerCreditNoteService(db)
     return credit_note_service.get_customer_credit_notes(customer_id)
 
+@router.get("/credit-notes", response_model=List[schemas.CustomerCreditNote])
+def list_all_credit_notes(
+    customer_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """List all credit notes with optional customer filter"""
+    credit_note_service = service.CustomerCreditNoteService(db)
+    return credit_note_service.list_all_credit_notes(customer_id=customer_id)
+
 @router.get("/customers/{customer_id}/credit-balance")
 def get_customer_credit_balance(customer_id: int, db: Session = Depends(get_db)):
     """Get customer's available credit note balance"""
@@ -191,3 +214,69 @@ def get_customer_credit_balance(customer_id: int, db: Session = Depends(get_db))
     balance = credit_note_service.get_customer_credit_balance(customer_id)
     return {"customer_id": customer_id, "available_credit_balance": balance}
 
+
+# =============================================================================
+# CASHBOOK ENDPOINTS
+# =============================================================================
+
+@router.get("/cashbook", response_model=schemas.CashbookReport)
+def get_cashbook(
+    branch_code: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    entry_type: Optional[str] = None,
+    payment_method: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get cashbook report with all cash movements.
+    
+    Money IN sources:
+    - Invoice receipts (cash, cards, bank transfer, cheque)
+    - Customer credit settlements (late payments)
+    - Customer advance payments
+    
+    Money OUT sources:
+    - Supplier credit settlement payments
+    - Expenses
+    - Bank deposits (transfers to bank)
+    
+    Args:
+        branch_code: Filter by branch
+        date_from: Start date (YYYY-MM-DD)
+        date_to: End date (YYYY-MM-DD)
+        entry_type: Filter by entry type (invoice_receipt, customer_credit_settle, 
+                    customer_advance, supplier_payment, expense, bank_deposit)
+        payment_method: Filter by payment method (cash, card, bank, cheque, etc.)
+    """
+    cashbook_service = service.CashbookService(db)
+    
+    filters = schemas.CashbookFilter(
+        branch_code=branch_code,
+        date_from=date.fromisoformat(date_from) if date_from else None,
+        date_to=date.fromisoformat(date_to) if date_to else None,
+        entry_type=entry_type,
+        payment_method=payment_method
+    )
+    
+    return cashbook_service.get_cashbook_report(filters)
+
+
+@router.get("/cashbook/summary", response_model=schemas.CashbookSummary)
+def get_cashbook_summary(
+    branch_code: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get cashbook summary statistics only (without full entry list)"""
+    cashbook_service = service.CashbookService(db)
+    
+    filters = schemas.CashbookFilter(
+        branch_code=branch_code,
+        date_from=date.fromisoformat(date_from) if date_from else None,
+        date_to=date.fromisoformat(date_to) if date_to else None
+    )
+    
+    report = cashbook_service.get_cashbook_report(filters)
+    return report.summary

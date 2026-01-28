@@ -18,14 +18,22 @@ import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
 import { chequePaymentsApi } from "@/modules/finance/api";
 import { ChequePaymentCreate } from "@/modules/finance/types";
+import { TBranchFilter, TFilterPanel } from "@/components/tijaero";
+import { useReferenceData } from "@/hooks";
 
 export default function ChequePaymentsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const { data: payments, isLoading } = useQuery({
-    queryKey: ["cheque-payments"],
-    queryFn: () => chequePaymentsApi.getAll(),
+    queryKey: ["cheque-payments", filterBranch],
+    queryFn: () => chequePaymentsApi.getAll({
+      branch_code: filterBranch ?? undefined,
+    }),
   });
 
   const { control, handleSubmit, reset } = useForm<ChequePaymentCreate>({
@@ -101,6 +109,14 @@ export default function ChequePaymentsPage() {
           Record Cheque
         </Button>
       </Box>
+
+      <TFilterPanel>
+        <TBranchFilter
+          branches={branches}
+          value={filterBranch}
+          onChange={setFilterBranch}
+        />
+      </TFilterPanel>
 
       <Paper sx={{ height: 600 }}>
         <DataGrid

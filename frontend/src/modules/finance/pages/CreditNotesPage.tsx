@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Box, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem } from "@mui/material";
+import { Box, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem, Autocomplete } from "@mui/material";
 import { Add as AddIcon } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
@@ -10,6 +10,7 @@ import {
   TCurrency,
   showSuccessToast,
   showErrorToast,
+  TFilterPanel,
 } from "@/components/tijaero";
 import { creditNotesApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
@@ -28,10 +29,9 @@ export default function CreditNotesPage() {
   const { data: creditNotes, isLoading } = useQuery({
     queryKey: ["credit-notes", selectedCustomer],
     queryFn: () =>
-      selectedCustomer
-        ? creditNotesApi.getCustomerCreditNotes(selectedCustomer)
-        : Promise.resolve([]),
-    enabled: !!selectedCustomer,
+      creditNotesApi.getAll({
+        customer_id: selectedCustomer || undefined,
+      }),
   });
 
   const { control, handleSubmit, reset } = useForm<CustomerCreditNoteCreate>({
@@ -99,20 +99,19 @@ export default function CreditNotesPage() {
         }
       />
 
-      <Paper sx={{ mb: 2, p: 2 }}>
-        <TextField
-          select
-          label="Select Customer"
-          value={selectedCustomer ?? ""}
-          onChange={(e) => setSelectedCustomer(e.target.value ? Number(e.target.value) : null)}
-          sx={{ width: 300 }}
-        >
-          <MenuItem value="">All Customers</MenuItem>
-          {customers?.map((c) => (
-            <MenuItem key={c.id} value={c.id}>{c.customer_name}</MenuItem>
-          ))}
-        </TextField>
-      </Paper>
+      <TFilterPanel>
+        <Autocomplete
+          size="small"
+          options={customers || []}
+          getOptionLabel={(option) => option.customer_name}
+          value={customers?.find((c) => c.id === selectedCustomer) || null}
+          onChange={(_, newValue) => setSelectedCustomer(newValue?.id || null)}
+          renderInput={(params) => (
+            <TextField {...params} label="Filter by Customer" placeholder="All Customers" />
+          )}
+          sx={{ minWidth: 300 }}
+        />
+      </TFilterPanel>
 
       <Paper sx={{ height: 600 }}>
         <DataGrid

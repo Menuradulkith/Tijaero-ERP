@@ -6,11 +6,13 @@ import ChequePaymentsPage from "./pages/ChequePaymentsPage";
 import ExpensesPage from "./pages/ExpensesPage";
 import AdvancePaymentsPage from "./pages/AdvancePaymentsPage";
 import CreditNotesPage from "./pages/CreditNotesPage";
+import CashbookPage from "./pages/CashbookPage";
 
 export default function FinanceRoutes() {
   return (
     <Routes>
       <Route index element={<FinanceDashboard />} />
+      <Route path="cashbook" element={<CashbookPage />} />
       <Route path="bank-deposits" element={<BankDepositsPage />} />
       <Route path="card-payments" element={<CardPaymentsPage />} />
       <Route path="cheque-payments" element={<ChequePaymentsPage />} />

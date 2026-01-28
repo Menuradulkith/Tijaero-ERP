@@ -13,6 +13,7 @@ import {
   Grid,
   MenuItem,
   Chip,
+  Autocomplete,
 } from "@mui/material";
 import { Add as AddIcon } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
@@ -21,12 +22,17 @@ import { toast } from "react-hot-toast";
 import { advancePaymentsApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
 import { CustomerAdvancePaymentCreate } from "@/modules/finance/types";
-import { GENERIC_PAYMENT_METHOD } from "@/components/tijaero";
+import { GENERIC_PAYMENT_METHOD, TBranchFilter, TFilterPanel } from "@/components/tijaero";
+import { useReferenceData } from "@/hooks";
 
 export default function AdvancePaymentsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<number | null>(null);
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const { data: customers } = useQuery({
     queryKey: ["customers"],
@@ -34,12 +40,12 @@ export default function AdvancePaymentsPage() {
   });
 
   const { data: advances, isLoading } = useQuery({
-    queryKey: ["advance-payments", selectedCustomer],
+    queryKey: ["advance-payments", filterBranch, selectedCustomer],
     queryFn: () =>
-      selectedCustomer
-        ? advancePaymentsApi.getCustomerAdvances(selectedCustomer)
-        : Promise.resolve([]),
-    enabled: !!selectedCustomer,
+      advancePaymentsApi.getAll({
+        branch_code: filterBranch ?? undefined,
+        customer_id: selectedCustomer ?? undefined,
+      }),
   });
 
   const { control, handleSubmit, reset } =
@@ -120,22 +126,24 @@ export default function AdvancePaymentsPage() {
         </Button>
       </Box>
 
-      <Paper sx={{ mb: 2, p: 2 }}>
-        <TextField
-          label="Select Customer"
-          select
-          value={selectedCustomer || ""}
-          onChange={(e) => setSelectedCustomer(Number(e.target.value))}
-          sx={{ width: 300 }}
-        >
-          <MenuItem value="">All Customers</MenuItem>
-          {customers?.map((customer) => (
-            <MenuItem key={customer.id} value={customer.id}>
-              {customer.customer_name}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Paper>
+      <TFilterPanel>
+        <TBranchFilter
+          branches={branches}
+          value={filterBranch}
+          onChange={setFilterBranch}
+        />
+        <Autocomplete
+          size="small"
+          options={customers || []}
+          getOptionLabel={(option) => option.customer_name}
+          value={customers?.find((c) => c.id === selectedCustomer) || null}
+          onChange={(_, newValue) => setSelectedCustomer(newValue?.id || null)}
+          renderInput={(params) => (
+            <TextField {...params} label="Filter by Customer" placeholder="All Customers" />
+          )}
+          sx={{ minWidth: 250 }}
+        />
+      </TFilterPanel>
 
       <Paper sx={{ height: 600 }}>
         <DataGrid

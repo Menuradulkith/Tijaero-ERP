@@ -13,32 +13,35 @@ import {
   DialogContent,
   DialogActions,
   Grid,
-  MenuItem,
 } from "@mui/material";
 import {
   Add as AddIcon,
   Visibility as ViewIcon,
   CheckCircle as VerifyIcon,
-  FilterList as FilterIcon,
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "react-hot-toast";
 import { bankDepositsApi } from "@/modules/finance/api";
 import { BankDepositCreate } from "@/modules/finance/types";
+import { TBranchFilter, TFilterPanel, TStatusFilter } from "@/components/tijaero";
+import { useReferenceData } from "@/hooks";
 
 export default function BankDepositsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
-  const [filterBranch, setFilterBranch] = useState("");
-  const [filterVerified, setFilterVerified] = useState<boolean | undefined>();
+  const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterVerified, setFilterVerified] = useState<string | null>(null);
+
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
 
   const { data: deposits, isLoading } = useQuery({
     queryKey: ["bank-deposits", filterBranch, filterVerified],
     queryFn: () =>
       bankDepositsApi.getAll({
-        branch_code: filterBranch || undefined,
-        verified: filterVerified,
+        branch_code: filterBranch ?? undefined,
+        verified: filterVerified === null ? undefined : filterVerified === "verified",
       }),
   });
 
@@ -150,33 +153,23 @@ export default function BankDepositsPage() {
         </Button>
       </Box>
 
-      <Paper sx={{ mb: 2, p: 2 }}>
-        <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-          <FilterIcon />
-          <TextField
-            label="Branch Code"
-            size="small"
-            value={filterBranch}
-            onChange={(e) => setFilterBranch(e.target.value)}
-            sx={{ width: 200 }}
-          />
-          <TextField
-            label="Status"
-            size="small"
-            select
-            value={filterVerified === undefined ? "all" : filterVerified}
-            onChange={(e) => {
-              const val = e.target.value;
-              setFilterVerified(val === "all" ? undefined : val === "true");
-            }}
-            sx={{ width: 150 }}
-          >
-            <MenuItem value="all">All</MenuItem>
-            <MenuItem value="true">Verified</MenuItem>
-            <MenuItem value="false">Pending</MenuItem>
-          </TextField>
-        </Box>
-      </Paper>
+      <TFilterPanel>
+        <TBranchFilter
+          branches={branches}
+          value={filterBranch}
+          onChange={setFilterBranch}
+        />
+        <TStatusFilter
+          options={[
+            { value: null, label: "All" },
+            { value: "verified", label: "Verified" },
+            { value: "pending", label: "Pending" },
+          ]}
+          value={filterVerified}
+          onChange={setFilterVerified}
+          label="Status"
+        />
+      </TFilterPanel>
 
       <Paper sx={{ height: 600 }}>
         <DataGrid

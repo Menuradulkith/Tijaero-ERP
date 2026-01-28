@@ -188,3 +188,82 @@ class PaymentListFilter(BaseModel):
     verified: Optional[bool] = None
     skip: int = 0
     limit: int = 100
+
+
+# =============================================================================
+# CASHBOOK SCHEMAS
+# =============================================================================
+
+class CashbookEntryType(str):
+    """Transaction type for cashbook entries"""
+    INVOICE_RECEIPT = "invoice_receipt"
+    CUSTOMER_CREDIT_SETTLE = "customer_credit_settle"
+    CUSTOMER_ADVANCE = "customer_advance"
+    SUPPLIER_PAYMENT = "supplier_payment"
+    EXPENSE = "expense"
+    BANK_DEPOSIT = "bank_deposit"
+    ADJUSTMENT = "adjustment"
+
+
+class CashbookEntry(BaseModel):
+    """Single cashbook transaction entry"""
+    id: int
+    entry_type: str  # CashbookEntryType value
+    transaction_date: datetime
+    reference_no: str
+    description: str
+    party_name: Optional[str] = None
+    payment_method: Optional[str] = None
+    money_in: Decimal = Decimal("0")
+    money_out: Decimal = Decimal("0")
+    running_balance: Decimal = Decimal("0")  # Cumulative balance after this transaction
+    branch_code: Optional[str] = None
+    source_table: str  # Table name for drill-down
+    source_id: int  # Record ID for drill-down
+
+    class Config:
+        from_attributes = True
+
+
+class CashbookFilter(BaseModel):
+    """Filter criteria for cashbook query"""
+    branch_code: Optional[str] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    entry_type: Optional[str] = None  # Filter by specific entry type
+    payment_method: Optional[str] = None
+
+
+class CashbookSummary(BaseModel):
+    """Summary statistics for cashbook report"""
+    total_money_in: Decimal = Decimal("0")
+    total_money_out: Decimal = Decimal("0")
+    net_movement: Decimal = Decimal("0")
+    opening_balance: Decimal = Decimal("0")
+    closing_balance: Decimal = Decimal("0")
+    
+    # Breakdown by type - amounts
+    invoice_receipts: Decimal = Decimal("0")
+    customer_credit_settlements: Decimal = Decimal("0")
+    customer_advances: Decimal = Decimal("0")
+    supplier_payments: Decimal = Decimal("0")
+    expenses: Decimal = Decimal("0")
+    bank_deposits: Decimal = Decimal("0")
+    
+    # Breakdown by type - counts
+    invoice_receipts_count: int = 0
+    customer_credit_settlements_count: int = 0
+    customer_advances_count: int = 0
+    supplier_payments_count: int = 0
+    expenses_count: int = 0
+    bank_deposits_count: int = 0
+
+
+class CashbookReport(BaseModel):
+    """Complete cashbook report with entries and summary"""
+    entries: List[CashbookEntry]
+    summary: CashbookSummary
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    branch_code: Optional[str] = None
+    entry_count: int = 0
