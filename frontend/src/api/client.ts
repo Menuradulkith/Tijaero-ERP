@@ -1,12 +1,11 @@
-import axios, { AxiosError } from "axios";
 import { useAuthStore } from "@/state/authStore";
+import axios, { AxiosError } from "axios";
 
 // Create axios instance with performance-optimized configuration
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1",
   headers: {
     "Content-Type": "application/json",
-    "Accept-Encoding": "gzip, deflate",
   },
   timeout: 30000,
 });
