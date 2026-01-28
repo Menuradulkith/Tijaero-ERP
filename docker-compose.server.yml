@@ -1,0 +1,45 @@
+services:
+  # Backend API - Server Overrides
+  backend:
+    restart: always
+    environment:
+      # Override CORS for production
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
+    command: >
+      sh -c "
+        echo 'Checking for migrations...' &&
+        if alembic current 2>&1 | grep -q 'Multiple head'; then
+          echo 'Multiple migration heads detected. Please fix migrations manually.' &&
+          exit 1
+        fi &&
+        alembic upgrade head &&
+        echo 'Initializing permissions and groups...' &&
+        python scripts/init_permissions.py &&
+        echo 'Ensuring admin user exists...' &&
+        python scripts/ensure_admin.py &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+    # Remove --reload for production
+    volumes: []
+    # Remove volume mount for production (optional - for security)
+
+  # Frontend - Server Overrides  
+  frontend:
+    restart: always
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+
+  # Database - Server Settings
+  postgres:
+    restart: always
+
+  # Adminer - Server Settings
+  adminer:
+    restart: always
+
+  # pgAdmin - Server Settings
+  pgadmin:
+    restart: always
