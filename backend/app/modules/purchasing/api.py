@@ -78,25 +78,14 @@ def create_purchase_order(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    try:
-        # Validate user has access to the specified branch
-        if not validate_branch_access(current_user, order.branch_code):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied to branch: {order.branch_code}"
-            )
-        order_service = service.PurchasingOrderService(db)
-        return order_service.create_order(order, created_by=current_user.id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        print(f"Error creating purchase order: {str(e)}")
-        print(traceback.format_exc())
+    # Validate user has access to the specified branch
+    if not validate_branch_access(current_user, order.branch_code):
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal Server Error: {str(e)}"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {order.branch_code}"
         )
+    order_service = service.PurchasingOrderService(db)
+    return order_service.create_order(order, created_by=current_user.id)
 
 @router.get("/orders/{order_id}", response_model=schemas.PurchasingOrderWithItems)
 def get_purchase_order(order_id: int, db: Session = Depends(get_db)):
