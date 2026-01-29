@@ -25,9 +25,9 @@ import {
   useMasterDetailState,
   useTConfirmDialog
 } from "@/components/tijaero";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 import {
   Add as AddIcon,
@@ -179,9 +179,9 @@ export default function QuotationsPage() {
   });
 
   // OPTIMIZED: Use aggregated reference data endpoint instead of separate API calls
-  const { data: refData } = useReferenceData(["products", "branches", "customers", "employees"]);
+  const { data: refData, filteredBranches } = useReferenceData(["products", "branches", "customers", "employees"]);
   const products = refData?.products || [];
-  const branches = refData?.branches || [];
+  const branches = filteredBranches || [];
   const customers = refData?.customers || [];
   const employees = refData?.employees || [];
 
@@ -907,7 +907,7 @@ export default function QuotationsPage() {
               <Autocomplete
                 size="small"
                 options={employees || []}
-                getOptionLabel={(option) => option.employee_id}
+                getOptionLabel={(option) => option.full_name || option.employee_id}
                 value={employees?.find((e) => e.id === formData.sale_rep_id) || null}
                 onChange={(_, newValue) => setFormData({ ...formData, sale_rep_id: newValue?.id || 0 })}
                 renderInput={(params) => (
