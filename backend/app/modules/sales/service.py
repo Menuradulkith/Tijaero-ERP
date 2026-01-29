@@ -576,6 +576,10 @@ class SalesService:
             'gift_voucher_id', 'gift_voucher_amount',  # We'll handle voucher separately
             'voucher_redemptions'  # Array field - not stored in Invoice table
         })
+        
+        # Override sale_rep_id with the logged-in user
+        invoice_dict['sale_rep_id'] = user_id
+        
         invoice_dict['created_date'] = date.today()
         invoice_dict['created_date_time'] = datetime.now()
         invoice_dict['status'] = True
