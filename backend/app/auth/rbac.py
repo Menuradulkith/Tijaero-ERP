@@ -42,6 +42,7 @@ class Permissions:
     SALES_UPDATE = ("sales", "update")
     SALES_DELETE = ("sales", "delete")
     SALES_APPROVE = ("sales", "approve")
+    SALES_MANAGE = ("sales", "manage")  # Manage sales settings (payment cards, etc.)
 
     INVENTORY_VIEW = ("inventory", "view")
     INVENTORY_CREATE = ("inventory", "create")

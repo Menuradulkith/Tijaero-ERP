@@ -9,6 +9,8 @@ import {
   SaleReturnWithItems,
   SaleReturnProcessResponse,
   SalesStats,
+  PaginatedInvoices,
+  PaginatedSaleReturns,
 } from "./types";
 
 export const salesApi = {
@@ -72,6 +74,30 @@ export const salesApi = {
     return response.data;
   },
 
+  // OPTIMIZED: Paginated list with server-side filtering
+  getPaginated: async (params: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    branchCode?: string;
+    status?: string;
+    sortBy?: string;
+    sortDesc?: boolean;
+  } = {}) => {
+    const response = await apiClient.get<PaginatedInvoices>("/sales/list", {
+      params: {
+        page: params.page || 1,
+        page_size: params.pageSize || 50,
+        search: params.search || undefined,
+        branch_code: params.branchCode || undefined,
+        status: params.status || undefined,
+        sort_by: params.sortBy || "created_date",
+        sort_desc: params.sortDesc !== false,
+      },
+    });
+    return response.data;
+  },
+
   // OPTIMIZED: Get invoices by customer - now uses server-side filtering
   getByCustomer: async (customerId: number, skip = 0, limit = 100) => {
     const response = await apiClient.get<Invoice[]>(`/sales/by-customer/${customerId}`, {
@@ -113,6 +139,30 @@ export const saleReturnsApi = {
   getAll: async (skip = 0, limit = 100) => {
     const response = await apiClient.get<SaleReturn[]>("/sales/returns/", {
       params: { skip, limit },
+    });
+    return response.data;
+  },
+
+  // OPTIMIZED: Paginated list with server-side filtering
+  getPaginated: async (params: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    branchCode?: string;
+    status?: string;
+    sortBy?: string;
+    sortDesc?: boolean;
+  } = {}) => {
+    const response = await apiClient.get<PaginatedSaleReturns>("/sales/returns/list", {
+      params: {
+        page: params.page || 1,
+        page_size: params.pageSize || 50,
+        search: params.search || undefined,
+        branch_code: params.branchCode || undefined,
+        status: params.status || undefined,
+        sort_by: params.sortBy || "added_date",
+        sort_desc: params.sortDesc !== false,
+      },
     });
     return response.data;
   },
@@ -183,5 +233,40 @@ export const saleReturnsApi = {
       params: { skip, limit },
     });
     return response.data;
+  },
+};
+
+
+// =============================================================================
+// Payment Card Settings API
+// =============================================================================
+
+import { PaymentCard, PaymentCardCreate, PaymentCardUpdate } from "./types";
+
+export const paymentCardsApi = {
+  getAll: async (activeOnly = false) => {
+    const response = await apiClient.get<PaymentCard[]>("/sales/settings/payment-cards", {
+      params: { active_only: activeOnly },
+    });
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<PaymentCard>(`/sales/settings/payment-cards/${id}`);
+    return response.data;
+  },
+
+  create: async (data: PaymentCardCreate) => {
+    const response = await apiClient.post<PaymentCard>("/sales/settings/payment-cards", data);
+    return response.data;
+  },
+
+  update: async (id: number, data: PaymentCardUpdate) => {
+    const response = await apiClient.put<PaymentCard>(`/sales/settings/payment-cards/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/sales/settings/payment-cards/${id}`);
   },
 };

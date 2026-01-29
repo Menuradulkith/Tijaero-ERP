@@ -38,6 +38,49 @@ def get_sales_statistics(
     """Get sales statistics for dashboard."""
     return service.sales_service.get_sales_statistics(db, user_branches)
 
+
+# Optimized paginated list with server-side filtering
+@router.get(
+    "/list",
+    response_model=Dict[str, Any],
+    summary="Get Paginated Sales Orders with Filters",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_paginated_invoices(
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(50, ge=10, le=200, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search by invoice no, customer, or payment ref"),
+    branch_code: Optional[str] = Query(None, description="Filter by branch"),
+    status: Optional[str] = Query(None, description="Filter by status: pending, approved, completed, cancelled"),
+    sort_by: str = Query("created_date", description="Sort field"),
+    sort_desc: bool = Query(True, description="Sort descending"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
+):
+    """
+    Get paginated list of invoices with server-side filtering.
+    
+    Returns:
+        - items: List of invoices for current page
+        - total: Total count matching filters
+        - page: Current page number
+        - page_size: Items per page
+        - total_pages: Total number of pages
+    """
+    return service.sales_service.get_paginated_invoices(
+        db=db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        branch_code=branch_code,
+        status=status,
+        sort_by=sort_by,
+        sort_desc=sort_desc,
+        user_branches=user_branches
+    )
+
+
 # Invoice/Sales Order Endpoints
 @router.get(
     "/",
@@ -186,6 +229,37 @@ def delete_invoice(
     return service.sales_service.delete_invoice(db, invoice_id)
 
 # Sale Return Endpoints
+@router.get(
+    "/returns/list",
+    response_model=Dict[str, Any],
+    summary="Get Paginated Sale Returns with Filters",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_paginated_sale_returns(
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(50, ge=10, le=200, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search by return no or invoice no"),
+    branch_code: Optional[str] = Query(None, description="Filter by branch"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    sort_by: str = Query("added_date", description="Sort field"),
+    sort_desc: bool = Query(True, description="Sort descending"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
+):
+    """Get paginated list of sale returns with server-side filtering."""
+    return service.sales_service.get_paginated_sale_returns(
+        db=db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        branch_code=branch_code,
+        status=status,
+        sort_by=sort_by,
+        sort_desc=sort_desc,
+        user_branches=user_branches
+    )
+
 @router.get(
     "/returns/",
     response_model=List[schemas.SaleReturn],
@@ -461,3 +535,85 @@ def reject_bank_transfer(
     return service.sales_service.confirm_bank_transfer(
         db, invoice_id, "reject", current_user.id, reason
     )
+
+
+# =============================================================================
+# Payment Card Settings Endpoints
+# =============================================================================
+
+@router.get(
+    "/settings/payment-cards",
+    response_model=List[schemas.PaymentCard],
+    summary="List All Payment Cards",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def list_payment_cards(
+    active_only: bool = Query(False, description="Filter active cards only"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get list of all configured payment cards."""
+    return service.payment_card_service.get_all(db, active_only)
+
+
+@router.get(
+    "/settings/payment-cards/{card_id}",
+    response_model=schemas.PaymentCard,
+    summary="Get Payment Card",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_payment_card(
+    card_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get a specific payment card by ID."""
+    return service.payment_card_service.get_by_id(db, card_id)
+
+
+@router.post(
+    "/settings/payment-cards",
+    response_model=schemas.PaymentCard,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create Payment Card",
+    dependencies=[Depends(require_permission(*Permissions.SALES_MANAGE))]
+)
+def create_payment_card(
+    card_data: schemas.PaymentCardCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_MANAGE))
+):
+    """Create a new payment card configuration."""
+    return service.payment_card_service.create(db, card_data)
+
+
+@router.put(
+    "/settings/payment-cards/{card_id}",
+    response_model=schemas.PaymentCard,
+    summary="Update Payment Card",
+    dependencies=[Depends(require_permission(*Permissions.SALES_MANAGE))]
+)
+def update_payment_card(
+    card_id: int,
+    card_data: schemas.PaymentCardUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_MANAGE))
+):
+    """Update an existing payment card configuration."""
+    return service.payment_card_service.update(db, card_id, card_data)
+
+
+@router.delete(
+    "/settings/payment-cards/{card_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete Payment Card",
+    dependencies=[Depends(require_permission(*Permissions.SALES_MANAGE))]
+)
+def delete_payment_card(
+    card_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_MANAGE))
+):
+    """Delete a payment card (soft delete by setting active=false)."""
+    service.payment_card_service.delete(db, card_id)
+    return None

@@ -245,3 +245,40 @@ class SaleReturnItems(Base, TimestampMixin):
     invoice_item = relationship("InvoiceItems", back_populates="sale_return_items")
     sales_stock = relationship("SalesStock", backref="return_items")
     product = relationship("Product", backref="sale_return_items")
+
+
+class PaymentCard(Base, TimestampMixin):
+    """
+    Payment card configuration for credit/debit cards.
+    Allows defining different card types with their service charges.
+    """
+    __tablename__ = "payment_cards"
+
+    id = Column(Integer, primary_key=True, index=True)
+    card_name = Column(String(100), nullable=False, unique=True)  # e.g., "Visa", "Mastercard", "Amex"
+    card_type = Column(String(20), nullable=False)  # "credit" or "debit"
+    service_charge_percent = Column(Numeric(5, 2), nullable=False, default=0)  # e.g., 2.5%
+    description = Column(Text, nullable=True)
+    active = Column(Boolean, nullable=False, default=True)
+    
+    # Relationships - track which invoices used this card
+    invoice_payments = relationship("InvoiceCardPayment", back_populates="payment_card")
+
+
+class InvoiceCardPayment(Base, TimestampMixin):
+    """
+    Tracks card payments for invoices with calculated service charges.
+    """
+    __tablename__ = "invoice_card_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
+    payment_card_id = Column(Integer, ForeignKey("payment_cards.id"), nullable=False)
+    amount = Column(Numeric(60, 2), nullable=False)  # Base amount
+    service_charge = Column(Numeric(60, 2), nullable=False, default=0)  # Calculated service charge
+    total_amount = Column(Numeric(60, 2), nullable=False)  # amount + service_charge
+    reference_no = Column(String(100), nullable=True)  # Card transaction reference
+    
+    # Relationships
+    invoice = relationship("Invoice", backref="card_payments")
+    payment_card = relationship("PaymentCard", back_populates="invoice_payments")

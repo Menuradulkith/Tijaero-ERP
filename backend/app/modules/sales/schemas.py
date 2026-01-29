@@ -265,3 +265,54 @@ class BankTransferConfirmResponse(BaseModel):
     message: str
     invoice_no: str
     status: str
+
+
+# =============================================================================
+# Payment Card Schemas
+# =============================================================================
+
+class PaymentCardBase(BaseModel):
+    card_name: str = Field(..., max_length=100, description="Card name (e.g., Visa, Mastercard)")
+    card_type: str = Field(..., pattern="^(credit|debit)$", description="Card type: credit or debit")
+    service_charge_percent: float = Field(default=0, ge=0, le=100, description="Service charge percentage")
+    description: Optional[str] = None
+    active: bool = True
+
+
+class PaymentCardCreate(PaymentCardBase):
+    pass
+
+
+class PaymentCardUpdate(BaseModel):
+    card_name: Optional[str] = Field(None, max_length=100)
+    card_type: Optional[str] = Field(None, pattern="^(credit|debit)$")
+    service_charge_percent: Optional[float] = Field(None, ge=0, le=100)
+    description: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class PaymentCard(PaymentCardBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class InvoiceCardPaymentCreate(BaseModel):
+    payment_card_id: int
+    amount: float = Field(..., gt=0)
+    reference_no: Optional[str] = None
+
+
+class InvoiceCardPayment(BaseModel):
+    id: int
+    invoice_id: int
+    payment_card_id: int
+    amount: float
+    service_charge: float
+    total_amount: float
+    reference_no: Optional[str] = None
+    payment_card: Optional[PaymentCard] = None
+    
+    model_config = ConfigDict(from_attributes=True)
