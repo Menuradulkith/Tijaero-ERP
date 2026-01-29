@@ -101,8 +101,8 @@ class SalesService:
             query = query.filter(
                 or_(
                     Invoice.invoice_no.ilike(search_term),
-                    Invoice.payment_reference.ilike(search_term),
-                    Invoice.customer_code.ilike(search_term),
+                    # Invoice.payment_reference.ilike(search_term), # Field does not exist
+                    # Invoice.customer_code.ilike(search_term), # Field does not exist
                 )
             )
         
@@ -289,7 +289,7 @@ class SalesService:
                 "created_date": inv.created_date.isoformat() if inv.created_date else None,
                 "total": float(total),
                 "approval": inv.approval,
-                "customer_code": inv.customer_code,
+                #"customer_code": inv.customer_code,  # Field does not exist
             }
         
         return {
