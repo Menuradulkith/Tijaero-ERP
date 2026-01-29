@@ -84,7 +84,7 @@ class SalesQuoteService:
             quote_type=quote_data.quote_type.value,
             branch_code=quote_data.branch_code,
             customer_id=quote_data.customer_id,
-            sale_rep_id=quote_data.sale_rep_id,
+            sale_rep_id=created_by if created_by else quote_data.sale_rep_id,
             customer_agent_id=quote_data.customer_agent_id,
             created_date=now.date(),
             created_date_time=now,
