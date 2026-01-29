@@ -85,8 +85,8 @@ def get_reference_data(
         result["customers"] = [{"id": c.id, "customer_name": c.customer_name} for c in customers]
 
     if "employees" in includes:
-        from app.modules.hr.service import hr_service
-        employees = hr_service.get_all_employees(db, skip=0, limit=500)
+        from app.modules.employees.service import employee_service
+        employees = employee_service.get_all_employees(db, skip=0, limit=500)
         result["employees"] = [{"id": e.id, "employee_id": e.employee_id, "first_name": e.first_name, "last_name": e.last_name, "full_name": f"{e.first_name} {e.last_name}"} for e in employees]
 
     if "sales_stock" in includes:
