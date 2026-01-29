@@ -66,6 +66,8 @@ class ReferenceDataResponse(BaseModel):
     countries: Optional[List[Any]] = None
     suppliers: Optional[List[Any]] = None
     customers: Optional[List[Any]] = None
+    employees: Optional[List[Any]] = None
+    sales_stock: Optional[List[Any]] = None
     
     class Config:
         from_attributes = True
