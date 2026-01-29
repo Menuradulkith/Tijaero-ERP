@@ -23,6 +23,7 @@ import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SecurityIcon from "@mui/icons-material/Security";
 import SellIcon from "@mui/icons-material/Sell";
+import SettingsIcon from "@mui/icons-material/Settings";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import SpeedIcon from "@mui/icons-material/Speed";
 import StoreIcon from "@mui/icons-material/Store";
@@ -85,6 +86,7 @@ const menuItems: MenuItem[] = [
       { text: "Return Approvals", icon: <FactCheckIcon />, path: "/sales/return-approvals" },
       { text: "Coupons", icon: <LocalOfferIcon />, path: "/sales/coupons" },
       { text: "Gift Vouchers", icon: <ReceiptIcon />, path: "/sales/vouchers" },
+      { text: "Settings", icon: <SettingsIcon />, path: "/sales/settings" },
     ],
   },
   {

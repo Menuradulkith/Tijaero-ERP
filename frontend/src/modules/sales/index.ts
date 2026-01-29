@@ -17,6 +17,7 @@ export { default as SaleReturnsPage } from "./pages/SaleReturnsPage";
 export { default as SalesDashboard } from "./pages/SalesDashboard";
 export { default as SalesPage } from "./pages/SalesPage";
 export { default as SalesPaymentPage } from "./pages/SalesPaymentPage";
+export { default as SalesSettingsPage } from "./pages/SalesSettingsPage";
 
 // Routes
 export { default as SalesRoutes } from "./routes";

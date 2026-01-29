@@ -55,6 +55,150 @@ class SalesService:
         """Get all sale returns"""
         return repository.sales_repository.get_all_sale_returns(db, skip, limit, branch_codes)
     
+    def get_paginated_invoices(
+        self, 
+        db: Session, 
+        page: int = 1, 
+        page_size: int = 50,
+        search: Optional[str] = None,
+        branch_code: Optional[str] = None,
+        status: Optional[str] = None,
+        sort_by: str = "created_date",
+        sort_desc: bool = True,
+        user_branches: Optional[List[str]] = None
+    ):
+        """
+        Get paginated invoices with server-side filtering and sorting.
+        Optimized for load balancing - avoids fetching all data.
+        """
+        from sqlalchemy import or_, desc, asc
+        
+        # Base query
+        query = db.query(Invoice)
+        
+        # Apply branch access filter
+        if user_branches:
+            query = query.filter(Invoice.branch_code.in_(user_branches))
+        
+        # Apply additional branch filter
+        if branch_code:
+            query = query.filter(Invoice.branch_code == branch_code)
+        
+        # Apply status filter
+        if status:
+            if status == "pending":
+                query = query.filter(Invoice.approval == False, Invoice.approval_status.in_(["pending", None]))
+            elif status == "approved":
+                query = query.filter(Invoice.approval == True)
+            elif status == "completed":
+                query = query.filter(Invoice.approval_status == "completed")
+            elif status == "cancelled":
+                query = query.filter(Invoice.approval_status == "cancelled")
+        
+        # Apply search filter
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                or_(
+                    Invoice.invoice_no.ilike(search_term),
+                    Invoice.payment_reference.ilike(search_term),
+                    Invoice.customer_code.ilike(search_term),
+                )
+            )
+        
+        # Get total count before pagination
+        total = query.count()
+        
+        # Apply sorting
+        sort_column = getattr(Invoice, sort_by, Invoice.created_date)
+        if sort_desc:
+            query = query.order_by(desc(sort_column))
+        else:
+            query = query.order_by(asc(sort_column))
+        
+        # Apply pagination
+        offset = (page - 1) * page_size
+        items = query.offset(offset).limit(page_size).all()
+        
+        # Calculate total pages
+        total_pages = (total + page_size - 1) // page_size
+        
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
+    
+    def get_paginated_sale_returns(
+        self, 
+        db: Session, 
+        page: int = 1, 
+        page_size: int = 50,
+        search: Optional[str] = None,
+        branch_code: Optional[str] = None,
+        status: Optional[str] = None,
+        sort_by: str = "added_date",
+        sort_desc: bool = True,
+        user_branches: Optional[List[str]] = None
+    ):
+        """
+        Get paginated sale returns with server-side filtering and sorting.
+        Optimized for load balancing - avoids fetching all data.
+        """
+        from sqlalchemy import or_, desc, asc
+        
+        # Base query
+        query = db.query(SaleReturn)
+        
+        # Apply branch access filter
+        if user_branches:
+            query = query.filter(SaleReturn.branch_code.in_(user_branches))
+        
+        # Apply additional branch filter
+        if branch_code:
+            query = query.filter(SaleReturn.branch_code == branch_code)
+        
+        # Apply status filter
+        if status:
+            query = query.filter(SaleReturn.status == status)
+        
+        # Apply search filter
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                or_(
+                    SaleReturn.sale_return_no.ilike(search_term),
+                    SaleReturn.invoice_no.ilike(search_term),
+                )
+            )
+        
+        # Get total count before pagination
+        total = query.count()
+        
+        # Apply sorting
+        sort_column = getattr(SaleReturn, sort_by, SaleReturn.added_date)
+        if sort_desc:
+            query = query.order_by(desc(sort_column))
+        else:
+            query = query.order_by(asc(sort_column))
+        
+        # Apply pagination
+        offset = (page - 1) * page_size
+        items = query.offset(offset).limit(page_size).all()
+        
+        # Calculate total pages
+        total_pages = (total + page_size - 1) // page_size
+        
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
+    
     def get_sales_statistics(self, db: Session, branch_codes: Optional[List[str]] = None):
         """Get sales statistics for dashboard"""
         today = date.today()
@@ -105,11 +249,48 @@ class SalesService:
             Invoice.approval == False
         ).with_entities(func.count(Invoice.id)).scalar() or 0
         
+        # Approved count
+        approved = base_query().filter(
+            Invoice.approval == True
+        ).with_entities(func.count(Invoice.id)).scalar() or 0
+        
         # Total sale returns (with branch filtering)
         returns_query = db.query(SaleReturn)
         if branch_codes:
             returns_query = returns_query.filter(SaleReturn.branch_code.in_(branch_codes))
         sale_returns_count = returns_query.with_entities(func.count(SaleReturn.id)).scalar() or 0
+        
+        # Payment breakdown (optimized SQL aggregation)
+        payment_breakdown = base_query().with_entities(
+            func.coalesce(func.sum(Invoice.cash_amount), 0).label('cash'),
+            func.coalesce(func.sum(Invoice.card_visa_amount + Invoice.card_mastercard_amount + Invoice.card_amex_amount), 0).label('card'),
+            func.coalesce(func.sum(Invoice.cheque_amount), 0).label('cheque'),
+            func.coalesce(func.sum(Invoice.bank_transfer_amount), 0).label('bank_transfer'),
+            func.coalesce(func.sum(Invoice.credit_amount), 0).label('credit'),
+        ).first()
+        
+        # Top 5 invoices by value (SQL-side sorting)
+        invoice_total_expr = (
+            Invoice.cash_amount + Invoice.card_visa_amount + Invoice.card_mastercard_amount +
+            Invoice.card_amex_amount + Invoice.cheque_amount + Invoice.bank_transfer_amount + Invoice.credit_amount
+        )
+        top_invoices_raw = base_query().order_by(invoice_total_expr.desc()).limit(5).all()
+        
+        # Recent 5 invoices (SQL-side sorting)
+        recent_invoices_raw = base_query().order_by(Invoice.created_date.desc()).limit(5).all()
+        
+        # Convert Invoice models to dict for serialization
+        def invoice_to_dict(inv):
+            total = (inv.cash_amount + inv.card_visa_amount + inv.card_mastercard_amount +
+                     inv.card_amex_amount + inv.cheque_amount + inv.bank_transfer_amount + inv.credit_amount)
+            return {
+                "id": inv.id,
+                "invoice_no": inv.invoice_no,
+                "created_date": inv.created_date.isoformat() if inv.created_date else None,
+                "total": float(total),
+                "approval": inv.approval,
+                "customer_code": inv.customer_code,
+            }
         
         return {
             "total_orders": total_invoices,
@@ -118,7 +299,17 @@ class SalesService:
             "total_revenue": float(total_revenue),
             "current_month_revenue": float(current_month_revenue),
             "pending_approval": pending_approval,
-            "sale_returns_count": sale_returns_count
+            "approved": approved,
+            "sale_returns_count": sale_returns_count,
+            "payment_breakdown": {
+                "cash": float(payment_breakdown.cash) if payment_breakdown else 0,
+                "card": float(payment_breakdown.card) if payment_breakdown else 0,
+                "cheque": float(payment_breakdown.cheque) if payment_breakdown else 0,
+                "bank_transfer": float(payment_breakdown.bank_transfer) if payment_breakdown else 0,
+                "credit": float(payment_breakdown.credit) if payment_breakdown else 0,
+            },
+            "top_invoices": [invoice_to_dict(inv) for inv in top_invoices_raw],
+            "recent_invoices": [invoice_to_dict(inv) for inv in recent_invoices_raw],
         }
     
     def get_available_products_from_stock(self, db: Session):
@@ -1739,4 +1930,101 @@ class SalesService:
                 detail="Invalid action. Use 'verify' or 'reject'."
             )
 
+
+class PaymentCardService:
+    """Service for managing payment card configurations."""
+    
+    def get_all(self, db: Session, active_only: bool = False):
+        """Get all payment cards, optionally filtered by active status."""
+        from app.modules.sales.models import PaymentCard
+        
+        query = db.query(PaymentCard)
+        if active_only:
+            query = query.filter(PaymentCard.active == True)
+        return query.order_by(PaymentCard.card_name).all()
+    
+    def get_by_id(self, db: Session, card_id: int):
+        """Get a specific payment card by ID."""
+        from app.modules.sales.models import PaymentCard
+        
+        card = db.query(PaymentCard).filter(PaymentCard.id == card_id).first()
+        if not card:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Payment card not found"
+            )
+        return card
+    
+    def create(self, db: Session, card_data: schemas.PaymentCardCreate):
+        """Create a new payment card."""
+        from app.modules.sales.models import PaymentCard
+        
+        # Check for duplicate card name
+        existing = db.query(PaymentCard).filter(
+            PaymentCard.card_name == card_data.card_name
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Payment card '{card_data.card_name}' already exists"
+            )
+        
+        card = PaymentCard(
+            card_name=card_data.card_name,
+            card_type=card_data.card_type,
+            service_charge_percent=card_data.service_charge_percent,
+            description=card_data.description,
+            active=card_data.active,
+        )
+        db.add(card)
+        db.commit()
+        db.refresh(card)
+        return card
+    
+    def update(self, db: Session, card_id: int, card_data: schemas.PaymentCardUpdate):
+        """Update an existing payment card."""
+        from app.modules.sales.models import PaymentCard
+        
+        card = self.get_by_id(db, card_id)
+        
+        # Check for duplicate card name if name is being changed
+        if card_data.card_name and card_data.card_name != card.card_name:
+            existing = db.query(PaymentCard).filter(
+                PaymentCard.card_name == card_data.card_name,
+                PaymentCard.id != card_id
+            ).first()
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Payment card '{card_data.card_name}' already exists"
+                )
+        
+        # Update fields
+        update_data = card_data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(card, field, value)
+        
+        db.commit()
+        db.refresh(card)
+        return card
+    
+    def delete(self, db: Session, card_id: int):
+        """Soft delete a payment card by setting active=False."""
+        card = self.get_by_id(db, card_id)
+        card.active = False
+        db.commit()
+    
+    def calculate_service_charge(self, db: Session, card_id: int, amount: float) -> dict:
+        """Calculate service charge for a card payment."""
+        card = self.get_by_id(db, card_id)
+        service_charge = amount * (float(card.service_charge_percent) / 100)
+        return {
+            "amount": amount,
+            "service_charge_percent": float(card.service_charge_percent),
+            "service_charge": round(service_charge, 2),
+            "total_amount": round(amount + service_charge, 2),
+        }
+
+
 sales_service = SalesService()
+payment_card_service = PaymentCardService()

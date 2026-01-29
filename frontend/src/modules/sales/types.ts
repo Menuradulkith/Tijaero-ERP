@@ -93,6 +93,7 @@ export interface InvoiceCreate {
   // Card payment details
   card_ref_number?: string;
   card_holder_name?: string;
+  payment_card_id?: number; // Reference to PaymentCard from settings
   // Bank transfer details
   bank_transfer_ref?: string;
   bank_name?: string;
@@ -215,12 +216,49 @@ export interface SaleReturnProcessResponse {
 
 // Sales Statistics Types
 export interface SalesStats {
-  totalOrders: number;
-  totalRevenue: number;
-  currentMonthOrders: number;
-  currentMonthRevenue: number;
-  pendingApproval: number;
-  saleReturnsCount: number;
+  total_orders: number;
+  total_revenue: number;
+  current_month_orders: number;
+  current_month_revenue: number;
+  last_month_orders: number;
+  pending_approval: number;
+  approved: number;
+  sale_returns_count: number;
+  payment_breakdown: {
+    cash: number;
+    card: number;
+    cheque: number;
+    bank_transfer: number;
+    credit: number;
+  };
+  top_invoices: SalesStatsInvoice[];
+  recent_invoices: SalesStatsInvoice[];
+}
+
+export interface SalesStatsInvoice {
+  id: number;
+  invoice_no: string;
+  created_date: string;
+  total: number;
+  approval: boolean;
+  customer_code: string;
+}
+
+// Paginated Response Types (for load balancing)
+export interface PaginatedInvoices {
+  items: Invoice[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface PaginatedSaleReturns {
+  items: SaleReturn[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
 }
 
 // Payment Method Options
@@ -229,6 +267,7 @@ export type PaymentMethod =
   | "card_visa"
   | "card_mastercard"
   | "card_amex"
+  | "card"
   | "cheque"
   | "bank_transfer"
   | "credit";
@@ -238,7 +277,40 @@ export const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: "card_visa", label: "Visa Card" },
   { value: "card_mastercard", label: "Mastercard" },
   { value: "card_amex", label: "Amex Card" },
+  { value: "card", label: "Card" },  // Generic card option - uses PaymentCard settings
   { value: "cheque", label: "Cheque" },
   { value: "bank_transfer", label: "Bank Transfer" },
   { value: "credit", label: "Credit" },
 ];
+
+
+// =============================================================================
+// Payment Card Types (for Card Settings)
+// =============================================================================
+
+export interface PaymentCard {
+  id: number;
+  card_name: string;
+  card_type: "credit" | "debit";
+  service_charge_percent: number;
+  description?: string;
+  active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PaymentCardCreate {
+  card_name: string;
+  card_type: "credit" | "debit";
+  service_charge_percent: number;
+  description?: string;
+  active?: boolean;
+}
+
+export interface PaymentCardUpdate {
+  card_name?: string;
+  card_type?: "credit" | "debit";
+  service_charge_percent?: number;
+  description?: string;
+  active?: boolean;
+}

@@ -48,8 +48,11 @@ export {
 // DATA COMPONENTS - Data display and visualization
 // =============================================================================
 export {
-  TCurrency, TDataCard, TDataGrid, TDate, TInfoCard, TList, TNumber, TStatCard, TTable, type TCurrencyProps, type TDataCardProps, type TDataGridProps, type TDateProps, type TInfoCardProps, type TListProps, type TNumberProps, type TStatCardProps, type TTableProps
+  TCurrency, TDataCard, TDataGrid, TDate, TInfoCard, TList, TNumber, TStatCard, TTable, type TCurrencyProps, type TDataCardProps, type TDataGridColumn, type TDataGridProps, type TDateProps, type TInfoCardProps, type TListProps, type TNumberProps, type TStatCardProps, type TTableProps
 } from './data';
+
+// Pagination Controls for load-balanced lists
+export { TPaginationControls, type TPaginationControlsProps } from './data-display-extended/TPaginationControls';
 
 // =============================================================================
 // FORM COMPONENTS - Form building and management

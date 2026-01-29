@@ -9,6 +9,7 @@ import SalesDashboard from "@/modules/sales/pages/SalesDashboard";
 import SalesOrderApprovalsPage from "@/modules/sales/pages/SalesOrderApprovalsPage";
 import SalesPage from "@/modules/sales/pages/SalesPage";
 import SalesPaymentPage from "@/modules/sales/pages/SalesPaymentPage";
+import SalesSettingsPage from "@/modules/sales/pages/SalesSettingsPage";
 import { Route, Routes } from "react-router-dom";
 
 export default function SalesRoutes() {
@@ -27,6 +28,7 @@ export default function SalesRoutes() {
       <Route path="payment/:invoiceId" element={<SalesPaymentPage />} />
       <Route path="coupons" element={<CouponsPage />} />
       <Route path="vouchers" element={<VouchersPage />} />
+      <Route path="settings/*" element={<SalesSettingsPage />} />
     </Routes>
   );
 }

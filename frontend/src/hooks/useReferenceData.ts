@@ -86,6 +86,14 @@ export interface CustomerRef {
   email?: string;
 }
 
+export interface EmployeeRef {
+  id: number;
+  employee_id: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+}
+
 export interface SalesStockRef {
   id: number;
   product_code: string;
@@ -109,6 +117,7 @@ export type ReferenceDataType =
   | "countries"
   | "suppliers"
   | "customers"
+  | "employees"
   | "sales_stock";
 
 // Response type from the API
@@ -121,6 +130,7 @@ export interface ReferenceDataResponse {
   countries?: CountryRef[];
   suppliers?: SupplierRef[];
   customers?: CustomerRef[];
+  employees?: EmployeeRef[];
   sales_stock?: SalesStockRef[];
 }
 
@@ -207,8 +217,10 @@ export function useReferenceData(
  * Predefined reference data combinations for common use cases
  */
 export const REFERENCE_DATA_PRESETS = {
-  /** For sales pages: branches, customers, products */
-  SALES: ["branches", "customers", "products"] as ReferenceDataType[],
+  /** For sales pages: branches, customers, products, employees */
+  SALES: ["branches", "customers", "products", "employees"] as ReferenceDataType[],
+  /** For quotations: branches, customers, products, employees */
+  QUOTATIONS: ["branches", "customers", "products", "employees"] as ReferenceDataType[],
   /** For purchasing pages: branches, suppliers, products */
   PURCHASING: ["branches", "suppliers", "products"] as ReferenceDataType[],
   /** For inventory pages: branches, categories, brands, products */

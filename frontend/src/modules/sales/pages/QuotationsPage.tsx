@@ -26,10 +26,8 @@ import {
   useTConfirmDialog
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
-import { branchApi } from "@/modules/branches/api";
-import { customersApi } from "@/modules/customers/api";
-import { employeesApi } from "@/modules/employees/api";
-import { minimumPriceApi, productsApi } from "@/modules/inventory/api";
+import { useReferenceData } from "@/hooks";
+import { minimumPriceApi } from "@/modules/inventory/api";
 import { ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 import {
   Add as AddIcon,
@@ -180,25 +178,12 @@ export default function QuotationsPage() {
     queryFn: () => quotationApi.getAll({}),
   });
 
-  const { data: customers } = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(),
-  });
-
-  const { data: products } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(),
-  });
-
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-
-  const { data: employees } = useQuery({
-    queryKey: ["employees"],
-    queryFn: () => employeesApi.getAll(),
-  });
+  // OPTIMIZED: Use aggregated reference data endpoint instead of separate API calls
+  const { data: refData } = useReferenceData(["products", "branches", "customers", "employees"]);
+  const products = refData?.products || [];
+  const branches = refData?.branches || [];
+  const customers = refData?.customers || [];
+  const employees = refData?.employees || [];
 
   // Fetch selected quote with items
   const { data: selectedQuoteDetails } = useQuery({
@@ -225,8 +210,6 @@ export default function QuotationsPage() {
       })));
     }
   }, [selectedQuoteDetails, isCreating, isEditing]);
-
-  const branches = branchesData?.items || [];
 
   // Filter and sort
   const filteredQuotes = useMemo(() => {
