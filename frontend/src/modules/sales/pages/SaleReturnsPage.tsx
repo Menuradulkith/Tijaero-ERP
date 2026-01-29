@@ -7,7 +7,6 @@
  * - Credit note generation or cash/bank refund
  */
 
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { usePermission } from "@/auth/permissions";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -152,7 +151,7 @@ export default function SaleReturnsPage() {
     const [formStep, setFormStep] = useState(0);
 
     // Confirm dialog for unsaved changes
-    const confirmDialog = useConfirmDialog();
+    const confirmDialog = useTConfirmDialog();
 
     // Validation state
     const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -1084,7 +1083,7 @@ export default function SaleReturnsPage() {
                 masterPanel={masterPanel}
                 detailPanel={detailPanel}
             />
-            <ConfirmDialog {...confirmDialog.dialogProps} />
+            <TConfirmDialog {...confirmDialog.dialogProps} />
             <TConfirmDialog {...deleteDialog2.dialogProps} confirmText="Delete" confirmColor="error" />
             
             {/* Print Preview Dialog */}

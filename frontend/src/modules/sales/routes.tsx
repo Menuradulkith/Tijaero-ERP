@@ -1,6 +1,5 @@
 import CouponsPage from "@/modules/sales/pages/CouponsPage";
 import VouchersPage from "@/modules/sales/pages/VouchersPage";
-import BankTransferConfirmationPage from "@/modules/sales/pages/BankTransferConfirmationPage";
 import CustomerPaymentDashboard from "@/modules/sales/pages/CustomerPaymentDashboard";
 import CustomersPage from "@/modules/sales/pages/CustomersPage";
 import QuotationsPage from "@/modules/sales/pages/QuotationsPage";
@@ -10,6 +9,7 @@ import SalesDashboard from "@/modules/sales/pages/SalesDashboard";
 import SalesOrderApprovalsPage from "@/modules/sales/pages/SalesOrderApprovalsPage";
 import SalesPage from "@/modules/sales/pages/SalesPage";
 import SalesPaymentPage from "@/modules/sales/pages/SalesPaymentPage";
+import SalesSettingsPage from "@/modules/sales/pages/SalesSettingsPage";
 import { Route, Routes } from "react-router-dom";
 
 export default function SalesRoutes() {
@@ -24,11 +24,11 @@ export default function SalesRoutes() {
       <Route path="dashboard" element={<SalesDashboard />} />
       <Route path="customers" element={<CustomersPage />} />
       <Route path="approvals" element={<SalesOrderApprovalsPage />} />
-      <Route path="bank-transfer-verification" element={<BankTransferConfirmationPage />} />
       <Route path="payments" element={<CustomerPaymentDashboard />} />
       <Route path="payment/:invoiceId" element={<SalesPaymentPage />} />
       <Route path="coupons" element={<CouponsPage />} />
       <Route path="vouchers" element={<VouchersPage />} />
+      <Route path="settings/*" element={<SalesSettingsPage />} />
     </Routes>
   );
 }

@@ -23,6 +23,8 @@ import { useReferenceData } from "@/hooks";
 import { customersApi, couponsApi, vouchersApi } from "@/modules/customers/api";
 import { CouponValidationResponse, VoucherValidationResponse } from "@/modules/customers/types";
 import { creditNotesApi } from "@/modules/finance/api";
+import { paymentCardsApi } from "../api";
+import { PaymentCard } from "../types";
 import {
   Add as AddIcon,
   Cancel as CancelIcon,
@@ -174,6 +176,21 @@ export default function SalesPage() {
   const [creditNoteAmount, setCreditNoteAmount] = useState(0);
   const [availableCreditBalance, setAvailableCreditBalance] = useState(0);
   const [isLoadingCreditBalance, setIsLoadingCreditBalance] = useState(false);
+
+  // Payment card state - for card payment method
+  const [selectedPaymentCardId, setSelectedPaymentCardId] = useState<number | null>(null);
+
+  // Fetch active payment cards from settings
+  const { data: paymentCards = [] } = useQuery({
+    queryKey: ["payment-cards-active"],
+    queryFn: () => paymentCardsApi.getAll(true), // Only active cards
+  });
+
+  // Get selected payment card details
+  const selectedPaymentCard = useMemo(() => {
+    if (!selectedPaymentCardId) return null;
+    return paymentCards.find((card: PaymentCard) => card.id === selectedPaymentCardId) || null;
+  }, [selectedPaymentCardId, paymentCards]);
 
   // Payment details state for different payment methods
   const [paymentDetails, setPaymentDetails] = useState({
@@ -780,11 +797,11 @@ export default function SalesPage() {
     const afterCreditNote = afterVoucher - appliedCreditNote;
     
     // Service charge for card payments (on remaining amount after credit note)
+    // Uses the service charge percentage from the selected payment card
     let serviceCharge = 0;
-    if (paymentMethod === "card_amex") {
-      serviceCharge = afterCreditNote * 0.03; // 3% for Amex
-    } else if (paymentMethod === "card_visa" || paymentMethod === "card_mastercard") {
-      serviceCharge = afterCreditNote * 0.027; // 2.7% for Visa/Mastercard
+    if (paymentMethod === "card" && selectedPaymentCard) {
+      const chargePercent = selectedPaymentCard.service_charge_percent || 0;
+      serviceCharge = afterCreditNote * (chargePercent / 100);
     }
 
     // Final amount to pay (remaining balance)
@@ -793,9 +810,9 @@ export default function SalesPage() {
     const invoiceData: InvoiceCreate = {
       ...(state.formData as InvoiceCreate),
       cash_amount: paymentMethod === "cash" ? grandTotal : 0,
-      card_visa_amount: paymentMethod === "card_visa" ? grandTotal : 0,
-      card_mastercard_amount: paymentMethod === "card_mastercard" ? grandTotal : 0,
-      card_amex_amount: paymentMethod === "card_amex" ? grandTotal : 0,
+      card_visa_amount: paymentMethod === "card" ? grandTotal : 0, // Use card_visa_amount for generic card payment
+      card_mastercard_amount: 0,
+      card_amex_amount: 0,
       cheque_amount: paymentMethod === "cheque" ? grandTotal : 0,
       bank_transfer_amount: paymentMethod === "bank_transfer" ? grandTotal : 0,
       credit_amount: paymentMethod === "credit" ? grandTotal : 0,
@@ -830,9 +847,10 @@ export default function SalesPage() {
         cheque_bank: paymentDetails.cheque_bank,
         cheque_date: paymentDetails.cheque_date,
       }),
-      ...(["card_visa", "card_mastercard", "card_amex"].includes(paymentMethod) && {
+      ...(paymentMethod === "card" && selectedPaymentCard && {
         card_ref_number: paymentDetails.card_ref_number,
         card_holder_name: paymentDetails.card_holder_name,
+        payment_card_id: selectedPaymentCard.id, // Include selected card ID
       }),
       ...(paymentMethod === "bank_transfer" && {
         bank_transfer_ref: paymentDetails.bank_transfer_ref,
@@ -1389,9 +1407,7 @@ export default function SalesPage() {
                     </TableRow>
                   )}
                   {/* Service Charge Row - Only for card payments */}
-                  {(fullInvoice.payment_method === "card_amex" ||
-                    fullInvoice.payment_method === "card_visa" ||
-                    fullInvoice.payment_method === "card_mastercard") &&
+                  {fullInvoice.payment_method === "card" &&
                     fullInvoice.service_charge_amount > 0 && (
                       <TableRow sx={{ bgcolor: "grey.100" }}>
                         <TableCell colSpan={5} align="right">
@@ -1669,6 +1685,8 @@ export default function SalesPage() {
                   credit_note_id: 0,
                   credit_note_amount: 0,
                 });
+                // Reset selected payment card when method changes
+                setSelectedPaymentCardId(null);
               }}
             >
               {CUSTOMER_PAYMENT_METHOD.map((option) => (
@@ -1706,10 +1724,25 @@ export default function SalesPage() {
             </FormSection>
           )}
 
-          {(state.formData.payment_method === "card_visa" ||
-            state.formData.payment_method === "card_mastercard" ||
-            state.formData.payment_method === "card_amex") && (
+          {state.formData.payment_method === "card" && (
               <FormSection title="Card Payment Details" columns={2}>
+                <TextField
+                  select
+                  label="Select Card"
+                  size="small"
+                  value={selectedPaymentCardId || ""}
+                  onChange={(e) => setSelectedPaymentCardId(Number(e.target.value))}
+                  required
+                >
+                  <MenuItem value="" disabled>
+                    Select a card type
+                  </MenuItem>
+                  {paymentCards.map((card: PaymentCard) => (
+                    <MenuItem key={card.id} value={card.id}>
+                      {card.card_name} ({card.card_type}) - {card.service_charge_percent}% fee
+                    </MenuItem>
+                  ))}
+                </TextField>
                 <TextField
                   label="Card Reference Number"
                   size="small"
@@ -1723,12 +1756,17 @@ export default function SalesPage() {
                   value={paymentDetails.card_holder_name}
                   onChange={(e) => setPaymentDetails({ ...paymentDetails, card_holder_name: e.target.value })}
                 />
-                <Box sx={{ gridColumn: "span 2", p: 1.5, bgcolor: "warning.lighter", borderRadius: 1 }}>
-                  <Typography variant="body2" color="warning.dark">
-                    <strong>Service Charge:</strong>{" "}
-                    {state.formData.payment_method === "card_amex" ? "3.0%" : "2.7%"} will be applied to the total amount
-                  </Typography>
-                </Box>
+                {selectedPaymentCard && (
+                  <Box sx={{ gridColumn: "span 2", p: 1.5, bgcolor: "warning.lighter", borderRadius: 1 }}>
+                    <Typography variant="body2" color="warning.dark">
+                      <strong>Service Charge:</strong>{" "}
+                      {selectedPaymentCard.service_charge_percent}% will be applied to the total amount
+                      {selectedPaymentCard.description && (
+                        <span> - {selectedPaymentCard.description}</span>
+                      )}
+                    </Typography>
+                  </Box>
+                )}
               </FormSection>
             )}
 
@@ -2227,13 +2265,11 @@ export default function SalesPage() {
                     </TableRow>
                   )}
                   {/* Service Charge Row - Only for card payments */}
-                  {(state.formData.payment_method === "card_amex" ||
-                    state.formData.payment_method === "card_visa" ||
-                    state.formData.payment_method === "card_mastercard") && (
+                  {state.formData.payment_method === "card" && selectedPaymentCard && (
                       <TableRow sx={{ bgcolor: "grey.100" }}>
                         <TableCell colSpan={8} align="right">
                           <Typography fontWeight="medium" color="text.secondary">
-                            Service Charge ({state.formData.payment_method === "card_amex" ? "3.0%" : "2.7%"}):
+                            Service Charge ({selectedPaymentCard.service_charge_percent}%):
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
@@ -2258,7 +2294,7 @@ export default function SalesPage() {
                               const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
                               const afterCreditNote = afterVoucher - appliedCreditNote;
                               // Service charge on remaining amount after credit note
-                              const rate = state.formData.payment_method === "card_amex" ? 0.03 : 0.027;
+                              const rate = (selectedPaymentCard.service_charge_percent || 0) / 100;
                               return (afterCreditNote * rate).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                             })()}
                           </Typography>
@@ -2289,14 +2325,16 @@ export default function SalesPage() {
                           // Voucher
                           const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
                           const afterVoucher = afterTax - totalVoucherPayment;
-                          // Service charge
+                          // Credit Note
+                          const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
+                          const afterCreditNote = afterVoucher - appliedCreditNote;
+                          // Service charge for card payments
                           let serviceCharge = 0;
-                          if (state.formData.payment_method === "card_amex") {
-                            serviceCharge = afterVoucher * 0.03;
-                          } else if (state.formData.payment_method === "card_visa" || state.formData.payment_method === "card_mastercard") {
-                            serviceCharge = afterVoucher * 0.027;
+                          if (state.formData.payment_method === "card" && selectedPaymentCard) {
+                            const chargePercent = selectedPaymentCard.service_charge_percent || 0;
+                            serviceCharge = afterCreditNote * (chargePercent / 100);
                           }
-                          return (afterVoucher + serviceCharge).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                          return (afterCreditNote + serviceCharge).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                         })()}
                       </Typography>
                     </TableCell>

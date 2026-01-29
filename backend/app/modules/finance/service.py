@@ -16,6 +16,8 @@ from app.modules.sales.models import Invoice
 from app.modules.purchasing.models import (
     SupplierCreditsSettle,
     SupplierCreditsSettleTransaction,
+    SupplierPayment,
+    SupplierAdvancePayment,
     Supplier
 )
 
@@ -222,7 +224,9 @@ class CashbookService:
         entries.extend(self._get_invoice_receipts(filters))
         entries.extend(self._get_customer_credit_settlements(filters))
         entries.extend(self._get_customer_advances(filters))
-        entries.extend(self._get_supplier_payments(filters))
+        entries.extend(self._get_supplier_credit_settlements(filters))  # Credit supplier payments
+        entries.extend(self._get_supplier_direct_payments(filters))     # Direct/Non-credit supplier payments
+        entries.extend(self._get_supplier_advance_payments(filters))    # Supplier advances
         entries.extend(self._get_expenses(filters))
         entries.extend(self._get_bank_deposits(filters))
         
@@ -407,10 +411,10 @@ class CashbookService:
         
         return entries
     
-    def _get_supplier_payments(self, filters: schemas.CashbookFilter) -> List[schemas.CashbookEntry]:
+    def _get_supplier_credit_settlements(self, filters: schemas.CashbookFilter) -> List[schemas.CashbookEntry]:
         """
         Get supplier credit settlement transactions - Money OUT
-        Payments made to suppliers
+        Payments made to suppliers for credit purchases (pay later)
         """
         entries = []
         
@@ -455,6 +459,100 @@ class CashbookService:
                 branch_code=credit_settle.branch_code if credit_settle else None,
                 source_table="supplier_credits_settle_transaction",
                 source_id=txn.id
+            ))
+        
+        return entries
+    
+    def _get_supplier_direct_payments(self, filters: schemas.CashbookFilter) -> List[schemas.CashbookEntry]:
+        """
+        Get direct supplier payments - Money OUT
+        Immediate payments to suppliers (non-credit, cash on delivery)
+        """
+        entries = []
+        
+        query = self.db.query(SupplierPayment)
+        
+        if filters.branch_code:
+            query = query.filter(SupplierPayment.branch_code == filters.branch_code)
+        if filters.date_from:
+            query = query.filter(SupplierPayment.payment_date >= filters.date_from)
+        if filters.date_to:
+            query = query.filter(SupplierPayment.payment_date <= filters.date_to)
+        if filters.payment_method:
+            query = query.filter(SupplierPayment.payment_method.ilike(f"%{filters.payment_method}%"))
+        
+        # Only verified/completed payments (exclude pending approvals)
+        query = query.filter(SupplierPayment.status.in_(["completed", "verified"]))
+        
+        payments = query.all()
+        
+        for payment in payments:
+            supplier_name = self.db.query(Supplier.company_name).filter(
+                Supplier.id == payment.supplier_id
+            ).scalar() or f"Supplier #{payment.supplier_id}"
+            
+            # Build description with PO reference if available
+            description = f"Direct Payment {payment.payment_no}"
+            if payment.purchasing_order_id:
+                description += f" - PO #{payment.purchasing_order_id}"
+            if payment.payment_for:
+                description += f" ({payment.payment_for})"
+            
+            entries.append(schemas.CashbookEntry(
+                id=payment.id,
+                entry_type="supplier_payment",
+                transaction_date=datetime.combine(payment.payment_date, datetime.min.time()) if isinstance(payment.payment_date, date) else payment.payment_date,
+                reference_no=payment.payment_no,
+                description=description,
+                party_name=supplier_name,
+                payment_method=payment.payment_method,
+                money_in=Decimal("0"),
+                money_out=Decimal(str(payment.payment_amount)),
+                branch_code=payment.branch_code,
+                source_table="supplier_payments",
+                source_id=payment.id
+            ))
+        
+        return entries
+    
+    def _get_supplier_advance_payments(self, filters: schemas.CashbookFilter) -> List[schemas.CashbookEntry]:
+        """
+        Get supplier advance payments - Money OUT
+        Payments made to suppliers before receiving goods/services
+        """
+        entries = []
+        
+        query = self.db.query(SupplierAdvancePayment)
+        
+        if filters.branch_code:
+            query = query.filter(SupplierAdvancePayment.branch_code == filters.branch_code)
+        if filters.date_from:
+            query = query.filter(SupplierAdvancePayment.payment_date >= filters.date_from)
+        if filters.date_to:
+            query = query.filter(SupplierAdvancePayment.payment_date <= filters.date_to)
+        if filters.payment_method:
+            query = query.filter(SupplierAdvancePayment.payment_method.ilike(f"%{filters.payment_method}%"))
+        
+        advances = query.all()
+        
+        for adv in advances:
+            supplier_name = self.db.query(Supplier.company_name).filter(
+                Supplier.id == adv.supplier_id
+            ).scalar() or f"Supplier #{adv.supplier_id}"
+            
+            entries.append(schemas.CashbookEntry(
+                id=adv.id,
+                entry_type="supplier_payment",
+                transaction_date=datetime.combine(adv.payment_date, datetime.min.time()) if isinstance(adv.payment_date, date) else adv.payment_date,
+                reference_no=adv.advance_no,
+                description=f"Supplier Advance Payment {adv.advance_no}",
+                party_name=supplier_name,
+                payment_method=adv.payment_method,
+                money_in=Decimal("0"),
+                money_out=Decimal(str(adv.original_amount)),
+                branch_code=adv.branch_code,
+                source_table="supplier_advance_payment",
+                source_id=adv.id
             ))
         
         return entries

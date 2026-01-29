@@ -27,4 +27,14 @@ export {
   type CountryRef,
   type SupplierRef,
   type CustomerRef,
+  type EmployeeRef,
 } from './useReferenceData';
+
+// Paginated data hook for load balancing
+export {
+  usePaginatedData,
+  type PaginatedResponse,
+  type PaginatedDataFilters,
+  type UsePaginatedDataOptions,
+  type UsePaginatedDataReturn,
+} from './usePaginatedData';

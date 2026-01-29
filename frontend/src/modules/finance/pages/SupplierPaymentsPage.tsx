@@ -53,6 +53,11 @@ import {
   FormControlLabel,
   Switch,
   Autocomplete,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
 import PaymentIcon from "@mui/icons-material/Payment";
 import BusinessIcon from "@mui/icons-material/Business";
@@ -68,7 +73,7 @@ import AssessmentIcon from "@mui/icons-material/Assessment";
 import PrintIcon from "@mui/icons-material/Print";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import toast from "react-hot-toast";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { useConfirmDialog } from "@/components/tijaero";
 import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 
 import {
@@ -77,7 +82,6 @@ import {
   SelectableListItem,
   DetailPanelHeader,
   EmptyState,
-  SortOption,
 } from "@/components/tijaero";
 
 import {
@@ -102,6 +106,11 @@ import {
 } from "@/modules/purchasing/types";
 
 // Configuration
+interface SortOption {
+  value: string;
+  label: string;
+}
+
 const SORT_OPTIONS: SortOption[] = [
   { value: "full_name", label: "Name" },
   { value: "outstanding", label: "Outstanding" },
@@ -2899,7 +2908,29 @@ export default function SupplierPaymentsPage() {
         )}
       </Box>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      {confirmDialog.dialogProps.open && (
+        <Dialog
+          open={confirmDialog.dialogProps.open}
+          onClose={() => confirmDialog.dialogProps.onCancel?.()}
+        >
+          <DialogTitle>{confirmDialog.dialogProps.title}</DialogTitle>
+          <DialogContent>
+            <DialogContentText>{confirmDialog.dialogProps.message}</DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => confirmDialog.dialogProps.onCancel?.()} color="inherit">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => confirmDialog.dialogProps.onConfirm?.()}
+              color="error"
+              variant="contained"
+            >
+              {confirmDialog.dialogProps.confirmText || "Confirm"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
     </Box>
   );
 

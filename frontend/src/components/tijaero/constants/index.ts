@@ -45,9 +45,7 @@ export const OCCUPATION_CHOICES = [
 export const CUSTOMER_PAYMENT_METHOD = [
   { value: 'cash', label: 'Cash' },
   { value: 'cheque', label: 'Cheque' },
-  { value: 'card_amex', label: 'Card / Amex 3%' },
-  { value: 'card_visa', label: 'Card / Visa 2.7%' },
-  { value: 'card_mastercard', label: 'Card / Mastercard 2.7%' },
+  { value: 'card', label: 'Card' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
   { value: 'credit', label: 'Credit' },
 ] as const;

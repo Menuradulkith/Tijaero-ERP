@@ -23,6 +23,7 @@ import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SecurityIcon from "@mui/icons-material/Security";
 import SellIcon from "@mui/icons-material/Sell";
+import SettingsIcon from "@mui/icons-material/Settings";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import SpeedIcon from "@mui/icons-material/Speed";
 import StoreIcon from "@mui/icons-material/Store";
@@ -80,12 +81,12 @@ const menuItems: MenuItem[] = [
       { text: "Quotations", icon: <ReceiptLongIcon />, path: "/sales/quotations" },
       { text: "Sales Orders", icon: <PointOfSaleIcon />, path: "/sales/orders" },
       { text: "SO Approvals", icon: <FactCheckIcon />, path: "/sales/approvals" },
-      { text: "Bank Transfer Verify", icon: <AccountBalanceIcon />, path: "/sales/bank-transfer-verification" },
       { text: "Payments", icon: <ReceiptLongIcon />, path: "/sales/payments" },
       { text: "Sales Returns", icon: <AssignmentReturnIcon />, path: "/sales/returns" },
       { text: "Return Approvals", icon: <FactCheckIcon />, path: "/sales/return-approvals" },
       { text: "Coupons", icon: <LocalOfferIcon />, path: "/sales/coupons" },
       { text: "Gift Vouchers", icon: <ReceiptIcon />, path: "/sales/vouchers" },
+      { text: "Settings", icon: <SettingsIcon />, path: "/sales/settings" },
     ],
   },
   {
@@ -101,8 +102,6 @@ const menuItems: MenuItem[] = [
       { text: "Good Received Notes", icon: <LocalShippingOutlinedIcon />, path: "/purchasing/grn" },
       { text: "Purchase Returns", icon: <AssignmentReturnIcon />, path: "/purchasing/returns" },
       { text: "Return Approvals", icon: <FactCheckIcon />, path: "/purchasing/return-approvals" },
-      { text: "Supplier Payments", icon: <PaymentIcon />, path: "/purchasing/payments" },
-      { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/purchasing/payment-approvals" },
     ],
   },
   {
@@ -124,12 +123,15 @@ const menuItems: MenuItem[] = [
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/finance" },
       { text: "Cashbook", icon: <AccountBalanceWalletIcon />, path: "/finance/cashbook" },
+      { text: "Bank Transfer Verify", icon: <AccountBalanceIcon />, path: "/finance/bank-transfer-verify" },
       { text: "Bank Deposits", icon: <AccountBalanceIcon />, path: "/finance/bank-deposits" },
       { text: "Card Payments", icon: <PaymentIcon />, path: "/finance/card-payments" },
       { text: "Cheque Payments", icon: <ReceiptIcon />, path: "/finance/cheque-payments" },
       { text: "Expenses", icon: <ReceiptLongIcon />, path: "/finance/expenses" },
       { text: "Advance Payments", icon: <PaymentIcon />, path: "/finance/advance-payments" },
       { text: "Credit Notes", icon: <ReceiptIcon />, path: "/finance/credit-notes" },
+      { text: "Supplier Payments", icon: <PaymentIcon />, path: "/finance/supplier-payments" },
+      { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/finance/payment-approvals" },
     ],
   },
   {
