@@ -860,7 +860,7 @@ export default function QuotationsPage() {
                 size="small"
                 options={branches}
                 getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-                value={branches.find((b) => b.branch_code === formData.branch_code) || null}
+                value={branches.find((b) => b.branch_code === formData.branch_code) || undefined}
                 onChange={(_, newValue) => setFormData({ ...formData, branch_code: newValue?.branch_code || "" })}
                 renderInput={(params) => (
                   <TextField {...params} label="Branch" required />
