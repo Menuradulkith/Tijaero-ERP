@@ -856,20 +856,17 @@ export default function QuotationsPage() {
           <>
             {/* Basic Info */}
             <FormSection title="Basic Information" columns={3}>
-              <TextField
-                select
-                label="Branch"
-                value={formData.branch_code || ""}
-                onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
+              <Autocomplete
                 size="small"
-                required
-              >
-                {branches.map((branch) => (
-                  <MenuItem key={branch.id} value={branch.branch_code}>
-                    {branch.branch_name}
-                  </MenuItem>
-                ))}
-              </TextField>
+                options={branches}
+                getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+                value={branches.find((b) => b.branch_code === formData.branch_code) || null}
+                onChange={(_, newValue) => setFormData({ ...formData, branch_code: newValue?.branch_code || "" })}
+                renderInput={(params) => (
+                  <TextField {...params} label="Branch" required />
+                )}
+                disableClearable
+              />
 
               <Autocomplete
                 size="small"
