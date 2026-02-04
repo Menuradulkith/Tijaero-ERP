@@ -431,6 +431,10 @@ class VoucherService:
             valid_period_in_months=voucher_data.valid_period_in_months,
             status="active",
             purchased_invoice_no=voucher_data.purchased_invoice_no,
+            # Payment details for cashbook tracking
+            payment_method=voucher_data.payment_method or "cash",
+            branch_code=voucher_data.branch_code,
+            customer_name=voucher_data.customer_name or "Walk-in Customer",
         )
         
         db.add(voucher)

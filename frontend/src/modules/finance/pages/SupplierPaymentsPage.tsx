@@ -68,6 +68,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
+import SearchIcon from "@mui/icons-material/Search";
 import WarningIcon from "@mui/icons-material/Warning";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import PrintIcon from "@mui/icons-material/Print";
@@ -142,9 +143,6 @@ interface OutstandingDocument {
   remaining_amount: number;
   days_overdue: number;
   is_overdue: boolean;
-  has_grn: boolean;
-  grn_id: number | null;
-  grn_no: string | null;
   branch_code: string;
 }
 
@@ -176,6 +174,7 @@ export default function SupplierPaymentsPage() {
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<SupplierPaymentStatusData | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
+  const [allPaymentStatuses, setAllPaymentStatuses] = useState<SupplierPaymentStatusData[]>([]);
 
   const [viewMode, setViewMode] = useState<ViewMode>("overview");
   const [activeStep, setActiveStep] = useState(0);
@@ -186,6 +185,9 @@ export default function SupplierPaymentsPage() {
   // Branch filter
   const [branches, setBranches] = useState<{ branch_code: string; branch_name: string }[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>("all");
+
+  // Document search filter
+  const [documentSearchQuery, setDocumentSearchQuery] = useState<string>("");
 
   // Document selection
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<number>>(new Set());
@@ -242,6 +244,19 @@ export default function SupplierPaymentsPage() {
       setError(null);
       const data = await suppliersApi.getAll({ active: true });
       setSuppliers(data);
+      
+      // Load payment statuses for all suppliers to enable PO search
+      const statuses = await Promise.all(
+        data.map(async (supplier) => {
+          try {
+            return await supplierCreditApi.getPaymentStatus(supplier.id);
+          } catch (err) {
+            console.error(`Failed to load payment status for supplier ${supplier.id}:`, err);
+            return null;
+          }
+        })
+      );
+      setAllPaymentStatuses(statuses.filter(Boolean) as SupplierPaymentStatusData[]);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };
       setError(error.response?.data?.detail || "Failed to load suppliers");
@@ -283,7 +298,6 @@ export default function SupplierPaymentsPage() {
             const fullSettlement = await supplierCreditsSettleApi.getById(s.id);
             const totalAmount = fullSettlement.transactions?.reduce((sum, t) => sum + (t.payment_amount || 0), 0) || 0;
             const poNos = [...new Set(fullSettlement.transactions?.map(t => t.po_no).filter(Boolean))].join(", ");
-            const grnNos = [...new Set(fullSettlement.transactions?.map(t => t.grn_no).filter(Boolean))].join(", ");
             const paymentMethods = [...new Set(fullSettlement.transactions?.map(t => t.payment_method).filter(Boolean))].join(", ");
 
             return {
@@ -293,7 +307,6 @@ export default function SupplierPaymentsPage() {
               date: s.created_date,
               total_amount: totalAmount,
               po_no: poNos || undefined,
-              grn_no: grnNos || undefined,
               payment_method: paymentMethods || undefined,
               transactions: fullSettlement.transactions || [],
               branch_code: s.branch_code,
@@ -442,8 +455,9 @@ export default function SupplierPaymentsPage() {
     const docs: OutstandingDocument[] = [];
 
     // Add credit purchase orders
+    // Show if: approved (for payment) or not settled with remaining amount
     paymentStatus.credit_purchase_orders?.forEach((po) => {
-      if (po.has_grn && !po.is_settled && po.remaining_amount > 0) {
+      if ((po.status === "approved" || !po.is_settled) && po.remaining_amount > 0) {
         docs.push({
           id: po.po_id,
           po_id: po.po_id,
@@ -458,9 +472,6 @@ export default function SupplierPaymentsPage() {
           remaining_amount: po.remaining_amount,
           days_overdue: po.days_overdue,
           is_overdue: po.is_overdue,
-          has_grn: po.has_grn,
-          grn_id: po.grn_id,
-          grn_no: po.grn_no,
           branch_code: po.branch_code,
         });
       }
@@ -468,9 +479,8 @@ export default function SupplierPaymentsPage() {
 
     // Add non-credit purchase orders (exclude those with pending payments)
     paymentStatus.non_credit_purchase_orders?.forEach((po) => {
-      // Only show if: has GRN, not fully paid, and has remaining amount
-      // Note: is_paid already considers only verified payments, so pending payments don't affect this
-      if (po.has_grn && !po.is_paid && po.remaining_amount > 0) {
+      // Show if: approved (for payment) or not fully paid with remaining amount
+      if ((po.status === "approved" || !po.is_paid) && po.remaining_amount > 0) {
         docs.push({
           id: po.po_id,
           po_id: po.po_id,
@@ -486,9 +496,6 @@ export default function SupplierPaymentsPage() {
           remaining_amount: po.remaining_amount,
           days_overdue: po.days_overdue,
           is_overdue: po.is_overdue,
-          has_grn: po.has_grn,
-          grn_id: po.grn_id,
-          grn_no: po.grn_no,
           branch_code: po.branch_code,
         });
       }
@@ -507,11 +514,20 @@ export default function SupplierPaymentsPage() {
       filtered = filtered.filter((d) => d.branch_code === selectedBranch);
     }
 
+    // Filter by document search (PO number, invoice number)
+    if (documentSearchQuery.trim()) {
+      const query = documentSearchQuery.toLowerCase().trim();
+      filtered = filtered.filter((d) => 
+        d.po_no?.toLowerCase().includes(query) ||
+        d.invoice_no?.toLowerCase().includes(query)
+      );
+    }
+
     // Sort by due date (oldest first)
     filtered.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
 
     return filtered;
-  }, [paymentStatus, paymentTypeTab, selectedBranch]);
+  }, [paymentStatus, paymentTypeTab, selectedBranch, documentSearchQuery]);
 
   // Calculate totals
   const totalOutstanding = useMemo(() => {
@@ -532,11 +548,27 @@ export default function SupplierPaymentsPage() {
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (s) =>
-          s.full_name.toLowerCase().includes(query) ||
-          s.company_name?.toLowerCase().includes(query)
-      );
+      filtered = filtered.filter((s) => {
+        // Search by supplier name or company name
+        const nameMatch = s.full_name.toLowerCase().includes(query) ||
+          s.company_name?.toLowerCase().includes(query);
+        
+        // Search by PO number if payment status is available
+        const poMatch = allPaymentStatuses.some(status => {
+          if (status.supplier_id !== s.id) return false;
+          
+          const creditPOMatch = status.credit_purchase_orders?.some(
+            po => po.po_no.toLowerCase().includes(query)
+          );
+          const nonCreditPOMatch = status.non_credit_purchase_orders?.some(
+            po => po.po_no.toLowerCase().includes(query)
+          );
+          
+          return creditPOMatch || nonCreditPOMatch;
+        });
+        
+        return nameMatch || poMatch;
+      });
     }
 
     filtered.sort((a, b) => {
@@ -554,7 +586,7 @@ export default function SupplierPaymentsPage() {
     });
 
     return filtered;
-  }, [suppliers, searchQuery, sortField]);
+  }, [suppliers, searchQuery, sortField, allPaymentStatuses]);
 
   // Handlers
   const handleSelectSupplier = useCallback((supplier: Supplier) => {
@@ -733,25 +765,23 @@ export default function SupplierPaymentsPage() {
         const creditLines = paymentLines.filter((l) => l.document.payment_type === "credit");
 
         for (const line of creditLines) {
-          if (line.document.grn_id) {
-            const transactionData: SupplierCreditsSettleTransactionCreate = {
-              payment_method: paymentMethod,
-              cheque_date: chequeDate,
-              payment_amount: line.allocated_amount,
-              payment_method_number: referenceNumber || undefined,
-              remarks: remarks || undefined,
-              good_received_id: line.document.grn_id,
-            };
+          const transactionData: SupplierCreditsSettleTransactionCreate = {
+            payment_method: paymentMethod,
+            cheque_date: chequeDate,
+            payment_amount: line.allocated_amount,
+            payment_method_number: referenceNumber || undefined,
+            remarks: remarks || undefined,
+            good_received_id: line.document.po_id, // Use PO ID instead of GRN
+          };
 
-            const settlementData: SupplierCreditsSettleCreate = {
-              supplier_credits_settle_no: `CS-${Date.now()}-${line.document.po_id}`,
-              branch_code: line.document.branch_code,
-              suppliers_id: selectedSupplier.id,
-              transactions: [transactionData],
-            };
+          const settlementData: SupplierCreditsSettleCreate = {
+            supplier_credits_settle_no: `CS-${Date.now()}-${line.document.po_id}`,
+            branch_code: line.document.branch_code,
+            suppliers_id: selectedSupplier.id,
+            transactions: [transactionData],
+          };
 
-            await supplierCreditsSettleApi.create(settlementData);
-          }
+          await supplierCreditsSettleApi.create(settlementData);
         }
       }
 
@@ -1015,7 +1045,20 @@ export default function SupplierPaymentsPage() {
     };
 
     filteredPaymentHistory.forEach((item) => {
-      const amount = item.type === "credit_settlement" ? (item.total_amount || 0) : (item.amount || 0);
+      // Safely parse amounts - handle strings, null, undefined
+      let amount = 0;
+      if (item.type === "credit_settlement") {
+        amount = Number(item.total_amount) || 0;
+      } else {
+        amount = Number(item.amount) || 0;
+      }
+      
+      // Skip if amount is still NaN after parsing
+      if (isNaN(amount)) {
+        console.warn("Invalid amount in payment history item:", item);
+        amount = 0;
+      }
+      
       summary.totalAmount += amount;
 
       if (item.type === "credit_settlement") {
@@ -1309,7 +1352,6 @@ export default function SupplierPaymentsPage() {
                 <th>Type</th>
                 <th>Document No.</th>
                 <th>PO/Invoice</th>
-                <th>GRN No.</th>
                 <th>Payment Method</th>
                 <th>Reference</th>
                 <th class="text-right">Amount (Rs.)</th>
@@ -1328,7 +1370,6 @@ export default function SupplierPaymentsPage() {
                   </td>
                   <td>${item.type === 'credit_settlement' ? item.settle_no || '-' : item.payment_no || '-'}</td>
                   <td>${item.po_no || item.invoice_reference || '-'}</td>
-                  <td>${item.grn_no || '-'}</td>
                   <td>${item.payment_method || '-'}</td>
                   <td>${item.reference_number || item.payment_method_number || '-'}</td>
                   <td class="text-right"><strong>${item.type === 'credit_settlement'
@@ -1343,7 +1384,7 @@ export default function SupplierPaymentsPage() {
                 </tr>
               `).join('')}
               <tr class="totals-row">
-                <td colspan="7" style="text-align: right;">TOTAL:</td>
+                <td colspan="6" style="text-align: right;">TOTAL:</td>
                 <td class="text-right">${formatCurrency(historySummary.totalAmount)}</td>
                 <td colspan="2"></td>
               </tr>
@@ -1639,7 +1680,6 @@ export default function SupplierPaymentsPage() {
                   <TableCell>Type</TableCell>
                   <TableCell>Document No.</TableCell>
                   <TableCell>PO/Invoice</TableCell>
-                  <TableCell>GRN No.</TableCell>
                   <TableCell>Payment Method</TableCell>
                   <TableCell>Reference</TableCell>
                   <TableCell align="right">Amount (Rs.)</TableCell>
@@ -1669,9 +1709,6 @@ export default function SupplierPaymentsPage() {
                       {item.type === "credit_settlement"
                         ? item.po_no || "-"
                         : item.po_no || item.invoice_reference || "-"}
-                    </TableCell>
-                    <TableCell>
-                      {item.grn_no || "-"}
                     </TableCell>
                     <TableCell>
                       {item.payment_method || "-"}
@@ -2158,7 +2195,23 @@ export default function SupplierPaymentsPage() {
         </Box>
 
         {/* Filters Section */}
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ mb: 2, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
+          {/* PO/Document Search */}
+          <TextField
+            placeholder="Search PO, Invoice..."
+            size="small"
+            value={documentSearchQuery}
+            onChange={(e) => setDocumentSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" color="action" />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ minWidth: 250 }}
+          />
+          
           {/* Branch Filter */}
           <Autocomplete
             options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}
@@ -2176,7 +2229,7 @@ export default function SupplierPaymentsPage() {
                 size="small"
               />
             )}
-            sx={{ minWidth: 200, mb: 2 }}
+            sx={{ minWidth: 200 }}
             disableClearable
           />
         </Box>
@@ -2188,17 +2241,17 @@ export default function SupplierPaymentsPage() {
           sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}
         >
           <Tab
-            label={`All (${paymentStatus ? (paymentStatus.credit_purchase_orders?.filter(p => !p.is_settled && p.has_grn && p.remaining_amount > 0).length || 0) + (paymentStatus.non_credit_purchase_orders?.filter(p => !p.is_paid && p.has_grn && p.remaining_amount > 0).length || 0) : 0})`}
+            label={`All (${paymentStatus ? (paymentStatus.credit_purchase_orders?.filter(p => !p.is_settled && p.remaining_amount > 0).length || 0) + (paymentStatus.non_credit_purchase_orders?.filter(p => !p.is_paid && p.remaining_amount > 0).length || 0) : 0})`}
             value="all"
           />
           <Tab
-            label={`Credit (${paymentStatus?.credit_purchase_orders?.filter(p => !p.is_settled && p.has_grn && p.remaining_amount > 0).length || 0})`}
+            label={`Credit (${paymentStatus?.credit_purchase_orders?.filter(p => !p.is_settled && p.remaining_amount > 0).length || 0})`}
             value="credit"
             icon={<CreditCardIcon sx={{ fontSize: 16 }} />}
             iconPosition="start"
           />
           <Tab
-            label={`Non-Credit (${paymentStatus?.non_credit_purchase_orders?.filter(p => !p.is_paid && p.has_grn && p.remaining_amount > 0).length || 0})`}
+            label={`Non-Credit (${paymentStatus?.non_credit_purchase_orders?.filter(p => !p.is_paid && p.remaining_amount > 0).length || 0})`}
             value="non_credit"
             icon={<AccountBalanceWalletIcon sx={{ fontSize: 16 }} />}
             iconPosition="start"
@@ -2242,11 +2295,6 @@ export default function SupplierPaymentsPage() {
                         {doc.invoice_no && (
                           <Typography variant="caption" color="text.secondary">
                             Inv: {doc.invoice_no}
-                          </Typography>
-                        )}
-                        {doc.grn_no && (
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            GRN: {doc.grn_no}
                           </Typography>
                         )}
                       </Box>
@@ -2422,11 +2470,6 @@ export default function SupplierPaymentsPage() {
                   <TableCell>
                     <Box>
                       <Typography variant="body2">{doc.po_no}</Typography>
-                      {doc.grn_no && (
-                        <Typography variant="caption" color="text.secondary">
-                          GRN: {doc.grn_no}
-                        </Typography>
-                      )}
                     </Box>
                   </TableCell>
                   <TableCell>
@@ -2523,11 +2566,6 @@ export default function SupplierPaymentsPage() {
                   <TableCell>
                     <Box>
                       <Typography variant="body2">{line.document.po_no}</Typography>
-                      {line.document.grn_no && (
-                        <Typography variant="caption" color="text.secondary">
-                          GRN: {line.document.grn_no}
-                        </Typography>
-                      )}
                     </Box>
                   </TableCell>
                   <TableCell>
@@ -2736,11 +2774,6 @@ export default function SupplierPaymentsPage() {
                   <TableCell>
                     <Box>
                       <Typography variant="body2">{line.document.po_no}</Typography>
-                      {line.document.grn_no && (
-                        <Typography variant="caption" color="text.secondary">
-                          GRN: {line.document.grn_no}
-                        </Typography>
-                      )}
                     </Box>
                   </TableCell>
                   <TableCell>

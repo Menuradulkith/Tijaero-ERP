@@ -450,18 +450,20 @@ export default function FinanceDashboard() {
   }
 
   return (
-    <Box>
+    <Box sx={{ overflow: "auto" }}>
       {/* Header */}
       <TPageHeader
         title="Finance Dashboard"
         subtitle={`Financial overview for ${format(today, 'MMMM yyyy')}`}
         actions={
           <Stack direction="row" spacing={2} alignItems="center">
-            <TBranchFilter 
-              branches={branches} 
-              value={branchCode} 
-              onChange={setBranchCode} 
-            />
+            <Box sx={{ minWidth: 280 }}>
+              <TBranchFilter 
+                branches={branches} 
+                value={branchCode} 
+                onChange={setBranchCode} 
+              />
+            </Box>
             <Tooltip title="Refresh Data">
               <IconButton onClick={handleRefresh} color="primary">
                 <RefreshIcon />

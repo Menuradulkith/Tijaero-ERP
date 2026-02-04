@@ -333,6 +333,10 @@ class GiftVoucherBase(BaseModel):
 
 class GiftVoucherCreate(GiftVoucherBase):
     purchased_invoice_no: Optional[str] = Field(None, description="Invoice number where voucher was purchased")
+    # Payment details for cashbook entry
+    payment_method: str = Field(default="cash", description="Payment method used to purchase voucher (cash, card, bank_transfer, cheque)")
+    branch_code: Optional[str] = Field(None, description="Branch where voucher was sold")
+    customer_name: Optional[str] = Field(None, description="Customer who purchased the voucher (optional for walk-in)")
 
 class GiftVoucherUpdate(BaseModel):
     amount: Optional[Decimal] = None

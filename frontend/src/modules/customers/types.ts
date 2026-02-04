@@ -283,6 +283,10 @@ export interface CustomerGiftVoucherCreate {
   amount: number;
   valid_period_in_months?: number;
   purchased_invoice_no?: string;
+  // Payment tracking for cashbook
+  payment_method?: string;
+  branch_code?: string;
+  customer_name?: string;
 }
 
 export interface CustomerGiftVoucherUpdate {

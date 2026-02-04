@@ -71,6 +71,7 @@ const ENTRY_TYPES: { value: CashbookEntryType | ""; label: string }[] = [
   { value: "invoice_receipt", label: "Invoice Receipts" },
   { value: "customer_advance", label: "Customer Advances" },
   { value: "customer_credit_settle", label: "Credit Settlements" },
+  { value: "voucher_sale", label: "Voucher Sales" },
   { value: "supplier_payment", label: "Supplier Payments" },
   { value: "expense", label: "Expenses" },
   { value: "bank_deposit", label: "Bank Deposits" },
@@ -92,6 +93,8 @@ const getEntryTypeColor = (type: CashbookEntryType) => {
       return "info";
     case "customer_credit_settle":
       return "primary";
+    case "voucher_sale":
+      return "success";  // Green - Money IN
     case "supplier_payment":
       return "warning";
     case "expense":
@@ -280,7 +283,7 @@ export default function CashbookPage() {
   ];
 
   return (
-    <Box>
+    <Box sx={{ overflow: "auto" }}>
       <TPageHeader 
         title="Cashbook" 
         actions={
@@ -514,11 +517,13 @@ export default function CashbookPage() {
             </MenuItem>
           ))}
         </TextField>
-        <TBranchFilter
-          branches={branches}
-          value={branchCode}
-          onChange={setBranchCode}
-        />
+        <Box sx={{ minWidth: 280 }}>
+          <TBranchFilter
+            branches={branches}
+            value={branchCode}
+            onChange={setBranchCode}
+          />
+        </Box>
       </Box>
 
       {/* Data Grid */}

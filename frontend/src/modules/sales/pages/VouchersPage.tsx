@@ -46,6 +46,7 @@ import {
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
+import { useReferenceData } from "@/hooks";
 import { vouchersApi } from "@/modules/customers/api";
 import { CustomerGiftVoucher, CustomerGiftVoucherCreate, VoucherUsage } from "@/modules/customers/types";
 
@@ -77,6 +78,9 @@ const INITIAL_FORM_DATA: CustomerGiftVoucherCreate = {
   amount: 0,
   valid_period_in_months: 12,
   purchased_invoice_no: "",
+  payment_method: "cash",
+  branch_code: "",
+  customer_name: "",
 };
 
 const resetFormFromVoucher = (voucher: CustomerGiftVoucher): CustomerGiftVoucherCreate => ({
@@ -84,6 +88,9 @@ const resetFormFromVoucher = (voucher: CustomerGiftVoucher): CustomerGiftVoucher
   amount: voucher.amount,
   valid_period_in_months: voucher.valid_period_in_months,
   purchased_invoice_no: voucher.purchased_invoice_no,
+  payment_method: "cash",
+  branch_code: "",
+  customer_name: "",
 });
 
 const getVoucherStatus = (voucher: CustomerGiftVoucher): string => {
@@ -141,6 +148,9 @@ export default function VouchersPage() {
   });
 
   // Data fetching
+  const { data: refData } = useReferenceData(["branches"]);
+  const branches = refData?.branches || [];
+
   const { data: vouchers, isLoading, refetch } = useQuery({
     queryKey: ["vouchers"],
     queryFn: () => vouchersApi.getAll(),
@@ -537,6 +547,43 @@ export default function VouchersPage() {
                 />
               )}
             </FormSection>
+
+            {/* Payment Details - Only when creating */}
+            {isCreating && (
+              <FormSection title="Payment Details (for Cashbook)" columns={2}>
+                <TextField
+                  select
+                  size="small"
+                  label="Payment Method"
+                  value={formData.payment_method || "cash"}
+                  onChange={(e) =>
+                    setFormData({ ...formData, payment_method: e.target.value })
+                  }
+                  required
+                >
+                  <MenuItem value="cash">Cash</MenuItem>
+                  <MenuItem value="card">Card</MenuItem>
+                  <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
+                  <MenuItem value="cheque">Cheque</MenuItem>
+                </TextField>
+                <TextField
+                  select
+                  size="small"
+                  label="Branch"
+                  value={formData.branch_code || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, branch_code: e.target.value })
+                  }
+                  required
+                >
+                  {branches.map((branch: { branch_code: string; branch_name: string }) => (
+                    <MenuItem key={branch.branch_code} value={branch.branch_code}>
+                      {branch.branch_code} - {branch.branch_name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </FormSection>
+            )}
 
             {/* Usage Statistics (View Only) */}
             {selectedVoucher && !isCreating && !isEditing && (

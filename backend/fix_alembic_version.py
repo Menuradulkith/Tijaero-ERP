@@ -27,7 +27,7 @@ try:
         conn.execute(text("DELETE FROM alembic_version"))
         
         # Insert the correct head version
-        conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('7b9e2be6f9a2')"))
+        conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('def053c91ef9')"))
         
         conn.commit()
         

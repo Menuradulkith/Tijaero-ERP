@@ -257,10 +257,11 @@ class SupplierCreditService:
     def _get_non_credit_purchase_orders(self, db: Session, supplier_id: int) -> List[Dict]:
         from app.modules.purchasing.models import PurchasingOrderItems
         
+        # Include 'approved' status so payments can be made before GRN is created
         non_credit_pos = db.query(PurchasingOrder).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) != "credit",
-            PurchasingOrder.status.in_(['completed', 'partially_completed'])
+            PurchasingOrder.status.in_(['approved', 'completed', 'partially_completed'])
         ).order_by(PurchasingOrder.purchasing_order_date.desc()).all()
         
         result = []

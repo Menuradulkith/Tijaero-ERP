@@ -15,10 +15,15 @@ export const ERP_LOCALE = "en-LK";
  * @returns Formatted currency string (e.g., "Rs. 12,345.60")
  */
 export function formatCurrency(value: number): string {
+  // Handle invalid numbers
+  const numValue = Number(value);
+  if (isNaN(numValue)) {
+    return `${ERP_CURRENCY_SYMBOL} 0.00`;
+  }
   return `${ERP_CURRENCY_SYMBOL} ${new Intl.NumberFormat(ERP_LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value)}`;
+  }).format(numValue)}`;
 }
 
 /**
@@ -27,10 +32,15 @@ export function formatCurrency(value: number): string {
  * @returns Formatted amount string (e.g., "12,345.60")
  */
 export function formatAmount(value: number): string {
+  // Handle invalid numbers
+  const numValue = Number(value);
+  if (isNaN(numValue)) {
+    return "0.00";
+  }
   return new Intl.NumberFormat(ERP_LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(numValue);
 }
 
 /**

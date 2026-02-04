@@ -224,6 +224,7 @@ class CashbookService:
         entries.extend(self._get_invoice_receipts(filters))
         entries.extend(self._get_customer_credit_settlements(filters))
         entries.extend(self._get_customer_advances(filters))
+        entries.extend(self._get_voucher_sales(filters))  # Gift voucher sales - Money IN
         entries.extend(self._get_supplier_credit_settlements(filters))  # Credit supplier payments
         entries.extend(self._get_supplier_direct_payments(filters))     # Direct/Non-credit supplier payments
         entries.extend(self._get_supplier_advance_payments(filters))    # Supplier advances
@@ -634,6 +635,55 @@ class CashbookService:
         
         return entries
     
+    def _get_voucher_sales(self, filters: schemas.CashbookFilter) -> List[schemas.CashbookEntry]:
+        """
+        Get gift voucher sales - Money IN
+        When a gift voucher is sold to a customer, that's real money received.
+        Later voucher redemption does NOT add to cashbook (already captured here).
+        """
+        from app.modules.customers.models import CustomerGiftVoucher
+        
+        entries = []
+        
+        query = self.db.query(CustomerGiftVoucher)
+        
+        if filters.branch_code:
+            query = query.filter(CustomerGiftVoucher.branch_code == filters.branch_code)
+        if filters.date_from:
+            query = query.filter(CustomerGiftVoucher.date >= filters.date_from)
+        if filters.date_to:
+            query = query.filter(CustomerGiftVoucher.date <= filters.date_to)
+        if filters.payment_method:
+            query = query.filter(CustomerGiftVoucher.payment_method.ilike(f"%{filters.payment_method}%"))
+        
+        vouchers = query.all()
+        
+        for voucher in vouchers:
+            # Map payment method to display label
+            payment_label = {
+                "cash": "Cash",
+                "card": "Card",
+                "bank_transfer": "Bank Transfer",
+                "cheque": "Cheque"
+            }.get(voucher.payment_method, voucher.payment_method or "Cash")
+            
+            entries.append(schemas.CashbookEntry(
+                id=voucher.id,
+                entry_type="voucher_sale",
+                transaction_date=voucher.created_at if voucher.created_at else datetime.combine(voucher.date, datetime.min.time()),
+                reference_no=voucher.barcode_no,
+                description=f"Gift voucher sold - {voucher.barcode_no}",
+                party_name=voucher.customer_name or "Walk-in Customer",
+                payment_method=payment_label,
+                money_in=Decimal(str(voucher.amount)),  # Full voucher amount is money in
+                money_out=Decimal("0"),
+                branch_code=voucher.branch_code,
+                source_table="customer_gift_voucher",
+                source_id=voucher.id
+            ))
+        
+        return entries
+    
     def _calculate_summary(self, entries: List[schemas.CashbookEntry]) -> schemas.CashbookSummary:
         """Calculate summary statistics from entries"""
         summary = schemas.CashbookSummary()
@@ -661,6 +711,9 @@ class CashbookService:
             elif entry.entry_type == "bank_deposit":
                 summary.bank_deposits += entry.money_out
                 summary.bank_deposits_count += 1
+            elif entry.entry_type == "voucher_sale":
+                summary.voucher_sales += entry.money_in
+                summary.voucher_sales_count += 1
         
         summary.net_movement = summary.total_money_in - summary.total_money_out
         summary.closing_balance = summary.opening_balance + summary.net_movement
