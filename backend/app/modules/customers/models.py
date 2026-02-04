@@ -170,6 +170,10 @@ class CustomerGiftVoucher(Base):
     purchased_invoice_no = Column(String(200))  # Invoice where voucher was purchased
     claimed_date = Column(TIMESTAMP)  # When fully claimed
     claimed_invoice_no = Column(String(200))  # Invoice where fully claimed
+    # Payment details for cashbook tracking
+    payment_method = Column(String(50), default="cash")  # cash, card, bank_transfer, cheque
+    branch_code = Column(String(50))  # Branch where voucher was sold
+    customer_name = Column(String(200))  # Customer who purchased (optional for walk-in)
     created_at = Column(TIMESTAMP, server_default=func.now())
     
     # Relationship to track usage history

@@ -141,6 +141,7 @@ export type CashbookEntryType =
   | "supplier_payment"
   | "expense"
   | "bank_deposit"
+  | "voucher_sale"
   | "adjustment";
 
 export interface CashbookEntry {

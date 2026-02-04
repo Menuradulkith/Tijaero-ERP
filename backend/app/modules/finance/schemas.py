@@ -202,6 +202,7 @@ class CashbookEntryType(str):
     SUPPLIER_PAYMENT = "supplier_payment"
     EXPENSE = "expense"
     BANK_DEPOSIT = "bank_deposit"
+    VOUCHER_SALE = "voucher_sale"  # Gift voucher sold to customer
     ADJUSTMENT = "adjustment"
 
 
@@ -246,6 +247,7 @@ class CashbookSummary(BaseModel):
     invoice_receipts: Decimal = Decimal("0")
     customer_credit_settlements: Decimal = Decimal("0")
     customer_advances: Decimal = Decimal("0")
+    voucher_sales: Decimal = Decimal("0")  # Gift voucher sales
     supplier_payments: Decimal = Decimal("0")
     expenses: Decimal = Decimal("0")
     bank_deposits: Decimal = Decimal("0")
@@ -254,6 +256,7 @@ class CashbookSummary(BaseModel):
     invoice_receipts_count: int = 0
     customer_credit_settlements_count: int = 0
     customer_advances_count: int = 0
+    voucher_sales_count: int = 0  # Gift voucher sales count
     supplier_payments_count: int = 0
     expenses_count: int = 0
     bank_deposits_count: int = 0
