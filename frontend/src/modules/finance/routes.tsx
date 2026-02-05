@@ -5,26 +5,46 @@ import CardPaymentsPage from "./pages/CardPaymentsPage";
 import ChequePaymentsPage from "./pages/ChequePaymentsPage";
 import ExpensesPage from "./pages/ExpensesPage";
 import AdvancePaymentsPage from "./pages/AdvancePaymentsPage";
+import CustomerAdvancePaymentsPage from "./pages/CustomerAdvancePaymentsPage";
+import SupplierAdvancePaymentsPage from "./pages/SupplierAdvancePaymentsPage";
 import CreditNotesPage from "./pages/CreditNotesPage";
 import CashbookPage from "./pages/CashbookPage";
 import BankTransferVerifyPage from "./pages/BankTransferVerifyPage";
 import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
 import PaymentApprovalsPage from "./pages/PaymentApprovalsPage";
+import PaymentMethodsPage from "./pages/PaymentMethodsPage";
+import ApprovalsPage from "./pages/ApprovalsPage";
 
 export default function FinanceRoutes() {
   return (
     <Routes>
       <Route index element={<FinanceDashboard />} />
       <Route path="cashbook" element={<CashbookPage />} />
+      <Route path="expenses" element={<ExpensesPage />} />
+      {/* Payment Methods - parent and sub-routes */}
+      <Route path="payment-methods" element={<PaymentMethodsPage />} />
+      <Route path="payment-methods/bank-deposits" element={<BankDepositsPage />} />
+      <Route path="payment-methods/card-payments" element={<CardPaymentsPage />} />
+      <Route path="payment-methods/cheque-payments" element={<ChequePaymentsPage />} />
+      <Route path="payment-methods/credit-notes" element={<CreditNotesPage />} />
+      {/* Legacy routes for backward compatibility */}
       <Route path="bank-deposits" element={<BankDepositsPage />} />
       <Route path="card-payments" element={<CardPaymentsPage />} />
       <Route path="cheque-payments" element={<ChequePaymentsPage />} />
-      <Route path="expenses" element={<ExpensesPage />} />
-      <Route path="advance-payments" element={<AdvancePaymentsPage />} />
       <Route path="credit-notes" element={<CreditNotesPage />} />
+      {/* Advance Payments - parent and sub-routes */}
+      <Route path="advance-payments" element={<AdvancePaymentsPage />} />
+      <Route path="advance-payments/customer" element={<CustomerAdvancePaymentsPage />} />
+      <Route path="advance-payments/supplier" element={<SupplierAdvancePaymentsPage />} />
+      {/* Approvals - parent and sub-routes */}
+      <Route path="approvals" element={<ApprovalsPage />} />
+      <Route path="approvals/payment-approvals" element={<PaymentApprovalsPage />} />
+      <Route path="approvals/bank-transfer-verify" element={<BankTransferVerifyPage />} />
+      {/* Legacy routes for backward compatibility */}
       <Route path="bank-transfer-verify" element={<BankTransferVerifyPage />} />
-      <Route path="supplier-payments" element={<SupplierPaymentsPage />} />
       <Route path="payment-approvals" element={<PaymentApprovalsPage />} />
+      {/* Other finance routes */}
+      <Route path="supplier-payments" element={<SupplierPaymentsPage />} />
     </Routes>
   );
 }

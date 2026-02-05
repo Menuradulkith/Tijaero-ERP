@@ -58,6 +58,7 @@ interface SubMenuItem {
   text: string;
   icon: JSX.Element;
   path: string;
+  subItems?: SubMenuItem[];
 }
 
 interface MenuItem {
@@ -123,15 +124,37 @@ const menuItems: MenuItem[] = [
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/finance" },
       { text: "Cashbook", icon: <AccountBalanceWalletIcon />, path: "/finance/cashbook" },
-      { text: "Bank Transfer Verify", icon: <AccountBalanceIcon />, path: "/finance/bank-transfer-verify" },
-      { text: "Bank Deposits", icon: <AccountBalanceIcon />, path: "/finance/bank-deposits" },
-      { text: "Card Payments", icon: <PaymentIcon />, path: "/finance/card-payments" },
-      { text: "Cheque Payments", icon: <ReceiptIcon />, path: "/finance/cheque-payments" },
       { text: "Expenses", icon: <ReceiptLongIcon />, path: "/finance/expenses" },
-      { text: "Advance Payments", icon: <PaymentIcon />, path: "/finance/advance-payments" },
-      { text: "Credit Notes", icon: <ReceiptIcon />, path: "/finance/credit-notes" },
+      { 
+        text: "Payment Methods", 
+        icon: <PaymentIcon />, 
+        path: "/finance/payment-methods",
+        subItems: [
+          { text: "Bank Deposits", icon: <AccountBalanceIcon />, path: "/finance/payment-methods/bank-deposits" },
+          { text: "Card Payments", icon: <PaymentIcon />, path: "/finance/payment-methods/card-payments" },
+          { text: "Cheque Payments", icon: <ReceiptIcon />, path: "/finance/payment-methods/cheque-payments" },
+          { text: "Credit Notes", icon: <ReceiptIcon />, path: "/finance/payment-methods/credit-notes" },
+        ],
+      },
+      { 
+        text: "Advance Payments", 
+        icon: <PaymentIcon />, 
+        path: "/finance/advance-payments",
+        subItems: [
+          { text: "Customer Advances", icon: <PaymentIcon />, path: "/finance/advance-payments/customer" },
+          { text: "Supplier Advances", icon: <PaymentIcon />, path: "/finance/advance-payments/supplier" },
+        ],
+      },
       { text: "Supplier Payments", icon: <PaymentIcon />, path: "/finance/supplier-payments" },
-      { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/finance/payment-approvals" },
+      { 
+        text: "Approvals", 
+        icon: <FactCheckIcon />, 
+        path: "/finance/approvals",
+        subItems: [
+          { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/finance/approvals/payment-approvals" },
+          { text: "Bank Transfer Verify", icon: <AccountBalanceIcon />, path: "/finance/approvals/bank-transfer-verify" },
+        ],
+      },
     ],
   },
   {
@@ -201,6 +224,8 @@ export default function Sidebar({
 
   // Track which parent menu is expanded (showing sub-items)
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
+  // Track which sub-menu is expanded (for nested sub-items)
+  const [expandedSubMenu, setExpandedSubMenu] = useState<string | null>(null);
 
   // Auto-expand menu based on current path
   useEffect(() => {
@@ -209,6 +234,13 @@ export default function Sidebar({
     );
     if (currentParent) {
       setExpandedMenu(currentParent.text);
+      // Check for nested sub-menu expansion
+      const nestedParent = currentParent.subItems?.find(
+        (sub) => sub.subItems && location.pathname.startsWith(sub.path)
+      );
+      if (nestedParent) {
+        setExpandedSubMenu(nestedParent.text);
+      }
     }
   }, [location.pathname]);
 
@@ -223,14 +255,29 @@ export default function Sidebar({
     if (item.subItems && item.subItems.length > 0) {
       // If has sub-items, expand the sub-menu
       setExpandedMenu(item.text);
+      setExpandedSubMenu(null);
     } else {
       // Navigate directly
       handleNavigation(item.path);
     }
   };
 
+  const handleSubMenuClick = (subItem: SubMenuItem) => {
+    if (subItem.subItems && subItem.subItems.length > 0) {
+      // If has nested sub-items, expand the nested sub-menu
+      setExpandedSubMenu(subItem.text);
+    } else {
+      // Navigate directly
+      handleNavigation(subItem.path);
+    }
+  };
+
   const handleBackClick = () => {
-    setExpandedMenu(null);
+    if (expandedSubMenu) {
+      setExpandedSubMenu(null);
+    } else {
+      setExpandedMenu(null);
+    }
   };
 
   // Filter menu items based on user permissions
@@ -248,6 +295,20 @@ export default function Sidebar({
     ? visibleMenuItems.find((item) => item.text === expandedMenu)
     : null;
 
+  // Get current expanded sub-menu's nested sub-items
+  const expandedSubMenuItem = expandedSubMenu && expandedMenuItem?.subItems
+    ? expandedMenuItem.subItems.find((item) => item.text === expandedSubMenu)
+    : null;
+
+  // Determine current back title and items to show
+  const currentBackTitle = expandedSubMenu 
+    ? expandedSubMenuItem?.text 
+    : expandedMenuItem?.text;
+  
+  const currentItems = expandedSubMenu && expandedSubMenuItem?.subItems
+    ? expandedSubMenuItem.subItems
+    : expandedMenuItem?.subItems;
+
   const drawer = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <Toolbar sx={{ bgcolor: "primary.main", color: "white", minHeight: { xs: 48, sm: 56 } }}>
@@ -261,7 +322,7 @@ export default function Sidebar({
       <Divider />
       <Box sx={{ flexGrow: 1, overflow: "auto" }}>
         {/* Show sub-menu if expanded, otherwise show main menu */}
-        {expandedMenuItem && expandedMenuItem.subItems ? (
+        {expandedMenuItem && currentItems ? (
           <List>
             {/* Back button / Header */}
             <ListItem disablePadding>
@@ -279,7 +340,7 @@ export default function Sidebar({
                   <ArrowBackIcon fontSize="small" />
                 </ListItemIcon>
                 <ListItemText
-                  primary={expandedMenuItem.text}
+                  primary={currentBackTitle}
                   primaryTypographyProps={{
                     fontWeight: 600,
                     fontSize: "0.875rem",
@@ -289,16 +350,18 @@ export default function Sidebar({
             </ListItem>
             <Divider />
             {/* Sub-items */}
-            {expandedMenuItem.subItems.map((subItem) => {
-              const isModuleRoot = subItem.path === expandedMenuItem.path;
+            {currentItems.map((subItem) => {
+              const basePath = expandedSubMenu ? expandedSubMenuItem?.path : expandedMenuItem.path;
+              const isModuleRoot = subItem.path === basePath;
               const isActive = isModuleRoot
                 ? location.pathname === subItem.path
                 : location.pathname.startsWith(subItem.path);
+              const hasNestedSubItems = subItem.subItems && subItem.subItems.length > 0;
 
               return (
                 <ListItem key={subItem.path} disablePadding>
                   <ListItemButton
-                    onClick={() => handleNavigation(subItem.path)}
+                    onClick={() => handleSubMenuClick(subItem)}
                     selected={isActive}
                     sx={{
                       py: 0.75,
@@ -327,6 +390,11 @@ export default function Sidebar({
                       primary={subItem.text}
                       primaryTypographyProps={{ fontSize: "0.875rem" }}
                     />
+                    {hasNestedSubItems && (
+                      <Typography variant="body2" color="text.secondary" sx={{ color: isActive ? "white" : "inherit" }}>
+                        ›
+                      </Typography>
+                    )}
                   </ListItemButton>
                 </ListItem>
               );

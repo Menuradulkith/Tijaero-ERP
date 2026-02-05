@@ -1421,11 +1421,63 @@ class SupplierAdvancePaymentService:
         
         return application
     
-    def get_applications_by_advance(self, advance_id: int) -> List[models.SupplierAdvanceApplication]:
-        return self.application_repo.get_by_advance(advance_id)
+    def get_applications_by_advance(self, advance_id: int) -> List[schemas.SupplierAdvanceApplication]:
+        """Get all applications for an advance with enriched GRN details"""
+        applications = self.application_repo.get_by_advance(advance_id)
+        result = []
+        for app in applications:
+            # Get GRN number
+            grn = self.db.query(models.GoodReceivedNote).filter(
+                models.GoodReceivedNote.id == app.grn_id
+            ).first()
+            grn_no = grn.good_received_no if grn else None
+            
+            # Get Advance number
+            advance = self.repo.get_by_id(app.advance_id)
+            advance_no = advance.advance_no if advance else None
+            
+            result.append(schemas.SupplierAdvanceApplication(
+                id=app.id,
+                advance_id=app.advance_id,
+                grn_id=app.grn_id,
+                applied_amount=app.applied_amount,
+                application_date=app.application_date,
+                remarks=app.remarks,
+                created_at=app.created_at,
+                updated_at=app.updated_at,
+                grn_no=grn_no,
+                advance_no=advance_no,
+            ))
+        return result
     
-    def get_applications_by_grn(self, grn_id: int) -> List[models.SupplierAdvanceApplication]:
-        return self.application_repo.get_by_grn(grn_id)
+    def get_applications_by_grn(self, grn_id: int) -> List[schemas.SupplierAdvanceApplication]:
+        """Get all applications for a GRN with enriched advance details"""
+        applications = self.application_repo.get_by_grn(grn_id)
+        result = []
+        for app in applications:
+            # Get GRN number
+            grn = self.db.query(models.GoodReceivedNote).filter(
+                models.GoodReceivedNote.id == app.grn_id
+            ).first()
+            grn_no = grn.good_received_no if grn else None
+            
+            # Get Advance number
+            advance = self.repo.get_by_id(app.advance_id)
+            advance_no = advance.advance_no if advance else None
+            
+            result.append(schemas.SupplierAdvanceApplication(
+                id=app.id,
+                advance_id=app.advance_id,
+                grn_id=app.grn_id,
+                applied_amount=app.applied_amount,
+                application_date=app.application_date,
+                remarks=app.remarks,
+                created_at=app.created_at,
+                updated_at=app.updated_at,
+                grn_no=grn_no,
+                advance_no=advance_no,
+            ))
+        return result
     
     def get_total_advance_applied_to_grn(self, grn_id: int) -> float:
         """Get total advance applications applied to a GRN"""
