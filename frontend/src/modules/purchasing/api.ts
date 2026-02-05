@@ -449,6 +449,7 @@ export interface SupplierPaymentStatusData {
     status: string;
     total_amount: number;
     settled_amount: number;
+    advance_applied?: number;
     remaining_amount: number;
     is_settled: boolean;
     has_grn: boolean;
@@ -468,6 +469,7 @@ export interface SupplierPaymentStatusData {
     payment_method: string;
     total_amount: number;
     paid_amount: number;
+    advance_applied?: number;
     remaining_amount: number;
     is_paid: boolean;
     has_grn: boolean;
@@ -489,6 +491,7 @@ export interface SupplierPaymentStatusData {
     total_amount: number;
     settled_amount?: number;
     paid_amount: number;
+    advance_applied?: number;
     remaining_amount: number;
     is_settled?: boolean;
     is_paid: boolean;

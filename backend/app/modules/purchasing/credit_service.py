@@ -200,6 +200,9 @@ class SupplierCreditService:
             PurchasingOrder.status.in_(valid_statuses)
         ).order_by(PurchasingOrder.purchasing_order_date.desc()).all()
         
+        # Import SupplierAdvanceApplication for advance applications
+        from app.modules.purchasing.models import SupplierAdvanceApplication
+        
         result = []
         for po in credit_pos:
             po_total = db.query(
@@ -214,6 +217,7 @@ class SupplierCreditService:
             
             # Get settlements for this PO (through GRN, only verified settlements)
             total_settled = Decimal("0")
+            total_advance_applied = Decimal("0")
             if grn:
                 total_settled = db.query(
                     func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
@@ -223,8 +227,17 @@ class SupplierCreditService:
                 ).filter(
                     SupplierCreditsSettleTransaction.good_received_id == grn.id
                 ).scalar() or Decimal("0")
+                
+                # Get advance applications for this GRN
+                total_advance_applied = db.query(
+                    func.coalesce(func.sum(SupplierAdvanceApplication.applied_amount), 0)
+                ).filter(
+                    SupplierAdvanceApplication.grn_id == grn.id
+                ).scalar() or Decimal("0")
             
-            remaining = float(po_total) - float(total_settled)
+            # Calculate remaining after settlements AND advance applications
+            total_paid = float(total_settled) + float(total_advance_applied)
+            remaining = float(po_total) - total_paid
             is_settled = remaining <= 0
 
             po_date = po.purchasing_order_date
@@ -240,7 +253,8 @@ class SupplierCreditService:
                 "po_date": po.purchasing_order_date,
                 "status": po.status,
                 "total_amount": float(po_total),
-                "settled_amount": float(total_settled),
+                "settled_amount": total_paid,  # Include both settlements and advance applications
+                "advance_applied": float(total_advance_applied),
                 "remaining_amount": remaining,
                 "is_settled": is_settled,
                 "has_grn": grn is not None,
@@ -255,7 +269,7 @@ class SupplierCreditService:
         return result
     
     def _get_non_credit_purchase_orders(self, db: Session, supplier_id: int) -> List[Dict]:
-        from app.modules.purchasing.models import PurchasingOrderItems
+        from app.modules.purchasing.models import PurchasingOrderItems, SupplierAdvanceApplication
         
         # Include 'approved' status so payments can be made before GRN is created
         non_credit_pos = db.query(PurchasingOrder).filter(
@@ -291,7 +305,18 @@ class SupplierCreditService:
                 SupplierPayment.status.in_(["verified", "pending"])  # Count verified and pending
             ).scalar() or Decimal("0")
             
-            remaining = float(po_total) - float(total_paid)
+            # Get advance applications for this GRN
+            total_advance_applied = Decimal("0")
+            if grn:
+                total_advance_applied = db.query(
+                    func.coalesce(func.sum(SupplierAdvanceApplication.applied_amount), 0)
+                ).filter(
+                    SupplierAdvanceApplication.grn_id == grn.id
+                ).scalar() or Decimal("0")
+            
+            # Calculate remaining after payments AND advance applications
+            total_all_paid = float(total_paid) + float(total_advance_applied)
+            remaining = float(po_total) - total_all_paid
             is_paid = remaining <= 0
 
             po_date = po.purchasing_order_date
@@ -308,7 +333,8 @@ class SupplierCreditService:
                 "status": po.status,
                 "payment_method": po.payment_method,
                 "total_amount": float(po_total),
-                "paid_amount": float(total_paid),
+                "paid_amount": total_all_paid,  # Include both payments and advance applications
+                "advance_applied": float(total_advance_applied),
                 "remaining_amount": remaining,
                 "is_paid": is_paid,
                 "has_grn": grn is not None,

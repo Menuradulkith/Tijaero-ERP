@@ -73,8 +73,23 @@ import WarningIcon from "@mui/icons-material/Warning";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import PrintIcon from "@mui/icons-material/Print";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import toast from "react-hot-toast";
-import { useConfirmDialog } from "@/components/tijaero";
+import { 
+  useConfirmDialog,
+  TStatCard,
+  TTabs,
+  TEmptyState,
+  TButton,
+  TInfoCard,
+  TFormDialog,
+  TTable,
+  TTextField,
+  TSelect,
+  TPageHeader,
+  TLoading,
+} from "@/components/tijaero";
 import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 
 import {
@@ -104,6 +119,8 @@ import {
   SupplierAdvancePayment,
   SupplierAdvancePaymentCreate,
   SupplierAdvanceBalanceSummary,
+  SupplierAdvanceApplicationCreate,
+  SupplierAdvanceApplication,
 } from "@/modules/purchasing/types";
 
 // Configuration
@@ -140,10 +157,13 @@ interface OutstandingDocument {
   payment_method?: string;
   total_amount: number;
   paid_amount: number;
+  advance_applied?: number;
   remaining_amount: number;
   days_overdue: number;
   is_overdue: boolean;
   branch_code: string;
+  has_grn?: boolean;
+  grn_id?: number | null;
 }
 
 // Payment allocation line
@@ -151,6 +171,8 @@ interface PaymentLine {
   id: string;
   document: OutstandingDocument;
   allocated_amount: number;
+  advance_amount: number; // Amount to apply from advances
+  selected_advance_id?: number; // Which advance to use
 }
 
 // Steps in the workflow
@@ -220,6 +242,12 @@ export default function SupplierPaymentsPage() {
     original_amount: 0,
   });
   const [savingAdvance, setSavingAdvance] = useState(false);
+
+  // View applications state
+  const [showApplicationsDialog, setShowApplicationsDialog] = useState(false);
+  const [selectedAdvanceForView, setSelectedAdvanceForView] = useState<SupplierAdvancePayment | null>(null);
+  const [advanceApplications, setAdvanceApplications] = useState<SupplierAdvanceApplication[]>([]);
+  const [loadingApplications, setLoadingApplications] = useState(false);
 
   const confirmDialog = useConfirmDialog();
 
@@ -382,7 +410,12 @@ export default function SupplierPaymentsPage() {
 
   // Create a new advance payment
   const handleCreateAdvance = async () => {
-    if (!selectedSupplier || !advanceFormData.original_amount || advanceFormData.original_amount <= 0) {
+    if (!selectedSupplier) {
+      toast.error("Please select a supplier first");
+      return;
+    }
+
+    if (!advanceFormData.original_amount || advanceFormData.original_amount <= 0) {
       toast.error("Please enter a valid advance amount");
       return;
     }
@@ -407,7 +440,7 @@ export default function SupplierPaymentsPage() {
       };
 
       await supplierAdvancePaymentsApi.create(data);
-      toast.success("Advance payment created successfully");
+      toast.success(`Advance payment created for ${selectedSupplier.full_name}`);
 
       // Reset form and reload data
       setShowAdvanceForm(false);
@@ -417,6 +450,8 @@ export default function SupplierPaymentsPage() {
         original_amount: 0,
       });
       loadAdvancePayments(selectedSupplier.id);
+      // Also reload payment status to update available advance balance
+      loadPaymentStatus(selectedSupplier.id);
     } catch (err: any) {
       console.error("Failed to create advance payment:", err);
       toast.error(err?.response?.data?.detail || "Failed to create advance payment");
@@ -448,6 +483,24 @@ export default function SupplierPaymentsPage() {
     }
   };
 
+  // View applications for an advance
+  const handleViewApplications = async (advance: SupplierAdvancePayment) => {
+    setSelectedAdvanceForView(advance);
+    setShowApplicationsDialog(true);
+    setLoadingApplications(true);
+
+    try {
+      const applications = await supplierAdvancePaymentsApi.getApplications(advance.id);
+      setAdvanceApplications(applications);
+    } catch (err: any) {
+      console.error("Failed to load applications:", err);
+      toast.error("Failed to load advance applications");
+      setAdvanceApplications([]);
+    } finally {
+      setLoadingApplications(false);
+    }
+  };
+
   // Transform API data to unified documents
   const outstandingDocuments = useMemo((): OutstandingDocument[] => {
     if (!paymentStatus) return [];
@@ -469,10 +522,13 @@ export default function SupplierPaymentsPage() {
           payment_type: "credit",
           total_amount: po.total_amount,
           paid_amount: po.settled_amount,
+          advance_applied: po.advance_applied,
           remaining_amount: po.remaining_amount,
           days_overdue: po.days_overdue,
           is_overdue: po.is_overdue,
           branch_code: po.branch_code,
+          has_grn: po.has_grn,
+          grn_id: po.grn_id,
         });
       }
     });
@@ -493,10 +549,13 @@ export default function SupplierPaymentsPage() {
           payment_method: po.payment_method,
           total_amount: po.total_amount,
           paid_amount: po.paid_amount,
+          advance_applied: po.advance_applied,
           remaining_amount: po.remaining_amount,
           days_overdue: po.days_overdue,
           is_overdue: po.is_overdue,
           branch_code: po.branch_code,
+          has_grn: po.has_grn,
+          grn_id: po.grn_id,
         });
       }
     });
@@ -538,9 +597,20 @@ export default function SupplierPaymentsPage() {
     return outstandingDocuments.filter((doc) => doc.is_overdue);
   }, [outstandingDocuments]);
 
+  // Total amount to pay via payment method (excluding advances)
   const totalPaymentAmount = useMemo(() => {
     return paymentLines.reduce((sum, line) => sum + line.allocated_amount, 0);
   }, [paymentLines]);
+
+  // Total advance amount to apply
+  const totalAdvanceAmount = useMemo(() => {
+    return paymentLines.reduce((sum, line) => sum + line.advance_amount, 0);
+  }, [paymentLines]);
+
+  // Total settlement amount (advance + payment)
+  const totalSettlementAmount = useMemo(() => {
+    return totalPaymentAmount + totalAdvanceAmount;
+  }, [totalPaymentAmount, totalAdvanceAmount]);
 
   // Filtered suppliers
   const filteredSuppliers = useMemo(() => {
@@ -599,8 +669,12 @@ export default function SupplierPaymentsPage() {
     setUseFIFO(false);
     setFifoAmount(0);
     resetPaymentForm();
+    // Clear previous supplier's data
+    setPaymentHistory([]);
+    // Load data for this supplier
     loadPaymentStatus(supplier.id);
-  }, [loadPaymentStatus]);
+    loadAdvancePayments(supplier.id);
+  }, [loadPaymentStatus, loadAdvancePayments]);
 
   // Auto-select first supplier
   useEffect(() => {
@@ -664,6 +738,7 @@ export default function SupplierPaymentsPage() {
           id: `line-${lines.length}`,
           document: doc,
           allocated_amount: allocate,
+          advance_amount: 0,
         });
         remaining -= allocate;
       }
@@ -672,7 +747,12 @@ export default function SupplierPaymentsPage() {
     return lines;
   }, [outstandingDocuments]);
 
-  const handleProceedToPayment = useCallback(() => {
+  const handleProceedToPayment = useCallback(async () => {
+    if (!selectedSupplier) {
+      toast.error("Please select a supplier first");
+      return;
+    }
+
     if (useFIFO) {
       // FIFO allocation
       if (fifoAmount <= 0) {
@@ -684,7 +764,12 @@ export default function SupplierPaymentsPage() {
         toast.error("No documents available for allocation");
         return;
       }
-      setPaymentLines(lines);
+      // Add advance_amount field to FIFO lines
+      const linesWithAdvance = lines.map(line => ({
+        ...line,
+        advance_amount: 0,
+      }));
+      setPaymentLines(linesWithAdvance);
     } else {
       // Manual selection
       if (selectedDocumentIds.size === 0) {
@@ -696,19 +781,24 @@ export default function SupplierPaymentsPage() {
         id: `line-${idx}`,
         document: doc,
         allocated_amount: doc.remaining_amount, // Default to full amount
+        advance_amount: 0, // Initialize advance amount to 0
       }));
       setPaymentLines(lines);
     }
 
+    // Load advance balance for selected supplier to show available advances
+    await loadAdvancePayments(selectedSupplier.id);
+
     setViewMode("payment");
     setActiveStep(1);
-  }, [useFIFO, fifoAmount, selectedDocumentIds, outstandingDocuments, allocateFIFO]);
+  }, [useFIFO, fifoAmount, selectedDocumentIds, outstandingDocuments, allocateFIFO, selectedSupplier, loadAdvancePayments]);
 
   const handleLineAmountChange = useCallback((lineId: string, amount: number) => {
     setPaymentLines((prev) =>
       prev.map((line) => {
         if (line.id === lineId) {
-          const clampedAmount = Math.min(Math.max(0, amount), line.document.remaining_amount);
+          const maxPayable = line.document.remaining_amount - line.advance_amount;
+          const clampedAmount = Math.min(Math.max(0, amount), maxPayable);
           return { ...line, allocated_amount: clampedAmount };
         }
         return line;
@@ -716,29 +806,67 @@ export default function SupplierPaymentsPage() {
     );
   }, []);
 
+  // Handler to update advance amount for a payment line
+  const handleLineAdvanceChange = useCallback((lineId: string, advanceAmount: number, advanceId?: number) => {
+    setPaymentLines((prev) =>
+      prev.map((line) => {
+        if (line.id === lineId) {
+          // Advance can't exceed document remaining or available advance balance
+          const availableAdvance = Number(advanceBalance?.available_balance || 0);
+          // Calculate total advance already allocated to other lines
+          const otherLinesAdvance = prev
+            .filter(l => l.id !== lineId)
+            .reduce((sum, l) => sum + l.advance_amount, 0);
+          const maxAdvance = Math.min(
+            line.document.remaining_amount, 
+            availableAdvance - otherLinesAdvance
+          );
+          const clampedAdvance = Math.min(Math.max(0, advanceAmount), maxAdvance);
+          
+          // Reduce allocated_amount if advance covers more
+          const newAllocated = Math.min(
+            line.allocated_amount, 
+            line.document.remaining_amount - clampedAdvance
+          );
+          
+          return { 
+            ...line, 
+            advance_amount: clampedAdvance,
+            allocated_amount: newAllocated,
+            selected_advance_id: advanceId,
+          };
+        }
+        return line;
+      })
+    );
+  }, [advanceBalance?.available_balance]);
+
   const handleRemoveLine = useCallback((lineId: string) => {
     setPaymentLines((prev) => prev.filter((line) => line.id !== lineId));
   }, []);
 
   const handleProceedToReview = useCallback(() => {
-    if (totalPaymentAmount <= 0) {
-      toast.error("Payment amount must be greater than 0");
+    // Must have either payment or advance to proceed
+    if (totalSettlementAmount <= 0) {
+      toast.error("Total settlement amount must be greater than 0");
       return;
     }
 
-    // Validate payment method specific fields
-    if (paymentMethod === "Bank Transfer" && !referenceNumber) {
-      toast.error("Please enter bank transfer reference number");
-      return;
-    }
-    if (paymentMethod === "Cheque" && (!referenceNumber || !bankName)) {
-      toast.error("Please enter cheque number and bank name");
-      return;
+    // If there's a payment amount (not just advance), validate payment method
+    if (totalPaymentAmount > 0) {
+      if (paymentMethod === "Bank Transfer" && !referenceNumber) {
+        toast.error("Please enter bank transfer reference number");
+        return;
+      }
+      if (paymentMethod === "Cheque" && (!referenceNumber || !bankName)) {
+        toast.error("Please enter cheque number and bank name");
+        return;
+      }
     }
 
     setViewMode("review");
     setActiveStep(2);
-  }, [totalPaymentAmount, paymentMethod, referenceNumber, bankName]);
+  }, [totalSettlementAmount, totalPaymentAmount, paymentMethod, referenceNumber, bankName]);
 
   const handlePostPayment = useCallback(async () => {
     if (!selectedSupplier || paymentLines.length === 0) return;
@@ -747,11 +875,24 @@ export default function SupplierPaymentsPage() {
     const paymentTypes = new Set(paymentLines.map((l) => l.document.payment_type));
     const hasCreditPayments = paymentTypes.has("credit");
     const hasNonCreditPayments = paymentTypes.has("non_credit");
+    
+    // Check if we have advance applications
+    const hasAdvanceApplications = paymentLines.some(l => l.advance_amount > 0);
+
+    // Build confirmation message
+    let confirmMessage = "";
+    if (totalAdvanceAmount > 0 && totalPaymentAmount > 0) {
+      confirmMessage = `Apply ${formatCurrency(totalAdvanceAmount)} from advances and pay ${formatCurrency(totalPaymentAmount)} for ${selectedSupplier.full_name}?`;
+    } else if (totalAdvanceAmount > 0) {
+      confirmMessage = `Apply ${formatCurrency(totalAdvanceAmount)} from advances for ${selectedSupplier.full_name}?`;
+    } else {
+      confirmMessage = `Post payment of ${formatCurrency(totalPaymentAmount)} for ${selectedSupplier.full_name}?`;
+    }
 
     const confirmed = await confirmDialog.confirm({
       title: "Post Payment",
-      message: `Post payment of ${formatCurrency(totalPaymentAmount)} for ${selectedSupplier.full_name}? This action cannot be undone.`,
-      confirmText: "Post Payment",
+      message: confirmMessage + " This action cannot be undone.",
+      confirmText: "Confirm",
     });
 
     if (!confirmed) return;
@@ -760,9 +901,51 @@ export default function SupplierPaymentsPage() {
       setSaving(true);
       setError(null);
 
-      // Process credit payments (use credit settlement API)
+      // STEP 1: Apply advances first (for lines with GRN and advance_amount > 0)
+      if (hasAdvanceApplications) {
+        // Get available advances for this supplier (sorted by date, FIFO)
+        const advances = advancePayments.filter(a => !a.is_fully_applied && Number(a.remaining_amount) > 0);
+        let advanceIndex = 0;
+        let currentAdvanceRemaining = advances.length > 0 ? Number(advances[0].remaining_amount) : 0;
+
+        for (const line of paymentLines) {
+          if (line.advance_amount > 0 && line.document.grn_id) {
+            let remainingToApply = line.advance_amount;
+
+            while (remainingToApply > 0 && advanceIndex < advances.length) {
+              const advance = advances[advanceIndex];
+              const applyAmount = Math.min(remainingToApply, currentAdvanceRemaining);
+
+              if (applyAmount > 0) {
+                const applicationData: SupplierAdvanceApplicationCreate = {
+                  advance_id: advance.id,
+                  grn_id: line.document.grn_id,
+                  applied_amount: applyAmount,
+                  application_date: paymentDate,
+                  remarks: `Applied via payment - ${line.document.po_no}`,
+                };
+
+                await supplierAdvancePaymentsApi.createApplication(applicationData);
+                
+                remainingToApply -= applyAmount;
+                currentAdvanceRemaining -= applyAmount;
+              }
+
+              // Move to next advance if current is exhausted
+              if (currentAdvanceRemaining <= 0) {
+                advanceIndex++;
+                if (advanceIndex < advances.length) {
+                  currentAdvanceRemaining = Number(advances[advanceIndex].remaining_amount);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // STEP 2: Process credit payments (use credit settlement API)
       if (hasCreditPayments) {
-        const creditLines = paymentLines.filter((l) => l.document.payment_type === "credit");
+        const creditLines = paymentLines.filter((l) => l.document.payment_type === "credit" && l.allocated_amount > 0);
 
         for (const line of creditLines) {
           const transactionData: SupplierCreditsSettleTransactionCreate = {
@@ -785,9 +968,9 @@ export default function SupplierPaymentsPage() {
         }
       }
 
-      // Process non-credit payments (use supplier payment API)
+      // STEP 3: Process non-credit payments (use supplier payment API)
       if (hasNonCreditPayments) {
-        const nonCreditLines = paymentLines.filter((l) => l.document.payment_type === "non_credit");
+        const nonCreditLines = paymentLines.filter((l) => l.document.payment_type === "non_credit" && l.allocated_amount > 0);
 
         for (const line of nonCreditLines) {
           const payload: SupplierPaymentCreate = {
@@ -808,10 +991,21 @@ export default function SupplierPaymentsPage() {
         }
       }
 
-      toast.success("Payment posted successfully!");
+      // Success message
+      if (totalAdvanceAmount > 0 && totalPaymentAmount > 0) {
+        toast.success("Advance applied and payment posted successfully!");
+      } else if (totalAdvanceAmount > 0) {
+        toast.success("Advance applied successfully!");
+      } else {
+        toast.success("Payment posted successfully!");
+      }
 
       // Refresh status and reset
       await loadPaymentStatus(selectedSupplier.id);
+      // Also reload advance balance
+      if (totalAdvanceAmount > 0) {
+        loadAdvancePayments(selectedSupplier.id);
+      }
       setViewMode("overview");
       setActiveStep(0);
       setSelectedDocumentIds(new Set());
@@ -829,6 +1023,8 @@ export default function SupplierPaymentsPage() {
     selectedSupplier,
     paymentLines,
     totalPaymentAmount,
+    totalAdvanceAmount,
+    advancePayments,
     paymentMethod,
     referenceNumber,
     bankName,
@@ -837,6 +1033,7 @@ export default function SupplierPaymentsPage() {
     remarks,
     confirmDialog,
     loadPaymentStatus,
+    loadAdvancePayments,
   ]);
 
   const handleBack = useCallback(() => {
@@ -1780,132 +1977,208 @@ export default function SupplierPaymentsPage() {
     </Box>
   );
 
-  // Render advance payments view
+  // Advance tab filter state
+  const [advanceTab, setAdvanceTab] = useState<"active" | "applied" | "all">("all");
+
+  // Filtered advances based on tab
+  const filteredAdvances = useMemo(() => {
+    if (!advancePayments) return [];
+    switch (advanceTab) {
+      case "active":
+        return advancePayments.filter((a) => !a.is_fully_applied && Number(a.remaining_amount) > 0);
+      case "applied":
+        return advancePayments.filter((a) => a.is_fully_applied);
+      default:
+        return advancePayments;
+    }
+  }, [advancePayments, advanceTab]);
+
+  // Calculate utilization percentage for progress bar
+  const getUtilizationPercentage = (advance: SupplierAdvancePayment) => {
+    const original = Number(advance.original_amount);
+    const applied = Number(advance.applied_amount);
+    return original > 0 ? (applied / original) * 100 : 0;
+  };
+
+  // Render advance payments view - Enhanced ERP-style UI
   const renderAdvances = () => (
     <Box sx={{ p: 2 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <AccountBalanceWalletIcon />
-          Advance Payments
-        </Typography>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button
-            variant="contained"
-            onClick={() => setShowAdvanceForm(true)}
-            disabled={showAdvanceForm}
-          >
-            New Advance Payment
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<ArrowBackIcon />}
-            onClick={() => setViewMode("overview")}
-          >
-            Back to Overview
-          </Button>
-        </Box>
-      </Box>
+      {/* Header Section - Using TPageHeader */}
+      <TPageHeader
+        title="Advance Payments"
+        subtitle={`${selectedSupplier?.full_name} - Manage prepayments and applications`}
+        icon={<AccountBalanceWalletIcon />}
+        actions={
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <TButton
+              variant="primary"
+              startIcon={<AddCircleOutlineIcon />}
+              onClick={() => setShowAdvanceForm(true)}
+              disabled={showAdvanceForm}
+            >
+              New Advance
+            </TButton>
+            <TButton
+              variant="outlined"
+              startIcon={<ArrowBackIcon />}
+              onClick={() => setViewMode("overview")}
+            >
+              Back
+            </TButton>
+          </Box>
+        }
+      />
 
-      {/* Balance Summary */}
+      {/* Dashboard Summary Cards - Using TStatCard */}
       {advanceBalance && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Grid container spacing={2}>
-            <Grid item xs={3}>
-              <Typography variant="caption" color="text.secondary">Total Advances</Typography>
-              <Typography variant="h6">{formatCurrency(advanceBalance.total_advances)}</Typography>
-            </Grid>
-            <Grid item xs={3}>
-              <Typography variant="caption" color="text.secondary">Total Applied</Typography>
-              <Typography variant="h6">{formatCurrency(advanceBalance.total_applied)}</Typography>
-            </Grid>
-            <Grid item xs={3}>
-              <Typography variant="caption" color="text.secondary">Available Balance</Typography>
-              <Typography variant="h6" color="success.main">
-                {formatCurrency(advanceBalance.available_balance)}
-              </Typography>
-            </Grid>
-            <Grid item xs={3}>
-              <Typography variant="caption" color="text.secondary">Active Advances</Typography>
-              <Typography variant="h6">{advanceBalance.active_advance_count}</Typography>
-            </Grid>
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} sm={6} md={3}>
+            <TStatCard
+              title="Total Advances"
+              value={formatCurrency(advanceBalance.total_advances)}
+              subtitle={`${advancePayments.length} payment${advancePayments.length !== 1 ? "s" : ""}`}
+              icon={<AccountBalanceWalletIcon />}
+              color="primary"
+            />
           </Grid>
-        </Paper>
+          <Grid item xs={12} sm={6} md={3}>
+            <TStatCard
+              title="Total Applied"
+              value={formatCurrency(advanceBalance.total_applied)}
+              subtitle="Against GRNs"
+              icon={<CheckCircleIcon />}
+              color="warning"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TStatCard
+              title="Available Balance"
+              value={formatCurrency(advanceBalance.available_balance)}
+              subtitle="Ready to apply"
+              icon={<AccountBalanceIcon />}
+              color="success"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TStatCard
+              title="Utilization Rate"
+              value={`${Number(advanceBalance.total_advances) > 0 ? Math.round((Number(advanceBalance.total_applied) / Number(advanceBalance.total_advances)) * 100) : 0}%`}
+              subtitle={`${advanceBalance.active_advance_count} Active`}
+              icon={<AssessmentIcon />}
+              color="info"
+              trend={{
+                value: Number(advanceBalance.total_advances) > 0 ? Math.round((Number(advanceBalance.total_applied) / Number(advanceBalance.total_advances)) * 100) : 0,
+                direction: "flat",
+              }}
+            />
+          </Grid>
+        </Grid>
       )}
 
-      {/* New Advance Form */}
+      {/* New Advance Form - Using TInfoCard */}
       {showAdvanceForm && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="subtitle1" sx={{ mb: 2 }}>Create New Advance Payment</Typography>
-          <Grid container spacing={2}>
+        <Box sx={{ mb: 3 }}>
+        <TInfoCard
+          title={`Create New Advance Payment - ${selectedSupplier?.full_name || selectedSupplier?.company_name || ''}`}
+          icon={<AddCircleOutlineIcon />}
+          variant="outlined"
+          footerActions={
+            <Box sx={{ display: "flex", gap: 1.5 }}>
+              <TButton
+                variant="primary"
+                onClick={handleCreateAdvance}
+                disabled={savingAdvance || !advanceFormData.original_amount || !advanceFormData.branch_code}
+                loading={savingAdvance}
+                startIcon={<CheckCircleIcon />}
+              >
+                {savingAdvance ? "Creating..." : "Create Advance Payment"}
+              </TButton>
+              <TButton
+                variant="outlined"
+                onClick={() => {
+                  setShowAdvanceForm(false);
+                  setAdvanceFormData({
+                    payment_method: "Bank Transfer",
+                    payment_date: new Date().toISOString().split("T")[0],
+                    original_amount: 0,
+                  });
+                }}
+                disabled={savingAdvance}
+              >
+                Cancel
+              </TButton>
+            </Box>
+          }
+        >
+          <Grid container spacing={2.5}>
             <Grid item xs={12} sm={6} md={3}>
-              <TextField
+              <TTextField
                 fullWidth
-                size="small"
-                label="Amount"
+                label="Advance Amount"
                 type="number"
                 value={advanceFormData.original_amount || ""}
-                onChange={(e) => setAdvanceFormData({ ...advanceFormData, original_amount: parseFloat(e.target.value) || 0 })}
+                onChange={(e) =>
+                  setAdvanceFormData({ ...advanceFormData, original_amount: parseFloat(e.target.value) || 0 })
+                }
                 InputProps={{
                   startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
                 }}
+                helperText="Enter the prepayment amount"
+                required
               />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
               <TextField
                 fullWidth
-                size="small"
                 label="Payment Date"
                 type="date"
                 value={advanceFormData.payment_date || ""}
                 onChange={(e) => setAdvanceFormData({ ...advanceFormData, payment_date: e.target.value })}
                 InputLabelProps={{ shrink: true }}
+                required
               />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <TextField
+              <TSelect
                 fullWidth
-                select
-                size="small"
                 label="Payment Method"
                 value={advanceFormData.payment_method || "Bank Transfer"}
-                onChange={(e) => setAdvanceFormData({ ...advanceFormData, payment_method: e.target.value })}
-              >
-                <MenuItem value="Cash">Cash</MenuItem>
-                <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
-                <MenuItem value="Cheque">Cheque</MenuItem>
-              </TextField>
+                onChange={(e) => setAdvanceFormData({ ...advanceFormData, payment_method: String(e) })}
+                options={[
+                  { value: "Cash", label: "💵 Cash" },
+                  { value: "Bank Transfer", label: "🏦 Bank Transfer" },
+                  { value: "Cheque", label: "📝 Cheque" },
+                ]}
+                required
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <TextField
+              <TSelect
                 fullWidth
-                select
-                size="small"
                 label="Branch"
                 value={advanceFormData.branch_code || ""}
-                onChange={(e) => setAdvanceFormData({ ...advanceFormData, branch_code: e.target.value })}
-              >
-                {branches.map((b) => (
-                  <MenuItem key={b.branch_code} value={b.branch_code}>
-                    {b.branch_name}
-                  </MenuItem>
-                ))}
-              </TextField>
+                onChange={(e) => setAdvanceFormData({ ...advanceFormData, branch_code: String(e) })}
+                options={branches.map((b) => ({
+                  value: b.branch_code,
+                  label: b.branch_name,
+                }))}
+                required
+              />
             </Grid>
-            {(advanceFormData.payment_method === "Bank Transfer" || advanceFormData.payment_method === "Cheque") && (
+            {(advanceFormData.payment_method === "Bank Transfer" ||
+              advanceFormData.payment_method === "Cheque") && (
               <>
                 <Grid item xs={12} sm={6} md={3}>
-                  <TextField
+                  <TTextField
                     fullWidth
-                    size="small"
-                    label="Reference Number"
+                    label={advanceFormData.payment_method === "Cheque" ? "Cheque Number" : "Transaction Reference"}
                     value={advanceFormData.reference_number || ""}
                     onChange={(e) => setAdvanceFormData({ ...advanceFormData, reference_number: e.target.value })}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
-                  <TextField
+                  <TTextField
                     fullWidth
-                    size="small"
                     label="Bank Name"
                     value={advanceFormData.bank_name || ""}
                     onChange={(e) => setAdvanceFormData({ ...advanceFormData, bank_name: e.target.value })}
@@ -1913,111 +2186,220 @@ export default function SupplierPaymentsPage() {
                 </Grid>
               </>
             )}
-            <Grid item xs={12} sm={6} md={6}>
-              <TextField
+            <Grid item xs={12} md={6}>
+              <TTextField
                 fullWidth
-                size="small"
-                label="Remarks"
+                label="Remarks / Purpose"
                 value={advanceFormData.remarks || ""}
                 onChange={(e) => setAdvanceFormData({ ...advanceFormData, remarks: e.target.value })}
+                placeholder="E.g., Advance for upcoming order #12345"
               />
             </Grid>
-            <Grid item xs={12}>
-              <Box sx={{ display: "flex", gap: 1 }}>
-                <Button
-                  variant="contained"
-                  onClick={handleCreateAdvance}
-                  disabled={savingAdvance}
-                >
-                  {savingAdvance ? <CircularProgress size={20} /> : "Create Advance"}
-                </Button>
-                <Button
-                  variant="outlined"
-                  onClick={() => {
-                    setShowAdvanceForm(false);
-                    setAdvanceFormData({
-                      payment_method: "Bank Transfer",
-                      payment_date: new Date().toISOString().split("T")[0],
-                      original_amount: 0,
-                    });
-                  }}
-                  disabled={savingAdvance}
-                >
-                  Cancel
-                </Button>
-              </Box>
-            </Grid>
           </Grid>
-        </Paper>
+        </TInfoCard>
+        </Box>
       )}
 
-      {/* Advances List */}
+      {/* Tab Filters - Using TTabs */}
+      <TTabs
+        tabs={[
+          { id: "all", label: "All Advances", badge: advancePayments.length },
+          { id: "active", label: "Active", badge: advancePayments.filter((a) => !a.is_fully_applied).length },
+          { id: "applied", label: "Fully Applied", badge: advancePayments.filter((a) => a.is_fully_applied).length },
+        ]}
+        activeTab={advanceTab}
+        onChange={(tabId) => setAdvanceTab(tabId as "all" | "active" | "applied")}
+        paper
+        sx={{ mb: 2, borderRadius: 2 }}
+      />
+
+      {/* Advances List - Enhanced Card View */}
       {loadingAdvances ? (
-        <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-          <CircularProgress />
-        </Box>
-      ) : advancePayments.length === 0 ? (
-        <Paper sx={{ p: 4, textAlign: "center" }}>
-          <Typography variant="body2" color="text.secondary">
-            No advance payments found for this supplier
-          </Typography>
-        </Paper>
+        <TLoading message="Loading advance payments..." />
+      ) : filteredAdvances.length === 0 ? (
+        <TEmptyState
+          icon={<AccountBalanceWalletIcon sx={{ fontSize: 64 }} />}
+          title="No Advance Payments Found"
+          message={
+            advanceTab === "active"
+              ? "No active advances with remaining balance"
+              : advanceTab === "applied"
+              ? "No fully applied advances yet"
+              : "Create your first advance payment for this supplier"
+          }
+          action={
+            advanceTab === "all" ? {
+              label: "Create Advance Payment",
+              onClick: () => setShowAdvanceForm(true),
+              icon: <AddCircleOutlineIcon />,
+            } : undefined
+          }
+        />
       ) : (
-        <TableContainer component={Paper}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Advance No.</TableCell>
-                <TableCell>Date</TableCell>
-                <TableCell>Payment Method</TableCell>
-                <TableCell align="right">Original Amount (Rs.)</TableCell>
-                <TableCell align="right">Applied Amount (Rs.)</TableCell>
-                <TableCell align="right">Remaining (Rs.)</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Branch</TableCell>
-                <TableCell align="center">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {advancePayments.map((advance) => (
-                <TableRow key={advance.id} hover>
-                  <TableCell>{advance.advance_no}</TableCell>
-                  <TableCell>{new Date(advance.payment_date).toLocaleDateString()}</TableCell>
-                  <TableCell>{advance.payment_method}</TableCell>
-                  <TableCell align="right">{formatCurrency(advance.original_amount)}</TableCell>
-                  <TableCell align="right">{formatCurrency(advance.applied_amount)}</TableCell>
-                  <TableCell align="right">
-                    <Typography
-                      color={advance.remaining_amount > 0 ? "success.main" : "text.secondary"}
-                    >
-                      {formatCurrency(advance.remaining_amount)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
+        <Grid container spacing={2}>
+          {filteredAdvances.map((advance) => {
+            const utilization = getUtilizationPercentage(advance);
+            const isActive = !advance.is_fully_applied && Number(advance.remaining_amount) > 0;
+
+            return (
+              <Grid item xs={12} md={6} lg={4} key={advance.id}>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 2.5,
+                    borderRadius: 3,
+                    border: "1px solid",
+                    borderColor: isActive ? "success.light" : "divider",
+                    bgcolor: isActive ? "success.50" : "background.paper",
+                    transition: "all 0.2s",
+                    "&:hover": {
+                      boxShadow: 3,
+                      transform: "translateY(-2px)",
+                    },
+                  }}
+                >
+                  {/* Card Header */}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2 }}>
+                    <Box>
+                      <Typography variant="subtitle1" fontWeight="600" color="primary.main">
+                        {advance.advance_no}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {new Date(advance.payment_date).toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </Typography>
+                    </Box>
                     <Chip
+                      icon={isActive ? <CheckCircleIcon /> : undefined}
                       label={advance.is_fully_applied ? "Fully Applied" : "Active"}
                       size="small"
-                      color={advance.is_fully_applied ? "default" : "success"}
+                      color={isActive ? "success" : "default"}
+                      variant={isActive ? "filled" : "outlined"}
                     />
-                  </TableCell>
-                  <TableCell>{advance.branch_code}</TableCell>
-                  <TableCell align="center">
-                    {!advance.is_fully_applied && advance.applied_amount === 0 && (
-                      <IconButton
+                  </Box>
+
+                  {/* Amount Details */}
+                  <Box sx={{ mb: 2 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Original Amount
+                      </Typography>
+                      <Typography variant="body2" fontWeight="600">
+                        {formatCurrency(advance.original_amount)}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Applied
+                      </Typography>
+                      <Typography variant="body2" color="warning.main">
+                        {formatCurrency(advance.applied_amount)}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Remaining
+                      </Typography>
+                      <Typography variant="body2" fontWeight="700" color={isActive ? "success.main" : "text.secondary"}>
+                        {formatCurrency(advance.remaining_amount)}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Utilization Progress Bar */}
+                  <Box sx={{ mb: 2 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Utilization
+                      </Typography>
+                      <Typography variant="caption" fontWeight="600">
+                        {Math.round(utilization)}%
+                      </Typography>
+                    </Box>
+                    <Box
+                      sx={{
+                        height: 6,
+                        borderRadius: 3,
+                        bgcolor: "grey.200",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          height: "100%",
+                          borderRadius: 3,
+                          bgcolor:
+                            utilization === 100
+                              ? "grey.400"
+                              : utilization > 75
+                              ? "warning.main"
+                              : utilization > 50
+                              ? "info.main"
+                              : "success.main",
+                          width: `${utilization}%`,
+                          transition: "width 0.5s ease",
+                        }}
+                      />
+                    </Box>
+                  </Box>
+
+                  {/* Card Footer */}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", pt: 1, borderTop: "1px solid", borderColor: "divider" }}>
+                    <Box sx={{ display: "flex", gap: 0.5 }}>
+                      <Chip
+                        label={advance.payment_method}
                         size="small"
-                        color="error"
-                        onClick={() => handleDeleteAdvance(advance.id)}
-                        title="Delete"
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                        variant="outlined"
+                        sx={{ fontSize: "0.7rem", height: 22 }}
+                      />
+                      <Chip
+                        label={advance.branch_code}
+                        size="small"
+                        variant="outlined"
+                        sx={{ fontSize: "0.7rem", height: 22 }}
+                      />
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 0.5 }}>
+                      {/* View Applications button */}
+                      {Number(advance.applied_amount) > 0 && (
+                        <IconButton
+                          size="small"
+                          color="info"
+                          onClick={() => handleViewApplications(advance)}
+                          title="View Applications"
+                          sx={{
+                            bgcolor: "info.50",
+                            "&:hover": { bgcolor: "info.100" },
+                          }}
+                        >
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                      {/* Delete button */}
+                      {isActive && Number(advance.applied_amount) === 0 && (
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleDeleteAdvance(advance.id)}
+                          title="Delete Advance"
+                          sx={{
+                            bgcolor: "error.50",
+                            "&:hover": { bgcolor: "error.100" },
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                    </Box>
+                  </Box>
+                </Paper>
+              </Grid>
+            );
+          })}
+        </Grid>
       )}
     </Box>
   );
@@ -2167,6 +2549,8 @@ export default function SupplierPaymentsPage() {
               onClick={() => {
                 setViewMode("advances");
                 loadAdvancePayments(selectedSupplier!.id);
+                // Also load payment status to get available GRNs for applying advances
+                loadPaymentStatus(selectedSupplier!.id);
               }}
             >
               Advances
@@ -2274,6 +2658,7 @@ export default function SupplierPaymentsPage() {
                   <TableCell>Date</TableCell>
                   <TableCell>Due Date</TableCell>
                   <TableCell align="right">Amount (Rs.)</TableCell>
+                  <TableCell align="right">Paid/Applied</TableCell>
                   <TableCell align="right">Outstanding (Rs.)</TableCell>
                   <TableCell>Status</TableCell>
                 </TableRow>
@@ -2307,6 +2692,18 @@ export default function SupplierPaymentsPage() {
                     </TableCell>
                     <TableCell align="right">
                       {formatAmount(doc.total_amount)}
+                    </TableCell>
+                    <TableCell align="right">
+                      <Box>
+                        <Typography variant="body2">
+                          {formatAmount(doc.paid_amount)}
+                        </Typography>
+                        {doc.advance_applied && doc.advance_applied > 0 && (
+                          <Typography variant="caption" color="success.main">
+                            (Adv: {formatAmount(doc.advance_applied)})
+                          </Typography>
+                        )}
+                      </Box>
                     </TableCell>
                     <TableCell align="right">
                       <Typography color="warning.main" fontWeight="bold">
@@ -2442,6 +2839,8 @@ export default function SupplierPaymentsPage() {
                 <TableCell>Type</TableCell>
                 <TableCell>Document</TableCell>
                 <TableCell>Due Date</TableCell>
+                <TableCell align="right">Total</TableCell>
+                <TableCell align="right">Advance</TableCell>
                 <TableCell align="right">Outstanding</TableCell>
                 <TableCell>Status</TableCell>
               </TableRow>
@@ -2476,6 +2875,20 @@ export default function SupplierPaymentsPage() {
                     <Typography color={doc.is_overdue ? "error" : "text.primary"}>
                       {new Date(doc.due_date).toLocaleDateString()}
                     </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography variant="body2" color="text.secondary">
+                      {formatCurrency((doc.advance_applied || 0) + doc.remaining_amount)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    {(doc.advance_applied || 0) > 0 ? (
+                      <Typography variant="body2" color="success.main">
+                        {formatCurrency(doc.advance_applied || 0)}
+                      </Typography>
+                    ) : (
+                      <Typography variant="body2" color="text.disabled">-</Typography>
+                    )}
                   </TableCell>
                   <TableCell align="right">
                     <Typography fontWeight="bold">
@@ -2547,6 +2960,19 @@ export default function SupplierPaymentsPage() {
         <Typography variant="h6" gutterBottom>
           Payment Allocations
         </Typography>
+        
+        {/* Show available advance balance if any */}
+        {advanceBalance && Number(advanceBalance.available_balance) > 0 && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              <strong>Available Advance Balance:</strong> {formatCurrency(advanceBalance.available_balance)} 
+              {totalAdvanceAmount > 0 && (
+                <> — Using: {formatCurrency(totalAdvanceAmount)}</>
+              )}
+            </Typography>
+          </Alert>
+        )}
+        
         <Divider sx={{ mb: 2 }} />
 
         <TableContainer>
@@ -2555,60 +2981,130 @@ export default function SupplierPaymentsPage() {
               <TableRow>
                 <TableCell>Document</TableCell>
                 <TableCell>Type</TableCell>
-                <TableCell align="right">Outstanding (Rs.)</TableCell>
-                <TableCell align="right" sx={{ width: 180 }}>Payment Amount (Rs.)</TableCell>
+                <TableCell align="right">Outstanding</TableCell>
+                {advanceBalance && Number(advanceBalance.available_balance) > 0 && (
+                  <TableCell align="right" sx={{ width: 150 }}>Apply Advance</TableCell>
+                )}
+                <TableCell align="right" sx={{ width: 150 }}>Payment Amount</TableCell>
                 <TableCell sx={{ width: 50 }} />
               </TableRow>
             </TableHead>
             <TableBody>
-              {paymentLines.map((line) => (
-                <TableRow key={line.id}>
-                  <TableCell>
-                    <Box>
-                      <Typography variant="body2">{line.document.po_no}</Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={line.document.payment_type === "credit" ? "Credit" : line.document.payment_method || "Cash"}
-                      size="small"
-                      color={line.document.payment_type === "credit" ? "info" : "default"}
-                    />
-                  </TableCell>
+              {paymentLines.map((line) => {
+                const hasGrn = line.document.has_grn && line.document.grn_id;
+                const canApplyAdvance = hasGrn && advanceBalance && Number(advanceBalance.available_balance) > 0;
+                const otherLinesAdvance = paymentLines
+                  .filter(l => l.id !== line.id)
+                  .reduce((sum, l) => sum + l.advance_amount, 0);
+                const maxAdvanceForLine = canApplyAdvance 
+                  ? Math.min(
+                      line.document.remaining_amount,
+                      Number(advanceBalance.available_balance) - otherLinesAdvance
+                    )
+                  : 0;
+                
+                return (
+                  <TableRow key={line.id}>
+                    <TableCell>
+                      <Box>
+                        <Typography variant="body2">{line.document.po_no}</Typography>
+                        {hasGrn && (
+                          <Typography variant="caption" color="text.secondary">
+                            Has GRN
+                          </Typography>
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={line.document.payment_type === "credit" ? "Credit" : line.document.payment_method || "Cash"}
+                        size="small"
+                        color={line.document.payment_type === "credit" ? "info" : "default"}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      {formatAmount(line.document.remaining_amount)}
+                    </TableCell>
+                    {advanceBalance && Number(advanceBalance.available_balance) > 0 && (
+                      <TableCell align="right">
+                        {canApplyAdvance ? (
+                          <TextField
+                            type="number"
+                            size="small"
+                            value={line.advance_amount || ""}
+                            onChange={(e) => handleLineAdvanceChange(line.id, Number(e.target.value))}
+                            placeholder="0"
+                            InputProps={{
+                              startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                            }}
+                            inputProps={{
+                              min: 0,
+                              max: maxAdvanceForLine,
+                              step: 0.01,
+                            }}
+                            sx={{ width: 130 }}
+                            helperText={line.advance_amount > 0 ? "" : `Max: ${formatCurrency(maxAdvanceForLine)}`}
+                          />
+                        ) : (
+                          <Typography variant="body2" color="text.disabled">
+                            {!hasGrn ? "No GRN" : "-"}
+                          </Typography>
+                        )}
+                      </TableCell>
+                    )}
+                    <TableCell align="right">
+                      <TextField
+                        type="number"
+                        size="small"
+                        value={line.allocated_amount}
+                        onChange={(e) => handleLineAmountChange(line.id, Number(e.target.value))}
+                        InputProps={{
+                          startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                        }}
+                        inputProps={{
+                          min: 0,
+                          max: line.document.remaining_amount - line.advance_amount,
+                          step: 0.01,
+                        }}
+                        sx={{ width: 130 }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <IconButton size="small" color="error" onClick={() => handleRemoveLine(line.id)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {/* Totals Row */}
+              <TableRow sx={{ bgcolor: "action.hover" }}>
+                <TableCell colSpan={2} />
+                <TableCell align="right">
+                  <Typography variant="subtitle2" fontWeight="bold">Totals:</Typography>
+                </TableCell>
+                {advanceBalance && Number(advanceBalance.available_balance) > 0 && (
                   <TableCell align="right">
-                    {formatAmount(line.document.remaining_amount)}
+                    <Typography variant="subtitle1" fontWeight="bold" color="success.main">
+                      {formatCurrency(totalAdvanceAmount)}
+                    </Typography>
                   </TableCell>
-                  <TableCell align="right">
-                    <TextField
-                      type="number"
-                      size="small"
-                      value={line.allocated_amount}
-                      onChange={(e) => handleLineAmountChange(line.id, Number(e.target.value))}
-                      InputProps={{
-                        startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
-                      }}
-                      inputProps={{
-                        min: 0,
-                        max: line.document.remaining_amount,
-                        step: 0.01,
-                      }}
-                      sx={{ width: 150 }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <IconButton size="small" color="error" onClick={() => handleRemoveLine(line.id)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
+                )}
+                <TableCell align="right">
+                  <Typography variant="subtitle1" fontWeight="bold" color="primary.main">
+                    {formatCurrency(totalPaymentAmount)}
+                  </Typography>
+                </TableCell>
+                <TableCell />
+              </TableRow>
+              {/* Grand Total Row */}
               <TableRow>
-                <TableCell colSpan={3} align="right">
-                  <Typography variant="subtitle1" fontWeight="bold">Total Payment:</Typography>
+                <TableCell colSpan={advanceBalance && Number(advanceBalance.available_balance) > 0 ? 4 : 3} align="right">
+                  <Typography variant="subtitle1" fontWeight="bold">Total Settlement:</Typography>
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h6" color="primary.main">
-                    {formatCurrency(totalPaymentAmount)}
+                    {formatCurrency(totalSettlementAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -2764,47 +3260,83 @@ export default function SupplierPaymentsPage() {
                 <TableCell>Document</TableCell>
                 <TableCell>Type</TableCell>
                 <TableCell align="right">Outstanding (Rs.)</TableCell>
+                {totalAdvanceAmount > 0 && (
+                  <TableCell align="right">Advance (Rs.)</TableCell>
+                )}
                 <TableCell align="right">Payment (Rs.)</TableCell>
                 <TableCell align="right">Remaining After (Rs.)</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {paymentLines.map((line) => (
-                <TableRow key={line.id}>
-                  <TableCell>
-                    <Box>
-                      <Typography variant="body2">{line.document.po_no}</Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={line.document.payment_type === "credit" ? "Credit" : line.document.payment_method || "Cash"}
-                      size="small"
-                      color={line.document.payment_type === "credit" ? "info" : "default"}
-                    />
-                  </TableCell>
+              {paymentLines.map((line) => {
+                const totalSettlement = line.advance_amount + line.allocated_amount;
+                const remainingAfter = line.document.remaining_amount - totalSettlement;
+                
+                return (
+                  <TableRow key={line.id}>
+                    <TableCell>
+                      <Box>
+                        <Typography variant="body2">{line.document.po_no}</Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={line.document.payment_type === "credit" ? "Credit" : line.document.payment_method || "Cash"}
+                        size="small"
+                        color={line.document.payment_type === "credit" ? "info" : "default"}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      {formatAmount(line.document.remaining_amount)}
+                    </TableCell>
+                    {totalAdvanceAmount > 0 && (
+                      <TableCell align="right">
+                        <Typography color="success.main" fontWeight="bold">
+                          {line.advance_amount > 0 ? formatAmount(line.advance_amount) : "-"}
+                        </Typography>
+                      </TableCell>
+                    )}
+                    <TableCell align="right">
+                      <Typography color="primary.main" fontWeight="bold">
+                        {line.allocated_amount > 0 ? formatAmount(line.allocated_amount) : "-"}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography color={remainingAfter > 0 ? "warning.main" : "success.main"}>
+                        {formatAmount(remainingAfter)}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {/* Totals Row */}
+              <TableRow sx={{ bgcolor: "action.hover" }}>
+                <TableCell colSpan={2} />
+                <TableCell align="right">
+                  <Typography variant="subtitle2" fontWeight="bold">Totals:</Typography>
+                </TableCell>
+                {totalAdvanceAmount > 0 && (
                   <TableCell align="right">
-                    {formatAmount(line.document.remaining_amount)}
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography color="primary.main" fontWeight="bold">
-                      {formatAmount(line.allocated_amount)}
+                    <Typography variant="subtitle1" fontWeight="bold" color="success.main">
+                      {formatCurrency(totalAdvanceAmount)}
                     </Typography>
                   </TableCell>
-                  <TableCell align="right">
-                    <Typography color={line.document.remaining_amount - line.allocated_amount > 0 ? "warning.main" : "success.main"}>
-                      {formatAmount(line.document.remaining_amount - line.allocated_amount)}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ))}
+                )}
+                <TableCell align="right">
+                  <Typography variant="subtitle1" fontWeight="bold" color="primary.main">
+                    {formatCurrency(totalPaymentAmount)}
+                  </Typography>
+                </TableCell>
+                <TableCell />
+              </TableRow>
+              {/* Grand Total Row */}
               <TableRow>
-                <TableCell colSpan={3} align="right">
-                  <Typography variant="subtitle1" fontWeight="bold">Total Payment:</Typography>
+                <TableCell colSpan={totalAdvanceAmount > 0 ? 4 : 3} align="right">
+                  <Typography variant="subtitle1" fontWeight="bold">Total Settlement:</Typography>
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h5" color="primary.main">
-                    {formatCurrency(totalPaymentAmount)}
+                    {formatCurrency(totalSettlementAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -2964,6 +3496,160 @@ export default function SupplierPaymentsPage() {
           </DialogActions>
         </Dialog>
       )}
+
+      {/* View Advance Applications Dialog - Using TFormDialog */}
+      <TFormDialog
+        open={showApplicationsDialog}
+        onClose={() => setShowApplicationsDialog(false)}
+        title={`Application History${selectedAdvanceForView ? ` - ${selectedAdvanceForView.advance_no}` : ""}`}
+        icon={<VisibilityIcon />}
+        maxWidth="md"
+        submitText="Close"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setShowApplicationsDialog(false);
+        }}
+        cancelText=""
+        showCloseButton
+      >
+        {/* Summary Card - Using TInfoCard */}
+        {selectedAdvanceForView && (
+          <TInfoCard
+            title="Advance Summary"
+            icon={<AccountBalanceWalletIcon />}
+            variant="outlined"
+          >
+            <Grid container spacing={2}>
+              <Grid item xs={3}>
+                <Typography variant="caption" color="text.secondary">
+                  Original Amount
+                </Typography>
+                <Typography variant="h6" fontWeight="600">
+                  {formatCurrency(selectedAdvanceForView.original_amount)}
+                </Typography>
+              </Grid>
+              <Grid item xs={3}>
+                <Typography variant="caption" color="text.secondary">
+                  Total Applied
+                </Typography>
+                <Typography variant="h6" fontWeight="600" color="warning.main">
+                  {formatCurrency(selectedAdvanceForView.applied_amount)}
+                </Typography>
+              </Grid>
+              <Grid item xs={3}>
+                <Typography variant="caption" color="text.secondary">
+                  Remaining Balance
+                </Typography>
+                <Typography
+                  variant="h6"
+                  fontWeight="600"
+                  color={Number(selectedAdvanceForView.remaining_amount) > 0 ? "success.main" : "text.secondary"}
+                >
+                  {formatCurrency(selectedAdvanceForView.remaining_amount)}
+                </Typography>
+              </Grid>
+              <Grid item xs={3}>
+                <Typography variant="caption" color="text.secondary">
+                  Utilization
+                </Typography>
+                <Typography variant="h6" fontWeight="600" color="primary.main">
+                  {Math.round(getUtilizationPercentage(selectedAdvanceForView))}%
+                </Typography>
+              </Grid>
+            </Grid>
+            {/* Progress Bar */}
+            <Box sx={{ mt: 2 }}>
+              <Box
+                sx={{
+                  height: 8,
+                  borderRadius: 4,
+                  bgcolor: "grey.300",
+                  overflow: "hidden",
+                }}
+              >
+                <Box
+                  sx={{
+                    height: "100%",
+                    borderRadius: 4,
+                    bgcolor: selectedAdvanceForView.is_fully_applied ? "grey.500" : "primary.main",
+                    width: `${getUtilizationPercentage(selectedAdvanceForView)}%`,
+                    transition: "width 0.5s ease",
+                  }}
+                />
+              </Box>
+            </Box>
+          </TInfoCard>
+        )}
+
+        <Box sx={{ mt: 2 }}>
+          {loadingApplications ? (
+            <TLoading message="Loading applications..." />
+          ) : advanceApplications.length === 0 ? (
+            <TEmptyState
+              icon={<DescriptionIcon sx={{ fontSize: 48 }} />}
+              title="No Applications Found"
+              message="No applications have been made for this advance yet."
+            />
+          ) : (
+            <TTable
+              columns={[
+                { field: "index", header: "#", width: 60 },
+                { field: "application_date", header: "Application Date" },
+                { field: "grn_no", header: "GRN Number" },
+                { field: "applied_amount", header: "Applied Amount", align: "right" },
+                { field: "remarks", header: "Remarks" },
+              ]}
+              data={advanceApplications.map((app, index) => ({
+                id: app.id,
+                index: (
+                  <Chip label={index + 1} size="small" sx={{ minWidth: 32 }} />
+                ),
+                application_date: new Date(app.application_date).toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                }),
+                grn_no: (
+                  <Typography variant="body2" fontWeight="500" color="primary.main">
+                    {app.grn_no || `GRN-${app.grn_id}`}
+                  </Typography>
+                ),
+                applied_amount: (
+                  <Typography variant="body2" fontWeight="700" color="success.main">
+                    {formatCurrency(app.applied_amount)}
+                  </Typography>
+                ),
+                remarks: app.remarks || "-",
+              }))}
+              hover
+              size="medium"
+            />
+          )}
+
+          {/* Total Summary */}
+          {advanceApplications.length > 0 && (
+            <Paper
+              elevation={0}
+              sx={{
+                mt: 2,
+                p: 2,
+                borderRadius: 2,
+                bgcolor: "primary.50",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <Typography variant="subtitle1" fontWeight="600">
+                Total Applied ({advanceApplications.length} application{advanceApplications.length !== 1 ? "s" : ""}):
+              </Typography>
+              <Typography variant="h5" fontWeight="700" color="primary.main">
+                {formatCurrency(advanceApplications.reduce((sum, app) => sum + Number(app.applied_amount), 0))}
+              </Typography>
+            </Paper>
+          )}
+        </Box>
+      </TFormDialog>
     </Box>
   );
 
