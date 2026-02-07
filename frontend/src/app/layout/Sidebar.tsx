@@ -146,6 +146,7 @@ const menuItems: MenuItem[] = [
         ],
       },
       { text: "Supplier Payments", icon: <PaymentIcon />, path: "/finance/supplier-payments" },
+      { text: "Customer Payments", icon: <PaymentIcon />, path: "/finance/customer-payments" },
       { 
         text: "Approvals", 
         icon: <FactCheckIcon />, 

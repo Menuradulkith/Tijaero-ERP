@@ -11,6 +11,7 @@ import CreditNotesPage from "./pages/CreditNotesPage";
 import CashbookPage from "./pages/CashbookPage";
 import BankTransferVerifyPage from "./pages/BankTransferVerifyPage";
 import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
+import CustomerPaymentsPage from "./pages/CustomerPaymentsPage";
 import PaymentApprovalsPage from "./pages/PaymentApprovalsPage";
 import PaymentMethodsPage from "./pages/PaymentMethodsPage";
 import ApprovalsPage from "./pages/ApprovalsPage";
@@ -45,6 +46,7 @@ export default function FinanceRoutes() {
       <Route path="payment-approvals" element={<PaymentApprovalsPage />} />
       {/* Other finance routes */}
       <Route path="supplier-payments" element={<SupplierPaymentsPage />} />
+      <Route path="customer-payments" element={<CustomerPaymentsPage />} />
     </Routes>
   );
 }

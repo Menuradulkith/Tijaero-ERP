@@ -16,6 +16,177 @@ from app.modules.customers import schemas
 
 class CustomerCreditService:
 
+    # Credit sale allowed hours (09:00 AM to 06:00 PM)
+    CREDIT_SALE_START_HOUR = 9   # 09:00 AM
+    CREDIT_SALE_END_HOUR = 18    # 06:00 PM
+    
+    def validate_credit_sale_time(self) -> Dict[str, Any]:
+        """
+        Validate that credit sales are only allowed during business hours (09:00 AM - 06:00 PM).
+        Returns validation result with current time and allowed hours.
+        """
+        current_time = datetime.now()
+        current_hour = current_time.hour
+        
+        is_allowed = self.CREDIT_SALE_START_HOUR <= current_hour < self.CREDIT_SALE_END_HOUR
+        
+        return {
+            "allowed": is_allowed,
+            "current_time": current_time.strftime("%H:%M"),
+            "current_hour": current_hour,
+            "allowed_start": f"{self.CREDIT_SALE_START_HOUR:02d}:00",
+            "allowed_end": f"{self.CREDIT_SALE_END_HOUR:02d}:00",
+            "message": "Credit sales are allowed" if is_allowed else f"Credit sales are only allowed between {self.CREDIT_SALE_START_HOUR:02d}:00 AM and {self.CREDIT_SALE_END_HOUR:02d}:00 PM"
+        }
+    
+    def validate_customer_for_credit_sale(self, db: Session, customer_id: int) -> Dict[str, Any]:
+        """
+        Validate customer eligibility for credit sales.
+        Requirements:
+        - Customer must be active
+        - Customer must have valid name
+        - Customer must have mobile contact number
+        - Customer must have email
+        - Customer must have payment/delivery address
+        """
+        customer = db.query(Customer).filter(Customer.id == customer_id).first()
+        if not customer:
+            return {
+                "valid": False,
+                "errors": ["Customer not found"],
+                "customer_id": customer_id
+            }
+        
+        errors = []
+        warnings = []
+        
+        # Check if customer is active
+        if not customer.active:
+            errors.append("Customer account is not active")
+        
+        # Check customer name
+        if not customer.customer_name or len(customer.customer_name.strip()) < 2:
+            errors.append("Customer name is required")
+        
+        # Check mobile contact number
+        if not customer.mobile_contact_number or len(customer.mobile_contact_number.strip()) < 10:
+            errors.append("Valid mobile contact number is required for credit sales")
+        
+        # Check email
+        if not customer.email or "@" not in customer.email:
+            errors.append("Valid email address is required for credit sales")
+        
+        # Check address (payment or delivery)
+        has_address = (
+            (customer.payment_address and len(customer.payment_address.strip()) > 5) or
+            (customer.delivery_address and len(customer.delivery_address.strip()) > 5)
+        )
+        if not has_address:
+            errors.append("Customer must have a valid payment or delivery address for credit sales")
+        
+        # Warnings for missing optional info
+        if not customer.id_card_number:
+            warnings.append("ID card number is not provided")
+        
+        return {
+            "valid": len(errors) == 0,
+            "customer_id": customer_id,
+            "customer_name": customer.customer_name,
+            "active": customer.active,
+            "has_phone": bool(customer.mobile_contact_number),
+            "has_email": bool(customer.email),
+            "has_address": has_address,
+            "errors": errors,
+            "warnings": warnings
+        }
+    
+    def validate_credit_sale_comprehensive(
+        self, 
+        db: Session, 
+        customer_id: int, 
+        credit_amount: Decimal,
+        skip_time_check: bool = False,
+        allow_over_limit: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Comprehensive validation for credit sales.
+        Validates:
+        1. Time restriction (09:00 AM - 06:00 PM)
+        2. Customer eligibility (active, name, phone, email, address)
+        3. Credit limit (BLOCKING - not warning)
+        4. Overdue invoices
+        
+        Returns detailed validation result with all checks.
+        """
+        result = {
+            "allowed": True,
+            "time_check": None,
+            "customer_check": None,
+            "credit_check": None,
+            "errors": [],
+            "warnings": []
+        }
+        
+        # Step 1: Time restriction check
+        if not skip_time_check:
+            time_check = self.validate_credit_sale_time()
+            result["time_check"] = time_check
+            if not time_check["allowed"]:
+                result["allowed"] = False
+                result["errors"].append(time_check["message"])
+        
+        # Step 2: Customer eligibility check
+        customer_check = self.validate_customer_for_credit_sale(db, customer_id)
+        result["customer_check"] = customer_check
+        if not customer_check["valid"]:
+            result["allowed"] = False
+            result["errors"].extend(customer_check["errors"])
+        if customer_check.get("warnings"):
+            result["warnings"].extend(customer_check["warnings"])
+        
+        # Step 3: Credit limit check (BLOCKING, not warning-only)
+        credit_status = self.get_customer_credit_status(db, customer_id)
+        current_outstanding = Decimal(str(credit_status["outstanding_credit"]))
+        new_outstanding = current_outstanding + Decimal(str(credit_amount))
+        max_credit = Decimal(str(credit_status["max_credit_limit"]))
+        
+        will_exceed = new_outstanding > max_credit
+        
+        credit_check = {
+            "current_outstanding": float(current_outstanding),
+            "new_credit_amount": float(credit_amount),
+            "new_total_outstanding": float(new_outstanding),
+            "max_credit_limit": credit_status["max_credit_limit"],
+            "available_credit": credit_status["available_credit"],
+            "will_exceed_limit": will_exceed,
+            "excess_amount": float(max(0, new_outstanding - max_credit)),
+            "overdue_count": credit_status["overdue_count"],
+            "total_overdue_amount": credit_status["total_overdue_amount"],
+            "has_overdue": credit_status["overdue_count"] > 0
+        }
+        result["credit_check"] = credit_check
+        
+        # BLOCKING: Credit limit exceeded (not just warning)
+        if will_exceed and not allow_over_limit:
+            result["allowed"] = False
+            result["errors"].append(
+                f"Credit limit exceeded. Max: Rs. {max_credit:,.2f}, "
+                f"New total would be: Rs. {new_outstanding:,.2f}. "
+                f"Exceeds limit by Rs. {(new_outstanding - max_credit):,.2f}"
+            )
+        elif will_exceed and allow_over_limit:
+            result["warnings"].append(
+                f"Credit limit will be exceeded by Rs. {(new_outstanding - max_credit):,.2f} - requires approval"
+            )
+        
+        # Warning: Has overdue invoices
+        if credit_status["overdue_count"] > 0:
+            result["warnings"].append(
+                f"Customer has {credit_status['overdue_count']} overdue invoice(s) "
+                f"totaling Rs. {credit_status['total_overdue_amount']:,.2f}"
+            )
+        
+        return result
     
     def calculate_due_date(self, invoice_date: date, credit_days: int) -> date:
         return invoice_date + timedelta(days=credit_days)
@@ -77,7 +248,9 @@ class CustomerCreditService:
     def _calculate_outstanding_credit(self, db: Session, customer_id: int) -> Decimal:
         total_credit = db.query(func.coalesce(func.sum(Invoice.credit_amount), 0)).filter(
             Invoice.customer_id == customer_id,
-            Invoice.credit_amount > 0
+            Invoice.credit_amount > 0,
+            Invoice.status == True,  # Exclude cancelled invoices
+            Invoice.approval_status.notin_(['cancelled', 'rejected'])  # Exclude rejected
         ).scalar() or Decimal("0")
 
         total_settled = db.query(
@@ -97,7 +270,9 @@ class CustomerCreditService:
         invoices = db.query(Invoice).filter(
             Invoice.customer_id == customer_id,
             Invoice.credit_amount > 0,
-            Invoice.created_date < cutoff_date
+            Invoice.created_date < cutoff_date,
+            Invoice.status == True,  # Exclude cancelled invoices
+            Invoice.approval_status.notin_(['cancelled', 'rejected'])  # Exclude rejected
         ).all()
         
         overdue_list = []

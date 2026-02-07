@@ -8,7 +8,7 @@ from app.modules.finance.models import ChequePayments, CardPayments, BankDeposit
 from app.modules.customers.credit_service import CustomerCreditService
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from decimal import Decimal
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 from typing import List, Optional
 
@@ -558,14 +558,25 @@ class SalesService:
         # Step 8: Calculate grand total (remaining amount to pay)
         grand_total = after_credit_note + service_charge_amount
 
-        # Validate credit status for credit sales (warning-only, approval required)
+        # Comprehensive credit sale validation (BLOCKING validations)
         if is_credit_payment:
-            credit_validation = customer_credit_service.validate_credit_sale(
+            # Use comprehensive validation - blocking by default
+            credit_validation = customer_credit_service.validate_credit_sale_comprehensive(
                 db,
                 invoice_data.customer_id,
                 Decimal(str(grand_total)),
-                allow_over_limit=True
+                skip_time_check=False,  # Enforce time restriction
+                allow_over_limit=False  # Block if credit limit exceeded
             )
+            
+            # BLOCK if validation fails
+            if not credit_validation.get("allowed", True):
+                errors = credit_validation.get("errors", [])
+                error_message = "; ".join(errors) if errors else "Credit sale validation failed"
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error_message
+                )
         
         # Create invoice dict
         invoice_dict = invoice_data.model_dump(exclude={
@@ -712,10 +723,34 @@ class SalesService:
             db.flush()
             bank_transfer_id = bank_deposit.id
         
+        # Handle credit payment - create CreditPayments record
+        credit_payment_id = None
+        if is_credit_payment:
+            from app.modules.finance.models import CreditPayments
+            from app.modules.customers.models import Customer
+            
+            # Get customer for credit terms
+            customer = db.query(Customer).filter(Customer.id == invoice_data.customer_id).first()
+            credit_days = customer.credit_days if customer else 30
+            due_date = date.today() + timedelta(days=credit_days)
+            
+            credit_payment = CreditPayments(
+                customer_id=invoice_data.customer_id,
+                amount=grand_total,
+                credit_terms=f"{credit_days} days",
+                due_date=due_date,
+                status="pending",  # Will be updated when approved
+                created_date=datetime.now()
+            )
+            db.add(credit_payment)
+            db.flush()
+            credit_payment_id = credit_payment.id
+        
         # Set payment record IDs
         invoice_dict['cheque_payment_id'] = cheque_payment_id
         invoice_dict['card_payment_id'] = card_payment_id
         invoice_dict['bank_transfer_id'] = bank_transfer_id
+        invoice_dict['credit_payment_id'] = credit_payment_id
         
         invoice = Invoice(**invoice_dict)
         db.add(invoice)
@@ -1105,6 +1140,17 @@ class SalesService:
                     stock_item.status = 'sold'
                     stock_item.is_active = False
         
+        # Update credit payment status to 'approved' and customer credit balance
+        if invoice.credit_payment_id:
+            from app.modules.finance.models import CreditPayments
+            credit_payment = db.query(CreditPayments).filter(CreditPayments.id == invoice.credit_payment_id).first()
+            if credit_payment:
+                credit_payment.status = 'approved'
+        
+        # Update customer's left_credit_amount for credit sales
+        if invoice.credit_amount and invoice.credit_amount > 0:
+            customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
+        
         # For credit orders that are approved, automatically mark as completed
         # since stock is already marked as sold
         invoice.approval_status = 'completed'
@@ -1162,10 +1208,22 @@ class SalesService:
                     stock_item.status = 'available'
                     stock_item.is_active = True
         
+        # Cancel/void the credit payment record if exists
+        if invoice.credit_payment_id:
+            from app.modules.finance.models import CreditPayments
+            credit_payment = db.query(CreditPayments).filter(CreditPayments.id == invoice.credit_payment_id).first()
+            if credit_payment:
+                credit_payment.status = 'cancelled'
+        
         invoice.status = False
         invoice.approval_status = 'cancelled'
         
         db.commit()
+        
+        # Restore customer credit balance (recalculate left_credit_amount)
+        if invoice.credit_amount and invoice.credit_amount > 0:
+            customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
+        
         db.refresh(invoice)
         return invoice
     
@@ -1697,6 +1755,10 @@ class SalesService:
             invoice.payment_status = "partial"
         
         db.commit()
+        
+        # Step 12: Update customer credit balance (restore left_credit_amount)
+        customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
+        
         db.refresh(invoice)
         
         return {

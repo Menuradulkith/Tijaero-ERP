@@ -137,6 +137,36 @@ def check_customer_credit(
     )
 
 
+@router.post(
+    "/{customer_id}/credit-sale-validation",
+    summary="Comprehensive Credit Sale Validation",
+    description="Full validation for credit sales including time restriction, customer eligibility, and credit limit check",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))]
+)
+def validate_credit_sale_comprehensive(
+    customer_id: int,
+    sale_amount: float = Query(..., description="Amount of the proposed credit sale"),
+    skip_time_check: bool = Query(False, description="Skip time restriction check"),
+    allow_over_limit: bool = Query(False, description="Allow if over limit (requires approval)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
+):
+    """
+    Comprehensive validation for credit sales.
+    Checks:
+    1. Time restriction (09:00 AM - 06:00 PM unless skipped)
+    2. Customer eligibility (active, name, phone, email, address)
+    3. Credit limit (blocking by default)
+    4. Overdue invoices (warning)
+    """
+    from decimal import Decimal
+    return customer_credit_service.validate_credit_sale_comprehensive(
+        db, customer_id, Decimal(str(sale_amount)), 
+        skip_time_check=skip_time_check,
+        allow_over_limit=allow_over_limit
+    )
+
+
 @router.get(
     "/{customer_id}/aging-report",
     summary="Get Customer Aging Report",
