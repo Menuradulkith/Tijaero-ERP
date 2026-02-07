@@ -703,53 +703,119 @@ export default function SalesPage() {
     const subtotal = calculateLineItemsTotal();
     const paymentMethod = state.formData.payment_method || "cash";
 
-    // Validate credit limit for credit sales (warning-only)
+    // Comprehensive credit sale validation (blocking)
     if (paymentMethod === "credit" && state.formData.customer_id) {
       try {
-        const creditCheck = await customersApi.checkCredit(
+        // Use comprehensive validation with blocking by default
+        const validation = await customersApi.validateCreditSale(
           state.formData.customer_id,
           subtotal,
-          true
+          { skipTimeCheck: false, allowOverLimit: false }
         );
-        const requiresWarning =
-          creditCheck.will_exceed_limit || creditCheck.overdue_count > 0;
 
-        if (requiresWarning) {
+        // If validation failed, show errors and block
+        if (!validation.allowed) {
+          const errorMessages = validation.errors || [];
+          
+          // Build detailed error display
+          const detailLines: { label: string; value: string; color?: string; strong?: boolean }[] = [];
+          
+          // Time check info
+          if (validation.time_check && !validation.time_check.allowed) {
+            detailLines.push({
+              label: "Current Time",
+              value: validation.time_check.current_time,
+              color: "error.main",
+            });
+            detailLines.push({
+              label: "Allowed Hours",
+              value: `${validation.time_check.allowed_start} - ${validation.time_check.allowed_end}`,
+            });
+          }
+          
+          // Customer check errors
+          if (validation.customer_check && !validation.customer_check.valid) {
+            validation.customer_check.errors.forEach((err: string) => {
+              detailLines.push({
+                label: "❌",
+                value: err,
+                color: "error.main",
+              });
+            });
+          }
+          
+          // Credit limit info
+          if (validation.credit_check) {
+            detailLines.push({
+              label: "Credit Limit",
+              value: `Rs. ${Number(validation.credit_check.max_credit_limit || 0).toLocaleString()}`,
+            });
+            detailLines.push({
+              label: "Current Outstanding",
+              value: `Rs. ${Number(validation.credit_check.current_outstanding || 0).toLocaleString()}`,
+            });
+            detailLines.push({
+              label: "This Order",
+              value: `Rs. ${Number(validation.credit_check.new_credit_amount || 0).toLocaleString()}`,
+            });
+            if (validation.credit_check.will_exceed_limit) {
+              detailLines.push({
+                label: "Exceeds by",
+                value: `Rs. ${Number(validation.credit_check.excess_amount || 0).toLocaleString()}`,
+                color: "error.main",
+                strong: true,
+              });
+            }
+          }
+
+          await creditWarningDialog.confirm({
+            title: "Credit Sale Not Allowed",
+            message: errorMessages.join("\n"),
+            detailsLines: detailLines.length > 0 ? detailLines : undefined,
+            detailsNote: "Please resolve the above issues before proceeding with a credit sale.",
+            confirmText: "OK",
+            cancelText: "",
+            type: "danger",
+          });
+
+          return; // Block the sale
+        }
+
+        // Show warnings if any (but allow to proceed)
+        if (validation.warnings && validation.warnings.length > 0) {
           const customer = customers?.find(
             (c) => c.id === state.formData.customer_id
           );
           const customerName = customer?.customer_name || "Customer";
+          
           const detailLines: { label: string; value: string; color?: string; strong?: boolean }[] = [
             { label: "Customer", value: customerName },
-            { label: "Credit Limit", value: `Rs. ${Number(creditCheck.max_credit_limit || 0).toLocaleString()}` },
-            { label: "Current Outstanding", value: `Rs. ${Number(creditCheck.current_outstanding || 0).toLocaleString()}` },
-            { label: "Available Credit", value: `Rs. ${Number(creditCheck.available_credit || 0).toLocaleString()}` },
-            { label: "This Order", value: `Rs. ${Number(creditCheck.new_credit_amount || 0).toLocaleString()}` },
           ];
-          if (creditCheck.will_exceed_limit) {
+          
+          if (validation.credit_check) {
             detailLines.push({
-              label: "Exceeds by",
-              value: `Rs. ${Number(creditCheck.excess_amount || 0).toLocaleString()}`,
-              color: "error.main",
-              strong: true,
+              label: "Credit Limit",
+              value: `Rs. ${Number(validation.credit_check.max_credit_limit || 0).toLocaleString()}`,
             });
-          }
-          if (creditCheck.overdue_count > 0) {
             detailLines.push({
-              label: "Overdue Invoices",
-              value: String(creditCheck.overdue_count),
+              label: "Available Credit",
+              value: `Rs. ${Number(validation.credit_check.available_credit || 0).toLocaleString()}`,
             });
+            if (validation.credit_check.overdue_count > 0) {
+              detailLines.push({
+                label: "Overdue Invoices",
+                value: String(validation.credit_check.overdue_count),
+                color: "warning.main",
+              });
+            }
           }
 
           const confirmed = await creditWarningDialog.confirm({
-            title: creditCheck.will_exceed_limit
-              ? "Credit Limit Warning"
-              : "Credit Warning",
+            title: "Credit Sale Warning",
             message: "",
             detailsLines: detailLines,
-            detailsNote: creditCheck.message ||
-              "Customer credit status requires approval to proceed.",
-            confirmText: "Continue Anyway",
+            detailsNote: validation.warnings.join(". ") + " Credit sale requires finance approval.",
+            confirmText: "Continue",
             cancelText: "Cancel",
             type: "warning",
           });
@@ -758,9 +824,12 @@ export default function SalesPage() {
             return;
           }
         }
-      } catch (error) {
-        console.error("Credit check failed:", error);
-        showErrorToast("Failed to check customer credit. Please try again.");
+      } catch (error: unknown) {
+        console.error("Credit validation failed:", error);
+        // Extract error message from response
+        const errorMessage = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail 
+          || "Failed to validate credit sale. Please try again.";
+        showErrorToast(errorMessage);
         return;
       }
     }

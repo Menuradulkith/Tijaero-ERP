@@ -59,6 +59,44 @@ export interface CreditCheckResult {
   message: string;
 }
 
+// Comprehensive credit sale validation result
+export interface CreditSaleValidationResult {
+  allowed: boolean;
+  time_check: {
+    allowed: boolean;
+    current_time: string;
+    current_hour: number;
+    allowed_start: string;
+    allowed_end: string;
+    message: string;
+  } | null;
+  customer_check: {
+    valid: boolean;
+    customer_id: number;
+    customer_name: string;
+    active: boolean;
+    has_phone: boolean;
+    has_email: boolean;
+    has_address: boolean;
+    errors: string[];
+    warnings: string[];
+  } | null;
+  credit_check: {
+    current_outstanding: number;
+    new_credit_amount: number;
+    new_total_outstanding: number;
+    max_credit_limit: number;
+    available_credit: number;
+    will_exceed_limit: boolean;
+    excess_amount: number;
+    overdue_count: number;
+    total_overdue_amount: number;
+    has_overdue: boolean;
+  } | null;
+  errors: string[];
+  warnings: string[];
+}
+
 export interface AgingReport {
   current: { count: number; amount: number };
   "1_30_days": { count: number; amount: number };
@@ -160,6 +198,29 @@ export const customersApi = {
       `/customers/${customerId}/credit-check`,
       null,
       { params: { sale_amount: saleAmount, allow_over_limit: allowOverLimit } }
+    );
+    return response.data;
+  },
+
+  /**
+   * Comprehensive credit sale validation.
+   * Checks time restriction, customer eligibility, and credit limits.
+   */
+  validateCreditSale: async (
+    customerId: number,
+    saleAmount: number,
+    options?: { skipTimeCheck?: boolean; allowOverLimit?: boolean }
+  ) => {
+    const response = await apiClient.post<CreditSaleValidationResult>(
+      `/customers/${customerId}/credit-sale-validation`,
+      null,
+      { 
+        params: { 
+          sale_amount: saleAmount, 
+          skip_time_check: options?.skipTimeCheck ?? false,
+          allow_over_limit: options?.allowOverLimit ?? false 
+        } 
+      }
     );
     return response.data;
   },
