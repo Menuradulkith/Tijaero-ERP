@@ -712,14 +712,14 @@ class SupplierCreditService:
         }
     
     def update_supplier_credit_balance(self, db: Session, supplier_id: int):
-
+        """Update supplier credit balance. Uses flush() to participate in caller's transaction."""
         supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
         if not supplier:
             return
         
         outstanding = self._calculate_outstanding_payable(db, supplier_id)
         supplier.left_credit_amount = int(supplier.max_credit_limit - outstanding)
-        db.commit()
+        db.flush()
     
     def create_credit_settlement(
         self, 
@@ -785,6 +785,7 @@ class SupplierCreditService:
         db.commit()
 
         self.update_supplier_credit_balance(db, settlement_data.suppliers_id)
+        db.commit()
         
         db.refresh(settlement)
         return settlement

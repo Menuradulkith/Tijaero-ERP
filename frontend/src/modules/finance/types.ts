@@ -170,6 +170,7 @@ export interface CashbookSummary {
   invoice_receipts: number;
   customer_credit_settlements: number;
   customer_advances: number;
+  voucher_sales: number;
   supplier_payments: number;
   expenses: number;
   bank_deposits: number;
@@ -177,6 +178,7 @@ export interface CashbookSummary {
   invoice_receipts_count: number;
   customer_credit_settlements_count: number;
   customer_advances_count: number;
+  voucher_sales_count: number;
   supplier_payments_count: number;
   expenses_count: number;
   bank_deposits_count: number;

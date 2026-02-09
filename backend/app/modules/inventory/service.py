@@ -21,7 +21,7 @@ class SalesStockService:
         status: Optional[str] = None
     ) -> List[dict]:
         """Get all sales stock items with optional filters, including related data"""
-        from sqlalchemy.orm import joinedload
+        from app.modules.common.models import Locations
         
         query = self.db.query(models.SalesStock).options(
             joinedload(models.SalesStock.product),
@@ -40,9 +40,30 @@ class SalesStockService:
         
         items = query.order_by(models.SalesStock.added_date.desc()).all()
         
+        # Batch-load all locations in one query to avoid N+1
+        location_ids = set()
+        for item in items:
+            loc_id = item.location_id
+            if not loc_id and item.good_received_note:
+                loc_id = item.good_received_note.good_received_locations_id
+            if loc_id:
+                location_ids.add(loc_id)
+        
+        locations_map = {}
+        if location_ids:
+            locations = self.db.query(Locations).filter(
+                Locations.id.in_(location_ids)
+            ).all()
+            locations_map = {loc.id: loc.name for loc in locations}
+        
         # Enrich with GRN number, location, and prices
         result = []
         for item in items:
+            # Resolve location from item's current location_id, falling back to GRN location
+            location_id_to_use = item.location_id
+            if not location_id_to_use and item.good_received_note:
+                location_id_to_use = item.good_received_note.good_received_locations_id
+            
             item_dict = {
                 "id": item.id,
                 "product_id": item.product_id,
@@ -55,7 +76,7 @@ class SalesStockService:
                 "status": item.status,
                 "added_date": item.added_date,
                 "grn_no": item.good_received_note.good_received_no if item.good_received_note else None,
-                "location_name": None,  # Will be fetched from current location
+                "location_name": locations_map.get(location_id_to_use) if location_id_to_use else None,
                 "cost_price": item.product.cost_price if item.product else None,
                 "selling_price": item.product.selling_price if item.product else None,
                 # Add product details directly
@@ -63,20 +84,6 @@ class SalesStockService:
                 "item_code": item.product.item_code if item.product else None,
                 "brand_id": item.product.items_brand_id if item.product else None,
             }
-            
-            # Get location name from the item's CURRENT location_id (updated by transfers)
-            # Falls back to GRN location if location_id is not set
-            from app.modules.common.models import Locations
-            location_id_to_use = item.location_id
-            if not location_id_to_use and item.good_received_note:
-                location_id_to_use = item.good_received_note.good_received_locations_id
-            
-            if location_id_to_use:
-                location = self.db.query(Locations).filter(
-                    Locations.id == location_id_to_use
-                ).first()
-                if location:
-                    item_dict["location_name"] = location.name
             
             result.append(item_dict)
         
@@ -168,7 +175,10 @@ class SalesStockService:
         }
     
     def update_status(self, id: int, status: str) -> models.SalesStock:
-        item = self.db.query(models.SalesStock).filter(models.SalesStock.id == id).first()
+        """Update status with row-level lock to prevent concurrent overwrites."""
+        item = self.db.query(models.SalesStock).filter(
+            models.SalesStock.id == id
+        ).with_for_update().first()
         if item:
             item.status = status
             self.db.commit()
@@ -247,7 +257,10 @@ class CompanyAssetService:
         ).all()
     
     def update_status(self, id: int, status: str) -> Optional[models.CompanyAssets]:
-        item = self.db.query(models.CompanyAssets).filter(models.CompanyAssets.id == id).first()
+        """Update status with row-level lock to prevent concurrent overwrites."""
+        item = self.db.query(models.CompanyAssets).filter(
+            models.CompanyAssets.id == id
+        ).with_for_update().first()
         if item:
             item.status = status
             self.db.commit()

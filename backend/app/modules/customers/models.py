@@ -41,6 +41,7 @@ class Customer(Base, AuditMixin):
     country_id = Column(Integer, ForeignKey("country.id"))
     initial_credit_amount = Column(Integer)
     is_customer_agent = Column(Boolean, nullable=False, default=False)
+    commission_rate = Column(Numeric(5, 2), nullable=True)  # Default commission rate for this agent
 
     country = relationship("Country", back_populates="customers")
     invoices = relationship("Invoice", foreign_keys="Invoice.customer_id", back_populates="customer")

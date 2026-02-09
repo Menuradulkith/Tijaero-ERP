@@ -73,7 +73,7 @@ class BranchService:
             pass
         
         try:
-            from app.modules.sales.models import SalesStock
+            from app.modules.inventory.models import SalesStock
             sales_count = db.query(SalesStock).filter(SalesStock.branch_code == branch.branch_code).count()
             if sales_count > 0:
                 usage_checks.append(f"sales records ({sales_count})")

@@ -75,9 +75,11 @@ import PrintIcon from "@mui/icons-material/Print";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
-import toast from "react-hot-toast";
 import { 
   useConfirmDialog,
+  handleApiError,
+  showErrorToast,
+  showSuccessToast,
   TStatCard,
   TTabs,
   TEmptyState,
@@ -286,8 +288,7 @@ export default function SupplierPaymentsPage() {
       );
       setAllPaymentStatuses(statuses.filter(Boolean) as SupplierPaymentStatusData[]);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || "Failed to load suppliers");
+      setError(handleApiError(err, "Failed to load suppliers"));
     } finally {
       setLoading(false);
     }
@@ -411,17 +412,17 @@ export default function SupplierPaymentsPage() {
   // Create a new advance payment
   const handleCreateAdvance = async () => {
     if (!selectedSupplier) {
-      toast.error("Please select a supplier first");
+      showErrorToast("Please select a supplier first");
       return;
     }
 
     if (!advanceFormData.original_amount || advanceFormData.original_amount <= 0) {
-      toast.error("Please enter a valid advance amount");
+      showErrorToast("Please enter a valid advance amount");
       return;
     }
 
     if (!advanceFormData.branch_code) {
-      toast.error("Please select a branch");
+      showErrorToast("Please select a branch");
       return;
     }
 
@@ -440,7 +441,7 @@ export default function SupplierPaymentsPage() {
       };
 
       await supplierAdvancePaymentsApi.create(data);
-      toast.success(`Advance payment created for ${selectedSupplier.full_name}`);
+      showSuccessToast(`Advance payment created for ${selectedSupplier.full_name}`);
 
       // Reset form and reload data
       setShowAdvanceForm(false);
@@ -452,9 +453,9 @@ export default function SupplierPaymentsPage() {
       loadAdvancePayments(selectedSupplier.id);
       // Also reload payment status to update available advance balance
       loadPaymentStatus(selectedSupplier.id);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to create advance payment:", err);
-      toast.error(err?.response?.data?.detail || "Failed to create advance payment");
+      showErrorToast(handleApiError(err, "Failed to create advance payment"));
     } finally {
       setSavingAdvance(false);
     }
@@ -475,11 +476,11 @@ export default function SupplierPaymentsPage() {
 
     try {
       await supplierAdvancePaymentsApi.delete(advanceId);
-      toast.success("Advance payment deleted");
+      showSuccessToast("Advance payment deleted");
       loadAdvancePayments(selectedSupplier.id);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to delete advance payment:", err);
-      toast.error(err?.response?.data?.detail || "Failed to delete advance payment");
+      showErrorToast(handleApiError(err, "Failed to delete advance payment"));
     }
   };
 
@@ -492,9 +493,9 @@ export default function SupplierPaymentsPage() {
     try {
       const applications = await supplierAdvancePaymentsApi.getApplications(advance.id);
       setAdvanceApplications(applications);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to load applications:", err);
-      toast.error("Failed to load advance applications");
+      showErrorToast("Failed to load advance applications");
       setAdvanceApplications([]);
     } finally {
       setLoadingApplications(false);
@@ -749,19 +750,19 @@ export default function SupplierPaymentsPage() {
 
   const handleProceedToPayment = useCallback(async () => {
     if (!selectedSupplier) {
-      toast.error("Please select a supplier first");
+      showErrorToast("Please select a supplier first");
       return;
     }
 
     if (useFIFO) {
       // FIFO allocation
       if (fifoAmount <= 0) {
-        toast.error("Please enter a payment amount for FIFO allocation");
+        showErrorToast("Please enter a payment amount for FIFO allocation");
         return;
       }
       const lines = allocateFIFO(fifoAmount);
       if (lines.length === 0) {
-        toast.error("No documents available for allocation");
+        showErrorToast("No documents available for allocation");
         return;
       }
       // Add advance_amount field to FIFO lines
@@ -773,7 +774,7 @@ export default function SupplierPaymentsPage() {
     } else {
       // Manual selection
       if (selectedDocumentIds.size === 0) {
-        toast.error("Please select at least one document");
+        showErrorToast("Please select at least one document");
         return;
       }
       const selectedDocs = outstandingDocuments.filter((d) => selectedDocumentIds.has(d.id));
@@ -848,18 +849,18 @@ export default function SupplierPaymentsPage() {
   const handleProceedToReview = useCallback(() => {
     // Must have either payment or advance to proceed
     if (totalSettlementAmount <= 0) {
-      toast.error("Total settlement amount must be greater than 0");
+      showErrorToast("Total settlement amount must be greater than 0");
       return;
     }
 
     // If there's a payment amount (not just advance), validate payment method
     if (totalPaymentAmount > 0) {
       if (paymentMethod === "Bank Transfer" && !referenceNumber) {
-        toast.error("Please enter bank transfer reference number");
+        showErrorToast("Please enter bank transfer reference number");
         return;
       }
       if (paymentMethod === "Cheque" && (!referenceNumber || !bankName)) {
-        toast.error("Please enter cheque number and bank name");
+        showErrorToast("Please enter cheque number and bank name");
         return;
       }
     }
@@ -993,11 +994,11 @@ export default function SupplierPaymentsPage() {
 
       // Success message
       if (totalAdvanceAmount > 0 && totalPaymentAmount > 0) {
-        toast.success("Advance applied and payment posted successfully!");
+        showSuccessToast("Advance applied and payment posted successfully!");
       } else if (totalAdvanceAmount > 0) {
-        toast.success("Advance applied successfully!");
+        showSuccessToast("Advance applied successfully!");
       } else {
-        toast.success("Payment posted successfully!");
+        showSuccessToast("Payment posted successfully!");
       }
 
       // Refresh status and reset
@@ -1012,10 +1013,9 @@ export default function SupplierPaymentsPage() {
       setPaymentLines([]);
       resetPaymentForm();
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      const msg = error.response?.data?.detail || "Failed to post payment";
+      const msg = handleApiError(err, "Failed to post payment");
       setError(msg);
-      toast.error(msg);
+      showErrorToast(msg);
     } finally {
       setSaving(false);
     }
@@ -1297,7 +1297,7 @@ export default function SupplierPaymentsPage() {
   const handlePrintPaymentHistory = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      toast.error("Please allow popups to print the report");
+      showErrorToast("Please allow popups to print the report");
       return;
     }
 

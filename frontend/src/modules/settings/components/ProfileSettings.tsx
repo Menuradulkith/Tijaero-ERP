@@ -7,7 +7,7 @@ import {
   Avatar,
 } from "@mui/material";
 import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
+import { showSuccessToast } from "@/components/tijaero";
 
 interface ProfileFormData {
   firstName: string;
@@ -28,7 +28,7 @@ export default function ProfileSettings() {
 
   const onSubmit = (data: ProfileFormData) => {
     console.log("Profile data:", data);
-    toast.success("Profile updated successfully");
+    showSuccessToast("Profile updated successfully");
   };
 
   return (

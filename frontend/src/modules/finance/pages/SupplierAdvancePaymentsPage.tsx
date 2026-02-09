@@ -27,7 +27,6 @@ import {
   Refresh as RefreshIcon,
   CheckCircle as CheckCircleIcon,
 } from "@mui/icons-material";
-import { toast } from "react-hot-toast";
 import { suppliersApi, supplierAdvancePaymentsApi } from "@/modules/purchasing/api";
 import { SupplierAdvancePaymentCreate } from "@/modules/purchasing/types";
 import { useReferenceData } from "@/hooks";
@@ -43,6 +42,9 @@ import {
   TFormDialog,
   TLoading,
   TEmptyState,
+  handleApiError,
+  showErrorToast,
+  showSuccessToast,
   TBranchFilter,
   TFilterPanel,
   TConfirmDialog,
@@ -131,19 +133,19 @@ export default function SupplierAdvancePaymentsPage() {
   // Create advance mutation
   const createAdvance = useCallback(async () => {
     if (!formData.supplier_id || !formData.original_amount || formData.original_amount <= 0) {
-      toast.error("Please select a supplier and enter a valid amount");
+      showErrorToast("Please select a supplier and enter a valid amount");
       return;
     }
 
     if (!formData.branch_code) {
-      toast.error("Please select a branch");
+      showErrorToast("Please select a branch");
       return;
     }
 
     try {
       setSaving(true);
       await supplierAdvancePaymentsApi.create(formData as SupplierAdvancePaymentCreate);
-      toast.success("Supplier advance payment created successfully");
+      showSuccessToast("Supplier advance payment created successfully");
       setShowForm(false);
       setFormData({
         supplier_id: 0,
@@ -156,9 +158,9 @@ export default function SupplierAdvancePaymentsPage() {
         remarks: "",
       });
       refetch();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to create supplier advance:", err);
-      toast.error(err?.response?.data?.detail || "Failed to create advance payment");
+      showErrorToast(handleApiError(err, "Failed to create advance payment"));
     } finally {
       setSaving(false);
     }
@@ -177,11 +179,11 @@ export default function SupplierAdvancePaymentsPage() {
 
     try {
       await supplierAdvancePaymentsApi.delete(advanceId);
-      toast.success("Advance payment deleted");
+      showSuccessToast("Advance payment deleted");
       refetch();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to delete advance:", err);
-      toast.error(err?.response?.data?.detail || "Failed to delete advance payment");
+      showErrorToast(handleApiError(err, "Failed to delete advance payment"));
     }
   }, [confirmDialog, refetch]);
 

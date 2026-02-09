@@ -27,6 +27,7 @@ class CustomerBase(BaseModel):
     initial_credit_amount: Optional[int] = Field(None, description="Initial credit amount")
     active: bool = Field(default=True, description="Is active")
     is_customer_agent: bool = Field(default=False, description="Is customer agent")
+    commission_rate: Optional[float] = Field(None, ge=0, le=100, description="Default commission rate (%)")
     country_id: Optional[int] = Field(None, description="Country ID")
 
 class CustomerCreate(CustomerBase):
@@ -56,6 +57,7 @@ class CustomerUpdate(BaseModel):
     initial_credit_amount: Optional[int] = None
     active: Optional[bool] = None
     is_customer_agent: Optional[bool] = None
+    commission_rate: Optional[float] = Field(None, ge=0, le=100)
     country_id: Optional[int] = None
 
 class Customer(CustomerBase):

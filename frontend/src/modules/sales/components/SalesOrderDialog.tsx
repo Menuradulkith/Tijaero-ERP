@@ -29,7 +29,7 @@ import { useCallback, useRef, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { salesApi } from "../api";
 // OPTIMIZED: Removed customersApi, productsApi, branchApi imports - using aggregated endpoint
-import { showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { Invoice, InvoiceCreate } from "../types";
 
 interface SalesOrderDialogProps {
@@ -134,9 +134,9 @@ export default function SalesOrderDialog({
       barcodeInputRef.current?.focus();
 
       showSuccessToast(`Added: ${stockItem.product?.product_name || 'Product'}`);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Barcode validation error:', error);
-      setValidationError(error.response?.data?.detail || 'Barcode not found in available stock');
+      setValidationError(handleApiError(error, 'Barcode not found in available stock'));
     } finally {
       setIsValidating(false);
     }

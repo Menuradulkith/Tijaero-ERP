@@ -35,6 +35,7 @@ import {
   SelectableListItem,
   DetailPanelHeader,
   FormSection,
+  handleApiError,
   EmptyState,
   SortOption,
   TConfirmDialog,
@@ -128,8 +129,8 @@ export default function BankTransferVerifyPage() {
       queryClient.invalidateQueries({ queryKey: ["pendingBankTransfers"] });
       setSelectedTransfer(null);
     },
-    onError: (error: any) => {
-      showErrorToast(error.response?.data?.detail || "Failed to verify bank transfer");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to verify bank transfer"));
     },
   });
 
@@ -144,8 +145,8 @@ export default function BankTransferVerifyPage() {
       setRejectDialogOpen(false);
       setRejectReason("");
     },
-    onError: (error: any) => {
-      showErrorToast(error.response?.data?.detail || "Failed to reject bank transfer");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to reject bank transfer"));
     },
   });
 

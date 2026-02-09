@@ -148,5 +148,3 @@ class LoginShortcode(Base):
     )
     login_short_code = Column(Text, unique=True)
     barcode = Column(Text)
-    login_short_code = Column(Text, unique=True)
-    barcode = Column(Text)

@@ -23,6 +23,7 @@ export interface Customer {
   initial_credit_amount?: number;
   active: boolean;
   is_customer_agent: boolean;
+  commission_rate?: number;
   country_id?: number;
   date_joined: string;
   created_at: string;
@@ -55,6 +56,7 @@ export interface CustomerCreate {
   initial_credit_amount?: number;
   active?: boolean;
   is_customer_agent?: boolean;
+  commission_rate?: number;
   country_id?: number;
 }
 
@@ -82,6 +84,7 @@ export interface CustomerUpdate {
   initial_credit_amount?: number;
   active?: boolean;
   is_customer_agent?: boolean;
+  commission_rate?: number;
   country_id?: number;
 }
 

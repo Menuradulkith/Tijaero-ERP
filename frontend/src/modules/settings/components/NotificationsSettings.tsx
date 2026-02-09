@@ -7,7 +7,7 @@ import {
   Divider,
 } from "@mui/material";
 import { useState } from "react";
-import { toast } from "react-hot-toast";
+import { showSuccessToast } from "@/components/tijaero";
 
 export default function NotificationsSettings() {
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -17,7 +17,7 @@ export default function NotificationsSettings() {
   const [systemUpdates, setSystemUpdates] = useState(false);
 
   const handleSave = () => {
-    toast.success("Notification settings saved successfully");
+    showSuccessToast("Notification settings saved successfully");
   };
 
   return (

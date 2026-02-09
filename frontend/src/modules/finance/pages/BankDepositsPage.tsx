@@ -21,10 +21,9 @@ import {
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
 import { bankDepositsApi } from "@/modules/finance/api";
 import { BankDepositCreate } from "@/modules/finance/types";
-import { TBranchFilter, TFilterPanel, TStatusFilter } from "@/components/tijaero";
+import { TBranchFilter, TFilterPanel, TStatusFilter, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 
 export default function BankDepositsPage() {
@@ -60,12 +59,12 @@ export default function BankDepositsPage() {
     mutationFn: bankDepositsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bank-deposits"] });
-      toast.success("Bank deposit created successfully");
+      showSuccessToast("Bank deposit created successfully");
       setOpenDialog(false);
       reset();
     },
-    onError: () => {
-      toast.error("Failed to create bank deposit");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create bank deposit"));
     },
   });
 
@@ -73,10 +72,10 @@ export default function BankDepositsPage() {
     mutationFn: bankDepositsApi.verify,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bank-deposits"] });
-      toast.success("Deposit verified successfully");
+      showSuccessToast("Deposit verified successfully");
     },
-    onError: () => {
-      toast.error("Failed to verify deposit");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to verify deposit"));
     },
   });
 

@@ -28,6 +28,7 @@ export interface Invoice {
   branch_code: string;
   customer_id: number;
   sale_rep_id: number;
+  customer_agent_id?: number;
   payment_method: string;
   cash_amount: number;
   card_visa_amount: number;
@@ -74,6 +75,7 @@ export interface InvoiceCreate {
   branch_code: string;
   customer_id: number;
   sale_rep_id: number;
+  customer_agent_id?: number;
   payment_method: string;
   cash_amount?: number;
   card_visa_amount?: number;

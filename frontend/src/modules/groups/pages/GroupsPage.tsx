@@ -3,7 +3,6 @@
  */
 
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
-import { formatErrorMessage } from "@/utils/errorHandling";
 import SecurityIcon from "@mui/icons-material/Security";
 import {
     Alert,
@@ -16,7 +15,6 @@ import {
     Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import toast from "react-hot-toast";
 
 // Tijaero Components
 import {
@@ -29,6 +27,9 @@ import {
     SelectableListItem,
     SortOption,
     useMasterDetailState,
+    handleApiError,
+    showErrorToast,
+    showSuccessToast,
 } from "@/components/tijaero";
 
 import {
@@ -104,10 +105,10 @@ export default function GroupsPage() {
       ]);
       setGroups(groupsData);
       setPermissions(permissionsData);
-    } catch (err: any) {
-      const errorMsg = formatErrorMessage(err) || "Failed to load data";
+    } catch (err: unknown) {
+      const errorMsg = handleApiError(err, "Failed to load data");
       setError(errorMsg);
-      toast.error(errorMsg);
+      showErrorToast(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -148,7 +149,7 @@ export default function GroupsPage() {
       setError(null);
       if (isCreating) {
         const newGroup = await groupsApi.createGroup(formData);
-        toast.success("Role created successfully");
+        showSuccessToast("Role created successfully");
         // Reset state first
         setIsCreating(false);
         setIsEditing(false);
@@ -157,14 +158,14 @@ export default function GroupsPage() {
         setTimeout(() => setSelectedGroup(newGroup), 0);
       } else if (selectedGroup) {
         await groupsApi.updateGroup(selectedGroup.id, formData as GroupUpdate);
-        toast.success("Role updated successfully");
+        showSuccessToast("Role updated successfully");
         setIsEditing(false);
         await loadData();
       }
-    } catch (err: any) {
-      const errorMsg = formatErrorMessage(err) || "Failed to save role";
+    } catch (err: unknown) {
+      const errorMsg = handleApiError(err, "Failed to save role");
       setError(errorMsg);
-      toast.error(errorMsg);
+      showErrorToast(errorMsg);
     }
   }, [isCreating, selectedGroup, formData, setIsCreating, setIsEditing, setSelectedGroup]);
 
@@ -185,13 +186,13 @@ export default function GroupsPage() {
       if (confirmed) {
         try {
           await groupsApi.deleteGroup(selectedGroup.id);
-          toast.success("Role deleted successfully");
+          showSuccessToast("Role deleted successfully");
           setSelectedGroup(null);
           await loadData();
-        } catch (err: any) {
-          const errorMsg = formatErrorMessage(err) || "Failed to delete role";
+        } catch (err: unknown) {
+          const errorMsg = handleApiError(err, "Failed to delete role");
           setError(errorMsg);
-          toast.error(errorMsg);
+          showErrorToast(errorMsg);
         }
       }
     }

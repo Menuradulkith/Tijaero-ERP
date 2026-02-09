@@ -45,6 +45,7 @@ import {
   DetailPanelHeader,
   EmptyState,
   FormSection,
+  handleApiError,
   MasterDetailLayout,
   PURCHASING_PAYMENT_METHOD,
   SearchableList,
@@ -59,6 +60,8 @@ import {
   canPrintDocument,
   getStatusProps,
   modernTableStyles,
+  showErrorToast,
+  showSuccessToast,
   useMasterDetailState
 } from "@/components/tijaero";
 
@@ -431,9 +434,8 @@ export default function PurchaseOrdersPage() {
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
 
       // All orders are created with pending_approval status
-      toast.success(
-        "Purchase order created successfully. Status set to 'Pending Approval' - requires manager approval.",
-        { duration: 5000 }
+      showSuccessToast(
+        "Purchase order created successfully. Status set to 'Pending Approval' - requires manager approval."
       );
 
       setIsCreating(false);
@@ -441,8 +443,8 @@ export default function PurchaseOrdersPage() {
       setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
       setTimeout(() => handleSelectOrderWithItems(newOrder), 0);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to create purchase order");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create purchase order"));
     },
   });
 
@@ -451,11 +453,11 @@ export default function PurchaseOrdersPage() {
       purchaseOrdersApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      toast.success("Purchase order updated successfully");
+      showSuccessToast("Purchase order updated successfully");
       setIsEditing(false);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to update purchase order");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to update purchase order"));
     },
   });
 
@@ -463,11 +465,11 @@ export default function PurchaseOrdersPage() {
     mutationFn: (id: number) => purchaseOrdersApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      toast.success("Purchase order deleted successfully");
+      showSuccessToast("Purchase order deleted successfully");
       setSelectedOrder(null);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to delete purchase order");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete purchase order"));
     },
   });
 
@@ -483,7 +485,7 @@ export default function PurchaseOrdersPage() {
         deleteMutation.mutate(selectedOrder.id);
       }
     } else {
-      toast.error("Cannot delete an approved or completed purchase order");
+      showErrorToast("Cannot delete an approved or completed purchase order");
     }
   }, [selectedOrder, deleteMutation, confirmDialog]);
 
@@ -604,7 +606,7 @@ export default function PurchaseOrdersPage() {
         }
       } catch (error) {
         console.error("Credit check failed:", error);
-        toast.error("Failed to check credit limit. Please try again.");
+        showErrorToast("Failed to check credit limit. Please try again.");
         return; // Stop save if credit check fails
       }
     }

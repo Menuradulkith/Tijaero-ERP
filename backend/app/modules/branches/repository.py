@@ -1,7 +1,9 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.auth.models import Branch
 from app.modules.branches import schemas
 from typing import List, Optional
+from fastapi import HTTPException, status
 
 class BranchRepository:
     def get_all(self, db: Session, skip: int = 0, limit: int = 100) -> List[Branch]:
@@ -16,9 +18,16 @@ class BranchRepository:
     def create(self, db: Session, branch: schemas.BranchCreate) -> Branch:
         db_branch = Branch(**branch.model_dump())
         db.add(db_branch)
-        db.commit()
-        db.refresh(db_branch)
-        return db_branch
+        try:
+            db.commit()
+            db.refresh(db_branch)
+            return db_branch
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Branch code or name already exists"
+            )
     
     def update(self, db: Session, branch_id: int, branch: schemas.BranchUpdate) -> Optional[Branch]:
         db_branch = self.get_by_id(db, branch_id)

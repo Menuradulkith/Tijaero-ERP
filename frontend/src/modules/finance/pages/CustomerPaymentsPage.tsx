@@ -63,9 +63,11 @@ import PrintIcon from "@mui/icons-material/Print";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import ReceiptIcon from "@mui/icons-material/Receipt";
-import toast from "react-hot-toast";
 import {
   useConfirmDialog,
+  handleApiError,
+  showErrorToast,
+  showSuccessToast,
   TStatCard,
   TEmptyState,
   TButton,
@@ -229,8 +231,7 @@ export default function CustomerPaymentsPage() {
       // Only show active customers with credit limits
       setCustomers(data.filter((c: Customer) => c.active));
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || "Failed to load customers");
+      setError(handleApiError(err, "Failed to load customers"));
     } finally {
       setLoading(false);
     }
@@ -515,24 +516,24 @@ export default function CustomerPaymentsPage() {
 
   const handleProceedToPayment = useCallback(async () => {
     if (!selectedCustomer) {
-      toast.error("Please select a customer first");
+      showErrorToast("Please select a customer first");
       return;
     }
 
     if (useFIFO) {
       if (fifoAmount <= 0) {
-        toast.error("Please enter a payment amount for FIFO allocation");
+        showErrorToast("Please enter a payment amount for FIFO allocation");
         return;
       }
       const lines = allocateFIFO(fifoAmount);
       if (lines.length === 0) {
-        toast.error("No invoices available for allocation");
+        showErrorToast("No invoices available for allocation");
         return;
       }
       setPaymentLines(lines);
     } else {
       if (selectedInvoiceIds.size === 0) {
-        toast.error("Please select at least one invoice");
+        showErrorToast("Please select at least one invoice");
         return;
       }
       const selectedDocs = outstandingInvoices.filter((d) => selectedInvoiceIds.has(d.id));
@@ -566,20 +567,20 @@ export default function CustomerPaymentsPage() {
 
   const handleProceedToReview = useCallback(() => {
     if (totalPaymentAmount <= 0) {
-      toast.error("Total payment amount must be greater than 0");
+      showErrorToast("Total payment amount must be greater than 0");
       return;
     }
 
     if (paymentMethod === "Bank Transfer" && !referenceNumber) {
-      toast.error("Please enter bank transfer reference number");
+      showErrorToast("Please enter bank transfer reference number");
       return;
     }
     if (paymentMethod === "Cheque" && (!referenceNumber || !bankName)) {
-      toast.error("Please enter cheque number and bank name");
+      showErrorToast("Please enter cheque number and bank name");
       return;
     }
     if ((paymentMethod === "card_visa" || paymentMethod === "card_mastercard") && !cardRefNumber) {
-      toast.error("Please enter card reference number");
+      showErrorToast("Please enter card reference number");
       return;
     }
 
@@ -633,7 +634,7 @@ export default function CustomerPaymentsPage() {
         await apiClient.post(`/sales/${line.invoice.id}/settle-payment`, payload);
       }
 
-      toast.success(`Payment of ${formatCurrency(totalPaymentAmount)} received from ${selectedCustomer.customer_name}`);
+      showSuccessToast(`Payment of ${formatCurrency(totalPaymentAmount)} received from ${selectedCustomer.customer_name}`);
 
       // Refresh data and reset
       await loadCreditStatus(selectedCustomer.id);
@@ -644,10 +645,9 @@ export default function CustomerPaymentsPage() {
       setPaymentLines([]);
       resetPaymentForm();
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      const msg = error.response?.data?.detail || "Failed to post payment";
+      const msg = handleApiError(err, "Failed to post payment");
       setError(msg);
-      toast.error(msg);
+      showErrorToast(msg);
     } finally {
       setSaving(false);
     }
@@ -708,11 +708,11 @@ export default function CustomerPaymentsPage() {
   const handleCreateAdvance = async () => {
     if (!selectedCustomer) return;
     if (!advanceFormData.payment_amount || advanceFormData.payment_amount <= 0) {
-      toast.error("Please enter a valid advance amount");
+      showErrorToast("Please enter a valid advance amount");
       return;
     }
     if (!advanceFormData.branch_code) {
-      toast.error("Please select a branch");
+      showErrorToast("Please select a branch");
       return;
     }
 
@@ -729,7 +729,7 @@ export default function CustomerPaymentsPage() {
       };
 
       await advancePaymentsApi.create(data);
-      toast.success(`Advance payment received from ${selectedCustomer.customer_name}`);
+      showSuccessToast(`Advance payment received from ${selectedCustomer.customer_name}`);
       setShowAdvanceForm(false);
       setAdvanceFormData({
         payment_method: "Cash",
@@ -738,8 +738,8 @@ export default function CustomerPaymentsPage() {
       });
       loadAdvancePayments(selectedCustomer.id);
       loadCreditStatus(selectedCustomer.id);
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || "Failed to create advance payment");
+    } catch (err: unknown) {
+      showErrorToast(handleApiError(err, "Failed to create advance payment"));
     } finally {
       setSavingAdvance(false);
     }
@@ -914,7 +914,7 @@ export default function CustomerPaymentsPage() {
   const handlePrintPaymentHistory = () => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
-      toast.error("Please allow popups to print the report");
+      showErrorToast("Please allow popups to print the report");
       return;
     }
 

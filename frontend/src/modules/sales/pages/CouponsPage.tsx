@@ -35,7 +35,9 @@ import {
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
+  fmtLKR,
   FormSection,
+  handleApiError,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -212,7 +214,7 @@ export default function CouponsPage() {
       setIsEditing(false);
       setTimeout(() => handleSelectCoupon(newCoupon), 0);
     },
-    onError: (error: any) => showErrorToast(error.response?.data?.detail || "Failed to create coupon"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create coupon")),
   });
 
   const updateMutation = useMutation({
@@ -223,7 +225,7 @@ export default function CouponsPage() {
       showSuccessToast("Coupon updated successfully");
       setIsEditing(false);
     },
-    onError: (error: any) => showErrorToast(error.response?.data?.detail || "Failed to update coupon"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update coupon")),
   });
 
   const deleteMutation = useMutation({
@@ -233,7 +235,7 @@ export default function CouponsPage() {
       showSuccessToast("Coupon deleted successfully");
       baseHandleCancel(filteredCoupons);
     },
-    onError: (error: any) => showErrorToast(error.response?.data?.detail || "Failed to delete coupon"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to delete coupon")),
   });
 
   const confirmDialog = useTConfirmDialog();
@@ -694,7 +696,7 @@ export default function CouponsPage() {
                             <TableCell>{usage.invoice_no || `#${usage.invoice_id}`}</TableCell>
                             <TableCell>{usage.customer_name || `Customer #${usage.customer_id}`}</TableCell>
                             <TableCell align="right">
-                              Rs. {usage.discount_amount.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                              Rs. {fmtLKR(usage.discount_amount)}
                             </TableCell>
                           </TableRow>
                         ))}

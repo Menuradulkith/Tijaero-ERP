@@ -34,6 +34,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     DetailPanelHeader,
     EmptyState,
+    fmtLKR,
     FormSection,
     MasterDetailLayout,
     SearchableList,
@@ -420,13 +421,13 @@ export default function SalesOrderApprovalsPage() {
                             <TextField
                                 label="Credit Amount"
                                 size="small"
-                                value={`Rs. ${(selectedOrder.credit_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                value={`Rs. ${fmtLKR(selectedOrder.credit_amount || 0)}`}
                                 disabled
                             />
                             <TextField
                                 label="Cash Amount"
                                 size="small"
-                                value={`Rs. ${(selectedOrder.cash_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                value={`Rs. ${fmtLKR(selectedOrder.cash_amount || 0)}`}
                                 disabled
                             />
                         </FormSection>
@@ -481,7 +482,7 @@ export default function SalesOrderApprovalsPage() {
                                                 }}>
                                                     <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                                                     <TableCell align="right">{item.quantity}</TableCell>
-                                                    <TableCell align="right">{item.selling_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                                                    <TableCell align="right">{fmtLKR(item.selling_price)}</TableCell>
                                                     <TableCell align="center">{item.warrenty_month || "0"} mo</TableCell>
                                                     <TableCell>
                                                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
@@ -495,7 +496,7 @@ export default function SalesOrderApprovalsPage() {
                                                             </Tooltip>
                                                         </Box>
                                                     </TableCell>
-                                                    <TableCell align="right">{(item.quantity * item.selling_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                                                    <TableCell align="right">{fmtLKR(item.quantity * item.selling_price)}</TableCell>
                                                 </TableRow>
                                             );
                                         })}
@@ -504,7 +505,7 @@ export default function SalesOrderApprovalsPage() {
                                                 <strong>Total:</strong>
                                             </TableCell>
                                             <TableCell align="right">
-                                                <strong>{(selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.selling_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                <strong>{fmtLKR(selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.selling_price), 0) || 0)}</strong>
                                             </TableCell>
                                         </TableRow>
                                     </TableBody>

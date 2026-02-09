@@ -880,9 +880,21 @@ class SalesService:
         
         if voucher_redemptions:
             # Multiple vouchers - create usage record for each
+            # NOTE: Each voucher is ONE-TIME USE ONLY - always mark as fully_claimed
             from app.modules.customers.models import CustomerGiftVoucher, VoucherUsage
             
             for redemption in voucher_redemptions:
+                voucher = db.query(CustomerGiftVoucher).filter(CustomerGiftVoucher.id == redemption.voucher_id).first()
+                if not voucher:
+                    continue
+                    
+                # Verify voucher hasn't been used already
+                if voucher.status != "active":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Voucher {voucher.barcode_no} has already been used"
+                    )
+                
                 # Create voucher usage record
                 voucher_usage = VoucherUsage(
                     voucher_id=redemption.voucher_id,
@@ -892,36 +904,69 @@ class SalesService:
                 )
                 db.add(voucher_usage)
                 
-                # Update voucher balance
-                voucher = db.query(CustomerGiftVoucher).filter(CustomerGiftVoucher.id == redemption.voucher_id).first()
-                if voucher:
-                    voucher.balance = voucher.balance - Decimal(str(redemption.amount_to_redeem))
-                    if voucher.balance <= 0:
-                        voucher.status = "fully_claimed"
-                        voucher.claimed_date = datetime.now()
-                        voucher.claimed_invoice_no = invoice_data.invoice_no
+                # ONE-TIME USE: Always mark as fully_claimed regardless of amount used
+                # Any remaining balance is forfeited
+                voucher.balance = Decimal("0")  # Zero out balance
+                voucher.status = "fully_claimed"
+                voucher.claimed_date = datetime.now()
+                voucher.claimed_invoice_no = invoice_data.invoice_no
         
         elif gift_voucher_id and gift_voucher_amount > 0:
             # Legacy single voucher (backwards compatibility)
+            # NOTE: ONE-TIME USE ONLY - always mark as fully_claimed
             from app.modules.customers.models import CustomerGiftVoucher, VoucherUsage
             
-            # Create voucher usage record
-            voucher_usage = VoucherUsage(
-                voucher_id=gift_voucher_id,
-                invoice_id=invoice.id,
-                amount_used=gift_voucher_amount,
-                used_date=datetime.now()
-            )
-            db.add(voucher_usage)
-            
-            # Update voucher balance
             voucher = db.query(CustomerGiftVoucher).filter(CustomerGiftVoucher.id == gift_voucher_id).first()
             if voucher:
-                voucher.balance = voucher.balance - gift_voucher_amount
-                if voucher.balance <= 0:
-                    voucher.status = "fully_claimed"
-                    voucher.claimed_date = datetime.now()
-                    voucher.claimed_invoice_no = invoice_data.invoice_no
+                # Verify voucher hasn't been used already
+                if voucher.status != "active":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Voucher {voucher.barcode_no} has already been used"
+                    )
+                
+                # Create voucher usage record
+                voucher_usage = VoucherUsage(
+                    voucher_id=gift_voucher_id,
+                    invoice_id=invoice.id,
+                    amount_used=gift_voucher_amount,
+                    used_date=datetime.now()
+                )
+                db.add(voucher_usage)
+                
+                # ONE-TIME USE: Always mark as fully_claimed regardless of amount used
+                voucher.balance = Decimal("0")  # Zero out balance
+                voucher.status = "fully_claimed"
+                voucher.claimed_date = datetime.now()
+                voucher.claimed_invoice_no = invoice_data.invoice_no
+        
+        # =================================================================
+        # Auto-create commission if invoice has a customer agent (Scenario 17)
+        # =================================================================
+        customer_agent_id = getattr(invoice_data, 'customer_agent_id', None)
+        if customer_agent_id:
+            from app.modules.customers.models import Customer as CustomerModel
+            agent = db.query(CustomerModel).filter(
+                CustomerModel.id == customer_agent_id,
+                CustomerModel.is_customer_agent == True
+            ).first()
+            
+            if agent and agent.commission_rate:
+                from app.modules.customers.commission_models import CustomerAgentCommission as CommissionModel
+                commission_rate = Decimal(str(agent.commission_rate))
+                commission_amount = Decimal(str(grand_total)) * (commission_rate / Decimal("100"))
+                
+                commission = CommissionModel(
+                    invoice_id=invoice.id,
+                    customer_agent_id=customer_agent_id,
+                    represented_customer_id=invoice_data.customer_id,
+                    invoice_amount=grand_total,
+                    commission_type="PERCENT",
+                    commission_rate=commission_rate,
+                    commission_amount=commission_amount,
+                    status="pending",
+                )
+                db.add(commission)
         
         db.commit()
         db.refresh(invoice)

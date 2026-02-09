@@ -34,7 +34,6 @@ import BusinessIcon from "@mui/icons-material/Business";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
-import toast from "react-hot-toast";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
@@ -43,7 +42,10 @@ import {
   SelectableListItem,
   DetailPanelHeader,
   EmptyState,
+  handleApiError,
   SortOption,
+  showErrorToast,
+  showSuccessToast,
   PURCHASING_PAYMENT_METHOD,
 } from "@/components/tijaero";
 
@@ -165,8 +167,7 @@ export default function CreditSettlementPage() {
       const data = await suppliersApi.getAll({ active: true });
       setSuppliers(data);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || "Failed to load suppliers");
+      setError(handleApiError(err, "Failed to load suppliers"));
     } finally {
       setLoading(false);
     }
@@ -280,17 +281,17 @@ export default function CreditSettlementPage() {
 
   const handleSubmitPayment = useCallback(async () => {
     if (!selectedPO || !selectedPO.grn_id || !selectedSupplier) {
-      toast.error("Invalid selection");
+      showErrorToast("Invalid selection");
       return;
     }
 
     if (paymentForm.payment_amount <= 0) {
-      toast.error("Payment amount must be greater than 0");
+      showErrorToast("Payment amount must be greater than 0");
       return;
     }
 
     if (paymentForm.payment_amount > selectedPO.remaining_amount) {
-      toast.error(`Payment cannot exceed remaining amount`);
+      showErrorToast(`Payment cannot exceed remaining amount`);
       return;
     }
 
@@ -323,7 +324,7 @@ export default function CreditSettlementPage() {
       };
 
       await supplierCreditsSettleApi.create(settlementData);
-      toast.success("Payment recorded successfully!");
+      showSuccessToast("Payment recorded successfully!");
       
       // Refresh credit info
       await loadSupplierCredit(selectedSupplier.id);
@@ -331,10 +332,9 @@ export default function CreditSettlementPage() {
       // Go back to supplier view
       handleBackToSupplier();
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      const msg = error.response?.data?.detail || "Failed to submit payment";
+      const msg = handleApiError(err, "Failed to submit payment");
       setError(msg);
-      toast.error(msg);
+      showErrorToast(msg);
     } finally {
       setSaving(false);
     }

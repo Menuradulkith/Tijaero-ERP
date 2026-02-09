@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from typing import List, Optional
 from datetime import date
@@ -77,9 +78,16 @@ class AuthService:
             groups = db.query(models.Group).filter(models.Group.id.in_(user_in.group_ids)).all()
             user.groups = groups
         
-        db.commit()
-        db.refresh(user)
-        return user
+        try:
+            db.commit()
+            db.refresh(user)
+            return user
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username, email, or employee ID already exists. Please use different values."
+            )
     
     def get_users(self, db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
         return db.query(models.User).offset(skip).limit(limit).all()

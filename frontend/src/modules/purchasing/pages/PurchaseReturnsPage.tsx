@@ -35,7 +35,6 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import toast from "react-hot-toast";
 
 // Import tijaero components
 import {
@@ -43,6 +42,7 @@ import {
   DetailPanelHeader,
   EmptyState,
   FormSection,
+  handleApiError,
   MasterDetailLayout,
   RETURN_STATUS_FILTER_OPTIONS,
   SearchableList,
@@ -57,6 +57,8 @@ import {
   canPrintDocument,
   getStatusProps,
   modernTableStyles,
+  showErrorToast,
+  showSuccessToast,
   useMasterDetailState
 } from "@/components/tijaero";
 
@@ -358,13 +360,13 @@ export default function PurchaseReturnsPage() {
     mutationFn: purchaseReturnsApi.create,
     onSuccess: (newReturn) => {
       queryClient.invalidateQueries({ queryKey: ["purchaseReturns"] });
-      toast.success("Purchase return created successfully");
+      showSuccessToast("Purchase return created successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTimeout(() => handleSelectReturnWithItems(newReturn), 0);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to create purchase return");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create purchase return"));
     },
   });
 
@@ -444,14 +446,13 @@ export default function PurchaseReturnsPage() {
 
         // Clear input and focus for next scan
         setBarcodeInput("");
-        toast.success(`Added: ${response.product_name || barcode}`);
+        showSuccessToast(`Added: ${response.product_name || barcode}`);
         barcodeInputRef.current?.focus();
       } else {
         setValidationError(response.message || "Barcode validation failed");
       }
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || "Failed to validate barcode";
-      setValidationError(errorMessage);
+    } catch (error) {
+      setValidationError(handleApiError(error, "Failed to validate barcode"));
     } finally {
       setIsValidating(false);
     }
@@ -520,7 +521,7 @@ export default function PurchaseReturnsPage() {
         confirmColor: "error",
       });
       if (confirmed) {
-        toast.error("Delete operation not supported for purchase returns");
+        showErrorToast("Delete operation not supported for purchase returns");
       }
     }
   }, [selectedReturn, confirmDialog]);

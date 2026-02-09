@@ -40,6 +40,7 @@ import {
   DetailPanelHeader,
   ActionToolbar,
   FormSection,
+  handleApiError,
   EmptyState,
   TFilterPanel,
   TStatusChip,
@@ -197,10 +198,10 @@ export default function ReceiveNotesPage() {
         message: "Items received successfully!",
       });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       setScanResult({
         success: false,
-        message: error.response?.data?.detail || "Failed to create receive note",
+        message: handleApiError(error, "Failed to create receive note"),
       });
     },
   });
@@ -538,7 +539,7 @@ export default function ReceiveNotesPage() {
                       </Box>
                       <TStatusChip
                         status={itn.status || "approved"}
-                        {...getStatusProps(itn.status || "approved", "orderStatus")}
+                        statusMap="orderStatus"
                         size="small"
                       />
                     </Box>
@@ -820,14 +821,7 @@ export default function ReceiveNotesPage() {
                                   ? "pending"
                                   : "pending"
                               }
-                              {...getStatusProps(
-                                isComplete
-                                  ? "approved"
-                                  : isPartial
-                                  ? "pending"
-                                  : "pending",
-                                "orderStatus"
-                              )}
+                              statusMap="orderStatus"
                               size="small"
                             />
                           </TableCell>
@@ -899,7 +893,7 @@ export default function ReceiveNotesPage() {
             <Box sx={{ mt: 0.5 }}>
               <TStatusChip
                 status={statusLabel}
-                {...getStatusProps(statusLabel, "orderStatus")}
+                statusMap="orderStatus"
                 size="small"
               />
             </Box>
@@ -931,7 +925,7 @@ export default function ReceiveNotesPage() {
               <Box sx={{ mt: 0.5 }}>
                 <TStatusChip
                   status={itnStatusLabel}
-                  {...getStatusProps(itnStatusLabel, "orderStatus")}
+                  statusMap="orderStatus"
                   size="small"
                 />
               </Box>

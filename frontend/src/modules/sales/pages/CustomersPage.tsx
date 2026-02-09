@@ -80,6 +80,7 @@ const INITIAL_FORM_DATA: CustomerCreate = {
   max_credit_limit: 0,
   active: true,
   is_customer_agent: false,
+  commission_rate: 0,
 };
 
 const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
@@ -104,6 +105,7 @@ const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
   max_credit_limit: customer.max_credit_limit,
   active: customer.active,
   is_customer_agent: customer.is_customer_agent,
+  commission_rate: customer.commission_rate || 0,
 });
 
 export default function CustomersPage() {
@@ -625,6 +627,19 @@ export default function CustomersPage() {
                   label="Agent"
                 />
               </Box>
+              {formData.is_customer_agent && (
+                <TextField
+                  label="Default Commission Rate (%)"
+                  size="small"
+                  type="number"
+                  value={formData.commission_rate || 0}
+                  onChange={(e) => setFormData({ ...formData, commission_rate: parseFloat(e.target.value) || 0 })}
+                  disabled={isDisabled}
+                  inputProps={{ min: 0, max: 100, step: 0.01 }}
+                  helperText="Default commission percentage for this agent"
+                  sx={{ mt: 1 }}
+                />
+              )}
             </FormSection>
           </>
         )}

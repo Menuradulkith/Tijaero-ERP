@@ -3,6 +3,7 @@ from app.auth.api import router as auth_router
 from app.modules.branches.api import router as branches_router
 from app.modules.common.api import router as common_router
 from app.modules.customers.api import router as customers_router
+from app.modules.customers.commission_api import router as commissions_router
 from app.modules.employees.api import router as employees_router
 from app.modules.finance.api import router as finance_router
 from app.modules.groups.api import router as groups_router
@@ -29,6 +30,7 @@ api_router.include_router(users_router)
 api_router.include_router(groups_router)
 api_router.include_router(permissions_router)
 
+api_router.include_router(commissions_router, prefix="/customers/commissions", tags=["agent-commissions"])
 api_router.include_router(customers_router, prefix="/customers", tags=["customers"])
 api_router.include_router(inventory_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(products_router, prefix="/inventory", tags=["inventory"])

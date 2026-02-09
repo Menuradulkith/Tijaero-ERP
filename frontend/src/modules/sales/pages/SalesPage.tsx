@@ -5,7 +5,9 @@ import {
   CUSTOMER_PAYMENT_METHOD,
   DetailPanelHeader,
   EmptyState,
+  fmtLKR,
   FormSection,
+  handleApiError,
   MasterDetailLayout,
   modernTableStyles,
   SearchableList,
@@ -15,6 +17,7 @@ import {
   SortOption,
   TConfirmDialog,
   TStatusChip,
+  TSteps,
   useMasterDetailState,
   useTConfirmDialog,
 } from "@/components/tijaero";
@@ -54,9 +57,6 @@ import {
   InputAdornment,
   MenuItem,
   Paper,
-  Step,
-  StepLabel,
-  Stepper,
   Table,
   TableBody,
   TableCell,
@@ -94,7 +94,7 @@ const INVOICE_STATUS_OPTIONS = [
 ];
 
 // Form steps for stepper workflow
-const FORM_STEPS = ["Order Information", "Line Items"];
+const FORM_STEPS = ["Order Information", "Line Items", "Payment Details"];
 
 // Line item type
 interface ItemFormData {
@@ -116,6 +116,7 @@ const emptyInvoiceForm: Partial<InvoiceCreate> = {
   invoice_no: "",
   branch_code: "MAIN",
   customer_id: 0,
+  customer_agent_id: undefined,
   sale_rep_id: 1,
   payment_method: "cash",
   cash_amount: 0,
@@ -570,6 +571,7 @@ export default function SalesPage() {
       invoice_no: `INV-${Date.now()}`,
       branch_code: "MAIN",
       customer_id: customers?.[0]?.id || 0,
+      customer_agent_id: undefined,
       sale_rep_id: 1,
       payment_method: "cash",
       cash_amount: 0,
@@ -628,6 +630,7 @@ export default function SalesPage() {
       invoice_no: state.selectedItem.invoice_no,
       branch_code: state.selectedItem.branch_code,
       customer_id: state.selectedItem.customer_id,
+      customer_agent_id: state.selectedItem.customer_agent_id || undefined,
       sale_rep_id: state.selectedItem.sale_rep_id,
       payment_method: state.selectedItem.payment_method,
       cash_amount: state.selectedItem.cash_amount,
@@ -826,10 +829,7 @@ export default function SalesPage() {
         }
       } catch (error: unknown) {
         console.error("Credit validation failed:", error);
-        // Extract error message from response
-        const errorMessage = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail 
-          || "Failed to validate credit sale. Please try again.";
-        showErrorToast(errorMessage);
+        showErrorToast(handleApiError(error, "Failed to validate credit sale. Please try again."));
         return;
       }
     }
@@ -1063,9 +1063,9 @@ export default function SalesPage() {
       setBarcodeInput("");
       barcodeInputRef.current?.focus();
       showSuccessToast(`Added: ${productName || "Product"}`);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Barcode validation error:", error);
-      setBarcodeError(error.response?.data?.detail || "Barcode not found in available stock");
+      setBarcodeError(handleApiError(error, "Barcode not found in available stock"));
     } finally {
       setIsValidatingBarcode(false);
     }
@@ -1111,9 +1111,9 @@ export default function SalesPage() {
         setCouponError(response.message);
         setCouponValidation(null);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Coupon validation error:", error);
-      setCouponError(error.response?.data?.detail || "Failed to validate coupon");
+      setCouponError(handleApiError(error, "Failed to validate coupon"));
       setCouponValidation(null);
     } finally {
       setIsValidatingCoupon(false);
@@ -1167,9 +1167,9 @@ export default function SalesPage() {
       } else {
         setVoucherError(response.message);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Voucher validation error:", error);
-      setVoucherError(error.response?.data?.detail || "Failed to validate voucher");
+      setVoucherError(handleApiError(error, "Failed to validate voucher"));
     } finally {
       setIsValidatingVoucher(false);
     }
@@ -1227,7 +1227,7 @@ export default function SalesPage() {
           setCouponError(response.message);
           showErrorToast(`Coupon no longer valid: ${response.message}`);
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error("Coupon revalidation error:", error);
         setCouponValidation(null);
         setCouponError("Coupon validation failed");
@@ -1333,7 +1333,7 @@ export default function SalesPage() {
           <TextField
             label="Credit Amount"
             size="small"
-            value={`Rs. ${(state.selectedItem?.credit_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            value={`Rs. ${fmtLKR(state.selectedItem?.credit_amount || 0)}`}
             disabled
           />
         </FormSection>
@@ -1389,7 +1389,7 @@ export default function SalesPage() {
                       }}>
                         <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                         <TableCell align="right">{item.quantity}</TableCell>
-                        <TableCell align="right">{item.selling_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell align="right">{fmtLKR(item.selling_price)}</TableCell>
                         <TableCell align="center">{item.warrenty_month || "0"} mo</TableCell>
                         <TableCell>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
@@ -1403,7 +1403,7 @@ export default function SalesPage() {
                             </Tooltip>
                           </Box>
                         </TableCell>
-                        <TableCell align="right">{(item.quantity * item.selling_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell align="right">{fmtLKR(item.quantity * item.selling_price)}</TableCell>
                       </TableRow>
                     );
                   })}
@@ -1412,7 +1412,7 @@ export default function SalesPage() {
                       <strong>Subtotal:</strong>
                     </TableCell>
                     <TableCell align="right">
-                      <strong>{(fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      <strong>{fmtLKR(fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0)}</strong>
                     </TableCell>
                   </TableRow>
                   {/* Coupon Discount Row */}
@@ -1425,7 +1425,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="success.dark">
-                          -{fullInvoice.cupon_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          -{fmtLKR(fullInvoice.cupon_amount)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -1440,7 +1440,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="warning.dark">
-                          -{fullInvoice.discount_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          -{fmtLKR(fullInvoice.discount_amount)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -1455,7 +1455,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="info.dark">
-                          +{fullInvoice.tax_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          +{fmtLKR(fullInvoice.tax_amount)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -1470,7 +1470,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="secondary.dark">
-                          -{fullInvoice.gift_voucher_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          -{fmtLKR(fullInvoice.gift_voucher_amount)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -1486,7 +1486,7 @@ export default function SalesPage() {
                         </TableCell>
                         <TableCell align="right">
                           <Typography fontWeight="medium" color="text.secondary">
-                            +{fullInvoice.service_charge_amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            +{fmtLKR(fullInvoice.service_charge_amount)}
                           </Typography>
                         </TableCell>
                       </TableRow>
@@ -1499,7 +1499,7 @@ export default function SalesPage() {
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
-                        {(fullInvoice.grand_total || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {fmtLKR(fullInvoice.grand_total || 0)}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -1513,7 +1513,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="bold" color="error.main">
-                          {fullInvoice.balance_due.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {fmtLKR(fullInvoice.balance_due)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -1554,13 +1554,11 @@ export default function SalesPage() {
   const renderCreateForm = () => (
     <>
       {/* Stepper */}
-      <Stepper activeStep={formStep} sx={{ mb: 3 }}>
-        {FORM_STEPS.map((label) => (
-          <Step key={label}>
-            <StepLabel>{label}</StepLabel>
-          </Step>
-        ))}
-      </Stepper>
+      <TSteps
+        steps={FORM_STEPS.map((label, i) => ({ id: `step-${i}`, label }))}
+        activeStep={formStep}
+        sx={{ mb: 3 }}
+      />
 
       {/* Step 1: Order Information */}
       {formStep === 0 && (
@@ -1588,6 +1586,14 @@ export default function SalesPage() {
               value={customers?.find((c) => c.id === state.formData.customer_id) || null}
               onChange={(_, newValue) => state.setFormData({ ...state.formData, customer_id: newValue?.id || 0 })}
               renderInput={(params) => <TextField {...params} label="Customer" required />}
+            />
+            <Autocomplete
+              size="small"
+              options={(customers || []).filter((c) => c.is_customer_agent && c.active)}
+              getOptionLabel={(option) => `${option.customer_name}${option.commission_rate ? ` (${option.commission_rate}%)` : ""}`}
+              value={customers?.find((c) => c.id === state.formData.customer_agent_id) || null}
+              onChange={(_, newValue) => state.setFormData({ ...state.formData, customer_agent_id: newValue?.id || undefined })}
+              renderInput={(params) => <TextField {...params} label="Customer Agent (Optional)" />}
             />
           </FormSection>
 
@@ -1732,176 +1738,6 @@ export default function SalesPage() {
                 </Typography>
               )}
             </Box>
-          )}
-
-          <FormSection title="Payment Details" columns={1}>
-            <TextField
-              label="Payment Method"
-              size="small"
-              select
-              value={state.formData.payment_method}
-              onChange={(e) => {
-                state.setFormData({ ...state.formData, payment_method: e.target.value });
-                // Reset payment details when method changes
-                setPaymentDetails({
-                  cheque_number: "",
-                  cheque_bank: "",
-                  cheque_date: new Date().toISOString().split('T')[0],
-                  card_ref_number: "",
-                  card_holder_name: "",
-                  bank_transfer_ref: "",
-                  bank_name: "",
-                  credit_note_id: 0,
-                  credit_note_amount: 0,
-                });
-                // Reset selected payment card when method changes
-                setSelectedPaymentCardId(null);
-              }}
-            >
-              {CUSTOMER_PAYMENT_METHOD.map((option) => (
-                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-              ))}
-            </TextField>
-          </FormSection>
-
-          {/* Payment Details Section - Based on selected payment method */}
-          {state.formData.payment_method === "cheque" && (
-            <FormSection title="Cheque Details" columns={3}>
-              <TextField
-                label="Cheque Number"
-                size="small"
-                value={paymentDetails.cheque_number}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, cheque_number: e.target.value })}
-                required
-              />
-              <TextField
-                label="Bank Name"
-                size="small"
-                value={paymentDetails.cheque_bank}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, cheque_bank: e.target.value })}
-                required
-              />
-              <TextField
-                label="Cheque Date"
-                size="small"
-                type="date"
-                value={paymentDetails.cheque_date}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, cheque_date: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                required
-              />
-            </FormSection>
-          )}
-
-          {state.formData.payment_method === "card" && (
-              <FormSection title="Card Payment Details" columns={2}>
-                <TextField
-                  select
-                  label="Select Card"
-                  size="small"
-                  value={selectedPaymentCardId || ""}
-                  onChange={(e) => setSelectedPaymentCardId(Number(e.target.value))}
-                  required
-                >
-                  <MenuItem value="" disabled>
-                    Select a card type
-                  </MenuItem>
-                  {paymentCards.map((card: PaymentCard) => (
-                    <MenuItem key={card.id} value={card.id}>
-                      {card.card_name} ({card.card_type}) - {card.service_charge_percent}% fee
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  label="Card Reference Number"
-                  size="small"
-                  value={paymentDetails.card_ref_number}
-                  onChange={(e) => setPaymentDetails({ ...paymentDetails, card_ref_number: e.target.value })}
-                  placeholder="Transaction/Approval code"
-                />
-                <TextField
-                  label="Card Holder Name"
-                  size="small"
-                  value={paymentDetails.card_holder_name}
-                  onChange={(e) => setPaymentDetails({ ...paymentDetails, card_holder_name: e.target.value })}
-                />
-                {selectedPaymentCard && (
-                  <Box sx={{ gridColumn: "span 2", p: 1.5, bgcolor: "warning.lighter", borderRadius: 1 }}>
-                    <Typography variant="body2" color="warning.dark">
-                      <strong>Service Charge:</strong>{" "}
-                      {selectedPaymentCard.service_charge_percent}% will be applied to the total amount
-                      {selectedPaymentCard.description && (
-                        <span> - {selectedPaymentCard.description}</span>
-                      )}
-                    </Typography>
-                  </Box>
-                )}
-              </FormSection>
-            )}
-
-          {state.formData.payment_method === "bank_transfer" && (
-            <FormSection title="Bank Transfer Details" columns={2}>
-              <TextField
-                label="Bank Name"
-                size="small"
-                value={paymentDetails.bank_name}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, bank_name: e.target.value })}
-                required
-              />
-              <TextField
-                label="Reference Number"
-                size="small"
-                value={paymentDetails.bank_transfer_ref}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, bank_transfer_ref: e.target.value })}
-                placeholder="Bank transfer reference"
-                required
-              />
-            </FormSection>
-          )}
-
-          {state.formData.payment_method === "credit_note" && (
-            <FormSection title="Credit Note Details" columns={1}>
-              {customerCreditNotes && customerCreditNotes.length > 0 ? (
-                <>
-                  <TextField
-                    select
-                    label="Select Credit Note"
-                    size="small"
-                    value={paymentDetails.credit_note_id || ""}
-                    onChange={(e) => {
-                      const selectedNote = customerCreditNotes.find(
-                        (cn: any) => cn.id === Number(e.target.value)
-                      );
-                      setPaymentDetails({
-                        ...paymentDetails,
-                        credit_note_id: Number(e.target.value),
-                        credit_note_amount: selectedNote?.amount || 0,
-                      });
-                    }}
-                    required
-                  >
-                    {customerCreditNotes.map((creditNote: any) => (
-                      <MenuItem key={creditNote.id} value={creditNote.id}>
-                        {creditNote.credit_note_no} - Rs. {creditNote.amount?.toLocaleString()} (Balance: Rs. {creditNote.balance?.toLocaleString()})
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  {paymentDetails.credit_note_id > 0 && (
-                    <Box sx={{ p: 2, bgcolor: "success.lighter", borderRadius: 1, mt: 1 }}>
-                      <Typography variant="body2" color="success.dark">
-                        Available Credit: Rs. {paymentDetails.credit_note_amount.toLocaleString()}
-                      </Typography>
-                    </Box>
-                  )}
-                </>
-              ) : (
-                <Box sx={{ p: 2, bgcolor: "warning.lighter", borderRadius: 1 }}>
-                  <Typography variant="body2" color="warning.dark">
-                    No credit notes available for this customer. Please select a different payment method.
-                  </Typography>
-                </Box>
-              )}
-            </FormSection>
           )}
 
           <FormSection title="Additional Information" columns={1}>
@@ -2074,7 +1910,7 @@ export default function SalesPage() {
                         {/* Min Price Column */}
                         <TableCell align="right">
                           <Typography variant="body2" color="text.secondary">
-                            {(item.minimum_selling_price || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {fmtLKR(item.minimum_selling_price || 0)}
                           </Typography>
                         </TableCell>
 
@@ -2136,7 +1972,7 @@ export default function SalesPage() {
                             {(() => {
                               const lineTotal = item.quantity * item.selling_price;
                               const discountAmt = lineTotal * ((item.discount_percent || 0) / 100);
-                              return (lineTotal - discountAmt).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                              return fmtLKR(lineTotal - discountAmt);
                             })()}
                           </Typography>
                           {(item.discount_percent || 0) > 0 && (
@@ -2147,7 +1983,7 @@ export default function SalesPage() {
                               const minRequired = item.quantity * item.minimum_selling_price;
                               return finalAmount < minRequired ? "error.main" : "success.main";
                             })()} sx={{ display: "block" }}>
-                              -{(item.quantity * item.selling_price * ((item.discount_percent || 0) / 100)).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              -{fmtLKR(item.quantity * item.selling_price * ((item.discount_percent || 0) / 100))}
                               {(() => {
                                 const priceAfterDiscount = item.selling_price * (1 - (item.discount_percent || 0) / 100);
                                 if (priceAfterDiscount < item.minimum_selling_price) {
@@ -2175,7 +2011,7 @@ export default function SalesPage() {
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold">
-                        {calculateGrossTotal().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {fmtLKR(calculateGrossTotal())}
                       </Typography>
                     </TableCell>
                     <TableCell />
@@ -2193,7 +2029,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="error.dark">
-                          -{calculateTotalItemDiscounts().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          -{fmtLKR(calculateTotalItemDiscounts())}
                         </Typography>
                       </TableCell>
                       <TableCell />
@@ -2206,7 +2042,7 @@ export default function SalesPage() {
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold">
-                        {calculateLineItemsTotal().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {fmtLKR(calculateLineItemsTotal())}
                       </Typography>
                     </TableCell>
                     <TableCell />
@@ -2224,7 +2060,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="success.dark">
-                          -{couponValidation.calculated_discount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          -{fmtLKR(couponValidation.calculated_discount)}
                         </Typography>
                       </TableCell>
                       <TableCell />
@@ -2248,7 +2084,7 @@ export default function SalesPage() {
                             const discount = discountType === "percent" 
                               ? subtotal * (discountValue / 100)
                               : discountValue;
-                            return discount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                            return fmtLKR(discount);
                           })()}
                         </Typography>
                       </TableCell>
@@ -2277,7 +2113,7 @@ export default function SalesPage() {
                             const couponDiscount = couponValidation?.calculated_discount || 0;
                             const afterDiscount = afterInvoiceDiscount - couponDiscount;
                             const taxAmount = afterDiscount * (taxRate / 100);
-                            return taxAmount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                            return fmtLKR(taxAmount);
                           })()}
                         </Typography>
                       </TableCell>
@@ -2297,7 +2133,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="secondary.dark">
-                          -{appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          -{fmtLKR(appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0))}
                         </Typography>
                       </TableCell>
                       <TableCell />
@@ -2316,7 +2152,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="success.dark">
-                          -{Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, (() => {
+                          -{fmtLKR(Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, (() => {
                             const subtotal = calculateLineItemsTotal();
                             const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
                             const afterInvoiceDiscount = subtotal - invoiceDiscount;
@@ -2327,7 +2163,7 @@ export default function SalesPage() {
                             const afterTax = afterDiscount + taxAmount;
                             const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
                             return afterTax - totalVoucherPayment;
-                          })())).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          })())))}
                         </Typography>
                       </TableCell>
                       <TableCell />
@@ -2364,7 +2200,7 @@ export default function SalesPage() {
                               const afterCreditNote = afterVoucher - appliedCreditNote;
                               // Service charge on remaining amount after credit note
                               const rate = (selectedPaymentCard.service_charge_percent || 0) / 100;
-                              return (afterCreditNote * rate).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                              return fmtLKR(afterCreditNote * rate);
                             })()}
                           </Typography>
                         </TableCell>
@@ -2403,7 +2239,7 @@ export default function SalesPage() {
                             const chargePercent = selectedPaymentCard.service_charge_percent || 0;
                             serviceCharge = afterCreditNote * (chargePercent / 100);
                           }
-                          return (afterCreditNote + serviceCharge).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                          return fmtLKR(afterCreditNote + serviceCharge);
                         })()}
                       </Typography>
                     </TableCell>
@@ -2490,7 +2326,7 @@ export default function SalesPage() {
                         ? `${couponValidation.discount_value}% off` 
                         : `Rs. ${couponValidation.discount_value?.toLocaleString()} off`}
                       {" - Discount: Rs. "}
-                      {(couponValidation.calculated_discount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                      {fmtLKR(couponValidation.calculated_discount || 0)}
                     </Typography>
                   </Box>
                   <Button
@@ -2578,7 +2414,7 @@ export default function SalesPage() {
                             const discount = discountType === "percent" 
                               ? subtotal * (discountValue / 100)
                               : discountValue;
-                            return discount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                            return fmtLKR(discount);
                           })()}
                         </Typography>
                         <IconButton 
@@ -2635,7 +2471,7 @@ export default function SalesPage() {
                             const couponDiscount = couponValidation?.calculated_discount || 0;
                             const afterDiscount = afterInvoiceDiscount - couponDiscount;
                             const taxAmount = afterDiscount * (taxRate / 100);
-                            return taxAmount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                            return fmtLKR(taxAmount);
                           })()}
                         </Typography>
                         <IconButton 
@@ -2753,7 +2589,7 @@ export default function SalesPage() {
               {/* List of applied vouchers */}
               {appliedVouchers.length > 0 && (
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                  {appliedVouchers.map((voucher, index) => (
+                  {appliedVouchers.map((voucher) => (
                     <Box
                       key={voucher.validation.voucher_id}
                       sx={{
@@ -2773,7 +2609,7 @@ export default function SalesPage() {
                             size="small"
                           />
                           <Typography variant="caption" color="text.secondary">
-                            Balance: Rs. {(voucher.validation.balance || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                            Full Value: Rs. {fmtLKR(voucher.validation.balance || 0)}
                             {voucher.validation.expiry_date && (
                               ` • Expires: ${new Date(voucher.validation.expiry_date).toLocaleDateString()}`
                             )}
@@ -2788,55 +2624,21 @@ export default function SalesPage() {
                         </IconButton>
                       </Box>
                       <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-                        <TextField
-                          size="small"
-                          label="Amount to Redeem"
-                          type="number"
-                          value={voucher.amountToRedeem}
-                          onChange={(e) => {
-                            const inputValue = parseFloat(e.target.value) || 0;
-                            
-                            // Calculate remaining amount after other vouchers
-                            const subtotal = calculateLineItemsTotal();
-                            const couponDiscount = couponValidation?.calculated_discount || 0;
-                            const otherVouchersTotal = appliedVouchers
-                              .filter((_, i) => i !== index)
-                              .reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
-                            const remainingAmount = subtotal - couponDiscount - otherVouchersTotal;
-                            
-                            // Max is the minimum of: voucher's redeemable amount, or remaining invoice amount
-                            const maxAllowed = Math.min(
-                              voucher.validation.redeemable_amount || 0,
-                              remainingAmount
-                            );
-                            
-                            const value = Math.min(inputValue, maxAllowed);
-                            
-                            setAppliedVouchers(prev => prev.map((v, i) => 
-                              i === index ? { ...v, amountToRedeem: Math.max(0, value) } : v
-                            ));
-                          }}
-                          InputProps={{
-                            startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
-                            inputProps: { 
-                              min: 0, 
-                              max: voucher.validation.redeemable_amount || 0,
-                              step: 0.01 
-                            },
-                          }}
-                          helperText={`Max: Rs. ${(voucher.validation.redeemable_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
-                          sx={{ width: 200 }}
-                        />
                         <Typography variant="body2" color="info.dark" fontWeight="bold">
-                          Redeeming: Rs. {voucher.amountToRedeem.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                          Applying: Rs. {fmtLKR(voucher.amountToRedeem)}
                         </Typography>
+                        {(voucher.validation.balance || 0) > voucher.amountToRedeem && (
+                          <Typography variant="caption" color="warning.main">
+                            (One-time use - Rs. {fmtLKR((voucher.validation.balance || 0) - voucher.amountToRedeem)} will be forfeited)
+                          </Typography>
+                        )}
                       </Box>
                     </Box>
                   ))}
                   {/* Total voucher payment */}
                   <Box sx={{ p: 1, bgcolor: "success.lighter", borderRadius: 1, textAlign: "right" }}>
                     <Typography variant="body2" color="success.dark" fontWeight="bold">
-                      Total Voucher Payment: Rs. {appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                      Total Voucher Payment: Rs. {fmtLKR(appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0))}
                     </Typography>
                   </Box>
                 </Box>
@@ -2864,7 +2666,7 @@ export default function SalesPage() {
               </Box>
 
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
-                Available Balance: Rs. {availableCreditBalance.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                Available Balance: Rs. {fmtLKR(availableCreditBalance)}
               </Typography>
 
               {availableCreditBalance > 0 ? (
@@ -2902,7 +2704,7 @@ export default function SalesPage() {
                         step: 0.01 
                       },
                     }}
-                    helperText={`Max: Rs. ${Math.min(
+                    helperText={`Max: Rs. ${fmtLKR(Math.min(
                       availableCreditBalance,
                       Math.max(0, (() => {
                         const subtotal = calculateLineItemsTotal();
@@ -2915,12 +2717,12 @@ export default function SalesPage() {
                         const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
                         return afterTax - totalVoucherPayment;
                       })())
-                    ).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                    ))}`}
                   />
                   {creditNoteAmount > 0 && (
                     <Box sx={{ mt: 2, p: 1, bgcolor: "success.lighter", borderRadius: 1, textAlign: "right" }}>
                       <Typography variant="body2" color="success.dark" fontWeight="bold">
-                        Credit Note Applied: Rs. {creditNoteAmount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        Credit Note Applied: Rs. {fmtLKR(creditNoteAmount)}
                       </Typography>
                     </Box>
                   )}
@@ -2934,6 +2736,372 @@ export default function SalesPage() {
           )}
 
           {/* Step 2 Navigation */}
+          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
+            <Button
+              variant="outlined"
+              onClick={handlePreviousStep}
+              startIcon={<ArrowBackIcon />}
+            >
+              Back
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleNextStep}
+              disabled={
+                lineItems.length === 0 ||
+                lineItems.some(item => item.selling_price < item.minimum_selling_price)
+              }
+              endIcon={<ArrowForwardIcon />}
+            >
+              Next: Payment Details
+            </Button>
+          </Box>
+        </>
+      )}
+
+      {/* Step 3: Payment Details */}
+      {formStep === 2 && (
+        <>
+          <FormSection title="Payment Details" columns={1}>
+            <TextField
+              label="Payment Method"
+              size="small"
+              select
+              value={state.formData.payment_method}
+              onChange={(e) => {
+                state.setFormData({ ...state.formData, payment_method: e.target.value });
+                // Reset payment details when method changes
+                setPaymentDetails({
+                  cheque_number: "",
+                  cheque_bank: "",
+                  cheque_date: new Date().toISOString().split('T')[0],
+                  card_ref_number: "",
+                  card_holder_name: "",
+                  bank_transfer_ref: "",
+                  bank_name: "",
+                  credit_note_id: 0,
+                  credit_note_amount: 0,
+                });
+                // Reset selected payment card when method changes
+                setSelectedPaymentCardId(null);
+              }}
+            >
+              {CUSTOMER_PAYMENT_METHOD.map((option) => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </TextField>
+          </FormSection>
+
+          {/* Payment Details Section - Based on selected payment method */}
+          {state.formData.payment_method === "cheque" && (
+            <FormSection title="Cheque Details" columns={3}>
+              <TextField
+                label="Cheque Number"
+                size="small"
+                value={paymentDetails.cheque_number}
+                onChange={(e) => setPaymentDetails({ ...paymentDetails, cheque_number: e.target.value })}
+                required
+              />
+              <TextField
+                label="Bank Name"
+                size="small"
+                value={paymentDetails.cheque_bank}
+                onChange={(e) => setPaymentDetails({ ...paymentDetails, cheque_bank: e.target.value })}
+                required
+              />
+              <TextField
+                label="Cheque Date"
+                size="small"
+                type="date"
+                value={paymentDetails.cheque_date}
+                onChange={(e) => setPaymentDetails({ ...paymentDetails, cheque_date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </FormSection>
+          )}
+
+          {state.formData.payment_method === "card" && (
+            <FormSection title="Card Payment Details" columns={2}>
+              <TextField
+                select
+                label="Select Card"
+                size="small"
+                value={selectedPaymentCardId || ""}
+                onChange={(e) => setSelectedPaymentCardId(Number(e.target.value))}
+                required
+              >
+                <MenuItem value="" disabled>
+                  Select a card type
+                </MenuItem>
+                {paymentCards.map((card: PaymentCard) => (
+                  <MenuItem key={card.id} value={card.id}>
+                    {card.card_name} ({card.card_type}) - {card.service_charge_percent}% fee
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Card Reference Number"
+                size="small"
+                value={paymentDetails.card_ref_number}
+                onChange={(e) => setPaymentDetails({ ...paymentDetails, card_ref_number: e.target.value })}
+                placeholder="Transaction/Approval code"
+              />
+              <TextField
+                label="Card Holder Name"
+                size="small"
+                value={paymentDetails.card_holder_name}
+                onChange={(e) => setPaymentDetails({ ...paymentDetails, card_holder_name: e.target.value })}
+              />
+              {selectedPaymentCard && (
+                <Box sx={{ gridColumn: "span 2", p: 1.5, bgcolor: "warning.lighter", borderRadius: 1 }}>
+                  <Typography variant="body2" color="warning.dark">
+                    <strong>Service Charge:</strong>{" "}
+                    {selectedPaymentCard.service_charge_percent}% will be applied to the total amount
+                    {selectedPaymentCard.description && (
+                      <span> - {selectedPaymentCard.description}</span>
+                    )}
+                  </Typography>
+                </Box>
+              )}
+            </FormSection>
+          )}
+
+          {state.formData.payment_method === "bank_transfer" && (
+            <FormSection title="Bank Transfer Details" columns={2}>
+              <TextField
+                label="Bank Name"
+                size="small"
+                value={paymentDetails.bank_name}
+                onChange={(e) => setPaymentDetails({ ...paymentDetails, bank_name: e.target.value })}
+                required
+              />
+              <TextField
+                label="Reference Number"
+                size="small"
+                value={paymentDetails.bank_transfer_ref}
+                onChange={(e) => setPaymentDetails({ ...paymentDetails, bank_transfer_ref: e.target.value })}
+                placeholder="Bank transfer reference"
+                required
+              />
+            </FormSection>
+          )}
+
+          {state.formData.payment_method === "credit_note" && (
+            <FormSection title="Credit Note Details" columns={1}>
+              {customerCreditNotes && customerCreditNotes.length > 0 ? (
+                <>
+                  <TextField
+                    select
+                    label="Select Credit Note"
+                    size="small"
+                    value={paymentDetails.credit_note_id || ""}
+                    onChange={(e) => {
+                      const selectedNote = customerCreditNotes.find(
+                        (cn: any) => cn.id === Number(e.target.value)
+                      );
+                      setPaymentDetails({
+                        ...paymentDetails,
+                        credit_note_id: Number(e.target.value),
+                        credit_note_amount: selectedNote?.amount || 0,
+                      });
+                    }}
+                    required
+                  >
+                    {customerCreditNotes.map((creditNote: any) => (
+                      <MenuItem key={creditNote.id} value={creditNote.id}>
+                        {creditNote.credit_note_no} - Rs. {creditNote.amount?.toLocaleString()} (Balance: Rs. {creditNote.balance?.toLocaleString()})
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  {paymentDetails.credit_note_id > 0 && (
+                    <Box sx={{ p: 2, bgcolor: "success.lighter", borderRadius: 1, mt: 1 }}>
+                      <Typography variant="body2" color="success.dark">
+                        Available Credit: Rs. {paymentDetails.credit_note_amount.toLocaleString()}
+                      </Typography>
+                    </Box>
+                  )}
+                </>
+              ) : (
+                <Box sx={{ p: 2, bgcolor: "warning.lighter", borderRadius: 1 }}>
+                  <Typography variant="body2" color="warning.dark">
+                    No credit notes available for this customer. Please select a different payment method.
+                  </Typography>
+                </Box>
+              )}
+            </FormSection>
+          )}
+
+          {/* Order Summary - Show final calculation */}
+          <Paper 
+            variant="outlined" 
+            sx={{ 
+              p: 3, 
+              mt: 3,
+              mb: 2,
+              bgcolor: "primary.50",
+              borderColor: "primary.main",
+              borderWidth: 2
+            }}
+          >
+            <Typography variant="h6" fontWeight="bold" color="primary.main" sx={{ mb: 2 }}>
+              Order Summary
+            </Typography>
+            
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+              {/* Subtotal */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography variant="body1" color="text.secondary">
+                  Subtotal:
+                </Typography>
+                <Typography variant="body1" fontWeight="medium">
+                  Rs. {fmtLKR(calculateLineItemsTotal())}
+                </Typography>
+              </Box>
+
+              {/* Invoice Discount */}
+              {discountValue > 0 && (
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Typography variant="body1" color="text.secondary">
+                    Discount {discountType === "percent" ? `(${discountValue}%)` : "(Fixed)"}:
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" color="error.main">
+                    - Rs. {(() => {
+                      const subtotal = calculateLineItemsTotal();
+                      const discount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                      return fmtLKR(discount);
+                    })()}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Coupon Discount */}
+              {couponValidation && (couponValidation.calculated_discount ?? 0) > 0 && (
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Typography variant="body1" color="text.secondary">
+                    Coupon (ID: {couponValidation.coupon_id}):
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" color="error.main">
+                    - Rs. {fmtLKR(couponValidation.calculated_discount ?? 0)}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Tax */}
+              {taxRate > 0 && (
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Typography variant="body1" color="text.secondary">
+                    Tax ({taxRate}%):
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" color="info.main">
+                    + Rs. {(() => {
+                      const subtotal = calculateLineItemsTotal();
+                      const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                      const afterInvoiceDiscount = subtotal - invoiceDiscount;
+                      const couponDiscount = couponValidation?.calculated_discount || 0;
+                      const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                      const taxAmount = afterDiscount * (taxRate / 100);
+                      return fmtLKR(taxAmount);
+                    })()}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Gift Voucher */}
+              {appliedVouchers.length > 0 && appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0) > 0 && (
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Typography variant="body1" color="text.secondary">
+                    Gift Voucher ({appliedVouchers.length}):
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" color="secondary.main">
+                    - Rs. {fmtLKR(appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0))}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Credit Note */}
+              {creditNoteAmount > 0 && (
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Typography variant="body1" color="text.secondary">
+                    Credit Note Applied:
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" color="success.main">
+                    - Rs. {fmtLKR(Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, (() => {
+                      const subtotal = calculateLineItemsTotal();
+                      const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                      const afterInvoiceDiscount = subtotal - invoiceDiscount;
+                      const couponDiscount = couponValidation?.calculated_discount || 0;
+                      const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                      const taxAmount = afterDiscount * (taxRate / 100);
+                      const afterTax = afterDiscount + taxAmount;
+                      const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                      return afterTax - totalVoucherPayment;
+                    })())))}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Service Charge - Only for card payments */}
+              {state.formData.payment_method === "card" && selectedPaymentCard && (
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Typography variant="body1" color="text.secondary">
+                    Service Charge ({selectedPaymentCard.service_charge_percent}%):
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" color="warning.main">
+                    + Rs. {(() => {
+                      const subtotal = calculateLineItemsTotal();
+                      const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                      const afterInvoiceDiscount = subtotal - invoiceDiscount;
+                      const couponDiscount = couponValidation?.calculated_discount || 0;
+                      const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                      const taxAmount = afterDiscount * (taxRate / 100);
+                      const afterTax = afterDiscount + taxAmount;
+                      const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                      const afterVoucher = afterTax - totalVoucherPayment;
+                      const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
+                      const afterCreditNote = afterVoucher - appliedCreditNote;
+                      const serviceCharge = afterCreditNote * ((selectedPaymentCard.service_charge_percent || 0) / 100);
+                      return fmtLKR(serviceCharge);
+                    })()}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Divider */}
+              <Box sx={{ borderTop: 2, borderColor: "primary.main", my: 1 }} />
+
+              {/* Grand Total */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography variant="h5" fontWeight="bold" color="primary.main">
+                  Total Amount to Pay:
+                </Typography>
+                <Typography variant="h4" fontWeight="bold" color="primary.main">
+                  Rs. {(() => {
+                    const subtotal = calculateLineItemsTotal();
+                    const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                    const afterInvoiceDiscount = subtotal - invoiceDiscount;
+                    const couponDiscount = couponValidation?.calculated_discount || 0;
+                    const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                    const taxAmount = afterDiscount * (taxRate / 100);
+                    const afterTax = afterDiscount + taxAmount;
+                    const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                    const afterVoucher = afterTax - totalVoucherPayment;
+                    const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
+                    const afterCreditNote = afterVoucher - appliedCreditNote;
+                    let serviceCharge = 0;
+                    if (state.formData.payment_method === "card" && selectedPaymentCard) {
+                      serviceCharge = afterCreditNote * ((selectedPaymentCard.service_charge_percent || 0) / 100);
+                    }
+                    const grandTotal = afterCreditNote + serviceCharge;
+                    return fmtLKR(grandTotal);
+                  })()}
+                </Typography>
+              </Box>
+            </Box>
+          </Paper>
+
+          {/* Step 3 Navigation */}
           <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
             <Button
               variant="outlined"

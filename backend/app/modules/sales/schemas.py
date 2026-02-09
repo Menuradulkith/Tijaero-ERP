@@ -28,6 +28,7 @@ class InvoiceBase(BaseModel):
     branch_code: str = Field(..., max_length=200)
     customer_id: int
     sale_rep_id: int
+    customer_agent_id: Optional[int] = None
     payment_method: str = Field(..., max_length=30)
     cash_amount: float = Field(default=0, ge=0)
     card_visa_amount: float = Field(default=0, ge=0)
@@ -82,6 +83,7 @@ class InvoiceUpdate(BaseModel):
 
 class Invoice(InvoiceBase):
     id: int
+    customer_agent_id: Optional[int] = None
     created_date: date
     created_date_time: datetime
     status: bool

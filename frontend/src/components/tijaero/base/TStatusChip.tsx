@@ -44,7 +44,7 @@ export const STATUS_MAPS = {
     pending_approval: { label: "Pending Approval", color: "warning" as StatusColor },
     approved: { label: "Approved", color: "info" as StatusColor },
     rejected: { label: "Rejected", color: "error" as StatusColor },
-    cancelled: { label: "Cancelled", color: "default" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
     completed: { label: "Completed", color: "success" as StatusColor },
     closed: { label: "Closed", color: "default" as StatusColor },
   },
@@ -58,7 +58,7 @@ export const STATUS_MAPS = {
     rejected: { label: "Rejected", color: "error" as StatusColor },
     partially_received: { label: "Partially Received", color: "info" as StatusColor },
     received: { label: "Received", color: "success" as StatusColor },
-    cancelled: { label: "Cancelled", color: "default" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
   },
 
   // Payment status
@@ -74,7 +74,7 @@ export const STATUS_MAPS = {
   verificationStatus: {
     unverified: { label: "Unverified", color: "warning" as StatusColor },
     verified: { label: "Verified", color: "success" as StatusColor },
-    pending: { label: "Pending", color: "info" as StatusColor },
+    pending: { label: "Pending", color: "warning" as StatusColor },
     failed: { label: "Failed", color: "error" as StatusColor },
   },
 
@@ -120,7 +120,7 @@ export const STATUS_MAPS = {
     rejected: { label: "Rejected", color: "error" as StatusColor },
     partially_received: { label: "Partially Received", color: "info" as StatusColor },
     received: { label: "Received", color: "success" as StatusColor },
-    cancelled: { label: "Cancelled", color: "default" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
     pending: { label: "Pending", color: "warning" as StatusColor },
     completed: { label: "Completed", color: "success" as StatusColor },
     closed: { label: "Closed", color: "default" as StatusColor },
@@ -136,7 +136,7 @@ export const STATUS_MAPS = {
     rejected: { label: "Rejected", color: "error" as StatusColor },
     expired: { label: "Expired", color: "warning" as StatusColor },
     converted: { label: "Converted", color: "success" as StatusColor },
-    cancelled: { label: "Cancelled", color: "default" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
     revised: { label: "Revised", color: "default" as StatusColor },
   },
 
@@ -185,13 +185,14 @@ export const STATUS_MAPS = {
     sent: { label: "Sent", color: "info" as StatusColor },
     paid: { label: "Paid", color: "success" as StatusColor },
     overdue: { label: "Overdue", color: "error" as StatusColor },
-    cancelled: { label: "Cancelled", color: "default" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
   },
 
   // Service job status
   serviceJob: {
     accepted_by_technician: { label: "Accepted by Technician", color: "info" as StatusColor },
     check_in_progress: { label: "Check in Progress", color: "info" as StatusColor },
+    repair_in_progress: { label: "Repair in Progress", color: "primary" as StatusColor },
     repair_in_progress_: { label: "Repair in Progress", color: "primary" as StatusColor },
     received_from_supplier: { label: "Received from Supplier", color: "info" as StatusColor },
     parts_pending: { label: "Parts Pending", color: "warning" as StatusColor },
@@ -208,6 +209,35 @@ export const STATUS_MAPS = {
     estimate_approved_by_customer: { label: "Estimate Approved", color: "success" as StatusColor },
     estimate_pending_sales_division: { label: "Estimate Pending - Sales", color: "warning" as StatusColor },
     closed: { label: "Closed", color: "default" as StatusColor },
+  },
+
+  // Commission status
+  commissionStatus: {
+    pending: { label: "Pending", color: "warning" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
+    paid: { label: "Paid", color: "success" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
+  },
+
+  // Commission payment status
+  commissionPaymentStatus: {
+    pending: { label: "Pending", color: "warning" as StatusColor },
+    verified: { label: "Verified", color: "success" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
+  },
+
+  // Payment method display
+  paymentMethod: {
+    cash: { label: "Cash", color: "success" as StatusColor },
+    cheque: { label: "Cheque", color: "info" as StatusColor },
+    bank_transfer: { label: "Bank Transfer", color: "primary" as StatusColor },
+  },
+
+  // Bank transfer verification status
+  bankTransferVerification: {
+    pending_verification: { label: "Pending Verification", color: "warning" as StatusColor },
+    verified: { label: "Verified", color: "success" as StatusColor },
+    rejected: { label: "Rejected", color: "error" as StatusColor },
   },
 } as const;
 

@@ -29,7 +29,6 @@ import {
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
 } from "@mui/icons-material";
-import { toast } from "react-hot-toast";
 import { advancePaymentsApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
 import { suppliersApi, supplierAdvancePaymentsApi } from "@/modules/purchasing/api";
@@ -49,6 +48,9 @@ import {
   TFormDialog,
   TLoading,
   TEmptyState,
+  handleApiError,
+  showErrorToast,
+  showSuccessToast,
   TBranchFilter,
   TFilterPanel,
   TConfirmDialog,
@@ -185,19 +187,19 @@ export default function AdvancePaymentsPage() {
   // Create customer advance mutation
   const createCustomerAdvance = useCallback(async () => {
     if (!customerFormData.customer_id || !customerFormData.payment_amount || customerFormData.payment_amount <= 0) {
-      toast.error("Please select a customer and enter a valid amount");
+      showErrorToast("Please select a customer and enter a valid amount");
       return;
     }
 
     if (!customerFormData.branch_code) {
-      toast.error("Please select a branch");
+      showErrorToast("Please select a branch");
       return;
     }
 
     try {
       setSavingCustomer(true);
       await advancePaymentsApi.create(customerFormData as CustomerAdvancePaymentCreate);
-      toast.success("Customer advance payment recorded successfully");
+      showSuccessToast("Customer advance payment recorded successfully");
       setShowCustomerForm(false);
       setCustomerFormData({
         advance_payments_no: "",
@@ -210,9 +212,9 @@ export default function AdvancePaymentsPage() {
         active: true,
       });
       refetchCustomerAdvances();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to create customer advance:", err);
-      toast.error(err?.response?.data?.detail || "Failed to record advance payment");
+      showErrorToast(handleApiError(err, "Failed to record advance payment"));
     } finally {
       setSavingCustomer(false);
     }
@@ -221,19 +223,19 @@ export default function AdvancePaymentsPage() {
   // Create supplier advance mutation
   const createSupplierAdvance = useCallback(async () => {
     if (!supplierFormData.supplier_id || !supplierFormData.original_amount || supplierFormData.original_amount <= 0) {
-      toast.error("Please select a supplier and enter a valid amount");
+      showErrorToast("Please select a supplier and enter a valid amount");
       return;
     }
 
     if (!supplierFormData.branch_code) {
-      toast.error("Please select a branch");
+      showErrorToast("Please select a branch");
       return;
     }
 
     try {
       setSavingSupplier(true);
       await supplierAdvancePaymentsApi.create(supplierFormData as SupplierAdvancePaymentCreate);
-      toast.success("Supplier advance payment created successfully");
+      showSuccessToast("Supplier advance payment created successfully");
       setShowSupplierForm(false);
       setSupplierFormData({
         supplier_id: 0,
@@ -246,9 +248,9 @@ export default function AdvancePaymentsPage() {
         remarks: "",
       });
       refetchSupplierAdvances();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to create supplier advance:", err);
-      toast.error(err?.response?.data?.detail || "Failed to create advance payment");
+      showErrorToast(handleApiError(err, "Failed to create advance payment"));
     } finally {
       setSavingSupplier(false);
     }
@@ -267,11 +269,11 @@ export default function AdvancePaymentsPage() {
 
     try {
       await supplierAdvancePaymentsApi.delete(advanceId);
-      toast.success("Advance payment deleted");
+      showSuccessToast("Advance payment deleted");
       refetchSupplierAdvances();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to delete advance:", err);
-      toast.error(err?.response?.data?.detail || "Failed to delete advance payment");
+      showErrorToast(handleApiError(err, "Failed to delete advance payment"));
     }
   }, [confirmDialog, refetchSupplierAdvances]);
 

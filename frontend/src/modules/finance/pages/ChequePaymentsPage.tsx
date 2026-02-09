@@ -15,10 +15,9 @@ import {
 import { Add as AddIcon } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
 import { chequePaymentsApi } from "@/modules/finance/api";
 import { ChequePaymentCreate } from "@/modules/finance/types";
-import { TBranchFilter, TFilterPanel } from "@/components/tijaero";
+import { TBranchFilter, TFilterPanel, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 
 export default function ChequePaymentsPage() {
@@ -55,12 +54,12 @@ export default function ChequePaymentsPage() {
     mutationFn: chequePaymentsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cheque-payments"] });
-      toast.success("Cheque payment recorded successfully");
+      showSuccessToast("Cheque payment recorded successfully");
       setOpenDialog(false);
       reset();
     },
-    onError: () => {
-      toast.error("Failed to record cheque payment");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to record cheque payment"));
     },
   });
 

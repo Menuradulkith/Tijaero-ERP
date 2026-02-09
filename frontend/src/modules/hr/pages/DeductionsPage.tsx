@@ -20,7 +20,7 @@ import {
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
+import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { salaryDeductionsApi } from "@/modules/hr/api";
 import { SalaryDeductionCreate } from "@/modules/hr/types";
@@ -49,12 +49,12 @@ export default function DeductionsPage() {
     mutationFn: salaryDeductionsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["salary-deductions"] });
-      toast.success("Salary deduction created successfully");
+      showSuccessToast("Salary deduction created successfully");
       setOpenDialog(false);
       reset();
     },
-    onError: () => {
-      toast.error("Failed to create salary deduction");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create salary deduction"));
     },
   });
 
@@ -63,13 +63,13 @@ export default function DeductionsPage() {
       salaryDeductionsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["salary-deductions"] });
-      toast.success("Salary deduction updated successfully");
+      showSuccessToast("Salary deduction updated successfully");
       setOpenDialog(false);
       setEditingId(null);
       reset();
     },
-    onError: () => {
-      toast.error("Failed to update salary deduction");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to update salary deduction"));
     },
   });
 
@@ -77,10 +77,10 @@ export default function DeductionsPage() {
     mutationFn: salaryDeductionsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["salary-deductions"] });
-      toast.success("Salary deduction deleted successfully");
+      showSuccessToast("Salary deduction deleted successfully");
     },
-    onError: () => {
-      toast.error("Failed to delete salary deduction");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete salary deduction"));
     },
   });
 
