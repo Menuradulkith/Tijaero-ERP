@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import date, datetime
 from . import models, schemas
@@ -224,7 +225,7 @@ class GoodReceivedNoteRepository:
             added_date=datetime.now()
         )
         self.db.add(db_grn)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(db_grn)
         return db_grn
     
@@ -342,36 +343,54 @@ class SupplierPaymentRepository:
         today = date.today()
         prefix = f"SP-{today.strftime('%Y%m%d')}"
         
-        count = self.db.query(models.SupplierPayment).filter(
+        # Use MAX to find the highest existing number (race-safe with retry)
+        last_payment = self.db.query(models.SupplierPayment).filter(
             models.SupplierPayment.payment_no.like(f"{prefix}%")
-        ).count()
+        ).order_by(models.SupplierPayment.payment_no.desc()).first()
         
-        return f"{prefix}-{(count + 1):03d}"
+        if last_payment:
+            try:
+                last_num = int(last_payment.payment_no.split("-")[-1])
+                new_num = last_num + 1
+            except (ValueError, IndexError):
+                new_num = 1
+        else:
+            new_num = 1
+        
+        return f"{prefix}-{new_num:03d}"
     
     def create(self, payment: schemas.SupplierPaymentCreate, created_by: int = None) -> models.SupplierPayment:
-        payment_no = self._generate_payment_no()
+        # Retry loop to handle concurrent payment number collisions
+        for attempt in range(5):
+            payment_no = self._generate_payment_no()
+            
+            db_payment = models.SupplierPayment(
+                payment_no=payment_no,
+                supplier_id=payment.supplier_id,
+                purchasing_order_id=payment.purchasing_order_id,
+                payment_date=payment.payment_date,
+                payment_method=payment.payment_method,
+                payment_amount=payment.payment_amount,
+                reference_number=payment.reference_number,
+                bank_name=payment.bank_name,
+                branch_code=payment.branch_code,
+                payment_for=payment.payment_for,
+                invoice_reference=payment.invoice_reference,
+                remarks=payment.remarks,
+                status="pending",
+                created_date=datetime.now(),
+                created_by=created_by
+            )
+            self.db.add(db_payment)
+            try:
+                self.db.commit()
+                self.db.refresh(db_payment)
+                return db_payment
+            except IntegrityError:
+                self.db.rollback()
+                continue
         
-        db_payment = models.SupplierPayment(
-            payment_no=payment_no,
-            supplier_id=payment.supplier_id,
-            purchasing_order_id=payment.purchasing_order_id,
-            payment_date=payment.payment_date,
-            payment_method=payment.payment_method,
-            payment_amount=payment.payment_amount,
-            reference_number=payment.reference_number,
-            bank_name=payment.bank_name,
-            branch_code=payment.branch_code,
-            payment_for=payment.payment_for,
-            invoice_reference=payment.invoice_reference,
-            remarks=payment.remarks,
-            status="pending",
-            created_date=datetime.now(),
-            created_by=created_by
-        )
-        self.db.add(db_payment)
-        self.db.commit()
-        self.db.refresh(db_payment)
-        return db_payment
+        raise ValueError("Failed to generate unique payment number after 5 attempts. Please retry.")
     
     def get_by_id(self, payment_id: int) -> Optional[models.SupplierPayment]:
         return self.db.query(models.SupplierPayment).filter(
@@ -465,38 +484,49 @@ class SupplierAdvancePaymentRepository:
         
         last_advance = self.db.query(models.SupplierAdvancePayment).filter(
             models.SupplierAdvancePayment.advance_no.like(f"{prefix}%")
-        ).order_by(models.SupplierAdvancePayment.id.desc()).first()
+        ).order_by(models.SupplierAdvancePayment.advance_no.desc()).first()
         
         if last_advance:
-            last_num = int(last_advance.advance_no.split("-")[-1])
-            new_num = last_num + 1
+            try:
+                last_num = int(last_advance.advance_no.split("-")[-1])
+                new_num = last_num + 1
+            except (ValueError, IndexError):
+                new_num = 1
         else:
             new_num = 1
         
         return f"{prefix}{new_num:03d}"
     
     def create(self, data: schemas.SupplierAdvancePaymentCreate, created_by: Optional[int] = None) -> models.SupplierAdvancePayment:
-        advance_no = self._generate_advance_no()
+        # Retry loop to handle concurrent advance number collisions
+        for attempt in range(5):
+            advance_no = self._generate_advance_no()
+            
+            db_advance = models.SupplierAdvancePayment(
+                advance_no=advance_no,
+                supplier_id=data.supplier_id,
+                payment_date=data.payment_date,
+                branch_code=data.branch_code,
+                payment_method=data.payment_method,
+                original_amount=data.original_amount,
+                applied_amount=0,
+                remaining_amount=data.original_amount,  # Initially, remaining = original
+                reference_number=data.reference_number,
+                bank_name=data.bank_name,
+                is_fully_applied=False,
+                remarks=data.remarks,
+                created_by=created_by
+            )
+            self.db.add(db_advance)
+            try:
+                self.db.commit()
+                self.db.refresh(db_advance)
+                return db_advance
+            except IntegrityError:
+                self.db.rollback()
+                continue
         
-        db_advance = models.SupplierAdvancePayment(
-            advance_no=advance_no,
-            supplier_id=data.supplier_id,
-            payment_date=data.payment_date,
-            branch_code=data.branch_code,
-            payment_method=data.payment_method,
-            original_amount=data.original_amount,
-            applied_amount=0,
-            remaining_amount=data.original_amount,  # Initially, remaining = original
-            reference_number=data.reference_number,
-            bank_name=data.bank_name,
-            is_fully_applied=False,
-            remarks=data.remarks,
-            created_by=created_by
-        )
-        self.db.add(db_advance)
-        self.db.commit()
-        self.db.refresh(db_advance)
-        return db_advance
+        raise ValueError("Failed to generate unique advance number after 5 attempts. Please retry.")
     
     def get_by_id(self, advance_id: int) -> Optional[models.SupplierAdvancePayment]:
         return self.db.query(models.SupplierAdvancePayment).options(
@@ -557,14 +587,24 @@ class SupplierAdvancePaymentRepository:
         return db_advance
     
     def apply_to_grn(self, advance_id: int, application_amount: float) -> Optional[models.SupplierAdvancePayment]:
-        """Apply advance to GRN - reduce remaining balance"""
+        """Apply advance to GRN - reduce remaining balance (row-locked to prevent race conditions)"""
+        # SELECT FOR UPDATE to prevent concurrent applications from overwriting each other
         db_advance = self.db.query(models.SupplierAdvancePayment).filter(
             models.SupplierAdvancePayment.id == advance_id
-        ).first()
+        ).with_for_update().first()
         
         if db_advance:
-            db_advance.applied_amount = float(db_advance.applied_amount) + application_amount
-            db_advance.remaining_amount = float(db_advance.original_amount) - float(db_advance.applied_amount)
+            new_applied = float(db_advance.applied_amount) + application_amount
+            new_remaining = float(db_advance.original_amount) - new_applied
+            
+            # Re-validate balance under lock to prevent over-application
+            if new_remaining < 0:
+                raise ValueError(
+                    f"Insufficient advance balance. Available: {float(db_advance.remaining_amount)}, Requested: {application_amount}"
+                )
+            
+            db_advance.applied_amount = new_applied
+            db_advance.remaining_amount = new_remaining
             
             # Update status if fully applied
             if db_advance.remaining_amount <= 0:

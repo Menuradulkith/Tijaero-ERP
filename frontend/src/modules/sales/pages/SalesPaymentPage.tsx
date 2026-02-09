@@ -65,7 +65,7 @@ import { format } from "date-fns";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
 import { useReferenceData } from "@/hooks";
-import { showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { fmtLKR, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 
 // Payment method types
 type PaymentMethodType = "cash" | "card_visa" | "card_mastercard" | "card_amex" | "cheque" | "bank_transfer" | "credit";
@@ -186,8 +186,8 @@ export default function SalesPaymentPage() {
             queryClient.invalidateQueries({ queryKey: ["payment-history", invoiceId] });
             setShowReceiptPreview(true);
         },
-        onError: (error: any) => {
-            showErrorToast(error?.response?.data?.detail || "Failed to process payment");
+        onError: (error: unknown) => {
+            showErrorToast(handleApiError(error, "Failed to process payment"));
         },
     });
 
@@ -282,7 +282,7 @@ export default function SalesPaymentPage() {
                         </Box>
                     </Box>
                     <Chip
-                        label={`Total: Rs. ${invoiceTotal.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                        label={`Total: Rs. ${fmtLKR(invoiceTotal)}`}
                         color="primary"
                         sx={{ fontSize: "1.1rem", fontWeight: 700, px: 2, py: 3 }}
                     />
@@ -556,7 +556,7 @@ export default function SalesPaymentPage() {
                                                 Invoice Total
                                             </Typography>
                                             <Typography variant="h6" fontWeight={700}>
-                                                Rs. {invoiceTotal.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                Rs. {fmtLKR(invoiceTotal)}
                                             </Typography>
                                         </Grid>
                                         <Grid item xs={4}>
@@ -564,7 +564,7 @@ export default function SalesPaymentPage() {
                                                 Payment Entered
                                             </Typography>
                                             <Typography variant="h6" fontWeight={700} color="primary.main">
-                                                Rs. {totalPaymentEntered.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                Rs. {fmtLKR(totalPaymentEntered)}
                                             </Typography>
                                         </Grid>
                                         <Grid item xs={4}>
@@ -576,7 +576,7 @@ export default function SalesPaymentPage() {
                                                 fontWeight={700}
                                                 color={isPaymentComplete ? "success.main" : "warning.main"}
                                             >
-                                                Rs. {Math.abs(remainingAmount).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                Rs. {fmtLKR(Math.abs(remainingAmount))}
                                             </Typography>
                                         </Grid>
                                     </Grid>
@@ -668,7 +668,7 @@ export default function SalesPaymentPage() {
                                                         />
                                                     </TableCell>
                                                     <TableCell align="right">
-                                                        Rs. {payment.payment_amount.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                        Rs. {fmtLKR(payment.payment_amount)}
                                                     </TableCell>
                                                     <TableCell>{payment.remarks || "-"}</TableCell>
                                                 </TableRow>
@@ -699,10 +699,10 @@ export default function SalesPaymentPage() {
                                                     <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                                                     <TableCell align="right">{item.quantity}</TableCell>
                                                     <TableCell align="right">
-                                                        Rs. {item.selling_price.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                        Rs. {fmtLKR(item.selling_price)}
                                                     </TableCell>
                                                     <TableCell align="right">
-                                                        Rs. {(item.quantity * item.selling_price).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                        Rs. {fmtLKR(item.quantity * item.selling_price)}
                                                     </TableCell>
                                                 </TableRow>
                                             );
@@ -712,7 +712,7 @@ export default function SalesPaymentPage() {
                                                 <strong>Total:</strong>
                                             </TableCell>
                                             <TableCell align="right">
-                                                <strong>Rs. {invoiceTotal.toLocaleString("en-LK", { minimumFractionDigits: 2 })}</strong>
+                                                <strong>Rs. {fmtLKR(invoiceTotal)}</strong>
                                             </TableCell>
                                         </TableRow>
                                     </TableBody>
@@ -775,7 +775,7 @@ export default function SalesPaymentPage() {
                                             Credit Limit
                                         </Typography>
                                         <Typography variant="body1" fontWeight={600} color="primary.main">
-                                            Rs. {customer.max_credit_limit.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                            Rs. {fmtLKR(customer.max_credit_limit)}
                                         </Typography>
                                     </Box>
                                 )}
@@ -828,7 +828,7 @@ export default function SalesPaymentPage() {
                                                 </Typography>
                                             </Box>
                                             <Typography variant="body1" fontWeight={700} sx={{ color: method.color }}>
-                                                Rs. {entry.amount.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                Rs. {fmtLKR(entry.amount)}
                                             </Typography>
                                         </Box>
                                     );
@@ -884,7 +884,7 @@ export default function SalesPaymentPage() {
                             Payment for invoice <strong>{invoice.invoice_no}</strong> has been processed successfully.
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                            Total Amount: Rs. {invoiceTotal.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                            Total Amount: Rs. {fmtLKR(invoiceTotal)}
                         </Typography>
                     </Box>
                 </DialogContent>

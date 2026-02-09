@@ -5,13 +5,87 @@ from sqlalchemy import (
     Boolean,
     Column,
     Date,
+    DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
+    func,
 )
 from sqlalchemy.orm import relationship
+
+
+# =============================================================================
+# MATERIALIZED CASHBOOK TABLE
+# =============================================================================
+
+class CashbookEntryRecord(Base):
+    """
+    Materialized cashbook entries table.
+    
+    Instead of aggregating from 8+ tables on every query (slow, no audit trail),
+    each cash movement is written here via database triggers when source 
+    transactions are created. Advisory locks per branch ensure correct 
+    running balance even with concurrent transactions.
+    
+    CASH INFLOWS (money_in > 0):
+    - invoice_receipt: Invoice cash/card/bank/cheque amounts (6 payment methods)
+    - customer_credit_settle: Late payments from credit customers
+    - customer_advance: Advance payments received before invoicing
+    - voucher_sale: Gift voucher sales to customers
+    
+    CASH OUTFLOWS (money_out > 0):
+    - supplier_payment: Supplier credit settlements, direct payments, advance payments
+    - expense: Operating expenses
+    - bank_deposit: Cash transferred from shop to bank
+    """
+    __tablename__ = "cashbook_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Entry classification
+    entry_type = Column(String(50), nullable=False)
+    # Values: invoice_receipt, customer_credit_settle, customer_advance,
+    #         voucher_sale, supplier_payment, expense, bank_deposit, adjustment
+    
+    # Temporal
+    transaction_date = Column(TIMESTAMP, nullable=False)
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    
+    # Reference to source transaction
+    source_table = Column(String(100), nullable=False)
+    # Values: invoices, customer_credits_settle_transaction, 
+    #         customer_advance_payments, customer_gift_voucher,
+    #         supplier_credits_settle_transaction, supplier_payments,
+    #         supplier_advance_payment, expenses, bank_deposits
+    source_id = Column(Integer, nullable=False)
+    
+    # Display fields
+    reference_no = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    party_name = Column(String(200), nullable=True)
+    payment_method = Column(String(50), nullable=True)
+    
+    # Financial
+    money_in = Column(Numeric(15, 2), nullable=False, default=0)
+    money_out = Column(Numeric(15, 2), nullable=False, default=0)
+    running_balance = Column(Numeric(15, 2), nullable=False, default=0)
+    
+    # Branch context
+    branch_code = Column(String(200), nullable=True)
+    
+    # Audit
+    is_reversal = Column(Boolean, default=False)
+    original_entry_id = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index('idx_cashbook_branch_date', 'branch_code', 'transaction_date', 'id'),
+        Index('idx_cashbook_source', 'source_table', 'source_id'),
+        Index('idx_cashbook_entry_type', 'entry_type'),
+        Index('idx_cashbook_transaction_date', 'transaction_date'),
+    )
 
 
 class BankDeposits(Base):

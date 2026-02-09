@@ -17,10 +17,9 @@ import {
 import { Add as AddIcon } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
 import { cardPaymentsApi } from "@/modules/finance/api";
 import { CardPaymentCreate } from "@/modules/finance/types";
-import { CARD_TYPE, TBranchFilter, TFilterPanel } from "@/components/tijaero";
+import { CARD_TYPE, TBranchFilter, TFilterPanel, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 
 export default function CardPaymentsPage() {
@@ -53,12 +52,12 @@ export default function CardPaymentsPage() {
     mutationFn: cardPaymentsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["card-payments"] });
-      toast.success("Card payment recorded successfully");
+      showSuccessToast("Card payment recorded successfully");
       setOpenDialog(false);
       reset();
     },
-    onError: () => {
-      toast.error("Failed to record card payment");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to record card payment"));
     },
   });
 

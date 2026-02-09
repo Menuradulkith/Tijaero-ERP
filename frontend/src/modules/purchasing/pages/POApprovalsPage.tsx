@@ -277,7 +277,7 @@ export default function POApprovalsPage() {
         }
       } catch (error) {
         console.error("Credit check failed:", error);
-        toast.error("Failed to check credit limit. Please try again.");
+        showErrorToast("Failed to check credit limit. Please try again.");
         return;
       }
     }

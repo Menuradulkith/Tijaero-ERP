@@ -40,10 +40,12 @@ import {
     SearchableList,
     SelectableListItem,
     DetailPanelHeader,
+    fmtLKR,
     FormSection,
     EmptyState,
     RETURN_STATUS_FILTER_OPTIONS,
     getStatusProps,
+    handleApiError,
     SortOption,
     TPrintPreviewDialog,
     showSuccessToast,
@@ -168,7 +170,7 @@ export default function SaleReturnApprovalsPage() {
             queryClient.invalidateQueries({ queryKey: ["sales-stock"] });
             showSuccessToast("Sale return approved successfully");
         },
-        onError: (error: any) => showErrorToast(error.response?.data?.detail || error.message || "Failed to approve return"),
+        onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to approve return")),
     });
 
     // Reject mutation
@@ -187,7 +189,7 @@ export default function SaleReturnApprovalsPage() {
             setRejectDialogOpen(false);
             setRejectReason("");
         },
-        onError: (error: any) => showErrorToast(error.response?.data?.detail || error.message || "Failed to reject return"),
+        onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to reject return")),
     });
 
     // Process mutation (for approved returns)
@@ -202,7 +204,7 @@ export default function SaleReturnApprovalsPage() {
             queryClient.invalidateQueries({ queryKey: ["sales-stock"] });
             showSuccessToast(`Sale return processed. ${data.items_restocked} items restocked.`);
         },
-        onError: (error: any) => showErrorToast(error.response?.data?.detail || error.message || "Failed to process return"),
+        onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to process return")),
     });
 
     const handleApprove = () => {
@@ -458,19 +460,19 @@ export default function SaleReturnApprovalsPage() {
                             <TextField
                                 label="Subtotal"
                                 size="small"
-                                value={`Rs. ${(selectedReturn.subtotal || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                                value={`Rs. ${fmtLKR(selectedReturn.subtotal || 0)}`}
                                 disabled
                             />
                             <TextField
                                 label="Tax Refund"
                                 size="small"
-                                value={`Rs. ${(selectedReturn.tax_refund || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                                value={`Rs. ${fmtLKR(selectedReturn.tax_refund || 0)}`}
                                 disabled
                             />
                             <TextField
                                 label="Total Refund"
                                 size="small"
-                                value={`Rs. ${(selectedReturn.total_refund || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                                value={`Rs. ${fmtLKR(selectedReturn.total_refund || 0)}`}
                                 disabled
                             />
                         </FormSection>
@@ -501,8 +503,8 @@ export default function SaleReturnApprovalsPage() {
                                                     <TableCell>{item.barcode}</TableCell>
                                                     <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                                                     <TableCell align="right">{item.quantity || 1}</TableCell>
-                                                    <TableCell align="right">{Number(item.sold_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                                                    <TableCell align="right">{Number(item.return_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                                                    <TableCell align="right">{fmtLKR(item.sold_price)}</TableCell>
+                                                    <TableCell align="right">{fmtLKR(item.return_price)}</TableCell>
                                                     <TableCell>
                                                         <Chip
                                                             label={item.condition || "good"}
@@ -527,7 +529,7 @@ export default function SaleReturnApprovalsPage() {
                                             </TableCell>
                                             <TableCell align="right">
                                                 <strong>
-                                                    {(selectedReturn.items?.reduce((sum, item) => sum + Number(item.return_price) * (item.quantity || 1), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    {fmtLKR(selectedReturn.items?.reduce((sum, item) => sum + Number(item.return_price) * (item.quantity || 1), 0) || 0)}
                                                 </strong>
                                             </TableCell>
                                             <TableCell colSpan={2}></TableCell>

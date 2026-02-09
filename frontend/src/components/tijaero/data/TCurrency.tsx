@@ -113,3 +113,58 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
 };
 
 export default TCurrency;
+
+/**
+ * Utility function for formatting currency values as strings.
+ * Use this when you need a formatted string (e.g., in template literals, 
+ * TextField values, Chip labels) instead of a rendered component.
+ * 
+ * @example
+ * ```tsx
+ * // Simple usage
+ * formatCurrency(1234.56)          // "1,234.56"
+ * formatCurrency(1234.56, true)    // "Rs. 1,234.56"
+ * 
+ * // In template literals
+ * `Total: ${formatCurrency(total, true)}`
+ * 
+ * // In TextField value
+ * <TextField value={formatCurrency(amount, true)} />
+ * ```
+ */
+export const formatCurrency = (
+  value: number | string | null | undefined,
+  withSymbol: boolean = false,
+  currency: string = "LKR",
+  locale: string = "en-LK",
+): string => {
+  if (value === null || value === undefined) return "-";
+  const numValue = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(numValue)) return "-";
+
+  if (withSymbol) {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(numValue);
+  }
+
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numValue);
+};
+
+/**
+ * Shorthand for formatting LKR currency (Sri Lankan Rupees).
+ * Returns formatted string without symbol prefix.
+ * 
+ * @example
+ * ```tsx
+ * fmtLKR(1234.56)  // "1,234.56"
+ * ```
+ */
+export const fmtLKR = (value: number | string | null | undefined): string =>
+  formatCurrency(value, false);

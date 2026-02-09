@@ -1,5 +1,5 @@
 import { useAuthStore } from "@/state/authStore";
-import { formatErrorMessage } from "@/utils/errorHandling";
+import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import LockIcon from "@mui/icons-material/Lock";
 import PersonIcon from "@mui/icons-material/Person";
@@ -16,7 +16,6 @@ import {
 } from "@mui/material";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import { authApi } from "../api";
 
@@ -37,14 +36,14 @@ export default function LoginPage() {
       try {
         const user = await authApi.getCurrentUser();
         login(data.access_token, user);
-        toast.success("Login successful");
+        showSuccessToast("Login successful");
         navigate("/dashboard");
-      } catch (error: any) {
-        toast.error("Failed to fetch user data");
+      } catch (error: unknown) {
+        showErrorToast("Failed to fetch user data");
       }
     },
-    onError: (error: any) => {
-      toast.error(formatErrorMessage(error) || "Login failed");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Login failed"));
     },
   });
 
@@ -52,7 +51,7 @@ export default function LoginPage() {
     e.preventDefault();
 
     if (username.trim() === "" || password.trim() === "") {
-      toast.error("Username and password are required");
+      showErrorToast("Username and password are required");
       return;
     }
 

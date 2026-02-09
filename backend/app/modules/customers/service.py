@@ -456,7 +456,13 @@ class VoucherService:
         db: Session,
         request: schemas.VoucherValidationRequest
     ) -> schemas.VoucherValidationResponse:
-        """Validate a voucher for use on an invoice"""
+        """
+        Validate a voucher for use on an invoice.
+        
+        IMPORTANT: Vouchers can only be used ONE TIME for the FULL amount.
+        Partial redemptions are not allowed. If the voucher balance exceeds
+        the invoice amount, the excess is forfeited (not carried forward).
+        """
         
         # Find voucher by barcode
         voucher = self.get_voucher_by_barcode(db, request.barcode_no)
@@ -466,11 +472,15 @@ class VoucherService:
                 message="Voucher not found"
             )
         
-        # Check if voucher is active
+        # Check if voucher is active (not already used)
         if voucher.status != "active":
+            status_messages = {
+                "fully_claimed": "This voucher has already been used",
+                "expired": "This voucher has expired",
+            }
             return schemas.VoucherValidationResponse(
                 valid=False,
-                message=f"Voucher is {voucher.status}"
+                message=status_messages.get(voucher.status, f"Voucher is {voucher.status}")
             )
         
         # Check if expired
@@ -484,17 +494,26 @@ class VoucherService:
                 message=f"Voucher expired on {expiry_date}"
             )
         
-        # Check if balance is available
+        # Check if balance is available (should always be full amount for unused voucher)
         if voucher.balance <= 0:
             voucher.status = "fully_claimed"
             db.commit()
             return schemas.VoucherValidationResponse(
                 valid=False,
-                message="Voucher has no remaining balance"
+                message="This voucher has already been used"
             )
         
-        # Calculate redeemable amount
+        # ONE-TIME FULL USAGE: The entire voucher balance will be applied.
+        # If invoice amount is less than voucher balance, excess is forfeited.
         redeemable_amount = min(voucher.balance, request.invoice_amount_due)
+        
+        # Build appropriate message
+        if voucher.balance > request.invoice_amount_due:
+            message = (f"Voucher valid! Full value: Rs. {voucher.balance:.2f}. "
+                      f"Rs. {redeemable_amount:.2f} will be applied. "
+                      f"Note: Remaining Rs. {(voucher.balance - redeemable_amount):.2f} will be forfeited (one-time use only).")
+        else:
+            message = f"Voucher valid! Full amount Rs. {voucher.balance:.2f} will be applied."
         
         return schemas.VoucherValidationResponse(
             valid=True,
@@ -504,7 +523,7 @@ class VoucherService:
             balance=voucher.balance,
             redeemable_amount=redeemable_amount,
             expiry_date=expiry_date,
-            message=f"Voucher valid! Available balance: Rs. {voucher.balance:.2f}"
+            message=message
         )
     
     def redeem_voucher(

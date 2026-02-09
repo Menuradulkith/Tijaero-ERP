@@ -13,7 +13,6 @@
  * - Locations management section
  */
 
-import { formatErrorMessage } from "@/utils/errorHandling";
 import AddIcon from "@mui/icons-material/Add";
 import BusinessIcon from "@mui/icons-material/Business";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -38,7 +37,6 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState, useEffect } from "react";
-import toast from "react-hot-toast";
 
 // Tijaero Components - Import everything from one place
 import {
@@ -53,6 +51,9 @@ import {
     useMasterDetailState,
     TConfirmDialog,
     useConfirmDialog,
+    handleApiError,
+    showErrorToast,
+    showSuccessToast,
 } from "@/components/tijaero";
 
 import type { Branch, BranchCreate } from "@/api/types";
@@ -197,13 +198,13 @@ export default function BranchesPage() {
           console.log("[BranchesPage] Locations created successfully");
         } catch (error) {
           console.error("[BranchesPage] Error creating locations:", error);
-          toast.error("Branch created but some locations failed to save");
+          showErrorToast("Branch created but some locations failed to save");
         }
       }
       
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       queryClient.invalidateQueries({ queryKey: ["locations", newBranch.branch_code] });
-      toast.success("Branch created successfully");
+      showSuccessToast("Branch created successfully");
       markAsSaved();
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
@@ -212,10 +213,9 @@ export default function BranchesPage() {
       // Then select the new branch (with slight delay to allow state update)
       setTimeout(() => handleSelectBranch(newBranch), 0);
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("[BranchesPage] Create error:", error);
-      console.error("[BranchesPage] Error response:", error.response);
-      toast.error(formatErrorMessage(error) || "Failed to create branch");
+      showErrorToast(handleApiError(error, "Failed to create branch"));
     },
   });
 
@@ -225,14 +225,13 @@ export default function BranchesPage() {
     onSuccess: () => {
       console.log("[BranchesPage] Update success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
-      toast.success("Branch updated successfully");
+      showSuccessToast("Branch updated successfully");
       markAsSaved();
       setIsEditing(false);
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("[BranchesPage] Update error:", error);
-      console.error("[BranchesPage] Error response:", error.response);
-      toast.error(formatErrorMessage(error) || "Failed to update branch");
+      showErrorToast(handleApiError(error, "Failed to update branch"));
     },
   });
 
@@ -242,24 +241,12 @@ export default function BranchesPage() {
       console.log("[BranchesPage] Delete success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       // Use the success message from backend if available
-      toast.success(data?.message || "Branch deleted successfully");
+      showSuccessToast(data?.message || "Branch deleted successfully");
       handleCancel(filteredBranches);
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("[BranchesPage] Delete error:", error);
-      console.error("[BranchesPage] Error response:", error.response);
-      
-      // Show the specific error message from backend with enhanced formatting for assignment warnings
-      const errorMessage = error?.response?.data?.detail || formatErrorMessage(error) || "Failed to delete branch";
-      
-      // For detailed assignment warnings, show with longer duration
-      if (errorMessage.includes("It is assigned to")) {
-        toast.error(errorMessage, { 
-          duration: 6000 // Longer duration for detailed messages
-        });
-      } else {
-        toast.error(errorMessage);
-      }
+      showErrorToast(handleApiError(error, "Failed to delete branch"));
     },
   });
 
@@ -276,11 +263,11 @@ export default function BranchesPage() {
       if (isCreating) {
         setBranchLocations(prev => [...prev, newLocation]);
       }
-      toast.success("Location created successfully");
+      showSuccessToast("Location created successfully");
       handleCloseLocationDialog();
     },
-    onError: (error: any) => {
-      toast.error(formatErrorMessage(error) || "Failed to create location");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create location"));
     },
   });
 
@@ -299,11 +286,11 @@ export default function BranchesPage() {
           prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc)
         );
       }
-      toast.success("Location updated successfully");
+      showSuccessToast("Location updated successfully");
       handleCloseLocationDialog();
     },
-    onError: (error: any) => {
-      toast.error(formatErrorMessage(error) || "Failed to update location");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to update location"));
     },
   });
 
@@ -319,10 +306,10 @@ export default function BranchesPage() {
       if (isCreating) {
         setBranchLocations(prev => prev.filter(loc => loc.id !== deletedId));
       }
-      toast.success("Location deleted successfully");
+      showSuccessToast("Location deleted successfully");
     },
-    onError: (error: any) => {
-      toast.error(formatErrorMessage(error) || "Failed to delete location");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete location"));
     },
   });
 
@@ -385,7 +372,7 @@ export default function BranchesPage() {
 
   const handleSaveLocation = useCallback(() => {
     if (!locationName.trim()) {
-      toast.error("Location name is required");
+      showErrorToast("Location name is required");
       return;
     }
     
@@ -393,7 +380,7 @@ export default function BranchesPage() {
     const branch_code = isCreating ? formData.branch_code : selectedBranch?.branch_code;
     
     if (!branch_code) {
-      toast.error("Please enter branch code first");
+      showErrorToast("Please enter branch code first");
       return;
     }
     
@@ -404,7 +391,7 @@ export default function BranchesPage() {
         setBranchLocations(prev => 
           prev.map(loc => loc.id === editingLocation.id ? { ...loc, name: locationName } : loc)
         );
-        toast.success("Location updated");
+        showSuccessToast("Location updated");
       } else {
         // Add new local location with temporary ID
         const tempLocation: Location = {
@@ -414,7 +401,7 @@ export default function BranchesPage() {
           created_date: new Date().toISOString(),
         };
         setBranchLocations(prev => [...prev, tempLocation]);
-        toast.success("Location added (will be saved with branch)");
+        showSuccessToast("Location added (will be saved with branch)");
       }
       handleCloseLocationDialog();
     } else {
@@ -441,7 +428,7 @@ export default function BranchesPage() {
       if (isCreating) {
         // For new branches, remove from local state
         setBranchLocations(prev => prev.filter(loc => loc.id !== location.id));
-        toast.success("Location removed");
+        showSuccessToast("Location removed");
       } else {
         // For existing branches, delete via API
         deleteLocationMutation.mutate(location.id);

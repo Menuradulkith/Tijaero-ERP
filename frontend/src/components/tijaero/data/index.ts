@@ -11,6 +11,6 @@ export { TStatCard, type TStatCardProps } from "./TStatCard";
 export { TInfoCard, type TInfoCardProps } from "./TInfoCard";
 export { TDataCard, type TDataCardProps, type TDataCardField } from "./TDataCard";
 export { TList, type TListProps, type TListItem } from "./TList";
-export { TCurrency, type TCurrencyProps } from "./TCurrency";
+export { TCurrency, type TCurrencyProps, formatCurrency, fmtLKR } from "./TCurrency";
 export { TDate, type TDateProps } from "./TDate";
 export { TNumber, type TNumberProps } from "./TNumber";

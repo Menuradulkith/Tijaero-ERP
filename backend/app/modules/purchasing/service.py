@@ -37,29 +37,25 @@ class SupplierService:
                     detail=f"Supplier with id {supplier_id} not found"
                 )
             
-            from app.db.session import SessionLocal
-            db = SessionLocal()
-            try:
-                pending_orders = db.query(models.PurchasingOrder).filter(
-                    (models.PurchasingOrder.first_suppliers_id == supplier_id) | 
-                    (models.PurchasingOrder.second_suppliers_id == supplier_id),
-                    models.PurchasingOrder.status.in_(["pending", "approved"])
-                ).count()
-                
-                if pending_orders > 0:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Cannot deactivate supplier '{supplier.full_name}': {pending_orders} pending purchase order(s) exist. Complete or cancel all pending orders first."
-                    )
-                
-                if supplier.left_credit_amount and supplier.left_credit_amount < supplier.initial_credit_amount:
-                    outstanding = supplier.initial_credit_amount - supplier.left_credit_amount
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Cannot deactivate supplier '{supplier.full_name}': Outstanding credit balance of Rs. {outstanding:,.2f}. Settle all dues first."
-                    )
-            finally:
-                db.close()
+            # Use the same session (self.repo.db) to avoid TOCTOU race conditions
+            pending_orders = self.repo.db.query(models.PurchasingOrder).filter(
+                (models.PurchasingOrder.first_suppliers_id == supplier_id) | 
+                (models.PurchasingOrder.second_suppliers_id == supplier_id),
+                models.PurchasingOrder.status.in_(["pending", "approved", "pending_approval"])
+            ).count()
+            
+            if pending_orders > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot deactivate supplier '{supplier.full_name}': {pending_orders} pending purchase order(s) exist. Complete or cancel all pending orders first."
+                )
+            
+            if supplier.left_credit_amount and supplier.left_credit_amount < supplier.initial_credit_amount:
+                outstanding = supplier.initial_credit_amount - supplier.left_credit_amount
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot deactivate supplier '{supplier.full_name}': Outstanding credit balance of Rs. {outstanding:,.2f}. Settle all dues first."
+                )
         
         supplier = self.repo.update(supplier_id, supplier_update)
         if not supplier:
@@ -589,18 +585,23 @@ class PurchasingReturnService:
             if po and po.first_suppliers_id:
                 credit_service = SupplierCreditService()
                 credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
+                self.db.commit()
         
         return db_return
     
     def approve_return(self, return_id: int, approve: bool, remarks: Optional[str] = None, user_id: int = 0) -> models.PurchasingReturn:
         """
         Approve or reject a purchase return through the centralized approval system.
+        Uses SELECT FOR UPDATE to prevent double-approval race conditions.
         """
         from app.modules.purchasing.credit_service import SupplierCreditService
         from app.modules.inventory.models import SalesStock
         from app.modules.common.models import Approvals
         
-        return_record = self.repo.get_by_id(return_id)
+        # Lock the return row to prevent concurrent approval processing
+        return_record = self.db.query(models.PurchasingReturn).filter(
+            models.PurchasingReturn.id == return_id
+        ).with_for_update().first()
         if not return_record:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -783,10 +784,13 @@ class GoodReceivedNoteService:
 
         po_status = self._determine_po_completion_status(po.id)
         po.status = po_status
-        self.db.commit()
         
+        # Update credit balance in the same transaction for atomicity
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
+        
+        self.db.commit()
+        self.db.refresh(created_grn)
         
         return created_grn
     
@@ -872,27 +876,47 @@ class GoodReceivedNoteService:
         if not grn:
             return []
         
+        if not items:
+            return []
+        
+        # Batch-load all PO items for these GRN items in one query
+        po_item_ids = [item.purchasing_order_items_id for item in items if item.purchasing_order_items_id]
+        po_items_map = {}
+        if po_item_ids:
+            po_items = self.db.query(models.PurchasingOrderItems).filter(
+                models.PurchasingOrderItems.id.in_(po_item_ids)
+            ).all()
+            po_items_map = {pi.id: pi for pi in po_items}
+        
+        # Batch-load all products referenced by PO items in one query
+        product_ids = [pi.product_id for pi in po_items_map.values() if pi.product_id]
+        products_map = {}
+        if product_ids:
+            products = self.db.query(Product).filter(Product.id.in_(product_ids)).all()
+            products_map = {p.id: p.name for p in products}
+        
+        # Batch-load barcodes that exist in sales stock for this GRN
+        all_barcodes = [item.barcode for item in items]
+        stock_barcodes = set(
+            row[0] for row in self.db.query(SalesStock.barcode).filter(
+                SalesStock.good_received_note_id == grn_id,
+                SalesStock.barcode.in_(all_barcodes)
+            ).all()
+        )
+        
+        # Batch-load barcodes that exist in company assets for this GRN
+        asset_barcodes = set(
+            row[0] for row in self.db.query(CompanyAssets.barcode).filter(
+                CompanyAssets.good_received_note_id == grn_id,
+                CompanyAssets.barcode.in_(all_barcodes)
+            ).all()
+        )
+        
         result = []
         for item in items:
-            po_item = self.db.query(models.PurchasingOrderItems).filter(
-                models.PurchasingOrderItems.id == item.purchasing_order_items_id
-            ).first()
-            
+            po_item = po_items_map.get(item.purchasing_order_items_id)
             product_id = po_item.product_id if po_item else None
-            product_name = None
-            if product_id:
-                product = self.db.query(Product).filter(Product.id == product_id).first()
-                product_name = product.name if product else None
-            
-            saved_to_sales_stock = self.db.query(SalesStock).filter(
-                SalesStock.good_received_note_id == grn_id,
-                SalesStock.barcode == item.barcode
-            ).first() is not None
-            
-            saved_to_company_assets = self.db.query(CompanyAssets).filter(
-                CompanyAssets.good_received_note_id == grn_id,
-                CompanyAssets.barcode == item.barcode
-            ).first() is not None
+            product_name = products_map.get(product_id) if product_id else None
             
             result.append({
                 "id": item.id,
@@ -905,8 +929,8 @@ class GoodReceivedNoteService:
                 "added_date": item.added_date,
                 "product_id": product_id,
                 "product_name": product_name,
-                "saved_to_sales_stock": saved_to_sales_stock,
-                "saved_to_company_assets": saved_to_company_assets,
+                "saved_to_sales_stock": item.barcode in stock_barcodes,
+                "saved_to_company_assets": item.barcode in asset_barcodes,
             })
         
         return result
@@ -962,10 +986,16 @@ class SupplierCreditsSettleService:
 
         from app.modules.purchasing.credit_service import SupplierCreditService
 
+        # Lock supplier row to prevent concurrent credit balance overwrites
+        self.db.query(models.Supplier).filter(
+            models.Supplier.id == settle.suppliers_id
+        ).with_for_update().first()
+
         created_settle = self.repo.create(settle)
 
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, settle.suppliers_id)
+        self.db.commit()
         
         return created_settle
     
@@ -980,6 +1010,81 @@ class SupplierCreditsSettleService:
     
     def list_settlements(self, skip: int = 0, limit: int = 100) -> List[models.SupplierCreditsSettle]:
         return self.repo.get_all(skip, limit)
+    
+    def list_settlements_with_transactions(self, skip: int = 0, limit: int = 100) -> List[schemas.SupplierCreditsSettleWithTransactions]:
+        """List settlements with eagerly loaded transactions (batch query, no N+1)."""
+        settlements = self.repo.get_all(skip, limit)
+        if not settlements:
+            return []
+        
+        settle_ids = [s.id for s in settlements]
+        
+        # Batch-load all transactions for all settlements in one query
+        all_transactions = self.db.query(models.SupplierCreditsSettleTransaction).filter(
+            models.SupplierCreditsSettleTransaction.supplier_credit_settle_id.in_(settle_ids)
+        ).all()
+        
+        # Batch-load all GRNs referenced by transactions
+        grn_ids = list(set(t.good_received_id for t in all_transactions if t.good_received_id))
+        grns_map = {}
+        if grn_ids:
+            grns = self.db.query(models.GoodReceivedNote).filter(
+                models.GoodReceivedNote.id.in_(grn_ids)
+            ).all()
+            grns_map = {g.id: g for g in grns}
+        
+        # Batch-load all POs referenced by GRNs
+        po_ids = list(set(g.purchasingorders_id for g in grns_map.values() if g.purchasingorders_id))
+        pos_map = {}
+        if po_ids:
+            pos = self.db.query(models.PurchasingOrder).filter(
+                models.PurchasingOrder.id.in_(po_ids)
+            ).all()
+            pos_map = {p.id: p for p in pos}
+        
+        # Group transactions by settlement ID
+        txns_by_settle = {}
+        for t in all_transactions:
+            txns_by_settle.setdefault(t.supplier_credit_settle_id, []).append(t)
+        
+        results = []
+        for settle in settlements:
+            enriched_transactions = []
+            for t in txns_by_settle.get(settle.id, []):
+                grn = grns_map.get(t.good_received_id)
+                grn_no = grn.good_received_no if grn else None
+                po = pos_map.get(grn.purchasingorders_id) if grn and grn.purchasingorders_id else None
+                po_no = po.purchasing_order_no if po else None
+                invoice_no = po.purchasing_invoice_no if po else None
+                
+                enriched_transactions.append(schemas.SupplierCreditsSettleTransaction(
+                    id=t.id,
+                    payment_method=t.payment_method,
+                    cheque_date=t.cheque_date,
+                    payment_amount=t.payment_amount,
+                    payment_method_number=t.payment_method_number,
+                    remarks=t.remarks,
+                    created_date=t.created_date,
+                    good_received_id=t.good_received_id,
+                    supplier_credit_settle_id=t.supplier_credit_settle_id,
+                    grn_no=grn_no,
+                    po_no=po_no,
+                    invoice_no=invoice_no
+                ))
+            
+            results.append(schemas.SupplierCreditsSettleWithTransactions(
+                id=settle.id,
+                supplier_credits_settle_no=settle.supplier_credits_settle_no,
+                branch_code=settle.branch_code,
+                created_date=settle.created_date,
+                suppliers_id=settle.suppliers_id,
+                status=settle.status,
+                verified_by=settle.verified_by,
+                verified_date=settle.verified_date,
+                transactions=enriched_transactions
+            ))
+        
+        return results
     
     def get_by_supplier(self, supplier_id: int) -> List[models.SupplierCreditsSettle]:
         return self.repo.get_by_supplier(supplier_id)
@@ -1050,6 +1155,7 @@ class SupplierCreditsSettleService:
         
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, supplier_id)
+        self.db.commit()
         
         return result
     

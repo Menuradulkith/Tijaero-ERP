@@ -13,6 +13,11 @@ from app.modules.customers.models import (
     CustomerCuponCodes,
     CustomerGiftVoucher,
 )
+from app.modules.customers.commission_models import (
+    CustomerAgentCommission,
+    CustomerAgentCommissionPayment,
+    CustomerAgentCommissionPaymentItem,
+)
 from app.modules.employees.models import (
     Employee,
     EmployeePayroll,
@@ -23,6 +28,7 @@ from app.modules.employees.models import (
 from app.modules.finance.models import (
     BankDeposits,
     CardPayments,
+    CashbookEntryRecord,
     ChequePayments,
     CreditPayments,
     Expenses,
@@ -80,6 +86,10 @@ __all__ = [
     "CustomerCreditsSettleTransaction",
     "CustomerCuponCodes",
     "CustomerGiftVoucher",
+    "CustomerAgentCommission",
+    "CustomerAgentCommissionPayment",
+    "CustomerAgentCommissionPaymentItem",
+    "CashbookEntryRecord",
     "Employee",
     "Product",
     "Invoice",

@@ -2,7 +2,6 @@
  * UsersPage - Refactored to use Tijaero-style reusable components
  */
 
-import { formatErrorMessage } from "@/utils/errorHandling";
 import PersonIcon from "@mui/icons-material/Person";
 import {
     Alert,
@@ -17,7 +16,6 @@ import {
     Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import toast from "react-hot-toast";
 
 // Tijaero Components
 import {
@@ -33,6 +31,9 @@ import {
     GENDER_CHOICES,
     TConfirmDialog,
     useConfirmDialog,
+    handleApiError,
+    showErrorToast,
+    showSuccessToast,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/components/PermissionGuard";
@@ -191,10 +192,10 @@ export default function UsersPage() {
           setFormData(resetFormFromUser(updatedUser));
         }
       }
-    } catch (err: any) {
-      const errorMsg = formatErrorMessage(err) || "Failed to load data";
+    } catch (err: unknown) {
+      const errorMsg = handleApiError(err, "Failed to load data");
       setError(errorMsg);
-      toast.error(errorMsg);
+      showErrorToast(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -333,7 +334,7 @@ export default function UsersPage() {
       }
       
       if (validationErrors.length > 0) {
-        toast.error(`Please fix the following errors: ${validationErrors.join(", ")}`);
+        showErrorToast(`Please fix the following errors: ${validationErrors.join(", ")}`);
         setSaving(false);
         return;
       }
@@ -343,7 +344,7 @@ export default function UsersPage() {
         const exists = await usersApi.checkUsernameExists(formData.username);
         if (exists) {
           setUsernameError("Username already exists");
-          toast.error("Username already exists");
+          showErrorToast("Username already exists");
           setSaving(false);
           return;
         }
@@ -354,7 +355,7 @@ export default function UsersPage() {
         const employeeExists = await usersApi.checkEmployeeIdExists(formData.employee_id);
         if (employeeExists) {
           setEmployeeIdError("Employee ID already exists");
-          toast.error("Employee ID already exists");
+          showErrorToast("Employee ID already exists");
           setSaving(false);
           return;
         }
@@ -370,7 +371,7 @@ export default function UsersPage() {
         console.log("[UsersPage] Creating new user:", cleanedData);
         await usersApi.createUser(cleanedData as UserCreate);
         console.log("[UsersPage] Create success");
-        toast.success("User created successfully");
+        showSuccessToast("User created successfully");
         markAsSaved();
         setIsCreating(false);
         setIsEditing(false);
@@ -379,7 +380,7 @@ export default function UsersPage() {
         console.log("[UsersPage] Updating user:", selectedUser.id, cleanedData);
         await usersApi.updateUser(selectedUser.id, cleanedData as UserUpdate);
         console.log("[UsersPage] Update success");
-        toast.success("User updated successfully");
+        showSuccessToast("User updated successfully");
         markAsSaved();
         setIsEditing(false);
         // Refresh with selected user ID to update the view
@@ -388,12 +389,11 @@ export default function UsersPage() {
         console.warn("[UsersPage] handleSave called but no action taken");
         loadData();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[UsersPage] Save error:", err);
-      console.error("[UsersPage] Error response:", err.response);
-      const errorMsg = formatErrorMessage(err) || "Failed to save user";
+      const errorMsg = handleApiError(err, "Failed to save user");
       setError(errorMsg);
-      toast.error(errorMsg);
+      showErrorToast(errorMsg);
     } finally {
       setSaving(false);
     }
@@ -418,12 +418,12 @@ export default function UsersPage() {
       if (confirmed) {
         try {
           await usersApi.deleteUser(selectedUser.id);
-          toast.success("User deleted successfully");
+          showSuccessToast("User deleted successfully");
           setSelectedUser(null);
           loadData();
-        } catch (err: any) {
-          const errorMessage = err?.response?.data?.detail || formatErrorMessage(err) || "Failed to delete user";
-          toast.error(errorMessage, { duration: 6000 });
+        } catch (err: unknown) {
+          const errorMessage = handleApiError(err, "Failed to delete user");
+          showErrorToast(errorMessage);
         }
       }
     }

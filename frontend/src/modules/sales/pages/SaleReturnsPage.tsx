@@ -27,9 +27,6 @@ import {
     InputAdornment,
     MenuItem,
     Paper,
-    Step,
-    StepLabel,
-    Stepper,
     Table,
     TableBody,
     TableCell,
@@ -41,23 +38,27 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import toast from "react-hot-toast";
 
 // Import tijaero components
 import {
     ActionToolbar,
     DetailPanelHeader,
     EmptyState,
+    fmtLKR,
     FormSection,
     MasterDetailLayout,
     RETURN_STATUS_FILTER_OPTIONS,
     SearchableList,
     SelectableListItem,
+    showErrorToast,
+    showSuccessToast,
     SortOption,
     TConfirmDialog,
     TPrintPreviewDialog,
     TStatusChip,
+    TSteps,
     getStatusProps,
+    handleApiError,
     modernTableStyles,
     useMasterDetailState,
     useTConfirmDialog,
@@ -356,13 +357,13 @@ export default function SaleReturnsPage() {
         onSuccess: (newReturn) => {
             queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
             queryClient.invalidateQueries({ queryKey: ["sales"] });
-            toast.success("Sale return created successfully");
+            showSuccessToast("Sale return created successfully");
             setIsCreating(false);
             setIsEditing(false);
             setTimeout(() => handleSelectReturnWithItems(newReturn), 0);
         },
-        onError: (error: any) => {
-            toast.error(error.response?.data?.detail || "Failed to create sale return");
+        onError: (error: unknown) => {
+            showErrorToast(handleApiError(error, "Failed to create sale return"));
         },
     });
 
@@ -370,11 +371,11 @@ export default function SaleReturnsPage() {
         mutationFn: saleReturnsApi.delete,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-            toast.success("Sale return deleted");
+            showSuccessToast("Sale return deleted");
             handleSelectReturn(null as any);
         },
-        onError: (error: any) => {
-            toast.error(error.response?.data?.detail || "Failed to delete sale return");
+        onError: (error: unknown) => {
+            showErrorToast(handleApiError(error, "Failed to delete sale return"));
         },
     });
 
@@ -409,18 +410,18 @@ export default function SaleReturnsPage() {
         if (!barcode) return;
 
         if (lineItems.some((item) => item.barcode === barcode)) {
-            toast.error("This barcode has already been added");
+            showErrorToast("This barcode has already been added");
             return;
         }
 
         if (!invoiceItems || invoiceItems.length === 0) {
-            toast.error("Please select an invoice first");
+            showErrorToast("Please select an invoice first");
             return;
         }
 
         const invoiceItemMatch = invoiceItems.find((item: any) => item.barcode === barcode);
         if (!invoiceItemMatch) {
-            toast.error("Barcode not found in selected invoice");
+            showErrorToast("Barcode not found in selected invoice");
             return;
         }
 
@@ -667,13 +668,11 @@ export default function SaleReturnsPage() {
                     <>
                         {/* Stepper for create mode only */}
                         {isCreating && (
-                            <Stepper activeStep={formStep} sx={{ mb: 3 }}>
-                                {FORM_STEPS.map((label) => (
-                                    <Step key={label}>
-                                        <StepLabel>{label}</StepLabel>
-                                    </Step>
-                                ))}
-                            </Stepper>
+                            <TSteps
+                                steps={FORM_STEPS.map((label, i) => ({ id: `step-${i}`, label }))}
+                                activeStep={formStep}
+                                sx={{ mb: 3 }}
+                            />
                         )}
 
                         {/* Step 1: Return Information */}
@@ -800,19 +799,19 @@ export default function SaleReturnsPage() {
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Subtotal</Typography>
                                                 <Typography variant="body2" fontWeight={500}>
-                                                    Rs. {(selectedReturn.subtotal || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                    Rs. {fmtLKR(selectedReturn.subtotal || 0)}
                                                 </Typography>
                                             </Box>
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Tax Refund</Typography>
                                                 <Typography variant="body2" fontWeight={500}>
-                                                    Rs. {(selectedReturn.tax_refund || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                    Rs. {fmtLKR(selectedReturn.tax_refund || 0)}
                                                 </Typography>
                                             </Box>
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Total Refund</Typography>
                                                 <Typography variant="h6" color="warning.main" fontWeight={600}>
-                                                    Rs. {(selectedReturn.total_refund || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                    Rs. {fmtLKR(selectedReturn.total_refund || 0)}
                                                 </Typography>
                                             </Box>
                                             <Box>
@@ -831,7 +830,7 @@ export default function SaleReturnsPage() {
                                                 <Box>
                                                     <Typography variant="caption" color="text.secondary">Refund Amount</Typography>
                                                     <Typography variant="body2" fontWeight={500}>
-                                                        Rs. {(selectedReturn.refund_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                                                        Rs. {fmtLKR(selectedReturn.refund_amount || 0)}
                                                     </Typography>
                                                 </Box>
                                                 <Box>

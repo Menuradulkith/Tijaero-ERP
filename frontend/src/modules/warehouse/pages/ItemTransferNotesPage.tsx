@@ -51,6 +51,7 @@ import {
   SortOption,
   modernTableStyles,
   getStatusProps,
+  handleApiError,
   TConfirmDialog,
   useTConfirmDialog,
   showSuccessToast,
@@ -301,9 +302,9 @@ export default function ItemTransferNotesPage() {
       setTimeout(() => barcodeInputRef.current?.focus(), 100);
 
       showSuccessToast(`Added: ${validatedItem.product_name}`);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Barcode validation error:', error);
-      setValidationError(error.response?.data?.detail || 'Invalid barcode or item not found');
+      setValidationError(handleApiError(error, 'Invalid barcode or item not found'));
     } finally {
       setIsValidating(false);
     }
@@ -403,9 +404,8 @@ export default function ItemTransferNotesPage() {
       setBarcodeInput('');
       setTimeout(() => handleSelectITNWithItems(newITN), 0);
     },
-    onError: (error: any) => {
-      const errorDetail = error.response?.data?.detail || error.message || "Failed to create transfer note";
-      showErrorToast(errorDetail);
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create transfer note"));
     },
   });
 

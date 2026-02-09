@@ -23,7 +23,7 @@ import {
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
+import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { employeeAssetsApi } from "@/modules/hr/api";
 import { EmployeeAssetCreate } from "@/modules/hr/types";
@@ -52,12 +52,12 @@ export default function EmployeeAssetsPage() {
     mutationFn: employeeAssetsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["employee-assets"] });
-      toast.success("Asset assignment created successfully");
+      showSuccessToast("Asset assignment created successfully");
       setOpenDialog(false);
       reset();
     },
-    onError: () => {
-      toast.error("Failed to create asset assignment");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create asset assignment"));
     },
   });
 
@@ -66,13 +66,13 @@ export default function EmployeeAssetsPage() {
       employeeAssetsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["employee-assets"] });
-      toast.success("Asset assignment updated successfully");
+      showSuccessToast("Asset assignment updated successfully");
       setOpenDialog(false);
       setEditingId(null);
       reset();
     },
-    onError: () => {
-      toast.error("Failed to update asset assignment");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to update asset assignment"));
     },
   });
 
@@ -80,10 +80,10 @@ export default function EmployeeAssetsPage() {
     mutationFn: employeeAssetsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["employee-assets"] });
-      toast.success("Asset assignment deleted successfully");
+      showSuccessToast("Asset assignment deleted successfully");
     },
-    onError: () => {
-      toast.error("Failed to delete asset assignment");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete asset assignment"));
     },
   });
 

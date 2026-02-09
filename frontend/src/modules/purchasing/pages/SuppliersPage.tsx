@@ -14,7 +14,6 @@ import {
   Chip,
 } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
-import toast from "react-hot-toast";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
@@ -25,7 +24,10 @@ import {
   ActionToolbar,
   FormSection,
   EmptyState,
+  handleApiError,
   useMasterDetailState,
+  showErrorToast,
+  showSuccessToast,
   SortOption,
   TITLE_CHOICES,
   GENDER_CHOICES,
@@ -178,13 +180,13 @@ export default function SuppliersPage() {
     mutationFn: suppliersApi.create,
     onSuccess: (newSupplier) => {
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-      toast.success("Supplier created successfully");
+      showSuccessToast("Supplier created successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTimeout(() => handleSelectSupplier(newSupplier), 0);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to create supplier");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create supplier"));
     },
   });
 
@@ -193,11 +195,11 @@ export default function SuppliersPage() {
       suppliersApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-      toast.success("Supplier updated successfully");
+      showSuccessToast("Supplier updated successfully");
       setIsEditing(false);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to update supplier");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to update supplier"));
     },
   });
 
@@ -205,11 +207,11 @@ export default function SuppliersPage() {
     mutationFn: suppliersApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-      toast.success("Supplier deleted successfully");
+      showSuccessToast("Supplier deleted successfully");
       handleCancel(filteredSuppliers);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to delete supplier");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete supplier"));
     },
   });
 

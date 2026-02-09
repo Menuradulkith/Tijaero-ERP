@@ -22,6 +22,7 @@ import {
   TPrintButton,
   TPrintPreviewDialog,
   TStatusChip,
+  TSteps,
   useMasterDetailState,
   useTConfirmDialog
 } from "@/components/tijaero";
@@ -46,9 +47,6 @@ import {
   InputAdornment,
   MenuItem,
   Paper,
-  Step,
-  StepLabel,
-  Stepper,
   Table,
   TableBody,
   TableCell,
@@ -843,13 +841,11 @@ export default function QuotationsPage() {
     return (
       <>
         {/* Stepper - shown in create/edit mode */}
-        <Stepper activeStep={formStep} sx={{ mb: 3 }}>
-          {FORM_STEPS.map((label) => (
-            <Step key={label}>
-              <StepLabel>{label}</StepLabel>
-            </Step>
-          ))}
-        </Stepper>
+        <TSteps
+          steps={FORM_STEPS.map((label, i) => ({ id: `step-${i}`, label }))}
+          activeStep={formStep}
+          sx={{ mb: 3 }}
+        />
 
         {/* Step 1: Quote Information */}
         {formStep === 0 && (

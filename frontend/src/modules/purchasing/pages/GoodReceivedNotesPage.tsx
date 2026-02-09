@@ -59,7 +59,6 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import toast from "react-hot-toast";
 
 
 // Import tijaero components
@@ -68,10 +67,13 @@ import {
   DetailPanelHeader,
   EmptyState,
   FormSection,
+  handleApiError,
   MasterDetailLayout,
   modernTableStyles,
   SearchableList,
   SelectableListItem,
+  showErrorToast,
+  showSuccessToast,
   SortOption,
   TBranchFilter,
   TFilterPanel,
@@ -518,7 +520,7 @@ export default function GoodReceivedNotesPage() {
       const messages = [`${grnItemCount} items received`];
       if (salesStockCount > 0) messages.push(`${salesStockCount} to Sales Stock`);
       if (companyAssetCount > 0) messages.push(`${companyAssetCount} to Company Assets`);
-      toast.success(`GRN created successfully! ${messages.join(", ")}`);
+      showSuccessToast(`GRN created successfully! ${messages.join(", ")}`);
       setIsCreating(false);
       setIsEditing(false);
       setLineItems([]);
@@ -543,8 +545,8 @@ export default function GoodReceivedNotesPage() {
         }
       }, 100);
     },
-    onError: (error: any, variables) => {
-      const errorDetail = error.response?.data?.detail || error.message || "Failed to create GRN";
+    onError: (error: unknown, variables) => {
+      const errorDetail = handleApiError(error, "Failed to create GRN");
 
       // Check if this is a credit limit error
       if (errorDetail.includes("Cannot post GRN:") && errorDetail.includes("Credit limit")) {
@@ -555,7 +557,7 @@ export default function GoodReceivedNotesPage() {
           pendingData: variables.data,
         });
       } else {
-        toast.error(errorDetail);
+        showErrorToast(errorDetail);
       }
     },
   });
@@ -734,7 +736,7 @@ export default function GoodReceivedNotesPage() {
           updateProductGroups(newLineItems, allProducts);
         } catch (error) {
           console.error("Failed to load PO items:", error);
-          toast.error("Failed to load purchase order items");
+          showErrorToast("Failed to load purchase order items");
         } finally {
           setLoadingPOItems(false);
         }

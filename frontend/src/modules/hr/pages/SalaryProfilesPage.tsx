@@ -20,7 +20,7 @@ import {
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { toast } from "react-hot-toast";
+import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import { salaryProfilesApi } from "@/modules/hr/api";
 import { EmployeeSalaryProfileCreate } from "@/modules/hr/types";
@@ -48,12 +48,12 @@ export default function SalaryProfilesPage() {
     mutationFn: salaryProfilesApi.create,
     onSuccess: (data) => {
       setProfiles([...profiles, data]);
-      toast.success("Salary profile created successfully");
+      showSuccessToast("Salary profile created successfully");
       setOpenDialog(false);
       reset();
     },
-    onError: () => {
-      toast.error("Failed to create salary profile");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create salary profile"));
     },
   });
 
@@ -67,13 +67,13 @@ export default function SalaryProfilesPage() {
     }) => salaryProfilesApi.update(id, data),
     onSuccess: (data) => {
       setProfiles(profiles.map((p) => (p.id === data.id ? data : p)));
-      toast.success("Salary profile updated successfully");
+      showSuccessToast("Salary profile updated successfully");
       setOpenDialog(false);
       setEditingId(null);
       reset();
     },
-    onError: () => {
-      toast.error("Failed to update salary profile");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to update salary profile"));
     },
   });
 
@@ -81,10 +81,10 @@ export default function SalaryProfilesPage() {
     mutationFn: salaryProfilesApi.delete,
     onSuccess: (_, id) => {
       setProfiles(profiles.filter((p) => p.id !== id));
-      toast.success("Salary profile deleted successfully");
+      showSuccessToast("Salary profile deleted successfully");
     },
-    onError: () => {
-      toast.error("Failed to delete salary profile");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete salary profile"));
     },
   });
 

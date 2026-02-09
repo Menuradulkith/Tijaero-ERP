@@ -11,7 +11,7 @@ import {
   Divider,
 } from "@mui/material";
 import { useState } from "react";
-import { toast } from "react-hot-toast";
+import { showSuccessToast } from "@/components/tijaero";
 
 export default function PreferencesSettings() {
   const [theme, setTheme] = useState("light");
@@ -19,7 +19,7 @@ export default function PreferencesSettings() {
   const [compactView, setCompactView] = useState(false);
 
   const handleSave = () => {
-    toast.success("Preferences saved successfully");
+    showSuccessToast("Preferences saved successfully");
   };
 
   return (

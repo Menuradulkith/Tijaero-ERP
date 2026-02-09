@@ -37,6 +37,7 @@ import {
   useConfirmDialog,
   showSuccessToast,
   showErrorToast,
+  handleApiError,
   PRODUCT_ITEM_TYPE,
 } from "@/components/tijaero";
 import { productsApi, categoriesApi, brandsApi, minimumPriceApi } from "../api";
@@ -270,7 +271,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       }
       setCreateMinPrice("");
     },
-    onError: () => showErrorToast("Failed to create product"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create product")),
   });
 
   const updateProductMutation = useMutation({
@@ -280,7 +281,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       showSuccessToast("Product updated successfully");
       productState.setIsEditing(false);
     },
-    onError: () => showErrorToast("Failed to update product"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update product")),
   });
 
   const deleteProductMutation = useMutation({
@@ -291,18 +292,8 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       showSuccessToast(data?.message || "Product deleted successfully");
       productState.setSelectedItem(null);
     },
-    onError: (error: any) => {
-      // Show the specific error message from backend with enhanced formatting for product usage warnings
-      const errorMessage = error?.response?.data?.detail || "Failed to delete product";
-      
-      // For detailed usage warnings, show with longer duration
-      if (errorMessage.includes("It is used in:")) {
-        showErrorToast(errorMessage, { 
-          duration: 8000 // Longer duration for detailed messages
-        });
-      } else {
-        showErrorToast(errorMessage);
-      }
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete product"));
     },
   });
 
@@ -315,7 +306,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       categoryState.setIsEditing(false);
       categoryState.setSelectedItem(newCategory);
     },
-    onError: () => showErrorToast("Failed to create category"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create category")),
   });
 
   const updateCategoryMutation = useMutation({
@@ -325,7 +316,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       showSuccessToast("Category updated successfully");
       categoryState.setIsEditing(false);
     },
-    onError: () => showErrorToast("Failed to update category"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update category")),
   });
 
   const deleteCategoryMutation = useMutation({
@@ -336,18 +327,8 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       showSuccessToast(data?.message || "Category deleted successfully");
       categoryState.setSelectedItem(null);
     },
-    onError: (error: any) => {
-      // Show the specific error message from backend with enhanced formatting for assignment warnings
-      const errorMessage = error?.response?.data?.detail || "Failed to delete category";
-      
-      // For detailed assignment warnings, show with longer duration
-      if (errorMessage.includes("It is assigned to")) {
-        showErrorToast(errorMessage, { 
-          duration: 6000 // Longer duration for detailed messages
-        });
-      } else {
-        showErrorToast(errorMessage);
-      }
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete category"));
     },
   });
 
@@ -360,7 +341,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       brandState.setIsEditing(false);
       brandState.setSelectedItem(newBrand);
     },
-    onError: () => showErrorToast("Failed to create brand"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create brand")),
   });
 
   const updateBrandMutation = useMutation({
@@ -370,7 +351,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       showSuccessToast("Brand updated successfully");
       brandState.setIsEditing(false);
     },
-    onError: () => showErrorToast("Failed to update brand"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update brand")),
   });
 
   const deleteBrandMutation = useMutation({
@@ -381,18 +362,8 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       showSuccessToast(data?.message || "Brand deleted successfully");
       brandState.setSelectedItem(null);
     },
-    onError: (error: any) => {
-      // Show the specific error message from backend with enhanced formatting for assignment warnings
-      const errorMessage = error?.response?.data?.detail || "Failed to delete brand";
-      
-      // For detailed assignment warnings, show with longer duration
-      if (errorMessage.includes("It is assigned to")) {
-        showErrorToast(errorMessage, { 
-          duration: 6000 // Longer duration for detailed messages
-        });
-      } else {
-        showErrorToast(errorMessage);
-      }
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete brand"));
     },
   });
 
@@ -404,7 +375,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       queryClient.invalidateQueries({ queryKey: ["minimum-price", variables.productId] });
       showSuccessToast("Minimum selling price set successfully");
     },
-    onError: () => showErrorToast("Failed to set minimum selling price"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to set minimum selling price")),
   });
 
   const setMinimumPriceMutation = useMutation({
@@ -415,7 +386,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       setMinPriceDialogOpen(false);
       setNewMinPrice(0);
     },
-    onError: () => showErrorToast("Failed to set minimum selling price"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to set minimum selling price")),
   });
 
   // Product handlers

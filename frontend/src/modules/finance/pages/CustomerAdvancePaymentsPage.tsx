@@ -25,7 +25,6 @@ import {
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
 } from "@mui/icons-material";
-import { toast } from "react-hot-toast";
 import { advancePaymentsApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
 import { CustomerAdvancePaymentCreate } from "@/modules/finance/types";
@@ -42,6 +41,9 @@ import {
   TFormDialog,
   TLoading,
   TEmptyState,
+  handleApiError,
+  showErrorToast,
+  showSuccessToast,
   TBranchFilter,
   TFilterPanel,
   GENERIC_PAYMENT_METHOD,
@@ -125,19 +127,19 @@ export default function CustomerAdvancePaymentsPage() {
   // Create advance mutation
   const createAdvance = useCallback(async () => {
     if (!formData.customer_id || !formData.payment_amount || formData.payment_amount <= 0) {
-      toast.error("Please select a customer and enter a valid amount");
+      showErrorToast("Please select a customer and enter a valid amount");
       return;
     }
 
     if (!formData.branch_code) {
-      toast.error("Please select a branch");
+      showErrorToast("Please select a branch");
       return;
     }
 
     try {
       setSaving(true);
       await advancePaymentsApi.create(formData as CustomerAdvancePaymentCreate);
-      toast.success("Customer advance payment recorded successfully");
+      showSuccessToast("Customer advance payment recorded successfully");
       setShowForm(false);
       setFormData({
         advance_payments_no: "",
@@ -150,9 +152,9 @@ export default function CustomerAdvancePaymentsPage() {
         active: true,
       });
       refetch();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to create customer advance:", err);
-      toast.error(err?.response?.data?.detail || "Failed to record advance payment");
+      showErrorToast(handleApiError(err, "Failed to record advance payment"));
     } finally {
       setSaving(false);
     }

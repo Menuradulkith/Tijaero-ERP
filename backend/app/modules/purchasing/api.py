@@ -385,11 +385,9 @@ def list_credit_settlements(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
-    """List all credit settlements with transactions"""
+    """List all credit settlements with transactions (eagerly loaded)"""
     settle_service = service.SupplierCreditsSettleService(db)
-    settlements = settle_service.list_settlements(skip, limit)
-    # Enrich each settlement with transactions
-    return [settle_service.get_with_transactions(s.id) for s in settlements]
+    return settle_service.list_settlements_with_transactions(skip, limit)
 
 @router.get("/suppliers/{supplier_id}/credit-settlements", response_model=List[schemas.SupplierCreditsSettle])
 def get_supplier_credit_settlements(supplier_id: int, db: Session = Depends(get_db)):

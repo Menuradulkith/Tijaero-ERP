@@ -32,7 +32,9 @@ import {
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
+  fmtLKR,
   FormSection,
+  handleApiError,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -210,8 +212,8 @@ export default function VouchersPage() {
       setIsCreating(false);
       handleSelectVoucher(newVoucher);
     },
-    onError: (error: any) => {
-      showErrorToast(error.response?.data?.detail || "Failed to create voucher");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create voucher"));
     },
   });
 
@@ -224,8 +226,8 @@ export default function VouchersPage() {
       setIsEditing(false);
       handleSelectVoucher(updatedVoucher);
     },
-    onError: (error: any) => {
-      showErrorToast(error.response?.data?.detail || "Failed to update voucher");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to update voucher"));
     },
   });
 
@@ -236,8 +238,8 @@ export default function VouchersPage() {
       showSuccessToast("Voucher deleted successfully");
       baseHandleCancel(filteredVouchers);
     },
-    onError: (error: any) => {
-      showErrorToast(error.response?.data?.detail || "Failed to delete voucher");
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete voucher"));
     },
   });
 
@@ -385,7 +387,7 @@ export default function VouchersPage() {
                     fontWeight={600}
                     sx={{ color: isSelected ? "common.white" : "text.primary" }}
                   >
-                    Rs. {voucher.amount.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                    Rs. {fmtLKR(voucher.amount)}
                   </Typography>
                   {isSelected && (
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
@@ -538,7 +540,7 @@ export default function VouchersPage() {
                 <TextField
                   size="small"
                   label="Current Balance (Rs.)"
-                  value={selectedVoucher.balance.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                  value={fmtLKR(selectedVoucher.balance)}
                   disabled
                   InputProps={{
                     startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
@@ -594,7 +596,7 @@ export default function VouchersPage() {
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" }, gap: 2, mb: 2 }}>
                   <Paper variant="outlined" sx={{ textAlign: "center", p: 2, bgcolor: "action.hover" }}>
                     <Typography variant="h4" color="primary">
-                      Rs. {selectedVoucher.amount.toLocaleString("en-LK")}
+                      Rs. {fmtLKR(selectedVoucher.amount)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       Original Amount
@@ -602,7 +604,7 @@ export default function VouchersPage() {
                   </Paper>
                   <Paper variant="outlined" sx={{ textAlign: "center", p: 2, bgcolor: "action.hover" }}>
                     <Typography variant="h4" color="success.main">
-                      Rs. {selectedVoucher.balance.toLocaleString("en-LK")}
+                      Rs. {fmtLKR(selectedVoucher.balance)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       Remaining Balance
@@ -610,7 +612,7 @@ export default function VouchersPage() {
                   </Paper>
                   <Paper variant="outlined" sx={{ textAlign: "center", p: 2, bgcolor: "action.hover" }}>
                     <Typography variant="h4" color="error.main">
-                      Rs. {(selectedVoucher.amount - selectedVoucher.balance).toLocaleString("en-LK")}
+                      Rs. {fmtLKR(selectedVoucher.amount - selectedVoucher.balance)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       Amount Used
@@ -650,7 +652,7 @@ export default function VouchersPage() {
                             </TableCell>
                             <TableCell>{usage.invoice_no || `#${usage.invoice_id}`}</TableCell>
                             <TableCell align="right">
-                              Rs. {usage.amount_used.toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                              Rs. {fmtLKR(usage.amount_used)}
                             </TableCell>
                           </TableRow>
                         ))}

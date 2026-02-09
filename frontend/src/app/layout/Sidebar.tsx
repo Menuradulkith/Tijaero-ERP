@@ -15,6 +15,7 @@ import Inventory2Icon from "@mui/icons-material/Inventory2";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
+import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import PaymentIcon from "@mui/icons-material/Payment";
 import PeopleIcon from "@mui/icons-material/People";
@@ -82,11 +83,14 @@ const menuItems: MenuItem[] = [
       { text: "Quotations", icon: <ReceiptLongIcon />, path: "/sales/quotations" },
       { text: "Sales Orders", icon: <PointOfSaleIcon />, path: "/sales/orders" },
       { text: "SO Approvals", icon: <FactCheckIcon />, path: "/sales/approvals" },
-      { text: "Payments", icon: <ReceiptLongIcon />, path: "/sales/payments" },
       { text: "Sales Returns", icon: <AssignmentReturnIcon />, path: "/sales/returns" },
       { text: "Return Approvals", icon: <FactCheckIcon />, path: "/sales/return-approvals" },
       { text: "Coupons", icon: <LocalOfferIcon />, path: "/sales/coupons" },
       { text: "Gift Vouchers", icon: <ReceiptIcon />, path: "/sales/vouchers" },
+      { text: "Agent Commissions", icon: <MonetizationOnIcon />, path: "/sales/agent-commissions" },
+      { text: "Commission Approvals", icon: <FactCheckIcon />, path: "/sales/commission-approvals" },
+      { text: "Commission Payments", icon: <PaymentIcon />, path: "/sales/commission-payments" },
+      { text: "Commission Approvals", icon: <FactCheckIcon />, path: "/sales/commission-payment-approvals" },
       { text: "Settings", icon: <SettingsIcon />, path: "/sales/settings" },
     ],
   },

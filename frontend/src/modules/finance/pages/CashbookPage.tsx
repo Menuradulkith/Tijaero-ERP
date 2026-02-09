@@ -26,11 +26,10 @@ import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import MoneyOffIcon from "@mui/icons-material/MoneyOff";
 import SavingsIcon from "@mui/icons-material/Savings";
-import { TPageHeader, TCurrency, TBranchFilter } from "@/components/tijaero";
+import { TPageHeader, TCurrency, TBranchFilter, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { cashbookApi } from "@/modules/finance/api";
 import { CashbookEntryType, CashbookReport } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
-import toast from "react-hot-toast";
 
 // Date range quick filter options
 type DateRangePreset = "today" | "thisWeek" | "thisMonth" | "lastMonth" | "last30Days" | "custom";
@@ -160,13 +159,13 @@ export default function CashbookPage() {
   // Print cashbook report
   const handlePrint = () => {
     if (!report) {
-      toast.error("No data to print");
+      showErrorToast("No data to print");
       return;
     }
     
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
-      toast.error("Please allow popups to print");
+      showErrorToast("Please allow popups to print");
       return;
     }
 
@@ -182,7 +181,7 @@ export default function CashbookPage() {
   // Export to CSV
   const handleExport = () => {
     if (!report?.entries?.length) {
-      toast.error("No data to export");
+      showErrorToast("No data to export");
       return;
     }
 
@@ -208,7 +207,7 @@ export default function CashbookPage() {
     a.download = `cashbook_${dateFrom}_to_${dateTo}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Cashbook exported successfully");
+    showSuccessToast("Cashbook exported successfully");
   };
 
   const columns: GridColDef[] = [

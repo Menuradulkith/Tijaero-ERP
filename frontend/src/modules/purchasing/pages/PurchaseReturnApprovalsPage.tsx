@@ -44,6 +44,7 @@ import {
   TStatusFilter,
   RETURN_STATUS_FILTER_OPTIONS,
   getStatusProps,
+  handleApiError,
   SortOption,
   showSuccessToast,
   showErrorToast,
@@ -166,7 +167,7 @@ export default function PurchaseReturnApprovalsPage() {
       queryClient.invalidateQueries({ queryKey: ["sales-stock"] });
       showSuccessToast("Purchase return approved successfully");
     },
-    onError: (error: any) => showErrorToast(error.response?.data?.detail || "Failed to approve return"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to approve return")),
   });
 
   // Reject mutation
@@ -186,7 +187,7 @@ export default function PurchaseReturnApprovalsPage() {
       setRejectDialogOpen(false);
       setRejectReason("");
     },
-    onError: (error: any) => showErrorToast(error.response?.data?.detail || "Failed to reject return"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to reject return")),
   });
 
   const handleApprove = () => {

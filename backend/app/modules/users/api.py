@@ -141,4 +141,3 @@ def delete_user(
 ):
     """Delete a user by ID."""
     return service.auth_service.delete_user(db, user_id)
-    return service.auth_service.delete_user(db, user_id)

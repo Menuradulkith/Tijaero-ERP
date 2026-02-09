@@ -48,7 +48,7 @@ export {
 // DATA COMPONENTS - Data display and visualization
 // =============================================================================
 export {
-  TCurrency, TDataCard, TDataGrid, TDate, TInfoCard, TList, TNumber, TStatCard, TTable, type TCurrencyProps, type TDataCardProps, type TDataGridColumn, type TDataGridProps, type TDateProps, type TInfoCardProps, type TListProps, type TNumberProps, type TStatCardProps, type TTableProps
+  TCurrency, TDataCard, TDataGrid, TDate, TInfoCard, TList, TNumber, TStatCard, TTable, formatCurrency, fmtLKR, type TCurrencyProps, type TDataCardProps, type TDataGridColumn, type TDataGridProps, type TDateProps, type TInfoCardProps, type TListProps, type TNumberProps, type TStatCardProps, type TTableProps
 } from './data';
 
 // Pagination Controls for load-balanced lists
@@ -135,6 +135,11 @@ export { FormSection } from "./forms";
 
 // Feedback (legacy - use TEmptyState for new code)
 export { EmptyState } from "./feedback";
+
+// =============================================================================
+// ERROR HANDLING - Centralized API error utilities
+// =============================================================================
+export { handleApiError, extractFieldErrors } from "../../utils/errorHandling";
 
 // =============================================================================
 // CONSTANTS - ERP Enums and Constants
