@@ -26,9 +26,9 @@ import {
   useMasterDetailState,
   useTConfirmDialog
 } from "@/components/tijaero";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 import {
   Add as AddIcon,
@@ -177,9 +177,9 @@ export default function QuotationsPage() {
   });
 
   // OPTIMIZED: Use aggregated reference data endpoint instead of separate API calls
-  const { data: refData } = useReferenceData(["products", "branches", "customers", "employees"]);
+  const { data: refData, filteredBranches } = useReferenceData(["products", "branches", "customers", "employees"]);
   const products = refData?.products || [];
-  const branches = refData?.branches || [];
+  const branches = filteredBranches || [];
   const customers = refData?.customers || [];
   const employees = refData?.employees || [];
 
@@ -852,20 +852,17 @@ export default function QuotationsPage() {
           <>
             {/* Basic Info */}
             <FormSection title="Basic Information" columns={3}>
-              <TextField
-                select
-                label="Branch"
-                value={formData.branch_code || ""}
-                onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
+              <Autocomplete
                 size="small"
-                required
-              >
-                {branches.map((branch) => (
-                  <MenuItem key={branch.id} value={branch.branch_code}>
-                    {branch.branch_name}
-                  </MenuItem>
-                ))}
-              </TextField>
+                options={branches}
+                getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+                value={branches.find((b) => b.branch_code === formData.branch_code) || undefined}
+                onChange={(_, newValue) => setFormData({ ...formData, branch_code: newValue?.branch_code || "" })}
+                renderInput={(params) => (
+                  <TextField {...params} label="Branch" required />
+                )}
+                disableClearable
+              />
 
               <Autocomplete
                 size="small"
@@ -903,7 +900,7 @@ export default function QuotationsPage() {
               <Autocomplete
                 size="small"
                 options={employees || []}
-                getOptionLabel={(option) => option.employee_id}
+                getOptionLabel={(option) => option.full_name || option.employee_id}
                 value={employees?.find((e) => e.id === formData.sale_rep_id) || null}
                 onChange={(_, newValue) => setFormData({ ...formData, sale_rep_id: newValue?.id || 0 })}
                 renderInput={(params) => (

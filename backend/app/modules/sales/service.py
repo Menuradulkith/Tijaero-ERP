@@ -101,8 +101,8 @@ class SalesService:
             query = query.filter(
                 or_(
                     Invoice.invoice_no.ilike(search_term),
-                    Invoice.payment_reference.ilike(search_term),
-                    Invoice.customer_code.ilike(search_term),
+                    # Invoice.payment_reference.ilike(search_term), # Field does not exist
+                    # Invoice.customer_code.ilike(search_term), # Field does not exist
                 )
             )
         
@@ -289,7 +289,7 @@ class SalesService:
                 "created_date": inv.created_date.isoformat() if inv.created_date else None,
                 "total": float(total),
                 "approval": inv.approval,
-                "customer_id": inv.customer_id,
+                #"customer_code": inv.customer_code,  # Field does not exist
             }
         
         return {
@@ -587,6 +587,10 @@ class SalesService:
             'gift_voucher_id', 'gift_voucher_amount',  # We'll handle voucher separately
             'voucher_redemptions'  # Array field - not stored in Invoice table
         })
+        
+        # Override sale_rep_id with the logged-in user
+        invoice_dict['sale_rep_id'] = user_id
+        
         invoice_dict['created_date'] = date.today()
         invoice_dict['created_date_time'] = datetime.now()
         invoice_dict['status'] = True

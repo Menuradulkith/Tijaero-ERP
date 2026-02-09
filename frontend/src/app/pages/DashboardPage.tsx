@@ -1,23 +1,23 @@
 import ErrorDisplay from "@/components/ErrorDisplay";
 import {
-    TEmptyState,
-    TIconButton,
-    TLoading,
-    TLoadingSkeleton,
-    TPageHeader,
-    TSection,
-    TStatCard,
+  TEmptyState,
+  TIconButton,
+  TLoading,
+  TLoadingSkeleton,
+  TPageHeader,
+  TSection,
+  TStatCard,
 } from "@/components/tijaero";
 import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import { calculatePercentageChange } from "@/utils/calculations";
 import {
-    formatCurrency,
-    formatRelativeTime,
+  formatCurrency,
+  formatRelativeTime,
 } from "@/utils/formatters";
 import {
-    getPreviousMetrics,
-    shouldUpdateStoredMetrics,
-    storePreviousMetrics,
+  getPreviousMetrics,
+  shouldUpdateStoredMetrics,
+  storePreviousMetrics,
 } from "@/utils/trendStorage";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import InventoryIcon from "@mui/icons-material/Inventory";
@@ -28,14 +28,14 @@ import { Box, Card, Grid, LinearProgress, ToggleButton, ToggleButtonGroup, Typog
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-    CartesianGrid,
-    Legend,
-    Line,
-    LineChart,
-    Tooltip as RechartsTooltip,
-    ResponsiveContainer,
-    XAxis,
-    YAxis,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
 } from "recharts";
 
 interface ActivityItem {
@@ -257,7 +257,7 @@ export default function DashboardPage() {
               <TLoadingSkeleton type="card" />
             ) : (
               <Box sx={{ height: 300 }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <LineChart
                     data={[
                       {
@@ -269,69 +269,69 @@ export default function DashboardPage() {
                           ? Math.floor(metrics.total_orders_month * 0.2)
                           : 0,
                       },
-                        {
-                          name: "Week 2",
-                          sales: metrics?.total_sales_month
-                            ? metrics.total_sales_month * 0.25
-                            : 0,
-                          orders: metrics?.total_orders_month
-                            ? Math.floor(metrics.total_orders_month * 0.25)
-                            : 0,
-                        },
-                        {
-                          name: "Week 3",
-                          sales: metrics?.total_sales_month
-                            ? metrics.total_sales_month * 0.3
-                            : 0,
-                          orders: metrics?.total_orders_month
-                            ? Math.floor(metrics.total_orders_month * 0.3)
-                            : 0,
-                        },
-                        {
-                          name: "Week 4",
-                          sales: metrics?.total_sales_month
-                            ? metrics.total_sales_month * 0.25
-                            : 0,
-                          orders: metrics?.total_orders_month
-                            ? Math.floor(metrics.total_orders_month * 0.25)
-                            : 0,
-                        },
-                      ]}
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis yAxisId="left" />
-                      <YAxis yAxisId="right" orientation="right" />
-                      <RechartsTooltip
-                        formatter={(value: any, name: string | undefined) => {
-                          if (name === "sales") {
-                            return [formatCurrency(Number(value)), "Sales"];
-                          }
-                          return [value, "Orders"];
-                        }}
-                      />
-                      <Legend />
-                      <Line
-                        yAxisId="left"
-                        type="monotone"
-                        dataKey="sales"
-                        stroke="#2e7d32"
-                        strokeWidth={2}
-                        name="Sales"
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="orders"
-                        stroke="#1976d2"
-                        strokeWidth={2}
-                        name="Orders"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </Box>
-              )}
+                      {
+                        name: "Week 2",
+                        sales: metrics?.total_sales_month
+                          ? metrics.total_sales_month * 0.25
+                          : 0,
+                        orders: metrics?.total_orders_month
+                          ? Math.floor(metrics.total_orders_month * 0.25)
+                          : 0,
+                      },
+                      {
+                        name: "Week 3",
+                        sales: metrics?.total_sales_month
+                          ? metrics.total_sales_month * 0.3
+                          : 0,
+                        orders: metrics?.total_orders_month
+                          ? Math.floor(metrics.total_orders_month * 0.3)
+                          : 0,
+                      },
+                      {
+                        name: "Week 4",
+                        sales: metrics?.total_sales_month
+                          ? metrics.total_sales_month * 0.25
+                          : 0,
+                        orders: metrics?.total_orders_month
+                          ? Math.floor(metrics.total_orders_month * 0.25)
+                          : 0,
+                      },
+                    ]}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis yAxisId="left" />
+                    <YAxis yAxisId="right" orientation="right" />
+                    <RechartsTooltip
+                      formatter={(value: any, name: string | undefined) => {
+                        if (name === "sales") {
+                          return [formatCurrency(Number(value)), "Sales"];
+                        }
+                        return [value, "Orders"];
+                      }}
+                    />
+                    <Legend />
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="sales"
+                      stroke="#2e7d32"
+                      strokeWidth={2}
+                      name="Sales"
+                    />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="orders"
+                      stroke="#1976d2"
+                      strokeWidth={2}
+                      name="Orders"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Box>
+            )}
           </TSection>
         </Grid>
 
@@ -361,11 +361,11 @@ export default function DashboardPage() {
                     value={
                       metrics?.total_sales_month
                         ? Math.min(
-                            (metrics.total_sales_today /
-                              metrics.total_sales_month) *
-                              100,
-                            100
-                          )
+                          (metrics.total_sales_today /
+                            metrics.total_sales_month) *
+                          100,
+                          100
+                        )
                         : 0
                     }
                     sx={{ height: 8, borderRadius: 1 }}
@@ -377,10 +377,10 @@ export default function DashboardPage() {
                   >
                     {metrics?.total_sales_month
                       ? `${(
-                          (metrics.total_sales_today /
-                            metrics.total_sales_month) *
-                          100
-                        ).toFixed(1)}% of monthly sales`
+                        (metrics.total_sales_today /
+                          metrics.total_sales_month) *
+                        100
+                      ).toFixed(1)}% of monthly sales`
                       : "No data"}
                   </Typography>
                 </Box>
@@ -404,11 +404,11 @@ export default function DashboardPage() {
                     value={
                       metrics?.total_orders_month
                         ? Math.min(
-                            (metrics.total_orders_today /
-                              metrics.total_orders_month) *
-                              100,
-                            100
-                          )
+                          (metrics.total_orders_today /
+                            metrics.total_orders_month) *
+                          100,
+                          100
+                        )
                         : 0
                     }
                     sx={{ height: 8, borderRadius: 1 }}
@@ -421,10 +421,10 @@ export default function DashboardPage() {
                   >
                     {metrics?.total_orders_month
                       ? `${(
-                          (metrics.total_orders_today /
-                            metrics.total_orders_month) *
-                          100
-                        ).toFixed(1)}% of monthly orders`
+                        (metrics.total_orders_today /
+                          metrics.total_orders_month) *
+                        100
+                      ).toFixed(1)}% of monthly orders`
                       : "No data"}
                   </Typography>
                 </Box>
@@ -490,7 +490,7 @@ export default function DashboardPage() {
                       py: 1.5,
                       borderBottom:
                         index <
-                        Math.min(metrics.recent_activities.length, 5) - 1
+                          Math.min(metrics.recent_activities.length, 5) - 1
                           ? 1
                           : 0,
                       borderColor: "divider",
