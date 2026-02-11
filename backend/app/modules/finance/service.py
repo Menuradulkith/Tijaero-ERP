@@ -37,6 +37,16 @@ class BankDepositService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Bank deposit with id {deposit_id} not found"
             )
+
+        # ── GL Hook: Post bank deposit to GL ──
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_svc = PurchaseExpensePayrollGL(self.repo.db)
+            gl_svc.post_bank_deposit_to_gl(deposit, user_id=0)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Bank deposit GL posting failed: {e}")
+
         return deposit
 
 class CardPaymentService:
@@ -151,6 +161,19 @@ class ExpenseService:
             expense.remarks = (expense.remarks or "") + f"\n[Payment] {payment_data.remarks}"
         self.db.commit()
         self.db.refresh(expense)
+        
+        # ── GL Auto-Posting: Scenario 32 – Expense Paid ───────────────
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            gl_service.post_expense_to_gl(expense, user_id=processed_by)
+            self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(f"GL posting for expense {expense.expenses_no} failed (non-blocking): {gl_err}")
+            self.db.rollback()
+        # ────────────────────────────────────────────────────────────────
+        
         return expense
 
     def record_expense(self, expense_id: int, record_data: schemas.ExpenseRecord) -> models.Expenses:

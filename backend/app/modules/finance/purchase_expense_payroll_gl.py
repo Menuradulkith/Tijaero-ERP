@@ -1,0 +1,1056 @@
+"""
+Scenarios 31 & 32: Purchase, Expense & Payroll → General Ledger Automatic Integration
+
+Automatically posts journal entries and GL entries for:
+- Purchase transactions (GRN received, advance payments, credit purchases)
+- Expense recording (approved & paid expenses)
+- Payroll processing (salary, EPF, ETF, APIT, deductions)
+- Commission payments (customer agent commissions)
+
+═══════════════════════════════════════════════════════════════════════════
+SCENARIO 31: PURCHASE TRANSACTIONS
+═══════════════════════════════════════════════════════════════════════════
+
+1. PURCHASE WITH PAYMENT (GRN received, cash/bank/cheque PO):
+    Dr  1210  Finished Goods Inventory .. purchase_amount
+    Cr  1020  Bank Account .............. purchase_amount
+
+2. SUPPLIER ADVANCE PAYMENT:
+    When Advance Given:
+        Dr  2020  Supplier Advances ....... advance_amount
+        Cr  1020  Bank Account ............ advance_amount
+    When Advance Applied:
+        Dr  1210  Inventory ............... applied_amount
+        Cr  2020  Supplier Advances ....... applied_amount
+
+3. CREDIT PURCHASE (GRN received, credit PO):
+    When GRN Received:
+        Dr  1210  Inventory ............... purchase_amount
+        Cr  2010  Trade Creditors ......... purchase_amount
+    When Credit Settled (Payment Made):
+        Dr  2010  Trade Creditors ......... payment_amount
+        Cr  1020  Bank Account ............ payment_amount
+
+═══════════════════════════════════════════════════════════════════════════
+SCENARIO 32: EXPENSES & PAYROLL
+═══════════════════════════════════════════════════════════════════════════
+
+1. EXPENSE POSTING (approved & paid):
+    Dr  5xxx  Expense Account ........... expense_amount
+    Cr  1020  Bank Account .............. expense_amount
+
+2. PAYROLL POSTING (batch processed):
+    Dr  5110  Salaries Expense .......... gross_salary
+    Dr  5210  EPF Employer Expense ...... employer_epf
+    Dr  5220  ETF Employer Expense ...... employer_etf
+    Cr  2110  Salaries Payable .......... net_salary
+    Cr  2120  EPF Payable ............... total_epf (employee + employer)
+    Cr  2130  ETF Payable ............... total_etf (employee + employer)
+    Cr  2140  Other Payroll Deductions .. other_deductions
+    Cr  2150  APIT Payable .............. apit_amount
+
+3. COMMISSION PAYMENT:
+    Dr  5150  Commission Expense ........ commission_amount
+    Cr  1020  Bank Account .............. commission_amount
+═══════════════════════════════════════════════════════════════════════════
+"""
+
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from decimal import Decimal
+from datetime import date, datetime
+from typing import Optional, List, Dict, Any
+import logging
+
+from app.modules.finance.accounting_models import (
+    ChartOfAccounts,
+    JournalEntry,
+    JournalEntryLine,
+    GeneralLedger,
+    AccountingPeriod,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ─── Account Code Constants ──────────────────────────────────────────────────
+ACCT_CASH_ON_HAND = "1010"
+ACCT_BANK_ACCOUNT = "1020"
+ACCT_TRADE_DEBTORS = "1110"
+ACCT_FINISHED_GOODS = "1210"
+ACCT_SUPPLIER_ADVANCES = "2020"
+ACCT_TRADE_CREDITORS = "2010"
+ACCT_SALARIES_PAYABLE = "2110"
+ACCT_EPF_PAYABLE = "2120"
+ACCT_ETF_PAYABLE = "2130"
+ACCT_OTHER_PAYROLL_DEDUCTIONS = "2140"
+ACCT_APIT_PAYABLE = "2150"
+ACCT_VAT_PAYABLE = "2210"
+ACCT_SALARIES_EXPENSE = "5110"
+ACCT_COMMISSION_EXPENSE = "5150"
+ACCT_EPF_EMPLOYER_EXPENSE = "5210"
+ACCT_ETF_EMPLOYER_EXPENSE = "5220"
+
+# Expense category → COA account code mapping
+EXPENSE_CATEGORY_MAP = {
+    "utilities": "5130",
+    "rent": "5120",
+    "travel": "5140",
+    "salaries": "5110",
+    "office_supplies": "5100",
+    "maintenance": "5100",
+    "marketing": "5100",
+    "insurance": "5100",
+    "miscellaneous": "5100",
+    "freight": "5020",
+    "commission": "5150",
+}
+
+
+class PurchaseExpensePayrollGL:
+    """
+    Service that creates automatic journal entries and GL postings
+    from purchase, expense, and payroll transactions.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+        self._account_cache: Dict[str, int] = {}
+
+    # ─── Helpers (shared with SalesAccountingIntegration) ─────────────────
+
+    def _get_account_id(self, account_code: str) -> Optional[int]:
+        """Get COA account ID by code (cached)."""
+        if account_code in self._account_cache:
+            return self._account_cache[account_code]
+
+        account = self.db.query(ChartOfAccounts).filter(
+            ChartOfAccounts.account_code == account_code,
+            ChartOfAccounts.is_active == True,
+        ).first()
+
+        if account:
+            self._account_cache[account_code] = account.id
+            return account.id
+
+        logger.warning(f"COA account {account_code} not found - GL posting skipped")
+        return None
+
+    def _get_fiscal_period(self, entry_date: date) -> tuple:
+        """Determine fiscal year and period from date."""
+        period = self.db.query(AccountingPeriod).filter(
+            AccountingPeriod.start_date <= entry_date,
+            AccountingPeriod.end_date >= entry_date,
+        ).first()
+
+        if period:
+            return period.fiscal_year, period.period_number
+        return entry_date.year, entry_date.month
+
+    def _generate_je_number(self, prefix: str = "JE-PUR") -> str:
+        """Generate unique journal entry number."""
+        today = date.today()
+        full_prefix = f"{prefix}-{today.strftime('%Y%m')}-"
+        last = self.db.query(JournalEntry).filter(
+            JournalEntry.journal_entry_no.like(f"{full_prefix}%")
+        ).order_by(JournalEntry.journal_entry_no.desc()).first()
+
+        if last and last.journal_entry_no.startswith(full_prefix):
+            try:
+                seq = int(last.journal_entry_no.split("-")[-1]) + 1
+            except (ValueError, IndexError):
+                seq = 1
+        else:
+            seq = 1
+        return f"{full_prefix}{seq:04d}"
+
+    def _check_already_posted(self, reference_id: int, description_marker: str) -> bool:
+        """Check if this transaction has already been posted to GL."""
+        existing = self.db.query(JournalEntry).filter(
+            JournalEntry.description.like(f"%{description_marker}%"),
+            JournalEntry.entry_type == "Auto",
+        ).first()
+        return existing is not None
+
+    def _create_je_and_post(
+        self,
+        entry_date: date,
+        description: str,
+        lines: List[Dict[str, Any]],
+        branch_code: Optional[str],
+        user_id: int,
+        je_prefix: str = "JE-PUR",
+        transaction_type: str = "Purchase",
+        reference_type: str = "PO",
+        reference_id: Optional[int] = None,
+        reference_no: Optional[str] = None,
+    ) -> Optional[JournalEntry]:
+        """
+        Create a journal entry with lines and immediately post to GL.
+        Returns the created JournalEntry or None if no valid lines.
+        """
+        # Filter out lines with zero amounts and resolve account IDs
+        valid_lines = []
+        for line in lines:
+            account_id = self._get_account_id(line["account_code"])
+            if not account_id:
+                logger.warning(f"Skipping GL line - account {line['account_code']} not found")
+                continue
+
+            debit = Decimal(str(line.get("debit", 0)))
+            credit = Decimal(str(line.get("credit", 0)))
+
+            if debit == 0 and credit == 0:
+                continue
+
+            valid_lines.append({
+                "account_id": account_id,
+                "debit": debit,
+                "credit": credit,
+                "description": line.get("description", ""),
+                "account_code": line["account_code"],
+            })
+
+        if len(valid_lines) < 2:
+            logger.info("Skipping JE - fewer than 2 valid lines")
+            return None
+
+        # Validate debits == credits
+        total_debit = sum(l["debit"] for l in valid_lines)
+        total_credit = sum(l["credit"] for l in valid_lines)
+
+        if abs(total_debit - total_credit) > Decimal("0.01"):
+            # Auto-correct small rounding differences
+            diff = total_debit - total_credit
+            if abs(diff) <= Decimal("0.05"):
+                if diff > 0:
+                    valid_lines[-1]["credit"] += diff
+                    total_credit += diff
+                else:
+                    valid_lines[-1]["debit"] += abs(diff)
+                    total_debit += abs(diff)
+            else:
+                logger.error(
+                    f"JE imbalance too large: debit={total_debit}, credit={total_credit} - skipping"
+                )
+                return None
+
+        posting_date = entry_date
+        fiscal_year, fiscal_period = self._get_fiscal_period(posting_date)
+
+        # Create Journal Entry
+        je = JournalEntry(
+            journal_entry_no=self._generate_je_number(je_prefix),
+            entry_date=entry_date,
+            posting_date=posting_date,
+            entry_type="Auto",
+            description=description,
+            total_debit=total_debit,
+            total_credit=total_credit,
+            status="posted",
+            fiscal_year=fiscal_year,
+            fiscal_period=fiscal_period,
+            branch_code=branch_code,
+            created_by=user_id,
+            posted_by=user_id,
+            posted_at=datetime.now(),
+        )
+        self.db.add(je)
+        self.db.flush()
+
+        # Create JE Lines and GL Entries
+        for i, line in enumerate(valid_lines, 1):
+            je_line = JournalEntryLine(
+                journal_entry_id=je.id,
+                line_number=i,
+                account_id=line["account_id"],
+                debit_amount=line["debit"],
+                credit_amount=line["credit"],
+                description=line["description"],
+                reference_type=reference_type,
+                reference_id=reference_id,
+                reference_no=reference_no,
+            )
+            self.db.add(je_line)
+
+            gl_entry = GeneralLedger(
+                transaction_date=entry_date,
+                posting_date=posting_date,
+                account_id=line["account_id"],
+                debit_amount=line["debit"],
+                credit_amount=line["credit"],
+                transaction_type=transaction_type,
+                reference_type=reference_type,
+                reference_id=reference_id,
+                reference_no=reference_no,
+                journal_entry_id=je.id,
+                description=line["description"],
+                branch_code=branch_code,
+                fiscal_year=fiscal_year,
+                fiscal_period=fiscal_period,
+                created_by=user_id,
+            )
+            self.db.add(gl_entry)
+
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SCENARIO 31: PURCHASE TRANSACTIONS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_grn_to_gl(self, grn, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post GRN (Goods Received Note) to GL.
+        
+        For cash/bank/cheque PO:
+            Dr 1210 Inventory / Cr 1020 Bank Account
+        For credit PO:
+            Dr 1210 Inventory / Cr 2010 Trade Creditors
+        """
+        from app.modules.purchasing.models import (
+            PurchasingOrder, PurchasingOrderItems, GoodReceivedItems
+        )
+
+        marker = f"GRN ID: {grn.id}"
+        if self._check_already_posted(grn.id, marker):
+            logger.info(f"GRN {grn.good_received_no} already posted to GL - skipping")
+            return None
+
+        # Get PO and calculate total
+        po = self.db.query(PurchasingOrder).filter(
+            PurchasingOrder.id == grn.purchasingorders_id
+        ).first()
+        if not po:
+            return None
+
+        # Calculate GRN total from GRN items → PO items
+        grn_items = self.db.query(GoodReceivedItems).filter(
+            GoodReceivedItems.good_received_note == grn.good_received_no,
+            GoodReceivedItems.active == True,
+        ).all()
+
+        purchase_amount = Decimal("0")
+        po_item_ids = set()
+        for item in grn_items:
+            po_item_ids.add(item.purchasing_order_items_id)
+
+        for po_item_id in po_item_ids:
+            po_item = self.db.query(PurchasingOrderItems).filter(
+                PurchasingOrderItems.id == po_item_id
+            ).first()
+            if po_item:
+                # Count received items for this PO item in this GRN
+                received_count = sum(
+                    1 for gi in grn_items
+                    if gi.purchasing_order_items_id == po_item_id
+                )
+                purchase_amount += Decimal(str(po_item.unit_price)) * Decimal(str(received_count))
+
+        if purchase_amount <= 0:
+            return None
+
+        payment_method = (po.payment_method or "").lower()
+        is_credit = payment_method == "credit"
+
+        # Determine credit account
+        credit_account = ACCT_TRADE_CREDITORS if is_credit else ACCT_BANK_ACCOUNT
+        credit_desc = "Trade creditor" if is_credit else "Payment to supplier"
+
+        lines = [
+            {
+                "account_code": ACCT_FINISHED_GOODS,
+                "debit": purchase_amount,
+                "credit": Decimal("0"),
+                "description": f"Inventory purchase - PO #{po.purchasing_order_no}",
+            },
+            {
+                "account_code": credit_account,
+                "debit": Decimal("0"),
+                "credit": purchase_amount,
+                "description": f"{credit_desc} - PO #{po.purchasing_order_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - GRN Received | GRN: {grn.good_received_no} | "
+            f"PO: {po.purchasing_order_no} | Amount: {purchase_amount} | "
+            f"GRN ID: {grn.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=grn.good_received_date or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=grn.branch_code,
+            user_id=user_id,
+            je_prefix="JE-PUR",
+            transaction_type="Purchase",
+            reference_type="GRN",
+            reference_id=grn.id,
+            reference_no=grn.good_received_no,
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: GRN {grn.good_received_no} → JE {je.journal_entry_no} "
+                f"(Dr {ACCT_FINISHED_GOODS} / Cr {credit_account} = {purchase_amount})"
+            )
+        return je
+
+    def post_supplier_advance_to_gl(self, advance, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post supplier advance payment to GL.
+        Dr 2020 Supplier Advances / Cr 1020 Bank Account
+        """
+        marker = f"Advance ID: {advance.id}"
+        if self._check_already_posted(advance.id, marker):
+            return None
+
+        amount = Decimal(str(advance.original_amount or 0))
+        if amount <= 0:
+            return None
+
+        payment_method = (advance.payment_method or "").lower()
+        credit_account = ACCT_CASH_ON_HAND if payment_method == "cash" else ACCT_BANK_ACCOUNT
+
+        lines = [
+            {
+                "account_code": ACCT_SUPPLIER_ADVANCES,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Advance to supplier - {advance.advance_no}",
+            },
+            {
+                "account_code": credit_account,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Payment for advance - {advance.advance_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Supplier Advance | Advance: {advance.advance_no} | "
+            f"Amount: {amount} | Advance ID: {advance.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=advance.payment_date or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=advance.branch_code,
+            user_id=user_id,
+            je_prefix="JE-ADV",
+            transaction_type="Payment",
+            reference_type="SupplierAdvance",
+            reference_id=advance.id,
+            reference_no=advance.advance_no,
+        )
+
+        if je:
+            logger.info(f"✅ GL Posted: Supplier Advance {advance.advance_no} → JE {je.journal_entry_no}")
+        return je
+
+    def post_advance_application_to_gl(self, application, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post advance application (when advance is applied against GRN).
+        Dr 1210 Inventory / Cr 2020 Supplier Advances
+        """
+        from app.modules.purchasing.models import GoodReceivedNote
+
+        marker = f"AdvApp ID: {application.id}"
+        if self._check_already_posted(application.id, marker):
+            return None
+
+        amount = Decimal(str(application.applied_amount or 0))
+        if amount <= 0:
+            return None
+
+        grn = self.db.query(GoodReceivedNote).filter(
+            GoodReceivedNote.id == application.grn_id
+        ).first()
+        grn_no = grn.good_received_no if grn else "N/A"
+        branch_code = grn.branch_code if grn else None
+
+        lines = [
+            {
+                "account_code": ACCT_FINISHED_GOODS,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Advance applied to inventory - GRN {grn_no}",
+            },
+            {
+                "account_code": ACCT_SUPPLIER_ADVANCES,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Advance consumed - GRN {grn_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Advance Application | GRN: {grn_no} | "
+            f"Amount: {amount} | AdvApp ID: {application.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=application.application_date or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=branch_code,
+            user_id=user_id,
+            je_prefix="JE-ADV",
+            transaction_type="Purchase",
+            reference_type="AdvanceApplication",
+            reference_id=application.id,
+            reference_no=grn_no,
+        )
+
+        if je:
+            logger.info(f"✅ GL Posted: Advance Application → JE {je.journal_entry_no}")
+        return je
+
+    def post_credit_settlement_to_gl(self, settlement, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post credit purchase settlement (payment to supplier).
+        Dr 2010 Trade Creditors / Cr 1020 Bank Account
+        """
+        marker = f"CreditSettle ID: {settlement.id}"
+        if self._check_already_posted(settlement.id, marker):
+            return None
+
+        # Sum up all settlement transactions
+        total_payment = Decimal("0")
+        for txn in (settlement.transactions or []):
+            total_payment += Decimal(str(txn.payment_amount or 0))
+
+        if total_payment <= 0:
+            return None
+
+        lines = [
+            {
+                "account_code": ACCT_TRADE_CREDITORS,
+                "debit": total_payment,
+                "credit": Decimal("0"),
+                "description": f"Credit settlement - {settlement.supplier_credits_settle_no}",
+            },
+            {
+                "account_code": ACCT_BANK_ACCOUNT,
+                "debit": Decimal("0"),
+                "credit": total_payment,
+                "description": f"Payment to supplier - {settlement.supplier_credits_settle_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Credit Settlement | Settle: {settlement.supplier_credits_settle_no} | "
+            f"Amount: {total_payment} | CreditSettle ID: {settlement.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=date.today(),
+            description=description,
+            lines=lines,
+            branch_code=settlement.branch_code,
+            user_id=user_id,
+            je_prefix="JE-PUR",
+            transaction_type="Payment",
+            reference_type="CreditSettle",
+            reference_id=settlement.id,
+            reference_no=settlement.supplier_credits_settle_no,
+        )
+
+        if je:
+            logger.info(f"✅ GL Posted: Credit Settlement {settlement.supplier_credits_settle_no} → JE {je.journal_entry_no}")
+        return je
+
+    def post_supplier_payment_to_gl(self, payment, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post supplier payment (general payment to supplier).
+        Dr 2010 Trade Creditors / Cr 1020 Bank Account (or 1010 Cash)
+        """
+        marker = f"SupPayment ID: {payment.id}"
+        if self._check_already_posted(payment.id, marker):
+            return None
+
+        amount = Decimal(str(payment.payment_amount or 0))
+        if amount <= 0:
+            return None
+
+        payment_method = (payment.payment_method or "").lower()
+        credit_account = ACCT_CASH_ON_HAND if payment_method == "cash" else ACCT_BANK_ACCOUNT
+
+        po_ref = ""
+        if payment.purchasing_order:
+            po_ref = f" PO: {payment.purchasing_order.purchasing_order_no}"
+
+        lines = [
+            {
+                "account_code": ACCT_TRADE_CREDITORS,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Supplier payment - {payment.payment_no}{po_ref}",
+            },
+            {
+                "account_code": credit_account,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Payment to supplier - {payment.payment_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Supplier Payment | Payment: {payment.payment_no} | "
+            f"Amount: {amount} | SupPayment ID: {payment.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=payment.payment_date or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=payment.branch_code,
+            user_id=user_id,
+            je_prefix="JE-PUR",
+            transaction_type="Payment",
+            reference_type="SupplierPayment",
+            reference_id=payment.id,
+            reference_no=payment.payment_no,
+        )
+
+        if je:
+            logger.info(f"✅ GL Posted: Supplier Payment {payment.payment_no} → JE {je.journal_entry_no}")
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SCENARIO 32: EXPENSES
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_expense_to_gl(self, expense, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post paid expense to GL.
+        Dr 5xxx Expense Account (mapped from expense_category) / Cr 1020 Bank Account
+        """
+        marker = f"Expense ID: {expense.id}"
+        if self._check_already_posted(expense.id, marker):
+            return None
+
+        amount = Decimal(str(expense.expense_amount or 0))
+        if amount <= 0:
+            return None
+
+        # Map expense category to COA account
+        category = (expense.expense_category or "miscellaneous").lower().strip()
+        expense_account = EXPENSE_CATEGORY_MAP.get(category, "5100")
+
+        # If expense has an explicit account_code, use that
+        if expense.account_code:
+            expense_account = expense.account_code
+
+        # Determine payment account
+        payment_method = (expense.payment_method or expense.expenses_method or "").lower()
+        credit_account = ACCT_CASH_ON_HAND if payment_method == "cash" else ACCT_BANK_ACCOUNT
+
+        lines = [
+            {
+                "account_code": expense_account,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"{expense.expense_category or 'Expense'} - {expense.expenses_no}",
+            },
+            {
+                "account_code": credit_account,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Payment for {expense.expense_category or 'expense'} - {expense.expenses_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Expense | Expense: {expense.expenses_no} | "
+            f"Category: {expense.expense_category} | Amount: {amount} | "
+            f"Expense ID: {expense.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=expense.expense_date or expense.payment_date or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=expense.branch_code,
+            user_id=user_id,
+            je_prefix="JE-EXP",
+            transaction_type="Expense",
+            reference_type="Expense",
+            reference_id=expense.id,
+            reference_no=expense.expenses_no,
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: Expense {expense.expenses_no} → JE {je.journal_entry_no} "
+                f"(Dr {expense_account} / Cr {credit_account})"
+            )
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SCENARIO 32: PAYROLL
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_payroll_batch_to_gl(self, batch, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post payroll batch to GL when salary payments are processed.
+        
+        Creates a single consolidated journal entry for the entire batch:
+        Dr  5110  Salaries Expense .......... total_gross_salary
+        Dr  5210  EPF Employer Expense ...... total_employer_epf
+        Dr  5220  ETF Employer Expense ...... total_employer_etf
+        Cr  2110  Salaries Payable .......... total_net_salary
+        Cr  2120  EPF Payable ............... employee_epf + employer_epf
+        Cr  2130  ETF Payable ............... employee_etf + employer_etf
+        Cr  2140  Other Payroll Deductions .. stamp + late + advance + loan + other
+        Cr  2150  APIT Payable .............. total_apit
+        """
+        from app.modules.hr.models import PayrollBatch
+        from app.modules.employees.models import EmployeePayroll
+
+        marker = f"PayrollBatch ID: {batch.id}"
+        if self._check_already_posted(batch.id, marker):
+            logger.info(f"Payroll batch {batch.batch_no} already posted to GL - skipping")
+            return None
+
+        # Get all payroll records for this batch
+        if isinstance(batch, PayrollBatch):
+            payrolls = self.db.query(EmployeePayroll).filter(
+                EmployeePayroll.payroll_batch_no == batch.batch_no
+            ).all()
+        else:
+            payrolls = []
+
+        if not payrolls:
+            return None
+
+        # Aggregate totals
+        total_gross = Decimal("0")
+        total_net = Decimal("0")
+        total_epf_employee = Decimal("0")
+        total_etf_employee = Decimal("0")
+        total_epf_employer = Decimal("0")
+        total_etf_employer = Decimal("0")
+        total_stamp = Decimal("0")
+        total_late = Decimal("0")
+        total_advance_repay = Decimal("0")
+        total_loan_repay = Decimal("0")
+        total_other = Decimal("0")
+        total_apit = Decimal("0")
+
+        for p in payrolls:
+            total_gross += Decimal(str(p.gross_salary or 0))
+            total_net += Decimal(str(p.net_salary or 0))
+            total_epf_employee += Decimal(str(p.less_epf_employee or 0))
+            total_etf_employee += Decimal(str(p.less_etf_employee or 0))
+            total_epf_employer += Decimal(str(p.epf_employer or 0))
+            total_etf_employer += Decimal(str(p.etf_employer or 0))
+            total_stamp += Decimal(str(p.less_stamp_duty or 0))
+            total_late += Decimal(str(p.less_late_deductions or 0))
+            total_advance_repay += Decimal(str(p.less_salary_advance_repayment or 0))
+            total_loan_repay += Decimal(str(p.less_loan_repayment or 0))
+            total_other += Decimal(str(p.less_other_deductions or 0))
+            total_apit += Decimal(str(p.less_apit or 0))
+
+        # Combined EPF/ETF totals
+        total_epf = total_epf_employee + total_epf_employer
+        total_etf = total_etf_employee + total_etf_employer
+        total_other_deductions = total_stamp + total_late + total_advance_repay + total_loan_repay + total_other
+
+        period_str = f"{batch.payroll_year}-{batch.payroll_month:02d}"
+
+        lines = []
+
+        # DEBIT side: Expenses
+        if total_gross > 0:
+            lines.append({
+                "account_code": ACCT_SALARIES_EXPENSE,
+                "debit": total_gross,
+                "credit": Decimal("0"),
+                "description": f"Gross salary - {period_str}",
+            })
+
+        if total_epf_employer > 0:
+            lines.append({
+                "account_code": ACCT_EPF_EMPLOYER_EXPENSE,
+                "debit": total_epf_employer,
+                "credit": Decimal("0"),
+                "description": f"Employer EPF contribution - {period_str}",
+            })
+
+        if total_etf_employer > 0:
+            lines.append({
+                "account_code": ACCT_ETF_EMPLOYER_EXPENSE,
+                "debit": total_etf_employer,
+                "credit": Decimal("0"),
+                "description": f"Employer ETF contribution - {period_str}",
+            })
+
+        # CREDIT side: Liabilities
+        if total_net > 0:
+            lines.append({
+                "account_code": ACCT_SALARIES_PAYABLE,
+                "debit": Decimal("0"),
+                "credit": total_net,
+                "description": f"Net salary payable - {period_str}",
+            })
+
+        if total_epf > 0:
+            lines.append({
+                "account_code": ACCT_EPF_PAYABLE,
+                "debit": Decimal("0"),
+                "credit": total_epf,
+                "description": f"EPF payable (employee + employer) - {period_str}",
+            })
+
+        if total_etf > 0:
+            lines.append({
+                "account_code": ACCT_ETF_PAYABLE,
+                "debit": Decimal("0"),
+                "credit": total_etf,
+                "description": f"ETF payable (employee + employer) - {period_str}",
+            })
+
+        if total_other_deductions > 0:
+            lines.append({
+                "account_code": ACCT_OTHER_PAYROLL_DEDUCTIONS,
+                "debit": Decimal("0"),
+                "credit": total_other_deductions,
+                "description": f"Payroll deductions (stamp, late, advances, loans) - {period_str}",
+            })
+
+        if total_apit > 0:
+            lines.append({
+                "account_code": ACCT_APIT_PAYABLE,
+                "debit": Decimal("0"),
+                "credit": total_apit,
+                "description": f"APIT payable - {period_str}",
+            })
+
+        description = (
+            f"Auto GL - Payroll | Batch: {batch.batch_no} | "
+            f"Period: {period_str} | Gross: {total_gross} | Net: {total_net} | "
+            f"Employees: {len(payrolls)} | PayrollBatch ID: {batch.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=batch.salary_payment_date or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=None,  # Payroll is company-wide
+            user_id=user_id,
+            je_prefix="JE-PAY",
+            transaction_type="Payroll",
+            reference_type="PayrollBatch",
+            reference_id=batch.id,
+            reference_no=batch.batch_no,
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: Payroll {batch.batch_no} → JE {je.journal_entry_no} "
+                f"(Gross: {total_gross}, Net: {total_net}, EPF: {total_epf}, ETF: {total_etf})"
+            )
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SCENARIO 32: COMMISSION PAYMENTS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_commission_payment_to_gl(self, payment, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post customer agent commission payment to GL.
+        Dr 5150 Commission Expense / Cr 1020 Bank Account
+        """
+        marker = f"CommPayment ID: {payment.id}"
+        if self._check_already_posted(payment.id, marker):
+            return None
+
+        amount = Decimal(str(payment.payment_amount or 0))
+        if amount <= 0:
+            return None
+
+        payment_method = (payment.payment_method or "").lower()
+        credit_account = ACCT_CASH_ON_HAND if payment_method == "cash" else ACCT_BANK_ACCOUNT
+
+        lines = [
+            {
+                "account_code": ACCT_COMMISSION_EXPENSE,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Agent commission payment - {payment.payment_no}",
+            },
+            {
+                "account_code": credit_account,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Commission payment - {payment.payment_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Commission Payment | Payment: {payment.payment_no} | "
+            f"Amount: {amount} | CommPayment ID: {payment.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=payment.payment_date or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=payment.branch_code,
+            user_id=user_id,
+            je_prefix="JE-COM",
+            transaction_type="Expense",
+            reference_type="CommissionPayment",
+            reference_id=payment.id,
+            reference_no=payment.payment_no,
+        )
+
+        if je:
+            logger.info(f"✅ GL Posted: Commission Payment {payment.payment_no} → JE {je.journal_entry_no}")
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PURCHASE RETURNS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_purchase_return_to_gl(self, purchase_return, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post purchase return to GL when approved.
+        Reverses the original GRN entry:
+
+        Dr  2010  Trade Creditors (AP) ....... return_total
+        Cr  1210  Finished Goods Inventory ... return_total
+
+        For cash purchases (GRN was cash/bank):
+        Dr  1020  Bank Account ............... return_total
+        Cr  1210  Finished Goods Inventory ... return_total
+        """
+        marker = f"PurchaseReturn ID: {purchase_return.id}"
+        if self._check_already_posted(purchase_return.id, marker):
+            return None
+
+        # Calculate total return amount from items
+        total_return = Decimal("0")
+        for item in (purchase_return.items or []):
+            total_return += Decimal(str(item.return_price or item.purchasing_price or 0))
+
+        if total_return <= 0:
+            return None
+
+        # Determine debit account based on original GRN/PO payment type
+        debit_account = ACCT_TRADE_CREDITORS  # Default: credit purchase
+        grn = getattr(purchase_return, "good_received_note", None)
+        if grn:
+            from app.modules.purchasing.models import PurchasingOrder
+            po = self.db.query(PurchasingOrder).filter(
+                PurchasingOrder.id == grn.purchasingorders_id
+            ).first()
+            if po:
+                payment_type = (getattr(po, "payment_type", "") or "").lower()
+                if payment_type in ("cash", "bank", "cheque"):
+                    debit_account = ACCT_BANK_ACCOUNT
+
+        return_no = purchase_return.purchasing_return_no or f"PR-{purchase_return.id}"
+
+        lines = [
+            {
+                "account_code": debit_account,
+                "debit": total_return,
+                "credit": Decimal("0"),
+                "description": f"Purchase return {return_no} - reduce payable/receive refund",
+            },
+            {
+                "account_code": ACCT_FINISHED_GOODS,
+                "debit": Decimal("0"),
+                "credit": total_return,
+                "description": f"Inventory returned to supplier - {return_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Purchase Return | Return: {return_no} | "
+            f"Amount: {total_return} | PurchaseReturn ID: {purchase_return.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=getattr(purchase_return, "approved_date", None) or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=purchase_return.branch_code,
+            user_id=user_id,
+            je_prefix="JE-PUR",
+            transaction_type="Purchase",
+            reference_type="PurchaseReturn",
+            reference_id=purchase_return.id,
+            reference_no=return_no,
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: Purchase Return {return_no} → JE {je.journal_entry_no} "
+                f"(Dr {debit_account} / Cr 1210) Amount: {total_return}"
+            )
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # BANK DEPOSIT VERIFICATION GL
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_bank_deposit_to_gl(self, deposit, user_id: int) -> Optional[JournalEntry]:
+        """
+        Post bank deposit verification to GL.
+        Dr  1020  Bank Account ............. deposit_amount
+        Cr  1010  Cash on Hand ............. deposit_amount
+
+        Called when a bank deposit is verified (cash deposited into bank).
+        """
+        marker = f"BankDeposit ID: {deposit.id}"
+        if self._check_already_posted(deposit.id, marker):
+            return None
+
+        amount = Decimal(str(deposit.deposits_amount or 0))
+        if amount <= 0:
+            return None
+
+        lines = [
+            {
+                "account_code": ACCT_BANK_ACCOUNT,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Bank deposit verified - {getattr(deposit, 'invoice_no', '')}",
+            },
+            {
+                "account_code": ACCT_CASH_ON_HAND,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Cash deposited to bank - {getattr(deposit, 'invoice_no', '')}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Bank Deposit Verified | Amount: {amount} | "
+            f"Bank: {getattr(deposit, 'bank_name', '')} | BankDeposit ID: {deposit.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=getattr(deposit, "created_date", None) or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=getattr(deposit, "branch_code", None) or "HQ",
+            user_id=user_id,
+            je_prefix="JE-BNK",
+            transaction_type="Banking",
+            reference_type="BankDeposit",
+            reference_id=deposit.id,
+            reference_no=getattr(deposit, "invoice_no", "") or f"DEP-{deposit.id}",
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: Bank Deposit {deposit.id} → JE {je.journal_entry_no} "
+                f"(Dr 1020 / Cr 1010) Amount: {amount}"
+            )
+        return je

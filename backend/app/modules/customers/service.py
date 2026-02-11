@@ -440,6 +440,16 @@ class VoucherService:
         db.add(voucher)
         db.commit()
         db.refresh(voucher)
+
+        # ── GL Hook: Post gift voucher sale to GL ──
+        try:
+            from app.modules.sales.accounting_integration import SalesAccountingIntegration
+            gl_svc = SalesAccountingIntegration(db)
+            gl_svc.post_gift_voucher_sale_to_gl(voucher, user_id=0)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Gift voucher sale GL posting failed: {e}")
+
         return voucher
     
     def _get_expiry_date(self, voucher: CustomerGiftVoucher) -> date:
@@ -489,6 +499,16 @@ class VoucherService:
             # Update status to expired
             voucher.status = "expired"
             db.commit()
+
+            # ── GL Hook: Post gift voucher expiry/breakage to GL ──
+            try:
+                from app.modules.sales.accounting_integration import SalesAccountingIntegration
+                gl_svc = SalesAccountingIntegration(db)
+                gl_svc.post_gift_voucher_expiry_to_gl(voucher, user_id=0)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Gift voucher expiry GL posting failed: {e}")
+
             return schemas.VoucherValidationResponse(
                 valid=False,
                 message=f"Voucher expired on {expiry_date}"

@@ -6,8 +6,10 @@ from app.modules.customers.api import router as customers_router
 from app.modules.customers.commission_api import router as commissions_router
 from app.modules.employees.api import router as employees_router
 from app.modules.finance.api import router as finance_router
+from app.modules.finance.accounting_api import router as accounting_router
 from app.modules.groups.api import router as groups_router
 from app.modules.hr.api import router as hr_router
+from app.modules.hr.sales_commission_api import router as sales_commissions_router
 from app.modules.inventory.api import router as inventory_router
 from app.modules.permissions.api import router as permissions_router
 from app.modules.products.api import router as products_router
@@ -40,7 +42,9 @@ api_router.include_router(
 )
 api_router.include_router(purchasing_router)
 api_router.include_router(finance_router)
+api_router.include_router(accounting_router)
 api_router.include_router(hr_router)
+api_router.include_router(sales_commissions_router, prefix="/hr", tags=["sales-commissions"])
 api_router.include_router(warehouse_router)
 api_router.include_router(support_router)
 api_router.include_router(reporting_router)

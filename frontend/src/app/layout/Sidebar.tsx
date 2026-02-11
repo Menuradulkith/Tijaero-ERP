@@ -2,10 +2,14 @@ import { hasPermission, PERMISSIONS } from "@/auth/permissions";
 import { useAuthStore } from "@/state/authStore";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import BalanceIcon from "@mui/icons-material/Balance";
+import BookIcon from "@mui/icons-material/Book";
 import BusinessIcon from "@mui/icons-material/Business";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CategoryIcon from "@mui/icons-material/Category";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
@@ -30,6 +34,7 @@ import SpeedIcon from "@mui/icons-material/Speed";
 import StoreIcon from "@mui/icons-material/Store";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import {
   Box,
@@ -152,6 +157,18 @@ const menuItems: MenuItem[] = [
       { text: "Supplier Payments", icon: <PaymentIcon />, path: "/finance/supplier-payments" },
       { text: "Customer Payments", icon: <PaymentIcon />, path: "/finance/customer-payments" },
       { 
+        text: "Accounting", 
+        icon: <BookIcon />, 
+        path: "/finance/chart-of-accounts",
+        subItems: [
+          { text: "Chart of Accounts", icon: <AccountTreeIcon />, path: "/finance/chart-of-accounts" },
+          { text: "Journal Entries", icon: <ReceiptLongIcon />, path: "/finance/journal-entries" },
+          { text: "General Ledger", icon: <BalanceIcon />, path: "/finance/general-ledger" },
+          { text: "Accounting Periods", icon: <CalendarMonthIcon />, path: "/finance/accounting-periods" },
+          { text: "Cash Flow", icon: <TrendingUpIcon />, path: "/finance/cash-flow" },
+        ],
+      },
+      { 
         text: "Approvals", 
         icon: <FactCheckIcon />, 
         path: "/finance/approvals",
@@ -174,6 +191,7 @@ const menuItems: MenuItem[] = [
       { text: "Deductions", icon: <ReceiptIcon />, path: "/hr/deductions" },
       { text: "Payroll Records", icon: <ReceiptLongIcon />, path: "/hr/payroll" },
       { text: "Payroll Processing", icon: <PaymentIcon />, path: "/hr/payroll-processing" },
+      { text: "Sales Commissions", icon: <SellIcon />, path: "/hr/sales-commissions" },
       { text: "Reimbursements", icon: <AccountBalanceWalletIcon />, path: "/hr/reimbursements" },
       { text: "Promotions", icon: <SellIcon />, path: "/hr/promotions" },
       { text: "Assets", icon: <Inventory2Icon />, path: "/hr/assets" },

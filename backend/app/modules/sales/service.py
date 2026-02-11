@@ -968,6 +968,23 @@ class SalesService:
                 )
                 db.add(commission)
         
+        # =================================================================
+        # Scenario 30: Auto-post to General Ledger for paid invoices
+        # Cash/Card/Cheque invoices are auto-approved → post immediately
+        # Credit/Bank Transfer invoices → post on approval/verification
+        # =================================================================
+        if invoice_dict.get('approval_status') == 'completed':
+            try:
+                from app.modules.sales.accounting_integration import SalesAccountingIntegration
+                gl_integration = SalesAccountingIntegration(db)
+                gl_integration.post_all_for_invoice(invoice, user_id)
+            except Exception as e:
+                # GL posting failure should not block the sale
+                import logging
+                logging.getLogger(__name__).error(
+                    f"GL posting failed for invoice {invoice.invoice_no}: {e}"
+                )
+        
         db.commit()
         db.refresh(invoice)
         return invoice
@@ -1204,6 +1221,19 @@ class SalesService:
         # since stock is already marked as sold
         invoice.approval_status = 'completed'
         
+        # =================================================================
+        # Scenario 30: Auto-post to General Ledger on credit sale approval
+        # =================================================================
+        try:
+            from app.modules.sales.accounting_integration import SalesAccountingIntegration
+            gl_integration = SalesAccountingIntegration(db)
+            gl_integration.post_all_for_invoice(invoice, user_id)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                f"GL posting failed for approved credit invoice {invoice.invoice_no}: {e}"
+            )
+        
         db.commit()
         db.refresh(invoice)
         return invoice
@@ -1231,6 +1261,17 @@ class SalesService:
                 if stock_item:
                     stock_item.status = 'sold'
                     stock_item.is_active = False
+        
+        # Scenario 30: Auto-post to GL on invoice completion
+        try:
+            from app.modules.sales.accounting_integration import SalesAccountingIntegration
+            gl_integration = SalesAccountingIntegration(db)
+            gl_integration.post_all_for_invoice(invoice, user_id)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                f"GL posting failed for completed invoice {invoice.invoice_no}: {e}"
+            )
         
         db.commit()
         db.refresh(invoice)
@@ -1604,26 +1645,45 @@ class SalesService:
         sale_return.refund_reference = refund_reference
         sale_return.processed_by = user_id
         
-        # Update invoice totals if needed
-        # Reduce the paid amount and grand total
-        new_paid_amount = float(invoice.paid_amount or 0) - float(sale_return.total_refund)
-        new_grand_total = float(invoice.grand_total or 0) - float(sale_return.total_refund)
+        # Update invoice totals based on refund method
+        refund_total = float(sale_return.total_refund)
+
+        if sale_return.payment_method == 'credit_note':
+            # Credit note: track via credit_note_amount, adjust balance_due for credit sales
+            invoice.credit_note_amount = float(invoice.credit_note_amount or 0) + refund_total
+            # For credit sales, reduce balance_due
+            if (invoice.payment_method or '').lower() == 'credit':
+                invoice.balance_due = max(0, float(invoice.balance_due or 0) - refund_total)
+        else:
+            # Cash/bank/cheque refund: reduce paid_amount (money going out)
+            new_paid_amount = float(invoice.paid_amount or 0) - refund_total
+            if new_paid_amount < 0:
+                new_paid_amount = 0
+            invoice.paid_amount = new_paid_amount
+            invoice.balance_due = max(0, float(invoice.grand_total or 0) - new_paid_amount)
         
-        if new_paid_amount < 0:
-            new_paid_amount = 0
-        if new_grand_total < 0:
-            new_grand_total = 0
-            
-        invoice.paid_amount = new_paid_amount
-        invoice.grand_total = new_grand_total
-        invoice.balance_due = max(0, new_grand_total - new_paid_amount)
-        
-        if invoice.grand_total > 0 and invoice.paid_amount >= invoice.grand_total:
+        # Recalculate payment status
+        grand = float(invoice.grand_total or 0)
+        paid = float(invoice.paid_amount or 0)
+        balance = float(invoice.balance_due or 0)
+
+        if grand > 0 and balance <= 0 and paid >= grand:
             invoice.payment_status = 'paid'
-        elif invoice.paid_amount > 0:
+        elif paid > 0:
             invoice.payment_status = 'partial'
         else:
             invoice.payment_status = 'unpaid'
+        
+        # Scenario 30: Auto-post sale return reversal to GL
+        try:
+            from app.modules.sales.accounting_integration import SalesAccountingIntegration
+            gl_integration = SalesAccountingIntegration(db)
+            gl_integration.post_sale_return_to_gl(sale_return, user_id)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                f"GL posting failed for sale return {sale_return.sale_return_no}: {e}"
+            )
         
         db.commit()
         db.refresh(sale_return)
@@ -1987,6 +2047,17 @@ class SalesService:
                     if stock_item and stock_item.status == 'reserved':
                         stock_item.status = 'sold'
                         stock_item.is_active = False
+            
+            # Scenario 30: Auto-post to GL on bank transfer verification
+            try:
+                from app.modules.sales.accounting_integration import SalesAccountingIntegration
+                gl_integration = SalesAccountingIntegration(db)
+                gl_integration.post_all_for_invoice(invoice, user_id)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    f"GL posting failed for verified bank transfer {invoice.invoice_no}: {e}"
+                )
             
             db.commit()
             db.refresh(invoice)

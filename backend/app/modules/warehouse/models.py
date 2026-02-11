@@ -132,7 +132,3 @@ class ItemReceiveNote(Base):
     item_transfer_note = relationship(
         "ItemTransferNote", back_populates="receive_notes"
     )
-    # Relationships
-    item_transfer_note = relationship(
-        "ItemTransferNote", back_populates="receive_notes"
-    )

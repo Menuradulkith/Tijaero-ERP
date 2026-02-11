@@ -88,6 +88,11 @@ export const ROUTES = {
     VOUCHERS: '/finance/vouchers',
     PAYMENTS: '/finance/payments',
     LEDGER: '/finance/ledger',
+    CHART_OF_ACCOUNTS: '/finance/chart-of-accounts',
+    JOURNAL_ENTRIES: '/finance/journal-entries',
+    GENERAL_LEDGER: '/finance/general-ledger',
+    ACCOUNTING_PERIODS: '/finance/accounting-periods',
+    CASH_FLOW: '/finance/cash-flow',
   },
   
   // HR Module
@@ -100,6 +105,7 @@ export const ROUTES = {
     LEAVES: '/hr/leaves',
     PAYROLL: '/hr/payroll',
     PAYROLL_PROCESSING: '/hr/payroll-processing',
+    SALES_COMMISSIONS: '/hr/sales-commissions',
     SALARY_PROFILES: '/hr/salary-profiles',
     DEDUCTIONS: '/hr/deductions',
     REIMBURSEMENTS: '/hr/reimbursements',
