@@ -100,6 +100,7 @@ export const ROUTES = {
     LEAVES: '/hr/leaves',
     PAYROLL: '/hr/payroll',
     PAYROLL_PROCESSING: '/hr/payroll-processing',
+    SALES_COMMISSIONS: '/hr/sales-commissions',
     SALARY_PROFILES: '/hr/salary-profiles',
     DEDUCTIONS: '/hr/deductions',
     REIMBURSEMENTS: '/hr/reimbursements',

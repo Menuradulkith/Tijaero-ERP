@@ -304,3 +304,119 @@ export interface EmployeeAssetCreate {
   assign_reason?: string;
   revoke_assignment: boolean;
 }
+
+// =============================================================================
+// Sales Commission Types - Scenario 28A
+// =============================================================================
+
+// Monthly Branch Sales Summary
+export interface MonthlyBranchSalesSummary {
+  id: number;
+  branch_code: string;
+  fiscal_year: number;
+  fiscal_month: number;
+  month_name: string;
+  period_start_date: string;
+  period_end_date: string;
+  total_sales_revenue: number;
+  total_sales_cost: number;
+  total_sales_returns: number;
+  total_discounts: number;
+  net_sales_revenue: number;
+  gross_profit: number;
+  gross_profit_margin?: number;
+  total_invoices?: number;
+  status: string;
+  finalized_by?: number;
+  finalized_at?: string;
+  created_at?: string;
+  updated_at?: string;
+  branch_name?: string;
+  finalized_by_name?: string;
+}
+
+export interface MonthlyBranchSalesSummaryWithCommissions extends MonthlyBranchSalesSummary {
+  commissions: SalesOfficerCommission[];
+}
+
+export interface GenerateSalesSummaryRequest {
+  fiscal_year: number;
+  fiscal_month: number;
+  branch_code?: string;
+}
+
+export interface FinalizeSummaryRequest {
+  remarks?: string;
+}
+
+// Sales Officer Monthly Commission
+export interface SalesOfficerCommission {
+  id: number;
+  monthly_sales_summary_id: number;
+  employee_id: number;
+  branch_code: string;
+  fiscal_year: number;
+  fiscal_month: number;
+  branch_gross_profit: number;
+  commission_percentage: number;
+  total_commission_pool: number;
+  total_branch_employees: number;
+  individual_commission_amount: number;
+  status: string;
+  approved_by?: number;
+  approved_at?: string;
+  paid_in_payroll_id?: number;
+  remarks?: string;
+  created_at?: string;
+  updated_at?: string;
+  employee_name?: string;
+  branch_name?: string;
+  approved_by_name?: string;
+  month_name?: string;
+}
+
+export interface ApproveCommissionRequest {
+  remarks?: string;
+}
+
+export interface RejectCommissionRequest {
+  rejection_reason: string;
+}
+
+export interface BulkApproveCommissionsRequest {
+  commission_ids: number[];
+  remarks?: string;
+}
+
+// Dashboard Statistics
+export interface CommissionDashboardStats {
+  total_summaries_pending: number;
+  total_summaries_finalized: number;
+  total_commissions_pending: number;
+  total_commissions_approved: number;
+  total_commissions_paid: number;
+  total_pending_amount: number;
+  total_approved_amount: number;
+  total_paid_amount: number;
+}
+
+// Filters
+export interface SalesSummaryFilter {
+  branch_code?: string;
+  fiscal_year?: number;
+  fiscal_month?: number;
+  status?: string;
+  skip?: number;
+  limit?: number;
+}
+
+export interface SalesCommissionFilter {
+  employee_id?: number;
+  branch_code?: string;
+  fiscal_year?: number;
+  fiscal_month?: number;
+  status?: string;
+  monthly_sales_summary_id?: number;
+  skip?: number;
+  limit?: number;
+}

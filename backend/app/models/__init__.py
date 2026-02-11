@@ -36,6 +36,7 @@ from app.modules.finance.models import (
     Vouchers,
 )
 from app.modules.hr.models import Reimbursements, ReimbursementItem, SalaryDeductions, PayrollBatch
+from app.modules.hr.sales_commission_models import MonthlyBranchSalesSummary, SalesOfficerMonthlyCommission
 from app.modules.inventory.models import CompanyAssets, SalesStock
 from app.modules.marketing.models import AdvanceReceipt, WebPosts
 from app.modules.products.models import Category, ItemsBrand, MinimumPrice, Product

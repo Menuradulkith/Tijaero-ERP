@@ -10,6 +10,7 @@ export { default as PayrollProcessingPage } from "./pages/PayrollProcessingPage"
 export { default as PromotionsPage } from "./pages/PromotionsPage";
 export { default as ReimbursementsPage } from "./pages/ReimbursementsPage";
 export { default as SalaryProfilesPage } from "./pages/SalaryProfilesPage";
+export { default as SalesCommissionsPage } from "./pages/SalesCommissionsPage";
 
 // Routes
 export { default as HRRoutes } from "./routes";

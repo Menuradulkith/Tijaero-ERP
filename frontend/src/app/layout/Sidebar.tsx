@@ -174,6 +174,7 @@ const menuItems: MenuItem[] = [
       { text: "Deductions", icon: <ReceiptIcon />, path: "/hr/deductions" },
       { text: "Payroll Records", icon: <ReceiptLongIcon />, path: "/hr/payroll" },
       { text: "Payroll Processing", icon: <PaymentIcon />, path: "/hr/payroll-processing" },
+      { text: "Sales Commissions", icon: <SellIcon />, path: "/hr/sales-commissions" },
       { text: "Reimbursements", icon: <AccountBalanceWalletIcon />, path: "/hr/reimbursements" },
       { text: "Promotions", icon: <SellIcon />, path: "/hr/promotions" },
       { text: "Assets", icon: <Inventory2Icon />, path: "/hr/assets" },

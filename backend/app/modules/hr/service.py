@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from . import schemas
 from .models import SalaryDeductions, Reimbursements, ReimbursementItem, PayrollBatch
+from .sales_commission_models import SalesOfficerMonthlyCommission
 from app.modules.employees.models import Employee
 from app.modules.employees.models import EmployeePayroll, EmployeeSalaryProfile, EmployeePromotions, EmployeesAssets
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
@@ -469,13 +470,18 @@ class PayrollService:
             seq = 1
         return f"{prefix}{seq:03d}"
 
-    def _calculate_payroll(self, profile: EmployeeSalaryProfile, deductions: List[SalaryDeductions]) -> Dict[str, Decimal]:
-        """Calculate payroll for one employee based on salary profile and deductions."""
+    def _calculate_payroll(
+        self, 
+        profile: EmployeeSalaryProfile, 
+        deductions: List[SalaryDeductions],
+        sales_commission: Decimal = Decimal("0")
+    ) -> Dict[str, Decimal]:
+        """Calculate payroll for one employee based on salary profile, deductions, and commissions."""
         basic = profile.basic_salary or Decimal("0")
         add_1 = profile.add_1_value or Decimal("0")
         add_2 = profile.add_2_value or Decimal("0")
 
-        gross_salary = basic + add_1 + add_2
+        gross_salary = basic + add_1 + add_2 + sales_commission
 
         # Statutory deductions based on basic salary
         epf_employee = basic * self.EPF_EMPLOYEE_RATE
@@ -515,6 +521,7 @@ class PayrollService:
             "add_1_value": add_1,
             "add_2_name": profile.add_2_name,
             "add_2_value": add_2,
+            "add_sales_commision": sales_commission,
             "gross_salary": gross_salary,
             "less_epf_employee": epf_employee,
             "less_etf_employee": etf_employee,
@@ -619,17 +626,36 @@ class PayrollService:
         total_apit = Decimal("0")
         count = 0
 
+        # Get all approved sales commissions for this period (keyed by employee_id)
+        approved_commissions = self.db.query(SalesOfficerMonthlyCommission).filter(
+            SalesOfficerMonthlyCommission.fiscal_year == year,
+            SalesOfficerMonthlyCommission.fiscal_month == month,
+            SalesOfficerMonthlyCommission.status == "approved",
+        ).all()
+        # Build map: employee_id (int) -> total commission amount
+        commission_map: Dict[int, Decimal] = {}
+        for comm in approved_commissions:
+            if comm.employee_id not in commission_map:
+                commission_map[comm.employee_id] = Decimal("0")
+            commission_map[comm.employee_id] += comm.individual_commission_amount or Decimal("0")
+
         for profile in profiles:
+            # Get employee's internal id
+            emp_internal_id = self.db.query(Employee.id).filter(
+                Employee.employee_id == profile.employee_id
+            ).scalar()
+            
             # Get deductions for this employee and period
             deductions = self.db.query(SalaryDeductions).filter(
-                SalaryDeductions.employee_id == (
-                    self.db.query(Employee.id).filter(Employee.employee_id == profile.employee_id).scalar()
-                ),
+                SalaryDeductions.employee_id == emp_internal_id,
             ).all()
             # Filter period-specific deductions if deduction_period matches
             period_deductions = [d for d in deductions if not d.deduction_period or d.deduction_period == period_str]
 
-            calc = self._calculate_payroll(profile, period_deductions)
+            # Get approved sales commission for this employee
+            sales_commission = commission_map.get(emp_internal_id, Decimal("0"))
+
+            calc = self._calculate_payroll(profile, period_deductions, sales_commission)
 
             payroll_record = EmployeePayroll(
                 employee_id=profile.employee_id,
@@ -641,6 +667,7 @@ class PayrollService:
                 add_1_value=calc["add_1_value"],
                 add_2_name=calc["add_2_name"],
                 add_2_value=calc["add_2_value"],
+                add_sales_commision=calc["add_sales_commision"],
                 less_epf_employee=calc["less_epf_employee"],
                 less_etf_employee=calc["less_etf_employee"],
                 less_stamp_duty=calc["less_stamp_duty"],
@@ -774,16 +801,39 @@ class PayrollService:
         batch.status = "salary_paid"
         batch.salary_payment_date = payment_date
         batch.salary_payment_reference = data.payment_reference
-        # Update all payroll records
-        self.db.query(EmployeePayroll).filter(
+        
+        # Get all payroll records for this batch
+        payroll_records = self.db.query(EmployeePayroll).filter(
             EmployeePayroll.payroll_batch_no == batch.batch_no
+        ).all()
+        
+        # Update payroll records
+        for pr in payroll_records:
+            pr.payment_status = "paid"
+            pr.payment_date = payment_date
+            pr.payment_reference = data.payment_reference
+            pr.payment_method = data.payment_method
+            pr.status = "salary_paid"
+        
+        # Mark approved sales commissions as paid for employees in this batch
+        employee_ids = [pr.employee_id for pr in payroll_records]
+        employee_internal_ids = self.db.query(Employee.id).filter(
+            Employee.employee_id.in_(employee_ids)
+        ).all()
+        employee_internal_ids = [e[0] for e in employee_internal_ids]
+        
+        # Update commissions to paid status
+        self.db.query(SalesOfficerMonthlyCommission).filter(
+            SalesOfficerMonthlyCommission.fiscal_year == batch.payroll_year,
+            SalesOfficerMonthlyCommission.fiscal_month == batch.payroll_month,
+            SalesOfficerMonthlyCommission.employee_id.in_(employee_internal_ids),
+            SalesOfficerMonthlyCommission.status == "approved",
         ).update({
-            "payment_status": "paid",
-            "payment_date": payment_date,
-            "payment_reference": data.payment_reference,
-            "payment_method": data.payment_method,
-            "status": "salary_paid",
-        })
+            "status": "paid",
+            "paid_in_payroll_id": batch.id,
+            "updated_at": datetime.utcnow(),
+        }, synchronize_session=False)
+        
         self.db.commit()
         self.db.refresh(batch)
         return self._batch_to_response(batch, include_records=True)

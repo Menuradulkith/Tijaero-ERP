@@ -22,6 +22,17 @@ import {
   PayrollBatchReject,
   PayrollBatchProcessPayment,
   PayrollBatchProcessStatutory,
+  MonthlyBranchSalesSummary,
+  MonthlyBranchSalesSummaryWithCommissions,
+  GenerateSalesSummaryRequest,
+  FinalizeSummaryRequest,
+  SalesOfficerCommission,
+  ApproveCommissionRequest,
+  RejectCommissionRequest,
+  BulkApproveCommissionsRequest,
+  CommissionDashboardStats,
+  SalesSummaryFilter,
+  SalesCommissionFilter,
 } from "./types";
 
 // Salary Deductions API
@@ -390,5 +401,134 @@ export const employeeAssetsApi = {
 
   delete: async (id: number) => {
     await apiClient.delete(`/hr/employee-assets/${id}`);
+  },
+};
+
+// =============================================================================
+// Sales Commission API - Scenario 28A
+// =============================================================================
+
+// Monthly Branch Sales Summary API
+export const salesSummaryApi = {
+  // Generate monthly summary for branch(es)
+  generate: async (data: GenerateSalesSummaryRequest) => {
+    const response = await apiClient.post<MonthlyBranchSalesSummary[]>(
+      "/hr/sales-commissions/summaries/generate",
+      data
+    );
+    return response.data;
+  },
+
+  // List all summaries with optional filters
+  getAll: async (params?: SalesSummaryFilter) => {
+    const response = await apiClient.get<MonthlyBranchSalesSummary[]>(
+      "/hr/sales-commissions/summaries",
+      { params }
+    );
+    return response.data;
+  },
+
+  // Get a single summary with its commissions
+  getById: async (id: number) => {
+    const response = await apiClient.get<MonthlyBranchSalesSummaryWithCommissions>(
+      `/hr/sales-commissions/summaries/${id}`
+    );
+    return response.data;
+  },
+
+  // Finalize a summary (step 2 in workflow)
+  finalize: async (id: number, data?: FinalizeSummaryRequest) => {
+    const response = await apiClient.post<MonthlyBranchSalesSummary>(
+      `/hr/sales-commissions/summaries/${id}/finalize`,
+      data || {}
+    );
+    return response.data;
+  },
+
+  // Calculate commissions for a finalized summary (step 3)
+  calculateCommissions: async (id: number, commissionPercentage?: number) => {
+    const params = commissionPercentage ? { commission_percentage: commissionPercentage } : undefined;
+    const response = await apiClient.post<SalesOfficerCommission[]>(
+      `/hr/sales-commissions/summaries/${id}/calculate-commissions`,
+      null,
+      { params }
+    );
+    return response.data;
+  },
+};
+
+// Sales Officer Commission API
+export const salesCommissionApi = {
+  // List all commissions with optional filters
+  getAll: async (params?: SalesCommissionFilter) => {
+    const response = await apiClient.get<SalesOfficerCommission[]>(
+      "/hr/sales-commissions/commissions",
+      { params }
+    );
+    return response.data;
+  },
+
+  // Get a single commission
+  getById: async (id: number) => {
+    const response = await apiClient.get<SalesOfficerCommission>(
+      `/hr/sales-commissions/commissions/${id}`
+    );
+    return response.data;
+  },
+
+  // Approve a commission
+  approve: async (id: number, data?: ApproveCommissionRequest) => {
+    const response = await apiClient.post<SalesOfficerCommission>(
+      `/hr/sales-commissions/commissions/${id}/approve`,
+      data || {}
+    );
+    return response.data;
+  },
+
+  // Bulk approve commissions
+  bulkApprove: async (data: BulkApproveCommissionsRequest) => {
+    const response = await apiClient.post<SalesOfficerCommission[]>(
+      "/hr/sales-commissions/commissions/bulk-approve",
+      data
+    );
+    return response.data;
+  },
+
+  // Reject a commission
+  reject: async (id: number, data: RejectCommissionRequest) => {
+    const response = await apiClient.post<SalesOfficerCommission>(
+      `/hr/sales-commissions/commissions/${id}/reject`,
+      data
+    );
+    return response.data;
+  },
+
+  // Get approved commissions ready for payroll
+  getPayrollReady: async (fiscalYear: number, fiscalMonth: number, employeeId?: number) => {
+    const params: Record<string, unknown> = { fiscal_year: fiscalYear, fiscal_month: fiscalMonth };
+    if (employeeId) params.employee_id = employeeId;
+    const response = await apiClient.get<SalesOfficerCommission[]>(
+      "/hr/sales-commissions/payroll-ready",
+      { params }
+    );
+    return response.data;
+  },
+
+  // Mark commission as paid
+  markPaid: async (id: number, payrollId: number) => {
+    const response = await apiClient.post<SalesOfficerCommission>(
+      `/hr/sales-commissions/commissions/${id}/mark-paid`,
+      null,
+      { params: { payroll_id: payrollId } }
+    );
+    return response.data;
+  },
+
+  // Get dashboard statistics
+  getDashboardStats: async () => {
+    const response = await apiClient.get<CommissionDashboardStats>(
+      "/hr/sales-commissions/dashboard/stats"
+    );
+    return response.data;
   },
 };
