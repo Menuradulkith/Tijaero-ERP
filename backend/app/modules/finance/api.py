@@ -111,36 +111,62 @@ def list_cheque_payments(
     return payment_service.list_payments(filters)
 
 @router.post("/expenses", response_model=schemas.Expense, status_code=status.HTTP_201_CREATED)
-def create_expense(
-    expense: schemas.ExpenseCreate,
-    db: Session = Depends(get_db)
-):
-    expense_service = service.ExpenseService(db)
-    return expense_service.create_expense(expense)
+def create_expense(expense: schemas.ExpenseCreate, db: Session = Depends(get_db)):
+    return service.ExpenseService(db).create_expense(expense)
+
+@router.put("/expenses/{expense_id}", response_model=schemas.Expense)
+def update_expense(expense_id: int, data: schemas.ExpenseUpdate, db: Session = Depends(get_db)):
+    return service.ExpenseService(db).update_expense(expense_id, data)
 
 @router.get("/expenses/{expense_id}", response_model=schemas.Expense)
 def get_expense(expense_id: int, db: Session = Depends(get_db)):
-    expense_service = service.ExpenseService(db)
-    return expense_service.get_expense(expense_id)
+    return service.ExpenseService(db).get_expense(expense_id)
 
-@router.get("/expenses", response_model=List[schemas.Expense])
+@router.get("/expenses")
 def list_expenses(
     branch_code: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    expense_category: Optional[str] = None,
+    payment_status: Optional[str] = None,
+    search: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
-    expense_service = service.ExpenseService(db)
-    filters = schemas.ExpenseListFilter(
-        branch_code=branch_code,
+    return service.ExpenseService(db).list_expenses(schemas.ExpenseListFilter(
+        branch_code=branch_code, status=status_filter, expense_category=expense_category,
+        payment_status=payment_status, search=search,
         date_from=date.fromisoformat(date_from) if date_from else None,
         date_to=date.fromisoformat(date_to) if date_to else None,
-        skip=skip,
-        limit=limit
-    )
-    return expense_service.list_expenses(filters)
+        skip=skip, limit=limit,
+    ))
+
+@router.delete("/expenses/{expense_id}")
+def delete_expense(expense_id: int, db: Session = Depends(get_db)):
+    service.ExpenseService(db).delete_expense(expense_id)
+    return {"message": "Expense deleted successfully"}
+
+@router.post("/expenses/{expense_id}/submit", response_model=schemas.Expense)
+def submit_expense(expense_id: int, db: Session = Depends(get_db)):
+    return service.ExpenseService(db).submit_expense(expense_id, submitted_by=0)
+
+@router.post("/expenses/{expense_id}/approve", response_model=schemas.Expense)
+def approve_expense(expense_id: int, data: schemas.ExpenseApproval = None, db: Session = Depends(get_db)):
+    return service.ExpenseService(db).approve_expense(expense_id, approved_by=0, remarks=data.remarks if data else None)
+
+@router.post("/expenses/{expense_id}/reject", response_model=schemas.Expense)
+def reject_expense(expense_id: int, data: schemas.ExpenseReject, db: Session = Depends(get_db)):
+    return service.ExpenseService(db).reject_expense(expense_id, rejected_by=0, rejection_reason=data.rejection_reason)
+
+@router.post("/expenses/{expense_id}/process-payment", response_model=schemas.Expense)
+def process_expense_payment(expense_id: int, data: schemas.ExpensePayment, db: Session = Depends(get_db)):
+    return service.ExpenseService(db).process_payment(expense_id, data, processed_by=0)
+
+@router.post("/expenses/{expense_id}/record", response_model=schemas.Expense)
+def record_expense(expense_id: int, data: schemas.ExpenseRecord, db: Session = Depends(get_db)):
+    return service.ExpenseService(db).record_expense(expense_id, data)
 
 @router.post("/advance-payments", response_model=schemas.CustomerAdvancePayment, status_code=status.HTTP_201_CREATED)
 def create_advance_payment(

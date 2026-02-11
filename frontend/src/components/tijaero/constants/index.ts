@@ -106,6 +106,68 @@ export const EXPENSES_METHOD = [
   { value: 'other_expenses', label: 'Other Expenses' },
 ] as const;
 
+export const EXPENSE_CATEGORIES = [
+  { value: 'travel_transportation', label: 'Travel & Transportation' },
+  { value: 'utilities', label: 'Utilities (Electricity, Water, Internet)' },
+  { value: 'office_supplies', label: 'Office Supplies' },
+  { value: 'maintenance_repairs', label: 'Maintenance & Repairs' },
+  { value: 'professional_services', label: 'Professional Services' },
+  { value: 'marketing_advertising', label: 'Marketing & Advertising' },
+  { value: 'meal_expenses', label: 'Meal Expenses' },
+  { value: 'salary_expenses', label: 'Salary Expenses' },
+  { value: 'commissions', label: 'Commissions' },
+  { value: 'miscellaneous', label: 'Miscellaneous' },
+] as const;
+
+export const EXPENSE_TYPES = [
+  { value: 'operational', label: 'Operational' },
+  { value: 'capital', label: 'Capital' },
+  { value: 'petty_cash', label: 'Petty Cash' },
+] as const;
+
+export const EXPENSE_PAYMENT_METHODS = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'petty_cash', label: 'Petty Cash' },
+] as const;
+
+// =============================================================================
+// REIMBURSEMENT
+// =============================================================================
+
+export const REIMBURSEMENT_TYPES = [
+  { value: 'travel', label: 'Travel Expenses' },
+  { value: 'accommodation', label: 'Accommodation' },
+  { value: 'meals', label: 'Meals & Entertainment' },
+  { value: 'medical', label: 'Medical Expenses' },
+  { value: 'training', label: 'Training & Education' },
+  { value: 'client_entertainment', label: 'Client Entertainment' },
+  { value: 'communication', label: 'Mobile/Communication' },
+  { value: 'office_supplies', label: 'Office Supplies' },
+  { value: 'transport', label: 'Transport/Fuel' },
+  { value: 'general', label: 'General/Other' },
+] as const;
+
+export const REIMBURSEMENT_EXPENSE_TYPES = [
+  { value: 'transport', label: 'Transport/Fuel' },
+  { value: 'accommodation', label: 'Accommodation' },
+  { value: 'meals', label: 'Meals' },
+  { value: 'communication', label: 'Communication' },
+  { value: 'medical', label: 'Medical' },
+  { value: 'training', label: 'Training' },
+  { value: 'supplies', label: 'Supplies' },
+  { value: 'entertainment', label: 'Entertainment' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+export const REIMBURSEMENT_PAYMENT_METHODS = [
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'with_salary', label: 'With Salary' },
+  { value: 'cheque', label: 'Cheque' },
+] as const;
+
 // =============================================================================
 // PRODUCT/INVENTORY
 // =============================================================================

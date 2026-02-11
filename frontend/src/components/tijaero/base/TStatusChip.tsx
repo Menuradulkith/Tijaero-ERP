@@ -239,6 +239,39 @@ export const STATUS_MAPS = {
     verified: { label: "Verified", color: "success" as StatusColor },
     rejected: { label: "Rejected", color: "error" as StatusColor },
   },
+
+  // Expense status
+  expenseStatus: {
+    pending: { label: "Pending", color: "default" as StatusColor },
+    submitted: { label: "Submitted", color: "info" as StatusColor },
+    approved: { label: "Approved", color: "success" as StatusColor },
+    rejected: { label: "Rejected", color: "error" as StatusColor },
+    paid: { label: "Paid", color: "primary" as StatusColor },
+    recorded: { label: "Recorded", color: "secondary" as StatusColor },
+  },
+
+  // Reimbursement status
+  reimbursementStatus: {
+    pending: { label: "Pending", color: "warning" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
+    partial_approved: { label: "Partial Approved", color: "secondary" as StatusColor },
+    rejected: { label: "Rejected", color: "error" as StatusColor },
+    verified: { label: "Verified", color: "success" as StatusColor },
+    paid: { label: "Paid", color: "primary" as StatusColor },
+    completed: { label: "Completed", color: "success" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
+  },
+
+  // Payroll batch status
+  payrollStatus: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    pending_approval: { label: "Pending Approval", color: "warning" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
+    salary_paid: { label: "Salary Paid", color: "primary" as StatusColor },
+    statutory_paid: { label: "Statutory Paid", color: "secondary" as StatusColor },
+    completed: { label: "Completed", color: "success" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
+  },
 } as const;
 
 export type StatusMapName = keyof typeof STATUS_MAPS;

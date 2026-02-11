@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
 from app.db.session import get_db
+from app.auth.dependencies import get_current_user
+from app.auth.models import User
 from . import schemas, service
 
 router = APIRouter(prefix="/hr", tags=["hr"])
@@ -59,56 +61,115 @@ def delete_salary_deduction(deduction_id: int, db: Session = Depends(get_db)):
 @router.post("/reimbursements", response_model=schemas.Reimbursement, status_code=status.HTTP_201_CREATED)
 def create_reimbursement(
     reimbursement: schemas.ReimbursementCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Create a new reimbursement"""
+    """Create a new reimbursement claim with line items."""
     reimbursement_service = service.ReimbursementService(db)
-    return reimbursement_service.create_reimbursement(reimbursement)
+    return reimbursement_service.create_reimbursement(reimbursement, created_by=current_user.id)
 
 @router.get("/reimbursements/{reimbursement_id}", response_model=schemas.Reimbursement)
-def get_reimbursement(reimbursement_id: int, db: Session = Depends(get_db)):
-    """Get reimbursement by ID"""
+def get_reimbursement(
+    reimbursement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get reimbursement by ID with items."""
     reimbursement_service = service.ReimbursementService(db)
     return reimbursement_service.get_reimbursement(reimbursement_id)
 
 @router.get("/reimbursements", response_model=List[schemas.Reimbursement])
 def list_reimbursements(
     employee_id: Optional[str] = None,
+    branch_code: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """List all reimbursements with optional filters"""
+    """List all reimbursements with optional filters."""
     reimbursement_service = service.ReimbursementService(db)
-    filters = schemas.HRListFilter(
+    filters = schemas.ReimbursementListFilter(
         employee_id=employee_id,
+        branch_code=branch_code,
+        status=status_filter,
         date_from=date.fromisoformat(date_from) if date_from else None,
         date_to=date.fromisoformat(date_to) if date_to else None,
         skip=skip,
-        limit=limit
+        limit=limit,
     )
     return reimbursement_service.list_reimbursements(filters)
 
-@router.put("/reimbursements/{reimbursement_id}", response_model=schemas.Reimbursement)
+@router.patch("/reimbursements/{reimbursement_id}", response_model=schemas.Reimbursement)
 def update_reimbursement(
     reimbursement_id: int,
-    reimbursement: schemas.ReimbursementCreate,
-    db: Session = Depends(get_db)
+    reimbursement: schemas.ReimbursementUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Update a reimbursement"""
+    """Update a pending reimbursement."""
     reimbursement_service = service.ReimbursementService(db)
     return reimbursement_service.update_reimbursement(reimbursement_id, reimbursement)
 
+@router.post("/reimbursements/{reimbursement_id}/approve", response_model=schemas.Reimbursement)
+def approve_reimbursement(
+    reimbursement_id: int,
+    data: schemas.ReimbursementApprove,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Approve or partially approve a reimbursement claim."""
+    reimbursement_service = service.ReimbursementService(db)
+    return reimbursement_service.approve_reimbursement(reimbursement_id, data, current_user.id)
+
+@router.post("/reimbursements/{reimbursement_id}/reject", response_model=schemas.Reimbursement)
+def reject_reimbursement(
+    reimbursement_id: int,
+    data: schemas.ReimbursementReject,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Reject a reimbursement claim."""
+    reimbursement_service = service.ReimbursementService(db)
+    return reimbursement_service.reject_reimbursement(reimbursement_id, data, current_user.id)
+
+@router.post("/reimbursements/{reimbursement_id}/verify", response_model=schemas.Reimbursement)
+def verify_reimbursement(
+    reimbursement_id: int,
+    data: schemas.ReimbursementVerify,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Finance verification of an approved reimbursement."""
+    reimbursement_service = service.ReimbursementService(db)
+    return reimbursement_service.verify_reimbursement(reimbursement_id, data, current_user.id)
+
+@router.post("/reimbursements/{reimbursement_id}/pay", response_model=schemas.Reimbursement)
+def process_reimbursement_payment(
+    reimbursement_id: int,
+    data: schemas.ReimbursementPayment,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Process payment for a verified reimbursement."""
+    reimbursement_service = service.ReimbursementService(db)
+    return reimbursement_service.process_payment(reimbursement_id, data, current_user.id)
+
 @router.delete("/reimbursements/{reimbursement_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_reimbursement(reimbursement_id: int, db: Session = Depends(get_db)):
-    """Delete a reimbursement"""
+def delete_reimbursement(
+    reimbursement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a pending/rejected reimbursement."""
     reimbursement_service = service.ReimbursementService(db)
     reimbursement_service.delete_reimbursement(reimbursement_id)
 
 # Payroll Endpoints
-@router.post("/payroll", response_model=schemas.EmployeePayroll, status_code=status.HTTP_201_CREATED)
+@router.post("/payroll", response_model=schemas.EmployeePayrollResponse, status_code=status.HTTP_201_CREATED)
 def create_payroll(
     payroll: schemas.EmployeePayrollCreate,
     db: Session = Depends(get_db)
@@ -117,13 +178,13 @@ def create_payroll(
     payroll_service = service.PayrollService(db)
     return payroll_service.create_payroll(payroll)
 
-@router.get("/payroll/{payroll_id}", response_model=schemas.EmployeePayroll)
+@router.get("/payroll/{payroll_id}", response_model=schemas.EmployeePayrollResponse)
 def get_payroll(payroll_id: int, db: Session = Depends(get_db)):
     """Get payroll by ID"""
     payroll_service = service.PayrollService(db)
     return payroll_service.get_payroll(payroll_id)
 
-@router.get("/payroll", response_model=List[schemas.EmployeePayroll])
+@router.get("/payroll", response_model=List[schemas.EmployeePayrollResponse])
 def list_payrolls(
     employee_id: Optional[str] = None,
     skip: int = Query(0, ge=0),
@@ -139,7 +200,7 @@ def list_payrolls(
     )
     return payroll_service.list_payrolls(filters)
 
-@router.put("/payroll/{payroll_id}", response_model=schemas.EmployeePayroll)
+@router.put("/payroll/{payroll_id}", response_model=schemas.EmployeePayrollResponse)
 def update_payroll(
     payroll_id: int,
     payroll: schemas.EmployeePayrollCreate,
@@ -155,6 +216,123 @@ def delete_payroll(payroll_id: int, db: Session = Depends(get_db)):
     payroll_service = service.PayrollService(db)
     payroll_service.delete_payroll(payroll_id)
 
+# --- Payroll Batch / Workflow Endpoints ---
+
+@router.post("/payroll/run", response_model=schemas.PayrollBatchResponse, status_code=status.HTTP_201_CREATED)
+def trigger_payroll_run(
+    data: schemas.PayrollRunRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Step 3: Trigger payroll processing. Generates payroll records for all employees with salary profiles."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.trigger_payroll_run(data, current_user.id)
+
+@router.get("/payroll/batches", response_model=List[schemas.PayrollBatchResponse])
+def list_payroll_batches(
+    payroll_month: Optional[int] = None,
+    payroll_year: Optional[int] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all payroll batches with optional filters."""
+    payroll_service = service.PayrollService(db)
+    filters = schemas.PayrollBatchListFilter(
+        payroll_month=payroll_month,
+        payroll_year=payroll_year,
+        status=status_filter,
+        skip=skip,
+        limit=limit,
+    )
+    return payroll_service.list_batches(filters)
+
+@router.get("/payroll/batches/{batch_id}", response_model=schemas.PayrollBatchResponse)
+def get_payroll_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get payroll batch by ID with all payroll records."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.get_batch(batch_id)
+
+@router.post("/payroll/batches/{batch_id}/submit", response_model=schemas.PayrollBatchResponse)
+def submit_payroll_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Step 5: Submit payroll batch for approval after review."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.submit_batch(batch_id, current_user.id)
+
+@router.post("/payroll/batches/{batch_id}/approve", response_model=schemas.PayrollBatchResponse)
+def approve_payroll_batch(
+    batch_id: int,
+    data: schemas.PayrollBatchApprove,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Step 6: Approve payroll batch."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.approve_batch(batch_id, data, current_user.id)
+
+@router.post("/payroll/batches/{batch_id}/reject", response_model=schemas.PayrollBatchResponse)
+def reject_payroll_batch(
+    batch_id: int,
+    data: schemas.PayrollBatchReject,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Reject payroll batch back to draft."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.reject_batch(batch_id, data, current_user.id)
+
+@router.post("/payroll/batches/{batch_id}/process-payment", response_model=schemas.PayrollBatchResponse)
+def process_salary_payment(
+    batch_id: int,
+    data: schemas.PayrollBatchProcessPayment,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Step 7: Process salary payments for all employees in the batch."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.process_salary_payment(batch_id, data, current_user.id)
+
+@router.post("/payroll/batches/{batch_id}/process-statutory", response_model=schemas.PayrollBatchResponse)
+def process_statutory_payment(
+    batch_id: int,
+    data: schemas.PayrollBatchProcessStatutory,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Step 8: Process statutory payments (EPF/ETF) for the batch."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.process_statutory_payment(batch_id, data, current_user.id)
+
+@router.post("/payroll/batches/{batch_id}/complete", response_model=schemas.PayrollBatchResponse)
+def complete_payroll_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Step 10: Complete the payroll cycle."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.complete_batch(batch_id, current_user.id)
+
+@router.post("/payroll/batches/{batch_id}/cancel", response_model=schemas.PayrollBatchResponse)
+def cancel_payroll_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel a payroll batch (only if not yet paid)."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.cancel_batch(batch_id, current_user.id)
+
 # Salary Profile Endpoints
 @router.post("/salary-profiles", response_model=schemas.EmployeeSalaryProfile, status_code=status.HTTP_201_CREATED)
 def create_salary_profile(
@@ -164,6 +342,12 @@ def create_salary_profile(
     """Create a new salary profile"""
     profile_service = service.SalaryProfileService(db)
     return profile_service.create_profile(profile)
+
+@router.get("/salary-profiles", response_model=List[schemas.EmployeeSalaryProfile])
+def list_salary_profiles(db: Session = Depends(get_db)):
+    """List all salary profiles"""
+    profile_service = service.SalaryProfileService(db)
+    return profile_service.list_profiles()
 
 @router.get("/salary-profiles/{profile_id}", response_model=schemas.EmployeeSalaryProfile)
 def get_salary_profile(profile_id: int, db: Session = Depends(get_db)):

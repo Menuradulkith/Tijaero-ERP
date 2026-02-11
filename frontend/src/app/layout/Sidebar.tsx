@@ -157,6 +157,7 @@ const menuItems: MenuItem[] = [
         path: "/finance/approvals",
         subItems: [
           { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/finance/approvals/payment-approvals" },
+          { text: "Expense Approvals", icon: <FactCheckIcon />, path: "/finance/approvals/expense-approvals" },
           { text: "Bank Transfer Verify", icon: <AccountBalanceIcon />, path: "/finance/approvals/bank-transfer-verify" },
         ],
       },
@@ -167,6 +168,16 @@ const menuItems: MenuItem[] = [
     icon: <GroupIcon />,
     path: "/hr",
     permission: PERMISSIONS.HR_VIEW,
+    subItems: [
+      { text: "Dashboard", icon: <SpeedIcon />, path: "/hr" },
+      { text: "Salary Profiles", icon: <PersonIcon />, path: "/hr/salary-profiles" },
+      { text: "Deductions", icon: <ReceiptIcon />, path: "/hr/deductions" },
+      { text: "Payroll Records", icon: <ReceiptLongIcon />, path: "/hr/payroll" },
+      { text: "Payroll Processing", icon: <PaymentIcon />, path: "/hr/payroll-processing" },
+      { text: "Reimbursements", icon: <AccountBalanceWalletIcon />, path: "/hr/reimbursements" },
+      { text: "Promotions", icon: <SellIcon />, path: "/hr/promotions" },
+      { text: "Assets", icon: <Inventory2Icon />, path: "/hr/assets" },
+    ],
   },
   {
     text: "Sales Stock",

@@ -287,6 +287,11 @@ def approve_request(
                 from app.modules.warehouse.service import ItemTransferNoteService
                 transfer_service = ItemTransferNoteService(db)
                 transfer_service.approve_transfer_note(reference_id, user_id=current_user.id, remarks=request.remarks)
+            elif approval_type == ApprovalType.REIMBURSEMENT.value:
+                from app.modules.hr.service import ReimbursementService
+                from app.modules.hr.schemas import ReimbursementApprove
+                rmb_service = ReimbursementService(db)
+                rmb_service.approve_reimbursement(reference_id, ReimbursementApprove(remarks=request.remarks), current_user.id)
             else:
                 # Generic approval update
                 approval.status = 'approved'
@@ -357,6 +362,11 @@ def reject_request(
                 from app.modules.warehouse.service import ItemTransferNoteService
                 transfer_service = ItemTransferNoteService(db)
                 transfer_service.reject_transfer_note(reference_id, user_id=current_user.id, remarks=request.remarks)
+            elif approval_type == ApprovalType.REIMBURSEMENT.value:
+                from app.modules.hr.service import ReimbursementService
+                from app.modules.hr.schemas import ReimbursementReject
+                rmb_service = ReimbursementService(db)
+                rmb_service.reject_reimbursement(reference_id, ReimbursementReject(rejection_reason=request.remarks or "Rejected"), current_user.id)
             elif approval_type == ApprovalType.SALES_ORDER.value:
                 # Cancel the credit sales order
                 from app.modules.sales.service import sales_service

@@ -80,21 +80,99 @@ class ChequePaymentService:
 class ExpenseService:
     def __init__(self, db: Session):
         self.repo = repository.ExpenseRepository(db)
-    
-    def create_expense(self, expense: schemas.ExpenseCreate) -> models.Expenses:
-        return self.repo.create(expense)
-    
+        self.db = db
+
+    def create_expense(self, expense: schemas.ExpenseCreate, submitted_by: int = None) -> models.Expenses:
+        return self.repo.create(expense, submitted_by=submitted_by)
+
+    def update_expense(self, expense_id: int, data: schemas.ExpenseUpdate) -> models.Expenses:
+        expense = self.get_expense(expense_id)
+        if expense.status not in ("pending", "rejected"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot update expense in '{expense.status}' status")
+        return self.repo.update(expense_id, data)
+
     def get_expense(self, expense_id: int) -> models.Expenses:
         expense = self.repo.get_by_id(expense_id)
         if not expense:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Expense with id {expense_id} not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
         return expense
-    
-    def list_expenses(self, filters: schemas.ExpenseListFilter) -> List[models.Expenses]:
-        return self.repo.get_all(filters)
+
+    def list_expenses(self, filters: schemas.ExpenseListFilter) -> dict:
+        items, total = self.repo.get_all(filters)
+        return {"items": items, "total": total}
+
+    def submit_expense(self, expense_id: int, submitted_by: int) -> models.Expenses:
+        expense = self.get_expense(expense_id)
+        if expense.status not in ("pending", "rejected"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot submit expense in '{expense.status}' status")
+        expense.status = "submitted"
+        expense.submitted_by = submitted_by
+        expense.rejection_reason = None
+        self.db.commit()
+        self.db.refresh(expense)
+        return expense
+
+    def approve_expense(self, expense_id: int, approved_by: int, remarks: str = None) -> models.Expenses:
+        from datetime import datetime
+        expense = self.get_expense(expense_id)
+        if expense.status != "submitted":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot approve expense in '{expense.status}' status")
+        expense.status = "approved"
+        expense.approved_by = approved_by
+        expense.approved_date = datetime.now()
+        if remarks:
+            expense.remarks = (expense.remarks or "") + f"\n[Approval] {remarks}"
+        self.db.commit()
+        self.db.refresh(expense)
+        return expense
+
+    def reject_expense(self, expense_id: int, rejected_by: int, rejection_reason: str) -> models.Expenses:
+        expense = self.get_expense(expense_id)
+        if expense.status != "submitted":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot reject expense in '{expense.status}' status")
+        expense.status = "rejected"
+        expense.approved_by = rejected_by
+        expense.rejection_reason = rejection_reason
+        self.db.commit()
+        self.db.refresh(expense)
+        return expense
+
+    def process_payment(self, expense_id: int, payment_data: schemas.ExpensePayment, processed_by: int) -> models.Expenses:
+        from datetime import date as date_type
+        expense = self.get_expense(expense_id)
+        if expense.status != "approved":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot process payment for expense in '{expense.status}' status")
+        expense.payment_status = "paid"
+        expense.payment_method = payment_data.payment_method
+        expense.payment_reference = payment_data.payment_reference
+        expense.payment_date = payment_data.payment_date or date_type.today()
+        expense.status = "paid"
+        if payment_data.remarks:
+            expense.remarks = (expense.remarks or "") + f"\n[Payment] {payment_data.remarks}"
+        self.db.commit()
+        self.db.refresh(expense)
+        return expense
+
+    def record_expense(self, expense_id: int, record_data: schemas.ExpenseRecord) -> models.Expenses:
+        expense = self.get_expense(expense_id)
+        if expense.status != "paid":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot record expense in '{expense.status}' status")
+        expense.account_code = record_data.account_code
+        expense.cost_center = record_data.cost_center
+        expense.status = "recorded"
+        if record_data.remarks:
+            expense.remarks = (expense.remarks or "") + f"\n[Recording] {record_data.remarks}"
+        self.db.commit()
+        self.db.refresh(expense)
+        return expense
+
+    def delete_expense(self, expense_id: int) -> bool:
+        expense = self.get_expense(expense_id)
+        if expense.status not in ("pending", "rejected"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot delete expense in '{expense.status}' status")
+        self.db.delete(expense)
+        self.db.commit()
+        return True
 
 class CustomerAdvancePaymentService:
     def __init__(self, db: Session):

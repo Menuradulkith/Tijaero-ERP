@@ -4,6 +4,10 @@ import {
   SalaryDeductionCreate,
   Reimbursement,
   ReimbursementCreate,
+  ReimbursementApprove,
+  ReimbursementReject,
+  ReimbursementVerify,
+  ReimbursementPayment,
   EmployeePayroll,
   EmployeePayrollCreate,
   EmployeeSalaryProfile,
@@ -12,6 +16,12 @@ import {
   EmployeePromotionCreate,
   EmployeeAsset,
   EmployeeAssetCreate,
+  PayrollBatch,
+  PayrollRunRequest,
+  PayrollBatchApprove,
+  PayrollBatchReject,
+  PayrollBatchProcessPayment,
+  PayrollBatchProcessStatutory,
 } from "./types";
 
 // Salary Deductions API
@@ -59,6 +69,8 @@ export const salaryDeductionsApi = {
 export const reimbursementsApi = {
   getAll: async (params?: {
     employee_id?: string;
+    branch_code?: string;
+    status?: string;
     date_from?: string;
     date_to?: string;
     skip?: number;
@@ -86,9 +98,41 @@ export const reimbursementsApi = {
     return response.data;
   },
 
-  update: async (id: number, data: ReimbursementCreate) => {
-    const response = await apiClient.put<Reimbursement>(
+  update: async (id: number, data: Partial<ReimbursementCreate>) => {
+    const response = await apiClient.patch<Reimbursement>(
       `/hr/reimbursements/${id}`,
+      data
+    );
+    return response.data;
+  },
+
+  approve: async (id: number, data: ReimbursementApprove) => {
+    const response = await apiClient.post<Reimbursement>(
+      `/hr/reimbursements/${id}/approve`,
+      data
+    );
+    return response.data;
+  },
+
+  reject: async (id: number, data: ReimbursementReject) => {
+    const response = await apiClient.post<Reimbursement>(
+      `/hr/reimbursements/${id}/reject`,
+      data
+    );
+    return response.data;
+  },
+
+  verify: async (id: number, data: ReimbursementVerify) => {
+    const response = await apiClient.post<Reimbursement>(
+      `/hr/reimbursements/${id}/verify`,
+      data
+    );
+    return response.data;
+  },
+
+  processPayment: async (id: number, data: ReimbursementPayment) => {
+    const response = await apiClient.post<Reimbursement>(
+      `/hr/reimbursements/${id}/pay`,
       data
     );
     return response.data;
@@ -135,8 +179,99 @@ export const payrollApi = {
   },
 };
 
+// Payroll Batch API (workflow)
+export const payrollBatchApi = {
+  getAll: async (params?: {
+    payroll_month?: number;
+    payroll_year?: number;
+    status?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<PayrollBatch[]>("/hr/payroll/batches", {
+      params,
+    });
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<PayrollBatch>(
+      `/hr/payroll/batches/${id}`
+    );
+    return response.data;
+  },
+
+  run: async (data: PayrollRunRequest) => {
+    const response = await apiClient.post<PayrollBatch>(
+      "/hr/payroll/run",
+      data
+    );
+    return response.data;
+  },
+
+  submit: async (id: number) => {
+    const response = await apiClient.post<PayrollBatch>(
+      `/hr/payroll/batches/${id}/submit`
+    );
+    return response.data;
+  },
+
+  approve: async (id: number, data: PayrollBatchApprove) => {
+    const response = await apiClient.post<PayrollBatch>(
+      `/hr/payroll/batches/${id}/approve`,
+      data
+    );
+    return response.data;
+  },
+
+  reject: async (id: number, data: PayrollBatchReject) => {
+    const response = await apiClient.post<PayrollBatch>(
+      `/hr/payroll/batches/${id}/reject`,
+      data
+    );
+    return response.data;
+  },
+
+  processPayment: async (id: number, data: PayrollBatchProcessPayment) => {
+    const response = await apiClient.post<PayrollBatch>(
+      `/hr/payroll/batches/${id}/process-payment`,
+      data
+    );
+    return response.data;
+  },
+
+  processStatutory: async (id: number, data: PayrollBatchProcessStatutory) => {
+    const response = await apiClient.post<PayrollBatch>(
+      `/hr/payroll/batches/${id}/process-statutory`,
+      data
+    );
+    return response.data;
+  },
+
+  complete: async (id: number) => {
+    const response = await apiClient.post<PayrollBatch>(
+      `/hr/payroll/batches/${id}/complete`
+    );
+    return response.data;
+  },
+
+  cancel: async (id: number) => {
+    const response = await apiClient.post<PayrollBatch>(
+      `/hr/payroll/batches/${id}/cancel`
+    );
+    return response.data;
+  },
+};
+
 // Salary Profiles API
 export const salaryProfilesApi = {
+  getAll: async () => {
+    const response = await apiClient.get<EmployeeSalaryProfile[]>(
+      "/hr/salary-profiles"
+    );
+    return response.data;
+  },
+
   getById: async (id: number) => {
     const response = await apiClient.get<EmployeeSalaryProfile>(
       `/hr/salary-profiles/${id}`

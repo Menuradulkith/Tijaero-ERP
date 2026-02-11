@@ -61,7 +61,8 @@ export {
   GRN_STATUS_FILTER_OPTIONS,
   INVOICE_STATUS_FILTER_OPTIONS, PO_STATUS_FILTER_OPTIONS,
   RETURN_STATUS_FILTER_OPTIONS, SALES_STATUS_FILTER_OPTIONS,
-  SERVICE_JOB_STATUS_FILTER_OPTIONS, TBranchFilter, TFilterBar,
+  SERVICE_JOB_STATUS_FILTER_OPTIONS, REIMBURSEMENT_STATUS_FILTER_OPTIONS,
+  TBranchFilter, TFilterBar,
   TFilterPanel, TFormActions, TFormDialog, TFormField,
   TFormSection, TLineItemsTable, TStatusFilter, TSupplierFilter, useFormState, type TBranchFilterProps, type TFilterBarProps, type TFilterBranch, type TFilterConfig, type TFilterPanelProps, type TFilterStatusOption, type TFilterSupplier, type TFormActionsProps, type TFormDialogProps, type TFormFieldProps,
   type TFormSectionProps, type TLineItemColumn, type TLineItemsTableProps, type TStatusFilterProps, type TSupplierFilterProps
@@ -149,7 +150,10 @@ export {
   // Payment methods
   CUSTOMER_PAYMENT_METHOD,
   // Expenses
-  EXPENSES_METHOD, GENDER_CHOICES, GENERIC_PAYMENT_METHOD, OCCUPATION_CHOICES,
+  EXPENSES_METHOD, EXPENSE_CATEGORIES, EXPENSE_TYPES, EXPENSE_PAYMENT_METHODS,
+  // Reimbursement
+  REIMBURSEMENT_TYPES, REIMBURSEMENT_EXPENSE_TYPES, REIMBURSEMENT_PAYMENT_METHODS,
+  GENDER_CHOICES, GENERIC_PAYMENT_METHOD, OCCUPATION_CHOICES,
   // Product/Inventory
   PRODUCT_ITEM_TYPE, PURCHASING_PAYMENT_METHOD, SALES_RETURN_PAYMENT_METHOD, SERVICE_JOB_FAULT_TYPE,
   // Service Job

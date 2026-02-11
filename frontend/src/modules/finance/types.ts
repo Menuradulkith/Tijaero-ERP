@@ -74,21 +74,85 @@ export interface ChequePaymentCreate {
 export interface Expense {
   id: number;
   expenses_no: string;
+  expense_type: string;
+  expense_category: string;
   expenses_method: string;
   expense_amount: number;
+  expense_date?: string;
+  vendor_name?: string;
+  description?: string;
+  receipt_number?: string;
+  receipt_image?: string;
+  invoice_attachment?: string;
   remarks?: string;
-  created_date: string;
-  branch_code: string;
   bill_reference?: string;
+  branch_code: string;
+  // Workflow
+  status: string;
+  submitted_by?: number;
+  approved_by?: number;
+  approved_date?: string;
+  rejection_reason?: string;
+  // Payment
+  payment_status?: string;
+  payment_date?: string;
+  payment_method?: string;
+  payment_reference?: string;
+  // Accounting
+  account_code?: string;
+  cost_center?: string;
+  // Timestamps
+  created_date: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ExpenseCreate {
-  expenses_no: string;
+  expenses_no?: string;
+  expense_type?: string;
+  expense_category: string;
   expenses_method: string;
   expense_amount: number;
+  expense_date?: string;
+  vendor_name?: string;
+  description?: string;
+  receipt_number?: string;
+  receipt_image?: string;
+  invoice_attachment?: string;
   remarks?: string;
-  branch_code: string;
   bill_reference?: string;
+  branch_code: string;
+  account_code?: string;
+  cost_center?: string;
+}
+
+export interface ExpenseUpdate {
+  expense_type?: string;
+  expense_category?: string;
+  expenses_method?: string;
+  expense_amount?: number;
+  expense_date?: string;
+  vendor_name?: string;
+  description?: string;
+  receipt_number?: string;
+  receipt_image?: string;
+  invoice_attachment?: string;
+  remarks?: string;
+  bill_reference?: string;
+  account_code?: string;
+  cost_center?: string;
+}
+
+export interface ExpenseListResponse {
+  items: Expense[];
+  total: number;
+}
+
+export interface ExpensePaymentData {
+  payment_method: string;
+  payment_reference?: string;
+  payment_date?: string;
+  remarks?: string;
 }
 
 // Customer Advance Payment Types

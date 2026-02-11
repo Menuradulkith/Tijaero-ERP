@@ -110,33 +110,78 @@ class ChequePaymentRepository:
 class ExpenseRepository:
     def __init__(self, db: Session):
         self.db = db
-    
-    def create(self, expense: schemas.ExpenseCreate) -> models.Expenses:
+
+    def create(self, expense: schemas.ExpenseCreate, submitted_by: int = None) -> models.Expenses:
+        data = expense.model_dump(exclude_none=True)
+        if not data.get("expenses_no"):
+            data["expenses_no"] = self._generate_expense_no()
+        if not data.get("expense_date"):
+            data["expense_date"] = date.today()
         db_expense = models.Expenses(
-            **expense.model_dump(),
-            created_date=date.today()
+            **data,
+            created_date=date.today(),
+            status="pending",
+            submitted_by=submitted_by,
         )
         self.db.add(db_expense)
         self.db.commit()
         self.db.refresh(db_expense)
         return db_expense
-    
+
+    def update(self, expense_id: int, data: schemas.ExpenseUpdate) -> Optional[models.Expenses]:
+        db_expense = self.get_by_id(expense_id)
+        if not db_expense:
+            return None
+        for key, value in data.model_dump(exclude_none=True).items():
+            setattr(db_expense, key, value)
+        self.db.commit()
+        self.db.refresh(db_expense)
+        return db_expense
+
     def get_by_id(self, expense_id: int) -> Optional[models.Expenses]:
         return self.db.query(models.Expenses).filter(
             models.Expenses.id == expense_id
         ).first()
-    
-    def get_all(self, filters: schemas.ExpenseListFilter) -> List[models.Expenses]:
+
+    def get_all(self, filters: schemas.ExpenseListFilter):
+        from sqlalchemy import or_
         query = self.db.query(models.Expenses)
-        
         if filters.branch_code:
             query = query.filter(models.Expenses.branch_code == filters.branch_code)
+        if filters.status:
+            query = query.filter(models.Expenses.status == filters.status)
+        if filters.expense_category:
+            query = query.filter(models.Expenses.expense_category == filters.expense_category)
+        if filters.payment_status:
+            query = query.filter(models.Expenses.payment_status == filters.payment_status)
         if filters.date_from:
             query = query.filter(models.Expenses.created_date >= filters.date_from)
         if filters.date_to:
             query = query.filter(models.Expenses.created_date <= filters.date_to)
-        
-        return query.order_by(models.Expenses.created_date.desc()).offset(filters.skip).limit(filters.limit).all()
+        if filters.search:
+            s = f"%{filters.search}%"
+            query = query.filter(or_(
+                models.Expenses.expenses_no.ilike(s),
+                models.Expenses.vendor_name.ilike(s),
+                models.Expenses.description.ilike(s),
+                models.Expenses.receipt_number.ilike(s),
+            ))
+        total = query.count()
+        items = query.order_by(models.Expenses.created_date.desc()).offset(filters.skip).limit(filters.limit).all()
+        return items, total
+
+    def _generate_expense_no(self) -> str:
+        today = date.today().strftime("%Y%m%d")
+        prefix = f"EXP-{today}-"
+        last = self.db.query(models.Expenses).filter(
+            models.Expenses.expenses_no.like(f"{prefix}%")
+        ).order_by(models.Expenses.expenses_no.desc()).first()
+        if last and last.expenses_no.startswith(prefix):
+            try:
+                return f"{prefix}{int(last.expenses_no.split('-')[-1]) + 1:04d}"
+            except ValueError:
+                pass
+        return f"{prefix}0001"
 
 class CustomerAdvancePaymentRepository:
     def __init__(self, db: Session):
