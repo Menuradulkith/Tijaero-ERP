@@ -102,6 +102,10 @@ class BankDeposits(Base):
     invoice_no = Column(String(200))
     verified = Column(Boolean, default=False)
     returned = Column(Boolean)
+    # Confirmation workflow fields
+    status = Column(String(30), nullable=False, default="pending")  # pending, confirmed, rejected
+    confirmed_by = Column(Integer, nullable=True)  # User ID who confirmed
+    confirmed_date = Column(TIMESTAMP, nullable=True)
 
     invoices = relationship("Invoice", back_populates="bank_transfer")
 
@@ -116,7 +120,7 @@ class CardPayments(Base):
     remark = Column(Text)
     ref_number = Column(String(30))
     invoice_no = Column(String(200))
-    deposited = Column(Boolean, nullable=False, default=True)
+    deposited = Column(Boolean, nullable=False, default=False)
 
     invoices = relationship("Invoice", back_populates="card_payment")
 
@@ -170,21 +174,75 @@ class Vouchers(Base):
 
 
 class PettyCash(Base):
-
+    """
+    Petty Cash Fund — represents a physical petty cash fund at a branch.
+    Tracks opening balance, current balance, and fund lifecycle (active → closed).
+    """
     __tablename__ = "petty_cash"
 
     id = Column(Integer, primary_key=True, index=True)
-    transaction_no = Column(String(50), unique=True, nullable=True)
-    transaction_type = Column(String(20), nullable=False)
-    amount = Column(Numeric(60, 2), nullable=False)
-    description = Column(Text, nullable=True)
+    petty_cash_no = Column(String(50), unique=True, nullable=False)
+    # Fund balances
+    opening_balance = Column(Numeric(60, 2), nullable=False, default=0)
+    current_balance = Column(Numeric(60, 2), nullable=False, default=0)
+    closing_balance = Column(Numeric(60, 2), nullable=True)
+    # Branch & ownership
     branch_code = Column(String(200), nullable=False)
-    user_id = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
-    created_date = Column(TIMESTAMP, nullable=False)
+    opened_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+    opened_date = Column(Date, nullable=False)
+    # Lifecycle
+    status = Column(String(30), nullable=False, default="active")  # active, closed
+    closed_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+    closed_date = Column(Date, nullable=True)
+    # Metadata
     remarks = Column(Text, nullable=True)
+    created_date = Column(TIMESTAMP, nullable=False)
+
+    # Legacy columns kept for migration compatibility
+    transaction_no = Column(String(50), unique=True, nullable=True)
+    transaction_type = Column(String(20), nullable=True)
+    amount = Column(Numeric(60, 2), nullable=True)
+    description = Column(Text, nullable=True)
+    user_id = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
     receipt_reference = Column(String(200), nullable=True)
     approved = Column(Boolean, default=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"), nullable=True)
+
+    # Relationships
+    transactions = relationship("PettyCashTransaction", back_populates="fund", order_by="PettyCashTransaction.transaction_date.desc()")
+
+
+class PettyCashTransaction(Base):
+    """
+    Individual petty cash transactions — expenses deduct from the fund,
+    replenishments add back to the fund.
+    """
+    __tablename__ = "petty_cash_transaction"
+
+    id = Column(Integer, primary_key=True, index=True)
+    transaction_no = Column(String(50), unique=True, nullable=False)
+    petty_cash_id = Column(Integer, ForeignKey("petty_cash.id"), nullable=False)
+    # Transaction details
+    transaction_type = Column(String(20), nullable=False)  # expense, replenishment
+    amount = Column(Numeric(60, 2), nullable=False)
+    balance_after = Column(Numeric(60, 2), nullable=False)  # Fund balance after this txn
+    # Expense-specific
+    expense_type = Column(String(100), nullable=True)
+    recipient_name = Column(String(255), nullable=True)
+    purpose = Column(Text, nullable=True)
+    receipt_number = Column(String(200), nullable=True)
+    # Replenishment-specific
+    approved_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+    # Common
+    description = Column(Text, nullable=True)
+    transaction_date = Column(Date, nullable=False)
+    recorded_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+    branch_code = Column(String(200), nullable=False)
+    remarks = Column(Text, nullable=True)
+    created_date = Column(TIMESTAMP, nullable=False)
+
+    # Relationships
+    fund = relationship("PettyCash", back_populates="transactions")
 
 
 # NOTE: Customer-related models (CustomerAdvancePayments, CustomerCreditNotes,

@@ -148,9 +148,16 @@ class PurchaseExpensePayrollGL:
         return entry_date.year, entry_date.month
 
     def _generate_je_number(self, prefix: str = "JE-PUR") -> str:
-        """Generate unique journal entry number."""
+        """Generate unique journal entry number.
+        Uses pg_advisory_xact_lock to serialize number generation per prefix,
+        preventing duplicate numbers when 1000+ records hit concurrently.
+        Lock is auto-released on COMMIT/ROLLBACK.
+        """
+        from sqlalchemy import text
         today = date.today()
         full_prefix = f"{prefix}-{today.strftime('%Y%m')}-"
+        # Advisory lock keyed on prefix — same pattern as cashbook
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": full_prefix})
         last = self.db.query(JournalEntry).filter(
             JournalEntry.journal_entry_no.like(f"{full_prefix}%")
         ).order_by(JournalEntry.journal_entry_no.desc()).first()
@@ -1052,5 +1059,309 @@ class PurchaseExpensePayrollGL:
             logger.info(
                 f"✅ GL Posted: Bank Deposit {deposit.id} → JE {je.journal_entry_no} "
                 f"(Dr 1020 / Cr 1010) Amount: {amount}"
+            )
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # REIMBURSEMENT PAYMENT GL (Gap B1)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_reimbursement_payment_to_gl(
+        self, reimbursement, user_id: int
+    ) -> Optional[JournalEntry]:
+        """
+        Post reimbursement payment to GL.
+        Dr  5xxx  Expense Account (based on type) ... paid_amount
+        Cr  1010  Cash / 1020 Bank ................ paid_amount
+
+        Called when a reimbursement is paid to employee.
+        """
+        marker = f"ReimbursementPayment ID: {reimbursement.id}"
+        if self._check_already_posted(reimbursement.id, marker):
+            return None
+
+        amount = Decimal(str(reimbursement.paid_amount or reimbursement.approved_amount or 0))
+        if amount <= 0:
+            return None
+
+        # Map reimbursement type to expense account
+        reimbursement_type = getattr(reimbursement, "reimbursement_type", "general") or "general"
+        expense_account = EXPENSE_CATEGORY_MAP.get(reimbursement_type.lower(), "5100")
+
+        # Determine credit account based on payment method
+        payment_method = getattr(reimbursement, "payment_method", "bank") or "bank"
+        if payment_method.lower() in ("cash", "petty_cash"):
+            credit_account = ACCT_CASH_ON_HAND
+        else:
+            credit_account = ACCT_BANK_ACCOUNT
+
+        lines = [
+            {
+                "account_code": expense_account,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Reimbursement: {reimbursement.reimbursement_no} - {reimbursement.description or ''}",
+            },
+            {
+                "account_code": credit_account,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Payment for reimbursement {reimbursement.reimbursement_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Reimbursement Paid | {reimbursement.reimbursement_no} | "
+            f"Type: {reimbursement_type} | Amount: {amount} | "
+            f"ReimbursementPayment ID: {reimbursement.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=getattr(reimbursement, "payment_date", None) or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=getattr(reimbursement, "branch_code", None),
+            user_id=user_id,
+            je_prefix="JE-RMB",
+            transaction_type="HR",
+            reference_type="Reimbursement",
+            reference_id=reimbursement.id,
+            reference_no=reimbursement.reimbursement_no,
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: Reimbursement {reimbursement.reimbursement_no} → JE {je.journal_entry_no} "
+                f"(Dr {expense_account} / Cr {credit_account}) Amount: {amount}"
+            )
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CUSTOMER ADVANCE PAYMENT RECEIPT GL (Gap B2)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_customer_advance_receipt_to_gl(
+        self, advance, user_id: int
+    ) -> Optional[JournalEntry]:
+        """
+        Post customer advance payment receipt to GL.
+        Dr  1010 Cash / 1020 Bank / 1030 Cheque .. payment_amount
+        Cr  2160 Customer Advances (Liability) ... payment_amount
+
+        Called when a customer advance payment is received.
+        """
+        marker = f"CustomerAdvanceReceipt ID: {advance.id}"
+        if self._check_already_posted(advance.id, marker):
+            return None
+
+        amount = Decimal(str(advance.payment_amount or 0))
+        if amount <= 0:
+            return None
+
+        # Determine debit account based on payment method
+        payment_method = getattr(advance, "payment_method", "cash") or "cash"
+        payment_method_lower = payment_method.lower()
+        if payment_method_lower in ("cash", "petty_cash"):
+            debit_account = ACCT_CASH_ON_HAND
+        elif payment_method_lower in ("cheque", "check"):
+            debit_account = "1030"  # Cheques account
+        else:
+            debit_account = ACCT_BANK_ACCOUNT
+
+        # Customer Advances/Deposits Liability account (2520 = Customer Deposits)
+        customer_advances_account = "2520"
+
+        lines = [
+            {
+                "account_code": debit_account,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Customer advance received - {advance.advance_payments_no}",
+            },
+            {
+                "account_code": customer_advances_account,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Customer advance liability - {advance.advance_payments_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Customer Advance Received | {advance.advance_payments_no} | "
+            f"Customer ID: {advance.customer_id} | Amount: {amount} | "
+            f"CustomerAdvanceReceipt ID: {advance.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=getattr(advance, "created_date", None) or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=getattr(advance, "branch_code", None),
+            user_id=user_id,
+            je_prefix="JE-CAD",
+            transaction_type="Sales",
+            reference_type="CustomerAdvance",
+            reference_id=advance.id,
+            reference_no=advance.advance_payments_no,
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: Customer Advance {advance.advance_payments_no} → JE {je.journal_entry_no} "
+                f"(Dr {debit_account} / Cr {customer_advances_account}) Amount: {amount}"
+            )
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CUSTOMER CREDIT SETTLEMENT GL (Gap B3)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_customer_credit_settlement_to_gl(
+        self, settlement, transactions, user_id: int
+    ) -> Optional[JournalEntry]:
+        """
+        Post customer credit settlement to GL.
+        Dr  1010 Cash / 1020 Bank / 1030 Cheque .. total_payment
+        Cr  1110 Trade Debtors (A/R) ............. total_payment
+
+        Called when a customer pays for credit invoices.
+        """
+        marker = f"CustomerCreditSettlement ID: {settlement.id}"
+        if self._check_already_posted(settlement.id, marker):
+            return None
+
+        # Calculate total from transactions
+        total_amount = sum(
+            Decimal(str(getattr(t, "payment_amount", 0) or 0))
+            for t in transactions
+        )
+        if total_amount <= 0:
+            return None
+
+        # Group by payment method and create lines
+        lines = []
+        payment_breakdown = {}
+        for t in transactions:
+            pm = getattr(t, "payment_method", "cash") or "cash"
+            amt = Decimal(str(getattr(t, "payment_amount", 0) or 0))
+            payment_breakdown[pm] = payment_breakdown.get(pm, Decimal("0")) + amt
+
+        for pm, amt in payment_breakdown.items():
+            if amt <= 0:
+                continue
+            pm_lower = pm.lower()
+            if pm_lower in ("cash", "petty_cash"):
+                debit_account = ACCT_CASH_ON_HAND
+            elif pm_lower in ("cheque", "check"):
+                debit_account = "1030"
+            elif pm_lower in ("card", "credit_card", "debit_card"):
+                debit_account = "1040"  # Card receivables
+            else:
+                debit_account = ACCT_BANK_ACCOUNT
+
+            lines.append({
+                "account_code": debit_account,
+                "debit": amt,
+                "credit": Decimal("0"),
+                "description": f"Credit settlement payment ({pm}) - {settlement.customer_credits_settle_no}",
+            })
+
+        # Credit Trade Debtors
+        lines.append({
+            "account_code": ACCT_TRADE_DEBTORS,
+            "debit": Decimal("0"),
+            "credit": total_amount,
+            "description": f"Credit invoice settlement - {settlement.customer_credits_settle_no}",
+        })
+
+        description = (
+            f"Auto GL - Customer Credit Settlement | {settlement.customer_credits_settle_no} | "
+            f"Customer ID: {settlement.customer_id} | Total: {total_amount} | "
+            f"CustomerCreditSettlement ID: {settlement.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=getattr(settlement, "created_date", None) or date.today(),
+            description=description,
+            lines=lines,
+            branch_code=getattr(settlement, "branch_code", None),
+            user_id=user_id,
+            je_prefix="JE-CST",
+            transaction_type="Sales",
+            reference_type="CustomerCreditSettlement",
+            reference_id=settlement.id,
+            reference_no=settlement.customer_credits_settle_no,
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: Customer Credit Settlement {settlement.customer_credits_settle_no} "
+                f"→ JE {je.journal_entry_no} | Total: {total_amount}"
+            )
+        return je
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CUSTOMER ADVANCE APPLICATION GL (Gap B4)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def post_customer_advance_application_to_gl(
+        self, invoice, advance, applied_amount: Decimal, user_id: int
+    ) -> Optional[JournalEntry]:
+        """
+        Post customer advance application to invoice to GL.
+        Dr  2160 Customer Advances (Liability) ... applied_amount
+        Cr  1110 Trade Debtors (A/R) ............. applied_amount
+
+        Called when a customer advance is applied to an invoice.
+        """
+        marker = f"CustomerAdvanceApplication InvID: {invoice.id} AdvID: {advance.id}"
+        if self._check_already_posted(invoice.id, marker):
+            return None
+
+        amount = Decimal(str(applied_amount))
+        if amount <= 0:
+            return None
+
+        # Customer Advances/Deposits Liability account (2520 = Customer Deposits)
+        customer_advances_account = "2520"
+
+        lines = [
+            {
+                "account_code": customer_advances_account,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Advance applied - {advance.advance_payments_no} to {invoice.invoice_no}",
+            },
+            {
+                "account_code": ACCT_TRADE_DEBTORS,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Advance application reduces receivable - {invoice.invoice_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Customer Advance Application | Advance: {advance.advance_payments_no} | "
+            f"Invoice: {invoice.invoice_no} | Applied: {amount} | "
+            f"CustomerAdvanceApplication InvID: {invoice.id} AdvID: {advance.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=date.today(),
+            description=description,
+            lines=lines,
+            branch_code=getattr(invoice, "branch_code", None),
+            user_id=user_id,
+            je_prefix="JE-CAA",
+            transaction_type="Sales",
+            reference_type="CustomerAdvanceApplication",
+            reference_id=invoice.id,
+            reference_no=invoice.invoice_no,
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: Customer Advance Application | Advance: {advance.advance_payments_no} "
+                f"→ Invoice: {invoice.invoice_no} | JE: {je.journal_entry_no} | Amount: {amount}"
             )
         return je

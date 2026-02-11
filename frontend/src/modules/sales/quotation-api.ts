@@ -2,6 +2,8 @@ import apiClient from "@/api/client";
 import {
   ConvertToInvoiceRequest,
   ConvertToInvoiceResponse,
+  CreatePOFromQuoteRequest,
+  CreatePOFromQuoteResponse,
   CreateRevisionRequest,
   CreateRevisionResponse,
   QuoteStatus,
@@ -11,7 +13,8 @@ import {
   SalesQuoteList,
   SalesQuoteStatusUpdate,
   SalesQuoteUpdate,
-  SalesQuoteWithItems
+  SalesQuoteWithItems,
+  StockAvailabilityResponse
 } from "./quotation-types";
 
 const BASE_URL = "/sales/quotes";
@@ -192,6 +195,34 @@ export const quotationApi = {
   ): Promise<ConvertToInvoiceResponse> => {
     const response = await apiClient.post<ConvertToInvoiceResponse>(
       `${BASE_URL}/${id}/convert`,
+      data
+    );
+    return response.data;
+  },
+
+  // ==================== Stock Availability ====================
+
+  /**
+   * Check stock availability for all items in a quote
+   */
+  checkStockAvailability: async (id: number): Promise<StockAvailabilityResponse> => {
+    const response = await apiClient.get<StockAvailabilityResponse>(
+      `${BASE_URL}/${id}/stock-availability`
+    );
+    return response.data;
+  },
+
+  // ==================== Create PO from Quotation ====================
+
+  /**
+   * Create a Purchasing Order from an accepted/approved quotation
+   */
+  createPOFromQuote: async (
+    id: number,
+    data: CreatePOFromQuoteRequest
+  ): Promise<CreatePOFromQuoteResponse> => {
+    const response = await apiClient.post<CreatePOFromQuoteResponse>(
+      `${BASE_URL}/${id}/create-po`,
       data
     );
     return response.data;

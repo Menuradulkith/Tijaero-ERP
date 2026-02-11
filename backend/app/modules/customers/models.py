@@ -12,6 +12,22 @@ coupon_products = Table(
     Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True)
 )
 
+# Association table for coupon-category many-to-many relationship
+coupon_categories = Table(
+    'coupon_categories',
+    Base.metadata,
+    Column('coupon_id', Integer, ForeignKey('customer_cupon_codes.id', ondelete='CASCADE'), primary_key=True),
+    Column('category_id', Integer, ForeignKey('category.id', ondelete='CASCADE'), primary_key=True)
+)
+
+# Association table for coupon-brand many-to-many relationship
+coupon_brands = Table(
+    'coupon_brands',
+    Base.metadata,
+    Column('coupon_id', Integer, ForeignKey('customer_cupon_codes.id', ondelete='CASCADE'), primary_key=True),
+    Column('brand_id', Integer, ForeignKey('items_brand.id', ondelete='CASCADE'), primary_key=True)
+)
+
 class Customer(Base, AuditMixin):
     __tablename__ = "customers"
     
@@ -60,6 +76,9 @@ class CustomerAdvancePayments(Base):
     payment_method = Column(String(30), nullable=False)
     branch_code = Column(String(200), nullable=False)
     payment_amount = Column(Numeric(60, 2), nullable=False)
+    applied_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Amount already applied to invoices
+    remaining_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Remaining balance available
+    is_fully_applied = Column(Boolean, nullable=False, default=False)  # True when fully consumed
     remarks = Column(Text)
     created_date = Column(Date, nullable=False)
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
@@ -136,6 +155,10 @@ class CustomerCuponCodes(Base):
 
     # Many-to-many relationship with products for restriction
     products = relationship("Product", secondary=coupon_products, backref="restricted_coupons")
+    # Many-to-many relationship with categories for restriction
+    categories = relationship("Category", secondary=coupon_categories, backref="restricted_coupons")
+    # Many-to-many relationship with brands for restriction
+    brands = relationship("ItemsBrand", secondary=coupon_brands, backref="restricted_coupons")
     # Legacy single product relationship (deprecated)
     product = relationship("Product", foreign_keys=[limit_validity_product_id], back_populates="cupon_codes")
     invoices = relationship("Invoice", back_populates="cupon")

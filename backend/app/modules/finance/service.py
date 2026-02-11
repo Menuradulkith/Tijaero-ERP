@@ -124,7 +124,12 @@ class ExpenseService:
 
     def approve_expense(self, expense_id: int, approved_by: int, remarks: str = None) -> models.Expenses:
         from datetime import datetime
-        expense = self.get_expense(expense_id)
+        # SELECT FOR UPDATE to prevent double-approval race condition
+        expense = self.db.query(models.Expenses).filter(
+            models.Expenses.id == expense_id
+        ).with_for_update().first()
+        if not expense:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
         if expense.status != "submitted":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot approve expense in '{expense.status}' status")
         expense.status = "approved"
@@ -137,7 +142,12 @@ class ExpenseService:
         return expense
 
     def reject_expense(self, expense_id: int, rejected_by: int, rejection_reason: str) -> models.Expenses:
-        expense = self.get_expense(expense_id)
+        # SELECT FOR UPDATE to prevent double-processing race condition
+        expense = self.db.query(models.Expenses).filter(
+            models.Expenses.id == expense_id
+        ).with_for_update().first()
+        if not expense:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
         if expense.status != "submitted":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot reject expense in '{expense.status}' status")
         expense.status = "rejected"
@@ -149,7 +159,12 @@ class ExpenseService:
 
     def process_payment(self, expense_id: int, payment_data: schemas.ExpensePayment, processed_by: int) -> models.Expenses:
         from datetime import date as date_type
-        expense = self.get_expense(expense_id)
+        # SELECT FOR UPDATE to prevent double-payment race condition
+        expense = self.db.query(models.Expenses).filter(
+            models.Expenses.id == expense_id
+        ).with_for_update().first()
+        if not expense:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
         if expense.status != "approved":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot process payment for expense in '{expense.status}' status")
         expense.payment_status = "paid"
@@ -202,8 +217,23 @@ class CustomerAdvancePaymentService:
         self.repo = repository.CustomerAdvancePaymentRepository(db)
         self.db = db
     
-    def create_advance_payment(self, advance: schemas.CustomerAdvancePaymentCreate) -> CustomerAdvancePayments:
-        return self.repo.create(advance)
+    def create_advance_payment(self, advance: schemas.CustomerAdvancePaymentCreate, user_id: int = 0) -> CustomerAdvancePayments:
+        db_advance = self.repo.create(advance)
+        
+        # ── GL Auto-Posting: Customer Advance Receipt (Gap B2) ───────────
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            gl_service.post_customer_advance_receipt_to_gl(db_advance, user_id=user_id)
+            self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"GL posting for customer advance {db_advance.advance_payments_no} failed (non-blocking): {gl_err}"
+            )
+        # ─────────────────────────────────────────────────────────────────
+        
+        return db_advance
     
     def get_advance_payment(self, advance_id: int) -> CustomerAdvancePayments:
         advance = self.repo.get_by_id(advance_id)
@@ -435,3 +465,487 @@ class CashbookService:
         
         return summary
 
+
+# =============================================================================
+# PETTY CASH SERVICE (Scenario 25)
+# =============================================================================
+
+class PettyCashService:
+    def __init__(self, db: Session):
+        self.db = db
+
+    # ── Helpers ───────────────────────────────────────────────────────────
+
+    def _generate_fund_no(self) -> str:
+        """Generate unique petty cash fund number: PCF-YYYYMM-NNNN.
+        Uses advisory lock to prevent duplicate numbers under concurrency.
+        """
+        from sqlalchemy import text
+        prefix = f"PCF-{date.today().strftime('%Y%m')}-"
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last = self.db.query(models.PettyCash).filter(
+            models.PettyCash.petty_cash_no.like(f"{prefix}%")
+        ).order_by(models.PettyCash.petty_cash_no.desc()).first()
+
+        if last and last.petty_cash_no.startswith(prefix):
+            try:
+                seq = int(last.petty_cash_no.split("-")[-1]) + 1
+            except (ValueError, IndexError):
+                seq = 1
+        else:
+            seq = 1
+        return f"{prefix}{seq:04d}"
+
+    def _generate_txn_no(self, txn_type: str) -> str:
+        """Generate unique transaction number: PCT-EXP-YYYYMM-NNNN or PCT-REP-YYYYMM-NNNN.
+        Uses advisory lock to prevent duplicate numbers under concurrency.
+        """
+        from sqlalchemy import text
+        tag = "EXP" if txn_type == "expense" else "REP"
+        prefix = f"PCT-{tag}-{date.today().strftime('%Y%m')}-"
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last = self.db.query(models.PettyCashTransaction).filter(
+            models.PettyCashTransaction.transaction_no.like(f"{prefix}%")
+        ).order_by(models.PettyCashTransaction.transaction_no.desc()).first()
+
+        if last and last.transaction_no.startswith(prefix):
+            try:
+                seq = int(last.transaction_no.split("-")[-1]) + 1
+            except (ValueError, IndexError):
+                seq = 1
+        else:
+            seq = 1
+        return f"{prefix}{seq:04d}"
+
+    def _get_fund(self, fund_id: int) -> models.PettyCash:
+        fund = self.db.query(models.PettyCash).filter(
+            models.PettyCash.id == fund_id
+        ).first()
+        if not fund:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Petty cash fund with id {fund_id} not found"
+            )
+        return fund
+
+    def _get_active_fund(self, fund_id: int, lock: bool = False) -> models.PettyCash:
+        """Get active fund. If lock=True, acquires SELECT FOR UPDATE to prevent
+        concurrent balance mutations (same pattern as cashbook advisory locks)."""
+        if lock:
+            fund = self.db.query(models.PettyCash).filter(
+                models.PettyCash.id == fund_id
+            ).with_for_update().first()
+            if not fund:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Petty cash fund with id {fund_id} not found"
+                )
+        else:
+            fund = self._get_fund(fund_id)
+        if fund.status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Petty cash fund {fund.petty_cash_no} is {fund.status}. Only active funds can accept transactions."
+            )
+        return fund
+
+    # ── 1. OPEN Petty Cash Fund ──────────────────────────────────────────
+
+    def open_fund(self, data: schemas.PettyCashFundCreate) -> models.PettyCash:
+        """
+        Open a new petty cash fund at a branch.
+        Sets opening_balance = current_balance, status = 'active'.
+        GL: Dr 1030 Petty Cash / Cr 1020 Bank Account (or 1010 Cash)
+        """
+        amount = Decimal(str(data.opening_balance))
+        if amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Opening balance must be greater than zero"
+            )
+
+        fund = models.PettyCash(
+            petty_cash_no=self._generate_fund_no(),
+            opening_balance=amount,
+            current_balance=amount,
+            branch_code=data.branch_code,
+            opened_by=data.opened_by,
+            opened_date=date.today(),
+            status="active",
+            remarks=data.remarks,
+            created_date=datetime.now(),
+        )
+        self.db.add(fund)
+        self.db.flush()
+
+        # GL: Dr 1030 Petty Cash / Cr 1020 Bank Account
+        self._post_gl(
+            fund=fund,
+            debit_account="1030",
+            credit_account="1020",
+            amount=amount,
+            description=f"Petty cash fund opened - {fund.petty_cash_no}",
+            je_prefix="JE-PCF",
+            transaction_type="PettyCash",
+            reference_type="PettyCashFund",
+            reference_id=fund.id,
+            reference_no=fund.petty_cash_no,
+            user_id=data.opened_by or 0,
+        )
+
+        self.db.commit()
+        self.db.refresh(fund)
+        return fund
+
+    # ── 2. RECORD Petty Cash Expense ─────────────────────────────────────
+
+    def record_expense(self, data: schemas.PettyCashExpenseCreate) -> models.PettyCashTransaction:
+        """
+        Record petty cash expense. Deducts from fund's current_balance.
+        GL: Dr 5xxx Expense / Cr 1030 Petty Cash
+        Uses SELECT FOR UPDATE on fund row to prevent concurrent balance corruption.
+        """
+        fund = self._get_active_fund(data.petty_cash_id, lock=True)
+        amount = Decimal(str(data.amount))
+
+        if amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Expense amount must be greater than zero"
+            )
+
+        current = Decimal(str(fund.current_balance))
+        if amount > current:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient petty cash balance. Available: {current}, Requested: {amount}"
+            )
+
+        new_balance = current - amount
+        fund.current_balance = new_balance
+
+        txn = models.PettyCashTransaction(
+            transaction_no=self._generate_txn_no("expense"),
+            petty_cash_id=fund.id,
+            transaction_type="expense",
+            amount=amount,
+            balance_after=new_balance,
+            expense_type=data.expense_type,
+            recipient_name=data.recipient_name,
+            purpose=data.purpose,
+            receipt_number=data.receipt_number,
+            description=data.description or f"{data.expense_type} expense",
+            transaction_date=data.transaction_date or date.today(),
+            recorded_by=data.recorded_by,
+            branch_code=fund.branch_code,
+            remarks=data.remarks,
+            created_date=datetime.now(),
+        )
+        self.db.add(txn)
+        self.db.flush()
+
+        # GL: Dr expense account / Cr 1030 Petty Cash
+        expense_category = (data.expense_type or "miscellaneous").lower().strip()
+        from app.modules.finance.purchase_expense_payroll_gl import EXPENSE_CATEGORY_MAP
+        expense_account = EXPENSE_CATEGORY_MAP.get(expense_category, "5100")
+
+        self._post_gl(
+            fund=fund,
+            debit_account=expense_account,
+            credit_account="1030",
+            amount=amount,
+            description=f"Petty cash expense - {data.expense_type} | {fund.petty_cash_no} | TxnID: {txn.id}",
+            je_prefix="JE-PCE",
+            transaction_type="PettyCashExpense",
+            reference_type="PettyCashTransaction",
+            reference_id=txn.id,
+            reference_no=txn.transaction_no,
+            user_id=data.recorded_by or 0,
+            entry_date=txn.transaction_date,
+        )
+
+        self.db.commit()
+        self.db.refresh(txn)
+        return txn
+
+    # ── 3. REPLENISH Petty Cash Fund ─────────────────────────────────────
+
+    def replenish_fund(self, data: schemas.PettyCashReplenishCreate) -> models.PettyCashTransaction:
+        """
+        Replenish petty cash fund. Adds to fund's current_balance.
+        GL: Dr 1030 Petty Cash / Cr 1020 Bank Account
+        Uses SELECT FOR UPDATE on fund row to prevent concurrent balance corruption.
+        """
+        fund = self._get_active_fund(data.petty_cash_id, lock=True)
+        amount = Decimal(str(data.amount))
+
+        if amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Replenishment amount must be greater than zero"
+            )
+
+        current = Decimal(str(fund.current_balance))
+        new_balance = current + amount
+        fund.current_balance = new_balance
+
+        txn = models.PettyCashTransaction(
+            transaction_no=self._generate_txn_no("replenishment"),
+            petty_cash_id=fund.id,
+            transaction_type="replenishment",
+            amount=amount,
+            balance_after=new_balance,
+            approved_by=data.approved_by,
+            description=data.description or "Fund replenishment",
+            transaction_date=data.transaction_date or date.today(),
+            recorded_by=data.recorded_by,
+            branch_code=fund.branch_code,
+            remarks=data.remarks,
+            created_date=datetime.now(),
+        )
+        self.db.add(txn)
+        self.db.flush()
+
+        # GL: Dr 1030 Petty Cash / Cr 1020 Bank Account
+        self._post_gl(
+            fund=fund,
+            debit_account="1030",
+            credit_account="1020",
+            amount=amount,
+            description=f"Petty cash replenishment | {fund.petty_cash_no} | TxnID: {txn.id}",
+            je_prefix="JE-PCR",
+            transaction_type="PettyCashReplenishment",
+            reference_type="PettyCashTransaction",
+            reference_id=txn.id,
+            reference_no=txn.transaction_no,
+            user_id=data.recorded_by or 0,
+            entry_date=txn.transaction_date,
+        )
+
+        self.db.commit()
+        self.db.refresh(txn)
+        return txn
+
+    # ── 4. CLOSE / RECONCILE Petty Cash Fund ─────────────────────────────
+
+    def reconcile_and_close(
+        self, fund_id: int, data: schemas.PettyCashReconcileRequest
+    ) -> schemas.PettyCashReconcileResponse:
+        """
+        Close and reconcile a petty cash fund.
+        Compares physical cash count with expected (current_balance).
+        Records discrepancy in remarks if any.
+        GL for remaining balance: Dr 1020 Bank / Cr 1030 Petty Cash (return to bank)
+        """
+        fund = self._get_active_fund(fund_id, lock=True)
+
+        expected = Decimal(str(fund.current_balance))
+        physical = Decimal(str(data.physical_cash_count))
+        discrepancy = physical - expected
+
+        # Record discrepancy in remarks
+        discrepancy_note = ""
+        if discrepancy != 0:
+            direction = "surplus" if discrepancy > 0 else "shortage"
+            discrepancy_note = f" | Cash {direction} of {abs(discrepancy)}"
+
+        fund.status = "closed"
+        fund.closing_balance = physical  # Actual physical cash
+        fund.closed_by = data.closed_by
+        fund.closed_date = date.today()
+        fund.remarks = (fund.remarks or "") + (
+            f" | Closed: expected={expected}, actual={physical}{discrepancy_note}"
+            + (f" | {data.remarks}" if data.remarks else "")
+        )
+
+        # GL: Return remaining petty cash to bank
+        # Dr 1020 Bank Account / Cr 1030 Petty Cash (for the physical amount returned)
+        if physical > 0:
+            self._post_gl(
+                fund=fund,
+                debit_account="1020",
+                credit_account="1030",
+                amount=physical,
+                description=f"Petty cash fund closed - balance returned to bank | {fund.petty_cash_no}",
+                je_prefix="JE-PCC",
+                transaction_type="PettyCashClosure",
+                reference_type="PettyCashFund",
+                reference_id=fund.id,
+                reference_no=fund.petty_cash_no,
+                user_id=data.closed_by or 0,
+            )
+
+        # If there's a shortage, post the discrepancy to miscellaneous expense
+        if discrepancy < 0:
+            self._post_gl(
+                fund=fund,
+                debit_account="5100",  # Miscellaneous expense (cash shortage)
+                credit_account="1030",
+                amount=abs(discrepancy),
+                description=f"Petty cash shortage on closure | {fund.petty_cash_no}",
+                je_prefix="JE-PCD",
+                transaction_type="PettyCashDiscrepancy",
+                reference_type="PettyCashFund",
+                reference_id=fund.id,
+                reference_no=fund.petty_cash_no,
+                user_id=data.closed_by or 0,
+            )
+        elif discrepancy > 0:
+            # Surplus — credit goes to other income
+            self._post_gl(
+                fund=fund,
+                debit_account="1030",
+                credit_account="4100",  # Other Income
+                amount=discrepancy,
+                description=f"Petty cash surplus on closure | {fund.petty_cash_no}",
+                je_prefix="JE-PCD",
+                transaction_type="PettyCashDiscrepancy",
+                reference_type="PettyCashFund",
+                reference_id=fund.id,
+                reference_no=fund.petty_cash_no,
+                user_id=data.closed_by or 0,
+            )
+
+        self.db.commit()
+        self.db.refresh(fund)
+
+        has_disc = discrepancy != 0
+        msg = "Fund closed successfully."
+        if has_disc:
+            direction = "surplus" if discrepancy > 0 else "shortage"
+            msg += f" Cash {direction} of Rs. {abs(discrepancy):,.2f} recorded."
+
+        return schemas.PettyCashReconcileResponse(
+            fund=schemas.PettyCashFundResponse.model_validate(fund),
+            expected_balance=expected,
+            physical_cash_count=physical,
+            discrepancy=discrepancy,
+            has_discrepancy=has_disc,
+            message=msg,
+        )
+
+    # ── Read / List operations ───────────────────────────────────────────
+
+    def get_fund(self, fund_id: int) -> models.PettyCash:
+        return self._get_fund(fund_id)
+
+    def get_fund_with_transactions(self, fund_id: int) -> models.PettyCash:
+        from sqlalchemy.orm import joinedload
+        fund = self.db.query(models.PettyCash).options(
+            joinedload(models.PettyCash.transactions)
+        ).filter(models.PettyCash.id == fund_id).first()
+        if not fund:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Petty cash fund with id {fund_id} not found"
+            )
+        return fund
+
+    def list_funds(self, filters: schemas.PettyCashListFilter) -> list:
+        query = self.db.query(models.PettyCash).filter(
+            models.PettyCash.petty_cash_no.isnot(None)  # Only fund records
+        )
+        if filters.branch_code:
+            query = query.filter(models.PettyCash.branch_code == filters.branch_code)
+        if filters.status:
+            query = query.filter(models.PettyCash.status == filters.status)
+        if filters.date_from:
+            query = query.filter(models.PettyCash.opened_date >= filters.date_from)
+        if filters.date_to:
+            query = query.filter(models.PettyCash.opened_date <= filters.date_to)
+        return query.order_by(models.PettyCash.created_date.desc()).offset(
+            filters.skip
+        ).limit(filters.limit).all()
+
+    def list_transactions(self, fund_id: int, skip: int = 0, limit: int = 100) -> list:
+        self._get_fund(fund_id)  # Validate fund exists
+        return self.db.query(models.PettyCashTransaction).filter(
+            models.PettyCashTransaction.petty_cash_id == fund_id
+        ).order_by(
+            models.PettyCashTransaction.transaction_date.desc()
+        ).offset(skip).limit(limit).all()
+
+    def get_fund_summary(self, fund_id: int) -> schemas.PettyCashSummary:
+        fund = self._get_fund(fund_id)
+        txns = self.db.query(models.PettyCashTransaction).filter(
+            models.PettyCashTransaction.petty_cash_id == fund_id
+        ).all()
+
+        expenses = [t for t in txns if t.transaction_type == "expense"]
+        replenishments = [t for t in txns if t.transaction_type == "replenishment"]
+        total_exp = sum(Decimal(str(t.amount)) for t in expenses)
+        total_rep = sum(Decimal(str(t.amount)) for t in replenishments)
+        last_date = max((t.transaction_date for t in txns), default=None) if txns else None
+
+        return schemas.PettyCashSummary(
+            fund_id=fund.id,
+            petty_cash_no=fund.petty_cash_no,
+            branch_code=fund.branch_code,
+            status=fund.status,
+            opening_balance=Decimal(str(fund.opening_balance)),
+            current_balance=Decimal(str(fund.current_balance)),
+            total_expenses=total_exp,
+            total_replenishments=total_rep,
+            expense_count=len(expenses),
+            replenishment_count=len(replenishments),
+            last_transaction_date=last_date,
+        )
+
+    # ── GL Helper ────────────────────────────────────────────────────────
+
+    def _post_gl(
+        self,
+        fund: models.PettyCash,
+        debit_account: str,
+        credit_account: str,
+        amount: Decimal,
+        description: str,
+        je_prefix: str,
+        transaction_type: str,
+        reference_type: str,
+        reference_id: int,
+        reference_no: str,
+        user_id: int,
+        entry_date: date = None,
+    ):
+        """Post a petty cash GL entry using PurchaseExpensePayrollGL helper."""
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl = PurchaseExpensePayrollGL(self.db)
+
+            lines = [
+                {
+                    "account_code": debit_account,
+                    "debit": amount,
+                    "credit": Decimal("0"),
+                    "description": description,
+                },
+                {
+                    "account_code": credit_account,
+                    "debit": Decimal("0"),
+                    "credit": amount,
+                    "description": description,
+                },
+            ]
+
+            je = gl._create_je_and_post(
+                entry_date=entry_date or date.today(),
+                description=f"Auto GL - {transaction_type} | {description}",
+                lines=lines,
+                branch_code=fund.branch_code,
+                user_id=user_id,
+                je_prefix=je_prefix,
+                transaction_type=transaction_type,
+                reference_type=reference_type,
+                reference_id=reference_id,
+                reference_no=reference_no,
+            )
+            if je:
+                import logging
+                logging.getLogger(__name__).info(
+                    f"✅ GL Posted: {transaction_type} → JE {je.journal_entry_no} "
+                    f"(Dr {debit_account} / Cr {credit_account}) Amount: {amount}"
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Petty cash GL posting failed: {e}")

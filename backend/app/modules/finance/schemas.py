@@ -20,6 +20,9 @@ class BankDeposit(BankDepositBase):
     user_id: Optional[int] = None
     verified: bool = False
     returned: Optional[bool] = None
+    status: str = "pending"  # pending, confirmed, rejected
+    confirmed_by: Optional[int] = None
+    confirmed_date: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -30,7 +33,7 @@ class CardPaymentBase(BaseModel):
     remark: Optional[str] = None
     ref_number: Optional[str] = None
     invoice_no: Optional[str] = None
-    deposited: bool = True
+    deposited: bool = False
 
 class CardPaymentCreate(CardPaymentBase):
     pass
@@ -80,6 +83,9 @@ class CustomerAdvancePayment(CustomerAdvancePaymentBase):
     advance_payments_no: str
     created_date: date
     active: bool
+    applied_amount: Decimal = Decimal("0")
+    remaining_amount: Decimal = Decimal("0")
+    is_fully_applied: bool = False
     
     class Config:
         from_attributes = True
@@ -328,3 +334,125 @@ class CashbookReport(BaseModel):
     date_to: Optional[date] = None
     branch_code: Optional[str] = None
     entry_count: int = 0
+
+
+# =============================================================================
+# PETTY CASH FUND SCHEMAS (Scenario 25)
+# =============================================================================
+
+class PettyCashFundCreate(BaseModel):
+    """Open a new petty cash fund"""
+    opening_balance: Decimal
+    branch_code: str
+    opened_by: Optional[int] = None
+    remarks: Optional[str] = None
+
+class PettyCashFundResponse(BaseModel):
+    id: int
+    petty_cash_no: str
+    opening_balance: Decimal
+    current_balance: Decimal
+    closing_balance: Optional[Decimal] = None
+    branch_code: str
+    opened_by: Optional[int] = None
+    opened_date: date
+    status: str
+    closed_by: Optional[int] = None
+    closed_date: Optional[date] = None
+    remarks: Optional[str] = None
+    created_date: datetime
+
+    class Config:
+        from_attributes = True
+
+class PettyCashFundWithTransactions(PettyCashFundResponse):
+    transactions: List["PettyCashTransactionResponse"] = []
+
+
+# Petty Cash Transaction Schemas
+class PettyCashExpenseCreate(BaseModel):
+    """Record a petty cash expense"""
+    petty_cash_id: int
+    amount: Decimal
+    expense_type: str
+    recipient_name: Optional[str] = None
+    purpose: Optional[str] = None
+    receipt_number: Optional[str] = None
+    description: Optional[str] = None
+    transaction_date: Optional[date] = None
+    recorded_by: Optional[int] = None
+    remarks: Optional[str] = None
+
+class PettyCashReplenishCreate(BaseModel):
+    """Replenish a petty cash fund"""
+    petty_cash_id: int
+    amount: Decimal
+    approved_by: Optional[int] = None
+    description: Optional[str] = None
+    transaction_date: Optional[date] = None
+    recorded_by: Optional[int] = None
+    remarks: Optional[str] = None
+
+class PettyCashTransactionResponse(BaseModel):
+    id: int
+    transaction_no: str
+    petty_cash_id: int
+    transaction_type: str
+    amount: Decimal
+    balance_after: Decimal
+    expense_type: Optional[str] = None
+    recipient_name: Optional[str] = None
+    purpose: Optional[str] = None
+    receipt_number: Optional[str] = None
+    approved_by: Optional[int] = None
+    description: Optional[str] = None
+    transaction_date: date
+    recorded_by: Optional[int] = None
+    branch_code: str
+    remarks: Optional[str] = None
+    created_date: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PettyCashReconcileRequest(BaseModel):
+    """Close/Reconcile a petty cash fund"""
+    physical_cash_count: Decimal
+    closed_by: Optional[int] = None
+    remarks: Optional[str] = None
+
+class PettyCashReconcileResponse(BaseModel):
+    fund: PettyCashFundResponse
+    expected_balance: Decimal
+    physical_cash_count: Decimal
+    discrepancy: Decimal
+    has_discrepancy: bool
+    message: str
+
+
+class PettyCashListFilter(BaseModel):
+    branch_code: Optional[str] = None
+    status: Optional[str] = None  # active, closed
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    skip: int = 0
+    limit: int = 100
+
+
+class PettyCashSummary(BaseModel):
+    """Summary of a petty cash fund"""
+    fund_id: int
+    petty_cash_no: str
+    branch_code: str
+    status: str
+    opening_balance: Decimal
+    current_balance: Decimal
+    total_expenses: Decimal
+    total_replenishments: Decimal
+    expense_count: int
+    replenishment_count: int
+    last_transaction_date: Optional[date] = None
+
+# Forward reference resolution
+PettyCashFundWithTransactions.model_rebuild()

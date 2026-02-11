@@ -24,6 +24,7 @@ class SalesStockBase(BaseModel):
     product_id: int
     barcode: str
     branch_code: str
+    location_id: Optional[int] = None  # good_received_locations_id from GRN
     good_received_note_id: int
     purchasing_order_items_id: int
     warranty_month: Optional[str] = None  # From PO item or entered in GRN

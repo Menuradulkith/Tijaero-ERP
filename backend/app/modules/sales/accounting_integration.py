@@ -130,9 +130,16 @@ class SalesAccountingIntegration:
         return entry_date.year, entry_date.month
 
     def _generate_je_number(self, prefix: str = "JE-SALE") -> str:
-        """Generate a unique journal entry number for sale postings."""
+        """Generate a unique journal entry number for sale postings.
+        Uses pg_advisory_xact_lock to serialize number generation per prefix,
+        preventing duplicate numbers when 1000+ records hit concurrently.
+        Lock is auto-released on COMMIT/ROLLBACK.
+        """
+        from sqlalchemy import text
         today = date.today()
         full_prefix = f"{prefix}-{today.strftime('%Y%m')}-"
+        # Advisory lock keyed on prefix — same pattern as cashbook
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": full_prefix})
         last = self.db.query(JournalEntry).filter(
             JournalEntry.journal_entry_no.like(f"{full_prefix}%")
         ).order_by(JournalEntry.journal_entry_no.desc()).first()

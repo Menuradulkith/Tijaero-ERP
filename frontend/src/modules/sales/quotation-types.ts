@@ -11,6 +11,7 @@ export type QuoteStatus =
   | 'rejected'
   | 'expired'
   | 'converted'
+  | 'po_created'
   | 'cancelled'
   | 'revised';
 
@@ -80,6 +81,13 @@ export interface SalesQuote {
   converted_to_invoice_id?: number;
   converted_at?: string;
   converted_by?: number;
+
+  // Revision tracking
+  parent_quote_id?: number;
+  revision_number: number;
+
+  // Rejection
+  rejection_reason?: string;
 
   created_at: string;
   updated_at: string;
@@ -206,6 +214,7 @@ export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
   rejected: 'Rejected',
   expired: 'Expired',
   converted: 'Converted',
+  po_created: 'PO Created',
   cancelled: 'Cancelled',
   revised: 'Revised',
 };
@@ -219,6 +228,7 @@ export const QUOTE_STATUS_COLORS: Record<QuoteStatus, string> = {
   rejected: 'red',
   expired: 'orange',
   converted: 'teal',
+  po_created: 'cyan',
   cancelled: 'red',
   revised: 'gray',
 };
@@ -227,3 +237,40 @@ export const QUOTE_TYPE_LABELS: Record<QuoteType, string> = {
   quotation: 'Quotation',
   proforma: 'Proforma Invoice',
 };
+
+// ==================== Stock Availability Types ====================
+
+export interface StockAvailabilityItem {
+  product_id: number;
+  product_name?: string;
+  requested_quantity: number;
+  available_quantity: number;
+  is_sufficient: boolean;
+}
+
+export interface StockAvailabilityResponse {
+  quote_id: number;
+  branch_code: string;
+  items: StockAvailabilityItem[];
+  all_sufficient: boolean;
+}
+
+// ==================== Create PO from Quotation Types ====================
+
+export interface CreatePOFromQuoteRequest {
+  first_suppliers_id: number;
+  second_suppliers_id: number;
+  payment_method: string;
+  purchasing_invoice_no: string;
+  good_received_note_date: string;
+  remarks?: string;
+  credit_date?: number;
+}
+
+export interface CreatePOFromQuoteResponse {
+  quote_id: number;
+  quote_no: string;
+  purchasing_order_id: number;
+  purchasing_order_no: string;
+  message: string;
+}

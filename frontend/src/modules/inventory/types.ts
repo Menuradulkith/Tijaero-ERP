@@ -132,6 +132,8 @@ export type SalesStockStatus =
   | "available" 
   | "sold" 
   | "reserved" 
+  | "in_transit" 
+  | "transfer_pending" 
   | "returned_to_supplier" 
   | "return_pending" 
   | "transferred" 
@@ -142,6 +144,7 @@ export interface SalesStock {
   product_id: number;
   barcode: string;
   branch_code: string;
+  location_id?: number;  // Current physical location (good_received_locations)
   good_received_note_id: number;
   purchasing_order_items_id: number;
   warranty_month?: string;  // Warranty period from PO or entered in GRN
@@ -163,6 +166,7 @@ export interface SalesStockCreate {
   product_id: number;
   barcode: string;
   branch_code: string;
+  location_id?: number;  // good_received_locations_id from GRN
   good_received_note_id: number;
   purchasing_order_items_id: number;
   warranty_month?: string;  // From PO item or entered in GRN

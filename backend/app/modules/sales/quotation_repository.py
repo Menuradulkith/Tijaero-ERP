@@ -15,7 +15,7 @@ from app.modules.sales.quotation_schemas import (
     SalesQuoteItemCreate,
     SalesQuoteUpdate,
 )
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 
@@ -189,6 +189,9 @@ class SalesQuoteRepository:
         year = datetime.now().year
         prefix = "QT" if quote_type == QuoteType.QUOTATION.value else "PI"
 
+        # Advisory lock to prevent race conditions on sequence generation
+        lock_key = f"{prefix}-{year}"
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": lock_key})
         # Get the last quote number for this type and year
         pattern = f"{prefix}-{year}-%"
         last_quote = (
@@ -212,6 +215,8 @@ class SalesQuoteRepository:
 
     def get_next_revision_number(self, db: Session, parent_quote_id: int) -> int:
         """Get next revision number for a quote"""
+        # Advisory lock to prevent race conditions on revision number generation
+        db.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": parent_quote_id})
         max_revision = (
             db.query(func.max(SalesQuote.revision_number))
             .filter(
@@ -292,9 +297,6 @@ class SalesQuoteRepository:
             .all()
         )
 
-
-# Singleton instance
-sales_quote_repository = SalesQuoteRepository()
 
 # Singleton instance
 sales_quote_repository = SalesQuoteRepository()

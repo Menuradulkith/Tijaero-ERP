@@ -713,7 +713,8 @@ class SupplierCreditService:
     
     def update_supplier_credit_balance(self, db: Session, supplier_id: int):
         """Update supplier credit balance. Uses flush() to participate in caller's transaction."""
-        supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+        # Lock the supplier row to prevent concurrent credit balance updates
+        supplier = db.query(Supplier).filter(Supplier.id == supplier_id).with_for_update().first()
         if not supplier:
             return
         

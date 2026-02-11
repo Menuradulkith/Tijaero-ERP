@@ -24,6 +24,12 @@ class ApprovalType(str, Enum):
     LEAVE = "leave"
     REIMBURSEMENT = "reimbursement"
     SALES_QUOTE = "sales_quote"
+    # New approval types for finance integration (Gap A2)
+    JOURNAL_ENTRY = "journal_entry"
+    BANK_DEPOSIT = "bank_deposit"
+    PAYROLL_BATCH = "payroll_batch"
+    COMMISSION_PAYMENT = "commission_payment"
+    CUSTOMER_CREDIT_SETTLEMENT = "customer_credit_settlement"
 
 
 class ApprovalStatus(str, Enum):
@@ -97,7 +103,8 @@ class ApprovalService:
             on_approve_callback: Optional callback function to execute after approval
                                  Called with (db, reference_id) to update the source record
         """
-        approval = db.query(Approvals).filter(Approvals.id == approval_id).first()
+        # Lock the approval record to prevent concurrent approval/rejection
+        approval = db.query(Approvals).filter(Approvals.id == approval_id).with_for_update().first()
         
         if not approval:
             raise HTTPException(
@@ -144,7 +151,8 @@ class ApprovalService:
         """
         Reject a pending approval request.
         """
-        approval = db.query(Approvals).filter(Approvals.id == approval_id).first()
+        # Lock the approval record to prevent concurrent approval/rejection
+        approval = db.query(Approvals).filter(Approvals.id == approval_id).with_for_update().first()
         
         if not approval:
             raise HTTPException(

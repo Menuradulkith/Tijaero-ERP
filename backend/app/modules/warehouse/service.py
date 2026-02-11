@@ -225,9 +225,10 @@ class ItemTransferNoteService:
         # Update stock status for each item - mark in_transit and clear location
         for item in items:
             if item.barcode:
+                # Lock the stock item row before updating
                 stock_item = self.db.query(SalesStock).filter(
                     SalesStock.barcode == item.barcode
-                ).first()
+                ).with_for_update().first()
                 if stock_item:
                     stock_item.status = "in_transit"
                     stock_item.location_id = None  # No longer at source location
@@ -307,9 +308,10 @@ class ItemTransferNoteService:
             )
 
         if transfer_note.approval_id:
+            # Lock the approval record to prevent concurrent approval/rejection
             approval_record = self.db.query(Approvals).filter(
                 Approvals.id == transfer_note.approval_id
-            ).first()
+            ).with_for_update().first()
             if approval_record:
                 if approval_record.status != ApprovalStatus.PENDING.value:
                     raise HTTPException(
@@ -327,9 +329,10 @@ class ItemTransferNoteService:
         ).all()
         for item in items:
             if item.barcode:
+                # Lock the stock item row before updating status
                 stock_item = self.db.query(SalesStock).filter(
                     SalesStock.barcode == item.barcode
-                ).first()
+                ).with_for_update().first()
                 if stock_item:
                     stock_item.status = "transfer_pending"
 
@@ -346,9 +349,10 @@ class ItemTransferNoteService:
             )
 
         if transfer_note.approval_id:
+            # Lock the approval record to prevent concurrent approval/rejection
             approval_record = self.db.query(Approvals).filter(
                 Approvals.id == transfer_note.approval_id
-            ).first()
+            ).with_for_update().first()
             if approval_record:
                 if approval_record.status != ApprovalStatus.PENDING.value:
                     raise HTTPException(
@@ -366,9 +370,10 @@ class ItemTransferNoteService:
         ).all()
         for item in items:
             if item.barcode:
+                # Lock the stock item row before updating status
                 stock_item = self.db.query(SalesStock).filter(
                     SalesStock.barcode == item.barcode
-                ).first()
+                ).with_for_update().first()
                 if stock_item and stock_item.status in ["transfer_pending", "in_transit"]:
                     stock_item.status = "available"
                     stock_item.is_active = True
@@ -508,13 +513,26 @@ class ItemTransferNoteApprovalService:
                         if stock_item:
                             stock_item.status = "transfer_pending"
         
-        # If rejected (2), update transfer note status
+        # If rejected (2), update transfer note status and restore stock
         elif approval.approved_status == 2:
             transfer_note = self.db.query(ItemTransferNote).filter(
                 ItemTransferNote.id == approval.item_transfer_note_id
             ).first()
             if transfer_note:
                 transfer_note.status = TransferNoteStatus.REJECTED
+                
+                # Restore stock items to available (same as reject_transfer_note)
+                items = self.db.query(ItemTransferNoteItems).filter(
+                    ItemTransferNoteItems.itemtransfernote_id == transfer_note.id
+                ).all()
+                for item in items:
+                    if item.barcode:
+                        stock_item = self.db.query(SalesStock).filter(
+                            SalesStock.barcode == item.barcode
+                        ).first()
+                        if stock_item and stock_item.status in ("transfer_pending", "in_transit"):
+                            stock_item.status = "available"
+                            stock_item.is_active = True
         
         self.db.commit()
         self.db.refresh(db_approval)
@@ -655,10 +673,10 @@ class ItemReceiveNoteService:
             # Mark as received
             transfer_item.item_recieved = True
             
-            # Update sales_stock
+            # Lock and update sales_stock
             stock_item = self.db.query(SalesStock).filter(
                 SalesStock.barcode == barcode
-            ).first()
+            ).with_for_update().first()
             
             product_name = None
             if stock_item:

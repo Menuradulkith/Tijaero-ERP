@@ -18,6 +18,7 @@ class Invoice(Base, TimestampMixin):
     __tablename__ = "invoices"
 
     id = Column(Integer, primary_key=True, index=True)
+    is_tax_invoice = Column(Boolean, nullable=False, default=False)  # True: tax-inclusive, False: tax-exclusive
     invoice_no = Column(String(200), unique=True, nullable=False)
     branch_code = Column(String(200), nullable=False)
     payment_method = Column(String(30), nullable=False)

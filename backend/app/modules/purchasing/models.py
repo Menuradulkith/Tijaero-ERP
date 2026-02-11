@@ -102,6 +102,7 @@ class PurchasingOrder(Base):
     added_date = Column(TIMESTAMP, nullable=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"))
     status = Column(String(30), nullable=False, default="pending")
+    sales_quote_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True)  # Link to source quotation
 
     first_supplier = relationship("Supplier", foreign_keys=[first_suppliers_id], back_populates="purchasing_orders_first")
     second_supplier = relationship("Supplier", foreign_keys=[second_suppliers_id], back_populates="purchasing_orders_second")
@@ -109,6 +110,7 @@ class PurchasingOrder(Base):
     items = relationship("PurchasingOrderItems", back_populates="purchasing_order")
     good_received_notes = relationship("GoodReceivedNote", back_populates="purchasing_order")
     payments = relationship("SupplierPayment", back_populates="purchasing_order")
+    sales_quote = relationship("SalesQuote", backref="purchasing_orders")
 
 class PurchasingOrderItems(Base):
     __tablename__ = "purchasing_order_items"

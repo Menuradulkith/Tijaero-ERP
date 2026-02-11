@@ -11,7 +11,7 @@ Business logic for:
 """
 
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, and_, or_, case
+from sqlalchemy import func, and_, or_, case, text
 from typing import List, Optional, Tuple
 from datetime import date, datetime
 from decimal import Decimal
@@ -196,6 +196,8 @@ class JournalEntryService:
     def _generate_je_number(self) -> str:
         today = date.today()
         prefix = f"JE-{today.strftime('%Y%m')}-"
+        # Advisory lock to prevent race conditions on sequence generation
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = self.db.query(JournalEntry).filter(
             JournalEntry.journal_entry_no.like(f"{prefix}%")
         ).order_by(JournalEntry.journal_entry_no.desc()).first()
