@@ -488,6 +488,7 @@ export default function GoodReceivedNotesPage() {
             product_id: item.product_id,
             barcode: item.barcode,
             branch_code: item.branch_code,
+            location_id: formData.good_received_locations_id,  // Link to GRN receiving location
             good_received_note_id: newGRN.id,
             purchasing_order_items_id: item.purchasing_order_items_id,
             warranty_month: item.warranty_month || undefined,  // Include warranty from PO or GRN

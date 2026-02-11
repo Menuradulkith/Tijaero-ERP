@@ -171,7 +171,16 @@ class CommissionService:
         approved_by: int,
     ) -> CustomerAgentCommission:
         """Approve a pending commission"""
-        commission = self.get_commission(db, commission_id)
+        # Lock the commission row to prevent concurrent approval
+        commission = db.query(CustomerAgentCommission).filter(
+            CustomerAgentCommission.id == commission_id
+        ).with_for_update().first()
+        
+        if not commission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Commission with id {commission_id} not found"
+            )
 
         if commission.status != "pending":
             raise HTTPException(

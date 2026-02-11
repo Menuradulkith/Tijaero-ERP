@@ -124,6 +124,7 @@ class PurchasingOrder(PurchasingOrderBase):
     status: str = "pending"
     total_amount: Decimal = Decimal("0.00")
     paid_amount: Decimal = Decimal("0.00")
+    sales_quote_id: Optional[int] = None
     
     @field_validator('status', mode='before')
     @classmethod

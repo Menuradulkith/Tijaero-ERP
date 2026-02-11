@@ -299,7 +299,10 @@ class PurchasingOrderService:
         from app.modules.purchasing.credit_service import supplier_credit_service
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        order = self.repo.get_by_id(order_id)
+        # Lock the order row to prevent concurrent approval
+        order = self.db.query(models.PurchasingOrder).filter(
+            models.PurchasingOrder.id == order_id
+        ).with_for_update().first()
         if not order:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -336,7 +339,10 @@ class PurchasingOrderService:
 
         # Update Approval Record in approvals table
         if order.approval_id:
-            approval_record = self.db.query(Approvals).filter(Approvals.id == order.approval_id).first()
+            # Lock the approval record to prevent concurrent updates
+            approval_record = self.db.query(Approvals).filter(
+                Approvals.id == order.approval_id
+            ).with_for_update().first()
             if approval_record:
                 # If approval record exists, update it
                 if approval_record.status == 'pending':
@@ -627,7 +633,10 @@ class PurchasingReturnService:
         
         # Update approval record
         if return_record.approval_id:
-            approval_record = self.db.query(Approvals).filter(Approvals.id == return_record.approval_id).first()
+            # Lock the approval record to prevent concurrent updates
+            approval_record = self.db.query(Approvals).filter(
+                Approvals.id == return_record.approval_id
+            ).with_for_update().first()
             if approval_record:
                 if approval_record.status != 'pending':
                     raise HTTPException(
@@ -646,9 +655,10 @@ class PurchasingReturnService:
             
             for item in return_record.items:
                 if item.sales_stock_id:
+                    # Lock the stock item row before updating
                     stock_item = self.db.query(SalesStock).filter(
                         SalesStock.id == item.sales_stock_id
-                    ).first()
+                    ).with_for_update().first()
                     if stock_item:
                         stock_item.status = "returned_to_supplier"
                         stock_item.is_active = False
@@ -669,9 +679,10 @@ class PurchasingReturnService:
 
             for item in return_record.items:
                 if item.sales_stock_id:
+                    # Lock the stock item row before updating
                     stock_item = self.db.query(SalesStock).filter(
                         SalesStock.id == item.sales_stock_id
-                    ).first()
+                    ).with_for_update().first()
                     if stock_item:
                         stock_item.status = "available"
                         stock_item.purchase_return_id = None
@@ -808,6 +819,68 @@ class GoodReceivedNoteService:
         # Update credit balance in the same transaction for atomicity
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
+        
+        # ═══════════════════════════════════════════════════════════════
+        # Gap P1: Auto-deduct supplier advance when PO payment_method
+        # is "advance". Finds active advances for the supplier and
+        # auto-applies them against this GRN.
+        # ═══════════════════════════════════════════════════════════════
+        if po.payment_method and po.payment_method.lower() == "advance":
+            # Calculate GRN total from PO items
+            po_items = self.db.query(models.PurchasingOrderItems).filter(
+                models.PurchasingOrderItems.purchasingorders_id == po.id
+            ).all()
+            grn_total = sum(
+                Decimal(str(item.quantity)) * item.unit_price
+                for item in po_items
+            ) if po_items else Decimal("0")
+            
+            if grn_total > 0:
+                # Get IDs of active (non-fully-applied) advances for this supplier, oldest first
+                advance_ids = self.db.query(models.SupplierAdvancePayment.id).filter(
+                    models.SupplierAdvancePayment.supplier_id == po.first_suppliers_id,
+                    models.SupplierAdvancePayment.is_fully_applied == False
+                ).order_by(models.SupplierAdvancePayment.payment_date.asc()).all()
+                advance_ids = [a[0] for a in advance_ids]
+                
+                remaining_to_apply = grn_total
+                for advance_id in advance_ids:
+                    if remaining_to_apply <= 0:
+                        break
+                    # Lock each advance row individually to prevent race condition
+                    advance = self.db.query(models.SupplierAdvancePayment).filter(
+                        models.SupplierAdvancePayment.id == advance_id
+                    ).with_for_update().first()
+                    if not advance or advance.is_fully_applied:
+                        continue
+                    available = Decimal(str(advance.remaining_amount))
+                    apply_amount = min(available, remaining_to_apply)
+                    if apply_amount > 0:
+                        # Create application record
+                        application = models.SupplierAdvanceApplication(
+                            advance_id=advance.id,
+                            grn_id=created_grn.id,
+                            applied_amount=apply_amount,
+                            application_date=date.today(),
+                            remarks=f"Auto-applied during GRN {created_grn.good_received_no} creation"
+                        )
+                        self.db.add(application)
+                        
+                        # Update advance balances
+                        advance.applied_amount = Decimal(str(advance.applied_amount)) + apply_amount
+                        advance.remaining_amount = Decimal(str(advance.original_amount)) - Decimal(str(advance.applied_amount))
+                        if advance.remaining_amount <= 0:
+                            advance.remaining_amount = Decimal("0")
+                            advance.is_fully_applied = True
+                        
+                        remaining_to_apply -= apply_amount
+                
+                import logging
+                applied_total = grn_total - remaining_to_apply
+                if applied_total > 0:
+                    logging.getLogger(__name__).info(
+                        f"Auto-applied Rs. {applied_total:,.2f} from supplier advances to GRN {created_grn.good_received_no}"
+                    )
         
         self.db.commit()
         self.db.refresh(created_grn)

@@ -99,6 +99,7 @@ class SalesStockService:
             product_id=item.product_id,
             barcode=item.barcode,
             branch_code=item.branch_code,
+            location_id=item.location_id,
             good_received_note_id=item.good_received_note_id,
             purchasing_order_items_id=item.purchasing_order_items_id,
             warranty_month=item.warranty_month,

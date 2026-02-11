@@ -45,7 +45,10 @@ class BankDepositRepository:
         return query.order_by(models.BankDeposits.created_date.desc()).offset(filters.skip).limit(filters.limit).all()
     
     def verify(self, deposit_id: int) -> Optional[models.BankDeposits]:
-        deposit = self.get_by_id(deposit_id)
+        # SELECT FOR UPDATE to prevent double-verification race condition
+        deposit = self.db.query(models.BankDeposits).filter(
+            models.BankDeposits.id == deposit_id
+        ).with_for_update().first()
         if deposit:
             deposit.verified = True
             self.db.commit()
@@ -171,8 +174,13 @@ class ExpenseRepository:
         return items, total
 
     def _generate_expense_no(self) -> str:
+        """Generate unique expense number.
+        Uses advisory lock to prevent duplicate numbers under concurrency.
+        """
+        from sqlalchemy import text
         today = date.today().strftime("%Y%m%d")
         prefix = f"EXP-{today}-"
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = self.db.query(models.Expenses).filter(
             models.Expenses.expenses_no.like(f"{prefix}%")
         ).order_by(models.Expenses.expenses_no.desc()).first()
@@ -188,9 +196,12 @@ class CustomerAdvancePaymentRepository:
         self.db = db
     
     def create(self, advance: schemas.CustomerAdvancePaymentCreate) -> CustomerAdvancePayments:
-        # Generate advance payment number
+        # Advisory lock to prevent duplicate advance numbers under concurrency
+        from sqlalchemy import text
+        prefix = f"ADV{date.today().strftime('%Y%m%d')}"
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         count = self.db.query(func.count(CustomerAdvancePayments.id)).scalar()
-        advance_no = f"ADV{date.today().strftime('%Y%m%d')}{count + 1:04d}"
+        advance_no = f"{prefix}{count + 1:04d}"
         
         db_advance = CustomerAdvancePayments(
             **advance.model_dump(),

@@ -5,6 +5,8 @@ from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
                                                  ConvertToInvoiceResponse,
+                                                 CreatePOFromQuoteRequest,
+                                                 CreatePOFromQuoteResponse,
                                                  CreateRevisionRequest,
                                                  CreateRevisionResponse,
                                                  QuoteStatusEnum,
@@ -15,7 +17,8 @@ from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
                                                  SalesQuoteList,
                                                  SalesQuoteStatusUpdate,
                                                  SalesQuoteUpdate,
-                                                 SalesQuoteWithItems)
+                                                 SalesQuoteWithItems,
+                                                 StockAvailabilityResponse)
 from app.modules.sales.quotation_service import sales_quote_service
 from app.modules.sales.schemas import InvoiceWithItems
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -381,6 +384,67 @@ def convert_to_invoice(
         invoice_id=invoice.id,
         invoice_no=invoice.invoice_no,
         message=f"Successfully converted {quote.quote_no} to invoice {invoice.invoice_no}"
+    )
+
+
+# ==================== Stock Availability ====================
+
+@router.get(
+    "/{quote_id}/stock-availability",
+    response_model=StockAvailabilityResponse,
+    summary="Check Stock Availability",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def check_stock_availability(
+    quote_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """
+    Check stock availability for all items in a quote.
+    Returns per-item availability and an overall sufficiency flag.
+    """
+    return sales_quote_service.check_stock_availability(db, quote_id)
+
+
+# ==================== Create PO from Quotation ====================
+
+@router.post(
+    "/{quote_id}/create-po",
+    response_model=CreatePOFromQuoteResponse,
+    summary="Create PO from Quotation",
+    dependencies=[Depends(require_permission(*Permissions.SALES_CREATE))]
+)
+def create_po_from_quotation(
+    quote_id: int,
+    po_data: CreatePOFromQuoteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_CREATE))
+):
+    """
+    Create a Purchasing Order from an accepted/approved quotation.
+    
+    This is used when the quoted items need to be procured from a supplier
+    before the quotation can be fulfilled and converted to an invoice.
+    The quote status will be updated to 'po_created'.
+    """
+    quote = sales_quote_service.get_quote_by_id(db, quote_id)
+    if not quote:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Quote with ID {quote_id} not found"
+        )
+    
+    po = sales_quote_service.create_po_from_quote(
+        db, quote_id, po_data.model_dump(), current_user.id
+    )
+    
+    return CreatePOFromQuoteResponse(
+        quote_id=quote_id,
+        quote_no=quote.quote_no,
+        purchasing_order_id=po.id,
+        purchasing_order_no=po.purchasing_order_no,
+        message=f"Successfully created PO {po.purchasing_order_no} from quotation {quote.quote_no}"
     )
 
 

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func, text
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import date, datetime
@@ -343,7 +343,8 @@ class SupplierPaymentRepository:
         today = date.today()
         prefix = f"SP-{today.strftime('%Y%m%d')}"
         
-        # Use MAX to find the highest existing number (race-safe with retry)
+        # Advisory lock to prevent race conditions on sequence generation
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last_payment = self.db.query(models.SupplierPayment).filter(
             models.SupplierPayment.payment_no.like(f"{prefix}%")
         ).order_by(models.SupplierPayment.payment_no.desc()).first()
@@ -482,6 +483,8 @@ class SupplierAdvancePaymentRepository:
         today = datetime.now()
         prefix = f"ADV-{today.strftime('%Y%m%d')}-"
         
+        # Advisory lock to prevent race conditions on sequence generation
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last_advance = self.db.query(models.SupplierAdvancePayment).filter(
             models.SupplierAdvancePayment.advance_no.like(f"{prefix}%")
         ).order_by(models.SupplierAdvancePayment.advance_no.desc()).first()

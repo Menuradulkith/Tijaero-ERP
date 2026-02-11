@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
+from sqlalchemy import func, text
 from fastapi import HTTPException, status
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime
@@ -59,6 +59,8 @@ class ReimbursementService:
         """Generate unique reimbursement number: RMB-YYYYMMDD-NNN"""
         today = date.today().strftime("%Y%m%d")
         prefix = f"RMB-{today}-"
+        # Advisory lock to prevent race conditions on sequence generation
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = self.db.query(Reimbursements).filter(
             Reimbursements.reimbursement_no.like(f"{prefix}%")
         ).order_by(Reimbursements.id.desc()).first()
@@ -313,6 +315,21 @@ class ReimbursementService:
 
         self.db.commit()
         self.db.refresh(r)
+        
+        # ── GL Auto-Posting: Reimbursement Payment (Gap B1) ──────────────
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            gl_service.post_reimbursement_payment_to_gl(r, user_id=user_id)
+            self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"GL posting for reimbursement {r.reimbursement_no} failed (non-blocking): {gl_err}"
+            )
+            self.db.rollback()
+        # ─────────────────────────────────────────────────────────────────
+        
         return self._to_response(r)
 
     def delete_reimbursement(self, reimbursement_id: int):
@@ -460,6 +477,8 @@ class PayrollService:
     def _generate_batch_no(self, month: int, year: int) -> str:
         """Generate unique payroll batch number: PAY-YYYY-MM-NNN"""
         prefix = f"PAY-{year}-{month:02d}-"
+        # Advisory lock to prevent race conditions on sequence generation
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = self.db.query(PayrollBatch).filter(
             PayrollBatch.batch_no.like(f"{prefix}%")
         ).order_by(PayrollBatch.id.desc()).first()

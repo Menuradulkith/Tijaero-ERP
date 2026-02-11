@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 from datetime import datetime, date
 from decimal import Decimal
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, and_, case
+from sqlalchemy import func, or_, and_, case, text
 
 from app.modules.customers.commission_models import (
     CustomerAgentCommission,
@@ -238,6 +238,8 @@ class CommissionRepository:
         today = datetime.now().strftime("%Y%m%d")
         prefix = f"ACP-{today}-"
 
+        # Advisory lock to prevent race conditions on sequence generation
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last_payment = db.query(CustomerAgentCommissionPayment).filter(
             CustomerAgentCommissionPayment.payment_no.like(f"{prefix}%")
         ).order_by(CustomerAgentCommissionPayment.payment_no.desc()).first()

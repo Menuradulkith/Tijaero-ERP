@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from fastapi import HTTPException, status
 from app.modules.sales import repository, schemas
 from app.modules.sales.models import Invoice, InvoiceItems, InvoiceItemsBarcode, SaleReturn, SaleReturnItems
@@ -402,14 +402,25 @@ class SalesService:
             )
     
     def create_invoice(self, db: Session, invoice_data: schemas.InvoiceCreate, user_id: int):
-        # Calculate subtotal from items (after item-level discounts)
+        # Calculate subtotal and gross_total from items (after item-level discounts)
         subtotal = Decimal("0")
         gross_total = Decimal("0")
+        is_tax_invoice = getattr(invoice_data, 'is_tax_invoice', False)
+        tax_rate = Decimal(str(getattr(invoice_data, 'tax_rate', 0) or 0))
+        item_display_totals = []
         for item in invoice_data.items:
             item_gross = Decimal(str(item.quantity)) * Decimal(str(item.selling_price))
             gross_total += item_gross
             item_discount_percent = Decimal(str(getattr(item, 'discount_percent', 0) or 0))
             item_discount = item_gross * (item_discount_percent / 100)
+            if is_tax_invoice and tax_rate > 0:
+                # Tax-inclusive: displayed price = actual_price * (1 - tax_rate/100)
+                display_price = Decimal(str(item.selling_price)) * (Decimal('1') - tax_rate / Decimal('100'))
+                display_line_total = Decimal(str(item.quantity)) * display_price
+                item_display_totals.append(display_line_total - item_discount)
+            else:
+                # Tax-exclusive: display = actual
+                item_display_totals.append(item_gross - item_discount)
             subtotal += (item_gross - item_discount)
         
         # Get discount parameters for combined validation
@@ -425,12 +436,15 @@ class SalesService:
             invoice_discount_percent = discount_percent
         elif discount_amount_input > 0 and subtotal > 0:
             invoice_discount_percent = (discount_amount_input / subtotal * 100)
-        
         # Calculate amount after invoice discount for coupon percentage
         after_invoice_discount = subtotal * (1 - invoice_discount_percent / 100)
-        
         # Calculate coupon discount as percentage (applied after invoice discount)
         coupon_discount_percent = (coupon_amount / after_invoice_discount * 100) if after_invoice_discount > 0 else Decimal("0")
+        # For tax-inclusive, recalculate subtotal as sum of displayed prices
+        if is_tax_invoice and tax_rate > 0:
+            subtotal_displayed = sum(item_display_totals)
+        else:
+            subtotal_displayed = subtotal
         
         # Validate all products are available in sales stock before creating invoice
         for item_data in invoice_data.items:
@@ -485,25 +499,28 @@ class SalesService:
         # 1. Subtotal (after item discounts)
         # 2. Invoice Discount (-)
         # 3. Coupon Discount (-)
-        # 4. Tax (+)
+        # 4. Tax (+) or (Tax absorbed if is_tax_invoice)
         # 5. Voucher Payment (-)
         # 6. Service Charge (+)
         # 7. Grand Total
-        
-        # Step 2: Calculate invoice discount (percentage takes priority, then fixed amount)
         calculated_discount = Decimal("0")
         if discount_percent > 0:
-            calculated_discount = Decimal(str(subtotal)) * (discount_percent / Decimal('100'))
+            calculated_discount = Decimal(str(subtotal_displayed)) * (discount_percent / Decimal('100'))
         elif discount_amount_input > 0:
             calculated_discount = discount_amount_input
-        after_invoice_discount_calc = Decimal(str(subtotal)) - calculated_discount
-        
-        # Step 3: After coupon (applied after invoice discount)
+        after_invoice_discount_calc = Decimal(str(subtotal_displayed)) - calculated_discount
         after_discount = after_invoice_discount_calc - coupon_amount
-        
-        # Step 4: Calculate tax amount (on amount after discounts)
-        tax_amount = after_discount * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
-        after_tax = after_discount + tax_amount
+        if is_tax_invoice and tax_rate > 0:
+            # Tax-inclusive: grand_total is sum of actual prices, subtotal is displayed (reduced), tax_amount = grand_total - subtotal
+            grand_total = gross_total
+            tax_amount = grand_total - after_discount
+            subtotal_final = after_discount
+        else:
+            # Tax-exclusive: add tax on top
+            tax_amount = after_discount * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
+            grand_total = after_discount + tax_amount
+            subtotal_final = after_discount
+        after_tax = grand_total
         
         # Get voucher payment amount
         gift_voucher_id = getattr(invoice_data, 'gift_voucher_id', None)
@@ -596,7 +613,8 @@ class SalesService:
         invoice_dict['status'] = True
         
         # Set calculated totals
-        invoice_dict['subtotal'] = float(subtotal)
+        invoice_dict['is_tax_invoice'] = bool(is_tax_invoice)
+        invoice_dict['subtotal'] = float(subtotal_final)
         invoice_dict['tax_rate'] = float(tax_rate)
         invoice_dict['tax_amount'] = float(tax_amount)
         invoice_dict['discount_percent'] = float(discount_percent)
@@ -621,6 +639,37 @@ class SalesService:
         
         # Total amount prepaid (voucher + credit note)
         total_prepaid = total_voucher_amount + credit_note_amount
+        
+        # ═══════════════════════════════════════════════════════════════
+        # Gap 4: Auto-deduct customer advance payment balance
+        # If invoice has a customer_advance_payments_id, deduct from
+        # the advance remaining_amount and track as prepaid
+        # ═══════════════════════════════════════════════════════════════
+        advance_payment_id = getattr(invoice_data, 'customer_advance_payments_id', None)
+        advance_deducted = Decimal("0")
+        advance_for_gl = None  # Store for GL posting later
+        if advance_payment_id:
+            from app.modules.customers.models import CustomerAdvancePayments
+            # Lock the advance payment row to prevent race condition
+            advance = db.query(CustomerAdvancePayments).filter(
+                CustomerAdvancePayments.id == advance_payment_id,
+                CustomerAdvancePayments.active == True
+            ).with_for_update().first()
+            if advance:
+                available = Decimal(str(advance.remaining_amount or advance.payment_amount))
+                # Deduct up to the remaining invoice amount
+                advance_deducted = min(available, amount_after_voucher)
+                if advance_deducted > 0:
+                    advance.applied_amount = Decimal(str(advance.applied_amount or 0)) + advance_deducted
+                    advance.remaining_amount = Decimal(str(advance.payment_amount)) - Decimal(str(advance.applied_amount))
+                    if advance.remaining_amount <= 0:
+                        advance.remaining_amount = Decimal("0")
+                        advance.is_fully_applied = True
+                    amount_after_voucher -= advance_deducted
+                    grand_total -= advance_deducted
+                    total_prepaid += advance_deducted
+                    invoice_dict['grand_total'] = float(grand_total)
+                    advance_for_gl = advance  # Save for GL posting
         
         # Set payment tracking fields
         if is_credit_payment:
@@ -683,6 +732,24 @@ class SalesService:
             db.add(cheque_payment)
             db.flush()
             cheque_payment_id = cheque_payment.id
+            
+            # Gap 5: Auto-create bank deposit record for cheque payment
+            # Cheque needs to be deposited to bank; create a pending bank deposit record
+            cheque_bank_deposit = BankDeposits(
+                deposits_amount=invoice_data.cheque_amount or 0,
+                remarks=f"Cheque deposit - Cheque No: {cheque_number}, Bank: {cheque_bank or 'N/A'}",
+                created_date=datetime.now(),
+                branch_code=invoice_data.branch_code,
+                bank_name=cheque_bank or "",
+                user_id=user_id,
+                payment_for="Cheque Deposit - Sales Invoice",
+                invoice_no=invoice_data.invoice_no,
+                verified=False,
+                returned=False,
+                status="pending"
+            )
+            db.add(cheque_bank_deposit)
+            db.flush()
         
         # Handle card payment
         if payment_method in ["card_visa", "card_mastercard", "card_amex"]:
@@ -703,7 +770,7 @@ class SalesService:
                 remark=card_holder_name or "",
                 ref_number=card_ref_number or "",
                 invoice_no=invoice_data.invoice_no,
-                deposited=True
+                deposited=False  # Starts as not deposited; confirmed when batch-deposited to bank
             )
             db.add(card_payment)
             db.flush()
@@ -870,10 +937,15 @@ class SalesService:
             )
             db.add(coupon_usage)
             
-            # Increment coupon usage count
-            coupon = db.query(CustomerCuponCodes).filter(CustomerCuponCodes.id == coupon_id).first()
+            # Lock the coupon row before updating usage count to prevent race condition
+            coupon = db.query(CustomerCuponCodes).filter(
+                CustomerCuponCodes.id == coupon_id
+            ).with_for_update().first()
             if coupon:
                 coupon.usage_count = (coupon.usage_count or 0) + 1
+                # Auto-deactivate coupon when global usage limit is reached
+                if coupon.usage_count >= coupon.limit_by_usage:
+                    coupon.active = False
         
         # Record voucher redemptions - prioritize multiple vouchers over legacy single voucher
         voucher_redemptions = getattr(invoice_data, 'voucher_redemptions', []) or []
@@ -884,7 +956,10 @@ class SalesService:
             from app.modules.customers.models import CustomerGiftVoucher, VoucherUsage
             
             for redemption in voucher_redemptions:
-                voucher = db.query(CustomerGiftVoucher).filter(CustomerGiftVoucher.id == redemption.voucher_id).first()
+                # Lock the voucher row to prevent race condition
+                voucher = db.query(CustomerGiftVoucher).filter(
+                    CustomerGiftVoucher.id == redemption.voucher_id
+                ).with_for_update().first()
                 if not voucher:
                     continue
                     
@@ -916,7 +991,10 @@ class SalesService:
             # NOTE: ONE-TIME USE ONLY - always mark as fully_claimed
             from app.modules.customers.models import CustomerGiftVoucher, VoucherUsage
             
-            voucher = db.query(CustomerGiftVoucher).filter(CustomerGiftVoucher.id == gift_voucher_id).first()
+            # Lock the voucher row to prevent race condition
+            voucher = db.query(CustomerGiftVoucher).filter(
+                CustomerGiftVoucher.id == gift_voucher_id
+            ).with_for_update().first()
             if voucher:
                 # Verify voucher hasn't been used already
                 if voucher.status != "active":
@@ -983,6 +1061,23 @@ class SalesService:
                 import logging
                 logging.getLogger(__name__).error(
                     f"GL posting failed for invoice {invoice.invoice_no}: {e}"
+                )
+        
+        # =================================================================
+        # Gap B4: Post customer advance application to GL
+        # When an advance is applied, transfer from liability to receivables
+        # =================================================================
+        if advance_for_gl and advance_deducted > 0:
+            try:
+                from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                gl_service = PurchaseExpensePayrollGL(db)
+                gl_service.post_customer_advance_application_to_gl(
+                    invoice, advance_for_gl, advance_deducted, user_id
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    f"GL posting for advance application failed for invoice {invoice.invoice_no}: {e}"
                 )
         
         db.commit()
@@ -1155,7 +1250,13 @@ class SalesService:
         Approve a pending credit invoice through the centralized approval system.
         Updates the approval record and changes invoice status to completed.
         """
-        invoice = self.get_invoice(db, invoice_id)
+        # Lock the invoice row to prevent concurrent approval
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Invoice with id {invoice_id} not found"
+            )
         
         if invoice.approval_status != 'pending_approval':
             raise HTTPException(
@@ -1201,7 +1302,10 @@ class SalesService:
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
         for item in items:
             if item.sales_stock_id:
-                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                # Lock the stock item row before updating
+                stock_item = db.query(SalesStock).filter(
+                    SalesStock.id == item.sales_stock_id
+                ).with_for_update().first()
                 if stock_item and stock_item.status == 'reserved':
                     stock_item.status = 'sold'
                     stock_item.is_active = False
@@ -1581,9 +1685,11 @@ class SalesService:
         # Process each return item
         for item in sale_return.items:
             if item.restockable and item.condition == 'good':
-                # Restore stock to available
+                # Restore stock to available - lock the row first
                 if item.sales_stock_id:
-                    stock = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                    stock = db.query(SalesStock).filter(
+                        SalesStock.id == item.sales_stock_id
+                    ).with_for_update().first()
                     if stock:
                         stock.status = 'available'
                         stock.is_active = True
@@ -1591,8 +1697,10 @@ class SalesService:
                         item.restocked = True
                         items_restocked += item.quantity
                 elif item.barcode:
-                    # Try to find the stock by barcode
-                    stock = db.query(SalesStock).filter(SalesStock.barcode == item.barcode).first()
+                    # Try to find the stock by barcode - lock the row first
+                    stock = db.query(SalesStock).filter(
+                        SalesStock.barcode == item.barcode
+                    ).with_for_update().first()
                     if stock:
                         stock.status = 'available'
                         stock.is_active = True
@@ -1744,8 +1852,13 @@ class SalesService:
         from app.modules.customers.models import CustomerCreditsSettle, CustomerCreditsSettleTransaction
         from app.modules.finance.models import ChequePayments, CardPayments, BankDeposits
         
-        # Get invoice
-        invoice = self.get_invoice(db, payment_data.invoice_id)
+        # Lock the invoice row to prevent concurrent payment updates
+        invoice = db.query(Invoice).filter(Invoice.id == payment_data.invoice_id).with_for_update().first()
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Invoice with id {payment_data.invoice_id} not found"
+            )
         
         # Validate it's a credit invoice
         if invoice.payment_method != 'credit':
@@ -1768,9 +1881,11 @@ class SalesService:
                 detail=f"Payment amount (Rs. {payment_data.payment_amount:,.2f}) exceeds balance due (Rs. {invoice.balance_due:,.2f})"
             )
         
-        # Generate settlement number
+        # Generate settlement number with advisory lock for concurrency safety
+        settle_prefix = f"CS-{invoice.branch_code}-{date.today().strftime('%Y%m%d')}"
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": settle_prefix})
         settle_count = db.query(func.count(CustomerCreditsSettle.id)).scalar() or 0
-        settle_no = f"CS-{invoice.branch_code}-{date.today().strftime('%Y%m%d')}-{settle_count + 1:04d}"
+        settle_no = f"{settle_prefix}-{settle_count + 1:04d}"
         
         # Create credit settle record
         credit_settle = CustomerCreditsSettle(

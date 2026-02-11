@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
 from app.db.session import get_db
+from app.auth.dependencies import get_current_user
+from app.auth.models import User
 from . import schemas, service
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -171,12 +173,11 @@ def record_expense(expense_id: int, data: schemas.ExpenseRecord, db: Session = D
 @router.post("/advance-payments", response_model=schemas.CustomerAdvancePayment, status_code=status.HTTP_201_CREATED)
 def create_advance_payment(
     advance: schemas.CustomerAdvancePaymentCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     advance_service = service.CustomerAdvancePaymentService(db)
-    return advance_service.create_advance_payment(advance)
-    advance_service = service.CustomerAdvancePaymentService(db)
-    return advance_service.create_advance_payment(advance)
+    return advance_service.create_advance_payment(advance, user_id=current_user.id)
 
 @router.get("/advance-payments/{advance_id}", response_model=schemas.CustomerAdvancePayment)
 def get_advance_payment(advance_id: int, db: Session = Depends(get_db)):
@@ -306,3 +307,95 @@ def get_cashbook_summary(
     
     report = cashbook_service.get_cashbook_report(filters)
     return report.summary
+
+
+# =============================================================================
+# PETTY CASH ENDPOINTS (Scenario 25)
+# =============================================================================
+
+@router.post("/petty-cash/funds", response_model=schemas.PettyCashFundResponse, status_code=status.HTTP_201_CREATED)
+def open_petty_cash_fund(
+    data: schemas.PettyCashFundCreate,
+    db: Session = Depends(get_db)
+):
+    """Step 1: Open a new petty cash fund at a branch"""
+    return service.PettyCashService(db).open_fund(data)
+
+
+@router.get("/petty-cash/funds", response_model=List[schemas.PettyCashFundResponse])
+def list_petty_cash_funds(
+    branch_code: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    """List all petty cash funds with filters"""
+    filters = schemas.PettyCashListFilter(
+        branch_code=branch_code,
+        status=status_filter,
+        date_from=date.fromisoformat(date_from) if date_from else None,
+        date_to=date.fromisoformat(date_to) if date_to else None,
+        skip=skip,
+        limit=limit,
+    )
+    return service.PettyCashService(db).list_funds(filters)
+
+
+@router.get("/petty-cash/funds/{fund_id}", response_model=schemas.PettyCashFundResponse)
+def get_petty_cash_fund(fund_id: int, db: Session = Depends(get_db)):
+    """Get a petty cash fund by ID"""
+    return service.PettyCashService(db).get_fund(fund_id)
+
+
+@router.get("/petty-cash/funds/{fund_id}/details", response_model=schemas.PettyCashFundWithTransactions)
+def get_petty_cash_fund_details(fund_id: int, db: Session = Depends(get_db)):
+    """Get a petty cash fund with all its transactions"""
+    return service.PettyCashService(db).get_fund_with_transactions(fund_id)
+
+
+@router.get("/petty-cash/funds/{fund_id}/summary", response_model=schemas.PettyCashSummary)
+def get_petty_cash_fund_summary(fund_id: int, db: Session = Depends(get_db)):
+    """Get summary statistics for a petty cash fund"""
+    return service.PettyCashService(db).get_fund_summary(fund_id)
+
+
+@router.post("/petty-cash/expenses", response_model=schemas.PettyCashTransactionResponse, status_code=status.HTTP_201_CREATED)
+def record_petty_cash_expense(
+    data: schemas.PettyCashExpenseCreate,
+    db: Session = Depends(get_db)
+):
+    """Step 2: Record a petty cash expense (deducts from fund)"""
+    return service.PettyCashService(db).record_expense(data)
+
+
+@router.post("/petty-cash/replenishments", response_model=schemas.PettyCashTransactionResponse, status_code=status.HTTP_201_CREATED)
+def replenish_petty_cash(
+    data: schemas.PettyCashReplenishCreate,
+    db: Session = Depends(get_db)
+):
+    """Step 3: Replenish a petty cash fund (adds to fund)"""
+    return service.PettyCashService(db).replenish_fund(data)
+
+
+@router.post("/petty-cash/funds/{fund_id}/reconcile", response_model=schemas.PettyCashReconcileResponse)
+def reconcile_petty_cash(
+    fund_id: int,
+    data: schemas.PettyCashReconcileRequest,
+    db: Session = Depends(get_db)
+):
+    """Step 4: Close and reconcile a petty cash fund"""
+    return service.PettyCashService(db).reconcile_and_close(fund_id, data)
+
+
+@router.get("/petty-cash/funds/{fund_id}/transactions", response_model=List[schemas.PettyCashTransactionResponse])
+def list_petty_cash_transactions(
+    fund_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    """List all transactions for a petty cash fund"""
+    return service.PettyCashService(db).list_transactions(fund_id, skip, limit)

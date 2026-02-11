@@ -447,9 +447,10 @@ class SalesCommissionService:
         user_id: int
     ) -> schemas.SalesOfficerCommissionResponse:
         """Finance Manager approves an individual commission"""
+        # Lock the commission row to prevent concurrent approval
         commission = self.db.query(SalesOfficerMonthlyCommission).filter(
             SalesOfficerMonthlyCommission.id == commission_id
-        ).first()
+        ).with_for_update().first()
         
         if not commission:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Commission not found")

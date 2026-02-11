@@ -23,6 +23,7 @@ class QuoteStatus(str, enum.Enum):
     REJECTED = "rejected" 
     EXPIRED = "expired"  
     CONVERTED = "converted" 
+    PO_CREATED = "po_created"  # PO raised from this quotation
     CANCELLED = "cancelled" 
     REVISED = "revised" 
 
@@ -71,6 +72,13 @@ class SalesQuote(Base, TimestampMixin):
     converted_to_invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
     converted_at = Column(TIMESTAMP, nullable=True)
     converted_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+    
+    # Revision tracking
+    parent_quote_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True)
+    revision_number = Column(Integer, nullable=False, default=1)
+    
+    # Rejection / expiry tracking
+    rejection_reason = Column(Text, nullable=True)
     
     # Relationships
     customer = relationship(

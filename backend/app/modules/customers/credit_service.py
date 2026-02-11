@@ -354,8 +354,8 @@ class CustomerCreditService:
         )
     
     def update_customer_credit_balance(self, db: Session, customer_id: int):
-
-        customer = db.query(Customer).filter(Customer.id == customer_id).first()
+        # Lock the customer row to prevent concurrent credit balance updates
+        customer = db.query(Customer).filter(Customer.id == customer_id).with_for_update().first()
         if not customer:
             return
         
@@ -408,6 +408,7 @@ class CustomerCreditService:
         db.add(settlement)
         db.flush()
 
+        created_transactions = []
         for trans in settlement_data.transactions:
             transaction = CustomerCreditsSettleTransaction(
                 payment_method=trans.payment_method,
@@ -420,10 +421,27 @@ class CustomerCreditService:
                 created_date=date.today()
             )
             db.add(transaction)
+            created_transactions.append(transaction)
         
         db.commit()
 
         self.update_customer_credit_balance(db, settlement_data.customer_id)
+        
+        # ── GL Auto-Posting: Customer Credit Settlement (Gap B3) ─────────
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(db)
+            gl_service.post_customer_credit_settlement_to_gl(
+                settlement, created_transactions, user_id=0
+            )
+            db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"GL posting for credit settlement {settlement.customer_credits_settle_no} "
+                f"failed (non-blocking): {gl_err}"
+            )
+        # ─────────────────────────────────────────────────────────────────
         
         db.refresh(settlement)
         return settlement

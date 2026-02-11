@@ -178,6 +178,8 @@ class CustomerCuponCodesBase(BaseModel):
     active: bool = Field(default=True, description="Is coupon active")
     limit_validity_product_id: Optional[int] = Field(None, description="Legacy single product ID (deprecated)")
     product_ids: Optional[List[int]] = Field(default=[], description="List of product IDs for validity restriction")
+    category_ids: Optional[List[int]] = Field(default=[], description="List of category IDs for validity restriction")
+    brand_ids: Optional[List[int]] = Field(default=[], description="List of brand IDs for validity restriction")
 
 class CustomerCuponCodesCreate(CustomerCuponCodesBase):
     pass
@@ -194,12 +196,16 @@ class CustomerCuponCodesUpdate(BaseModel):
     active: Optional[bool] = None
     limit_validity_product_id: Optional[int] = None
     product_ids: Optional[List[int]] = None
+    category_ids: Optional[List[int]] = None
+    brand_ids: Optional[List[int]] = None
 
 class CustomerCuponCodes(CustomerCuponCodesBase):
     id: int
     created_date: Optional[datetime] = None
     usage_count: int = 0  # Track total usage count
     product_ids: List[int] = []  # Computed field for restricted product IDs
+    category_ids: List[int] = []  # Computed field for restricted category IDs
+    brand_ids: List[int] = []  # Computed field for restricted brand IDs
     
     class Config:
         from_attributes = True

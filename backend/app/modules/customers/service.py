@@ -68,6 +68,8 @@ class CouponService:
             ).scalar() or 0
             # Populate product_ids from the many-to-many relationship
             coupon.product_ids = [p.id for p in coupon.products]
+            coupon.category_ids = [c.id for c in coupon.categories]
+            coupon.brand_ids = [b.id for b in coupon.brands]
         
         return coupons
     
@@ -95,6 +97,8 @@ class CouponService:
             ).scalar() or 0
             # Populate product_ids from the many-to-many relationship
             coupon.product_ids = [p.id for p in coupon.products]
+            coupon.category_ids = [c.id for c in coupon.categories]
+            coupon.brand_ids = [b.id for b in coupon.brands]
         return coupon
     
     def create_coupon(self, db: Session, coupon_data: schemas.CustomerCuponCodesCreate) -> CustomerCuponCodes:
@@ -144,9 +148,23 @@ class CouponService:
             products = db.query(Product).filter(Product.id.in_(coupon_data.product_ids)).all()
             coupon.products = products
         
+        # Add category restrictions if provided
+        if coupon_data.category_ids:
+            from app.modules.products.models import Category
+            categories = db.query(Category).filter(Category.id.in_(coupon_data.category_ids)).all()
+            coupon.categories = categories
+        
+        # Add brand restrictions if provided
+        if coupon_data.brand_ids:
+            from app.modules.products.models import ItemsBrand
+            brands = db.query(ItemsBrand).filter(ItemsBrand.id.in_(coupon_data.brand_ids)).all()
+            coupon.brands = brands
+        
         db.commit()
         db.refresh(coupon)
         coupon.product_ids = [p.id for p in coupon.products]
+        coupon.category_ids = [c.id for c in coupon.categories]
+        coupon.brand_ids = [b.id for b in coupon.brands]
         return coupon
     
     def update_coupon(self, db: Session, coupon_id: int, coupon_data: schemas.CustomerCuponCodesUpdate) -> CustomerCuponCodes:
@@ -160,8 +178,10 @@ class CouponService:
         
         update_data = coupon_data.model_dump(exclude_unset=True)
         
-        # Handle product_ids separately
+        # Handle product_ids, category_ids, brand_ids separately
         product_ids = update_data.pop('product_ids', None)
+        category_ids = update_data.pop('category_ids', None)
+        brand_ids = update_data.pop('brand_ids', None)
         
         # Check if code is being changed and if new code exists
         if "cupon_code" in update_data and update_data["cupon_code"] != coupon.cupon_code:
@@ -185,12 +205,32 @@ class CouponService:
             else:  # If empty list, clear all product restrictions
                 coupon.products = []
         
+        # Update category restrictions if provided
+        if category_ids is not None:
+            from app.modules.products.models import Category
+            if category_ids:
+                categories = db.query(Category).filter(Category.id.in_(category_ids)).all()
+                coupon.categories = categories
+            else:
+                coupon.categories = []
+        
+        # Update brand restrictions if provided
+        if brand_ids is not None:
+            from app.modules.products.models import ItemsBrand
+            if brand_ids:
+                brands = db.query(ItemsBrand).filter(ItemsBrand.id.in_(brand_ids)).all()
+                coupon.brands = brands
+            else:
+                coupon.brands = []
+        
         db.commit()
         db.refresh(coupon)
         coupon.usage_count = db.query(func.count(CouponUsage.id)).filter(
             CouponUsage.coupon_id == coupon.id
         ).scalar() or 0
         coupon.product_ids = [p.id for p in coupon.products]
+        coupon.category_ids = [c.id for c in coupon.categories]
+        coupon.brand_ids = [b.id for b in coupon.brands]
         return coupon
     
     def delete_coupon(self, db: Session, coupon_id: int) -> dict:
@@ -275,6 +315,38 @@ class CouponService:
         if not restricted_product_ids and coupon.limit_validity_product_id:
             # Legacy support: use single product field
             restricted_product_ids = [coupon.limit_validity_product_id]
+        
+        # Check category restrictions
+        restricted_category_ids = [c.id for c in coupon.categories] if coupon.categories else []
+        
+        # Check brand restrictions
+        restricted_brand_ids = [b.id for b in coupon.brands] if coupon.brands else []
+        
+        # If category or brand restrictions exist, resolve them to product IDs
+        if restricted_category_ids or restricted_brand_ids:
+            from app.modules.products.models import Product as ProductModel
+            category_product_ids = set()
+            brand_product_ids = set()
+            
+            if restricted_category_ids:
+                cat_products = db.query(ProductModel.id).filter(
+                    ProductModel.category_id.in_(restricted_category_ids)
+                ).all()
+                category_product_ids = {p.id for p in cat_products}
+            
+            if restricted_brand_ids:
+                brand_products = db.query(ProductModel.id).filter(
+                    ProductModel.items_brand_id.in_(restricted_brand_ids)
+                ).all()
+                brand_product_ids = {p.id for p in brand_products}
+            
+            # Merge: restricted products = explicit products + products from restricted categories/brands
+            all_restricted = set(restricted_product_ids)
+            if category_product_ids:
+                all_restricted.update(category_product_ids)
+            if brand_product_ids:
+                all_restricted.update(brand_product_ids)
+            restricted_product_ids = list(all_restricted)
         
         # Calculate the applicable subtotal (excluding restricted products)
         # This is the subtotal AFTER item discounts but BEFORE invoice discount
@@ -483,6 +555,11 @@ class VoucherService:
             )
         
         # Check if voucher is active (not already used)
+        # Re-query with lock to prevent race condition
+        voucher = db.query(CustomerGiftVoucher).filter(
+            CustomerGiftVoucher.id == voucher.id
+        ).with_for_update().first()
+        
         if voucher.status != "active":
             status_messages = {
                 "fully_claimed": "This voucher has already been used",
@@ -555,7 +632,16 @@ class VoucherService:
         amount_to_redeem: Decimal
     ) -> VoucherUsage:
         """Redeem voucher for an invoice"""
-        voucher = self.get_voucher(db, voucher_id)
+        # Lock the voucher row to prevent race condition
+        voucher = db.query(CustomerGiftVoucher).filter(
+            CustomerGiftVoucher.id == voucher_id
+        ).with_for_update().first()
+        
+        if not voucher:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Voucher not found"
+            )
         
         # Validate amount
         if amount_to_redeem <= 0:

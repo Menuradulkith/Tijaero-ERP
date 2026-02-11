@@ -17,6 +17,7 @@ from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
                                                  SalesQuoteStatusUpdate,
                                                  SalesQuoteUpdate)
 from fastapi import HTTPException, status
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 
@@ -229,11 +230,26 @@ class SalesQuoteService:
         )
     
     def reject_quote(self, db: Session, quote_id: int, reason: Optional[str] = None) -> SalesQuote:
-        """Reject a quote"""
-        return self.update_status(
-            db, quote_id,
-            SalesQuoteStatusUpdate(status=QuoteStatusEnum.REJECTED, remarks=reason)
-        )
+        """Reject a quote with optional reason"""
+        quote = self.repository.get_by_id(db, quote_id)
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+        
+        if not self._is_valid_status_transition(quote.status, QuoteStatus.REJECTED.value):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status transition from '{quote.status}' to 'rejected'"
+            )
+        
+        quote.status = QuoteStatus.REJECTED.value
+        if reason:
+            quote.rejection_reason = reason
+            quote.remarks = reason
+        
+        return self.repository.update(db, quote)
     
     def mark_as_sent(self, db: Session, quote_id: int) -> SalesQuote:
         """Mark quote as sent to customer"""
@@ -281,8 +297,11 @@ class SalesQuoteService:
                 detail="Quote has already been converted to an invoice"
             )
         
-        # Check if quote can be converted (must be accepted or approved)
-        if quote.status not in [QuoteStatus.ACCEPTED.value, QuoteStatus.APPROVED.value, QuoteStatus.SENT.value]:
+        # Check if quote can be converted (must be accepted, approved, sent, or po_created)
+        if quote.status not in [
+            QuoteStatus.ACCEPTED.value, QuoteStatus.APPROVED.value,
+            QuoteStatus.SENT.value, QuoteStatus.PO_CREATED.value
+        ]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Quote must be accepted/approved to convert. Current status: '{quote.status}'"
@@ -297,9 +316,25 @@ class SalesQuoteService:
                         detail=f"Item '{item.product_id}' has estimate pricing. Please set exact prices before converting."
                     )
         
+        # Validate stock availability before conversion
+        stock_check = self.check_stock_availability(db, quote_id)
+        if not stock_check["all_sufficient"]:
+            insufficient = [
+                f"{i['product_name'] or i['product_id']} (need {i['requested_quantity']}, have {i['available_quantity']})"
+                for i in stock_check["items"] if not i["is_sufficient"]
+            ]
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient stock for: {', '.join(insufficient)}"
+            )
+        
         # Generate invoice number
         now = datetime.now()
         year = now.year
+        
+        # Acquire advisory lock to prevent duplicate invoice numbers
+        prefix = f"INV-{year}"
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         
         # Get next invoice number
         last_invoice = db.query(Invoice).filter(
@@ -424,7 +459,9 @@ class SalesQuoteService:
             remarks=reason or f"Revision of {original_quote.quote_no}",
             customer_notes=original_quote.customer_notes,
             special=original_quote.special,
-            total_amount=float(original_quote.total_amount)
+            total_amount=float(original_quote.total_amount),
+            parent_quote_id=parent_id,
+            revision_number=next_revision
         )
         
         # Copy items
@@ -531,6 +568,7 @@ class SalesQuoteService:
                 QuoteStatus.ACCEPTED.value,
                 QuoteStatus.REJECTED.value,
                 QuoteStatus.CONVERTED.value,
+                QuoteStatus.PO_CREATED.value,
                 QuoteStatus.CANCELLED.value
             ],
             QuoteStatus.SENT.value: [
@@ -538,10 +576,16 @@ class SalesQuoteService:
                 QuoteStatus.REJECTED.value,
                 QuoteStatus.EXPIRED.value,
                 QuoteStatus.CONVERTED.value,
+                QuoteStatus.PO_CREATED.value,
                 QuoteStatus.REVISED.value
             ],
             QuoteStatus.ACCEPTED.value: [
                 QuoteStatus.CONVERTED.value,
+                QuoteStatus.PO_CREATED.value,
+                QuoteStatus.CANCELLED.value
+            ],
+            QuoteStatus.PO_CREATED.value: [
+                QuoteStatus.CONVERTED.value,  # Can still convert to invoice after PO
                 QuoteStatus.CANCELLED.value
             ],
             QuoteStatus.REJECTED.value: [
@@ -557,6 +601,152 @@ class SalesQuoteService:
         }
         
         return new in valid_transitions.get(current, [])
+    
+    # ==================== Stock Availability ====================
+    
+    def check_stock_availability(self, db: Session, quote_id: int) -> dict:
+        """Check stock availability for all items in a quote"""
+        from app.modules.inventory.models import SalesStock
+        from sqlalchemy import func
+        
+        quote = self.repository.get_by_id_with_items(db, quote_id)
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+        
+        items_availability = []
+        all_sufficient = True
+        
+        for item in quote.items:
+            # Count available stock for this product in this branch
+            available_qty = db.query(func.count(SalesStock.id)).filter(
+                SalesStock.product_id == item.product_id,
+                SalesStock.branch_code == quote.branch_code,
+                SalesStock.status == 'available',
+                SalesStock.is_active == True
+            ).scalar() or 0
+            
+            is_sufficient = available_qty >= item.quantity
+            if not is_sufficient:
+                all_sufficient = False
+            
+            # Get product name
+            from app.modules.products.models import Product
+            product = db.query(Product).filter(Product.id == item.product_id).first()
+            product_name = product.name if product else None
+            
+            items_availability.append({
+                "product_id": item.product_id,
+                "product_name": product_name,
+                "requested_quantity": item.quantity,
+                "available_quantity": available_qty,
+                "is_sufficient": is_sufficient
+            })
+        
+        return {
+            "quote_id": quote_id,
+            "branch_code": quote.branch_code,
+            "items": items_availability,
+            "all_sufficient": all_sufficient
+        }
+    
+    # ==================== Create PO from Quotation ====================
+    
+    def create_po_from_quote(
+        self,
+        db: Session,
+        quote_id: int,
+        po_data: dict,
+        created_by: Optional[int] = None
+    ):
+        """Create a Purchasing Order from an accepted/approved quotation"""
+        from app.modules.purchasing.models import PurchasingOrder, PurchasingOrderItems
+        
+        quote = self.repository.get_by_id_with_items(db, quote_id)
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+        
+        # Must be in accepted, approved, or sent status
+        if quote.status not in [
+            QuoteStatus.ACCEPTED.value,
+            QuoteStatus.APPROVED.value,
+            QuoteStatus.SENT.value,
+        ]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Quote must be accepted/approved to create PO. Current status: '{quote.status}'"
+            )
+        
+        # Generate PO number
+        now = datetime.now()
+        year = now.year
+        
+        # Acquire advisory lock to prevent duplicate PO numbers
+        prefix = f"PO-{year}"
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        
+        last_po = db.query(PurchasingOrder).filter(
+            PurchasingOrder.purchasing_order_no.like(f"PO-{year}-%")
+        ).order_by(PurchasingOrder.id.desc()).first()
+        
+        if last_po:
+            try:
+                last_seq = int(last_po.purchasing_order_no.split('-')[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        
+        po_no = f"PO-{year}-{next_seq:05d}"
+        
+        # Create PO
+        po = PurchasingOrder(
+            purchasing_order_no=po_no,
+            purchasing_invoice_no=po_data.get("purchasing_invoice_no", po_no),
+            branch_code=quote.branch_code,
+            payment_method=po_data.get("payment_method", "credit"),
+            purchasing_order_date=now.date(),
+            good_received_note_date=po_data.get("good_received_note_date", now.date()),
+            remarks=po_data.get("remarks", f"Created from quotation {quote.quote_no}"),
+            credit_date=po_data.get("credit_date"),
+            created_date=now.date(),
+            first_suppliers_id=po_data["first_suppliers_id"],
+            second_suppliers_id=po_data["second_suppliers_id"],
+            added_date=now,
+            status="pending",
+            sales_quote_id=quote.id
+        )
+        
+        db.add(po)
+        db.flush()  # Get PO ID
+        
+        # Create PO items from quote items
+        for quote_item in quote.items:
+            po_item = PurchasingOrderItems(
+                quantity=quote_item.quantity,
+                unit_price=quote_item.selling_price,
+                warrenty_month=quote_item.warrenty_month,
+                remark=quote_item.remark or "",
+                created_date=now.date(),
+                product_id=quote_item.product_id,
+                purchasingorders_id=po.id,
+                added_date=now
+            )
+            db.add(po_item)
+        
+        # Update quote status to po_created
+        quote.status = QuoteStatus.PO_CREATED.value
+        
+        db.commit()
+        db.refresh(po)
+        
+        return po
     
     # ==================== Expiry Management ====================
     

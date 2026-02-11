@@ -51,6 +51,7 @@ class InvoiceBase(BaseModel):
     bank_transfer_ref: Optional[str] = None
     bank_name: Optional[str] = None
     # Tax fields
+    is_tax_invoice: bool = Field(default=False, description="True for tax-inclusive, False for tax-exclusive")
     tax_rate: float = Field(default=0, ge=0, le=100)
     # Discount fields
     discount_percent: float = Field(default=0, ge=0, le=100)
@@ -79,6 +80,7 @@ class InvoiceUpdate(BaseModel):
     status: Optional[bool] = None
     approval: Optional[bool] = None
     approval_status: Optional[str] = None
+    is_tax_invoice: Optional[bool] = None
     items: Optional[List[InvoiceItemCreate]] = None
 
 class Invoice(InvoiceBase):
@@ -89,6 +91,7 @@ class Invoice(InvoiceBase):
     status: bool
     approval: bool
     approval_status: str
+    is_tax_invoice: bool = False
     # Calculated totals
     subtotal: float = 0
     tax_amount: float = 0

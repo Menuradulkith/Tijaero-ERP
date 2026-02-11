@@ -19,6 +19,7 @@ class QuoteStatusEnum(str, Enum):
     REJECTED = "rejected"
     EXPIRED = "expired"
     CONVERTED = "converted"
+    PO_CREATED = "po_created"
     CANCELLED = "cancelled"
     REVISED = "revised"
 
@@ -204,6 +205,13 @@ class SalesQuote(BaseModel):
     converted_at: Optional[datetime] = None
     converted_by: Optional[int] = None
 
+    # Revision tracking
+    parent_quote_id: Optional[int] = None
+    revision_number: int = 1
+
+    # Rejection
+    rejection_reason: Optional[str] = None
+
     created_at: datetime
     updated_at: datetime
 
@@ -306,4 +314,46 @@ class SalesQuoteFilter(BaseModel):
     date_to: Optional[date] = None
     is_expired: Optional[bool] = None
     search: Optional[str] = None  # Search in quote_no, customer name
-    search: Optional[str] = None  # Search in quote_no, customer name
+
+
+# ==================== Stock Availability Schema ====================
+
+
+class StockAvailabilityItem(BaseModel):
+    """Stock availability for a single product"""
+    product_id: int
+    product_name: Optional[str] = None
+    requested_quantity: int
+    available_quantity: int
+    is_sufficient: bool
+
+
+class StockAvailabilityResponse(BaseModel):
+    """Stock availability check result"""
+    quote_id: int
+    branch_code: str
+    items: List[StockAvailabilityItem]
+    all_sufficient: bool
+
+
+# ==================== Create PO from Quotation Schema ====================
+
+
+class CreatePOFromQuoteRequest(BaseModel):
+    """Request to create a PO from an accepted quotation"""
+    first_suppliers_id: int
+    second_suppliers_id: int
+    payment_method: str = Field(..., max_length=30)
+    purchasing_invoice_no: str = Field(..., max_length=200)
+    good_received_note_date: date
+    remarks: Optional[str] = None
+    credit_date: Optional[int] = None
+
+
+class CreatePOFromQuoteResponse(BaseModel):
+    """Response after creating PO from quotation"""
+    quote_id: int
+    quote_no: str
+    purchasing_order_id: int
+    purchasing_order_no: str
+    message: str
