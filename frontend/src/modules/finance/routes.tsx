@@ -4,6 +4,7 @@ import BankDepositsPage from "./pages/BankDepositsPage";
 import CardPaymentsPage from "./pages/CardPaymentsPage";
 import ChequePaymentsPage from "./pages/ChequePaymentsPage";
 import ExpensesPage from "./pages/ExpensesPage";
+import ExpenseApprovalsPage from "./pages/ExpenseApprovalsPage";
 import AdvancePaymentsPage from "./pages/AdvancePaymentsPage";
 import CustomerAdvancePaymentsPage from "./pages/CustomerAdvancePaymentsPage";
 import SupplierAdvancePaymentsPage from "./pages/SupplierAdvancePaymentsPage";
@@ -40,6 +41,7 @@ export default function FinanceRoutes() {
       {/* Approvals - parent and sub-routes */}
       <Route path="approvals" element={<ApprovalsPage />} />
       <Route path="approvals/payment-approvals" element={<PaymentApprovalsPage />} />
+      <Route path="approvals/expense-approvals" element={<ExpenseApprovalsPage />} />
       <Route path="approvals/bank-transfer-verify" element={<BankTransferVerifyPage />} />
       {/* Legacy routes for backward compatibility */}
       <Route path="bank-transfer-verify" element={<BankTransferVerifyPage />} />

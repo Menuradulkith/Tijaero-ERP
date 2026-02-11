@@ -101,22 +101,76 @@ class CustomerCreditNote(CustomerCreditNoteBase):
         from_attributes = True
 
 class ExpenseBase(BaseModel):
-    expenses_no: str
+    expenses_no: Optional[str] = None
+    expense_type: str = "operational"
+    expense_category: str
     expenses_method: str
     expense_amount: Decimal
+    expense_date: Optional[date] = None
+    vendor_name: Optional[str] = None
+    description: Optional[str] = None
+    receipt_number: Optional[str] = None
+    receipt_image: Optional[str] = None
+    invoice_attachment: Optional[str] = None
     remarks: Optional[str] = None
-    branch_code: str
     bill_reference: Optional[str] = None
+    branch_code: str
+    account_code: Optional[str] = None
+    cost_center: Optional[str] = None
 
 class ExpenseCreate(ExpenseBase):
     pass
 
+class ExpenseUpdate(BaseModel):
+    expense_type: Optional[str] = None
+    expense_category: Optional[str] = None
+    expenses_method: Optional[str] = None
+    expense_amount: Optional[Decimal] = None
+    expense_date: Optional[date] = None
+    vendor_name: Optional[str] = None
+    description: Optional[str] = None
+    receipt_number: Optional[str] = None
+    receipt_image: Optional[str] = None
+    invoice_attachment: Optional[str] = None
+    remarks: Optional[str] = None
+    bill_reference: Optional[str] = None
+    account_code: Optional[str] = None
+    cost_center: Optional[str] = None
+
 class Expense(ExpenseBase):
     id: int
+    status: str = "pending"
+    submitted_by: Optional[int] = None
+    approved_by: Optional[int] = None
+    approved_date: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    payment_status: Optional[str] = None
+    payment_date: Optional[date] = None
+    payment_method: Optional[str] = None
+    payment_reference: Optional[str] = None
     created_date: date
-    
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
     class Config:
         from_attributes = True
+
+class ExpenseApproval(BaseModel):
+    remarks: Optional[str] = None
+
+class ExpenseReject(BaseModel):
+    rejection_reason: str
+
+class ExpensePayment(BaseModel):
+    payment_method: str
+    payment_reference: Optional[str] = None
+    payment_date: Optional[date] = None
+    remarks: Optional[str] = None
+
+class ExpenseRecord(BaseModel):
+    account_code: str
+    cost_center: Optional[str] = None
+    remarks: Optional[str] = None
 
 class CustomerCreditsSettleTransactionBase(BaseModel):
     payment_method: str
@@ -176,6 +230,10 @@ class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase):
 
 class ExpenseListFilter(BaseModel):
     branch_code: Optional[str] = None
+    status: Optional[str] = None
+    expense_category: Optional[str] = None
+    payment_status: Optional[str] = None
+    search: Optional[str] = None
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     skip: int = 0

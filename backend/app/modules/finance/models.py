@@ -208,12 +208,39 @@ class Expenses(Base):
     __tablename__ = "expenses"
 
     id = Column(Integer, primary_key=True, index=True)
-    expenses_no = Column(String(200), nullable=False)
-    expenses_method = Column(String(30), nullable=False)
+    expenses_no = Column(String(200), nullable=False, unique=True)
+    expense_type = Column(String(50), nullable=False, default="operational")
+    expense_category = Column(String(100), nullable=False, default="miscellaneous")
+    expenses_method = Column(String(30), nullable=False)  # legacy field
     expense_amount = Column(Numeric(60, 2), nullable=False)
-    remarks = Column(Text)
-    created_date = Column(Date, nullable=False)
+    expense_date = Column(Date, nullable=False)
+    vendor_name = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    receipt_number = Column(String(200), nullable=True)
+    receipt_image = Column(String(500), nullable=True)
+    invoice_attachment = Column(String(500), nullable=True)
+    remarks = Column(Text, nullable=True)
+    bill_reference = Column(String(200), nullable=True)
     branch_code = Column(String(200), nullable=False)
-    bill_reference = Column(String(200))
 
-    bill_reference = Column(String(200))
+    # Workflow
+    status = Column(String(30), nullable=False, default="pending")
+    submitted_by = Column(Integer, nullable=True)
+    approved_by = Column(Integer, nullable=True)
+    approved_date = Column(TIMESTAMP, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+
+    # Payment
+    payment_status = Column(String(30), nullable=True)
+    payment_date = Column(Date, nullable=True)
+    payment_method = Column(String(50), nullable=True)
+    payment_reference = Column(String(200), nullable=True)
+
+    # Accounting
+    account_code = Column(String(100), nullable=True)
+    cost_center = Column(String(100), nullable=True)
+
+    # Timestamps
+    created_date = Column(Date, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())

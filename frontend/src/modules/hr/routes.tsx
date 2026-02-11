@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router-dom";
 import HRDashboard from "./pages/HRDashboard";
 import PayrollPage from "./pages/PayrollPage";
+import PayrollProcessingPage from "./pages/PayrollProcessingPage";
 import PromotionsPage from "./pages/PromotionsPage";
 import SalaryProfilesPage from "./pages/SalaryProfilesPage";
 import ReimbursementsPage from "./pages/ReimbursementsPage";
@@ -12,6 +13,7 @@ export default function HRRoutes() {
     <Routes>
       <Route index element={<HRDashboard />} />
       <Route path="payroll" element={<PayrollPage />} />
+      <Route path="payroll-processing" element={<PayrollProcessingPage />} />
       <Route path="promotions" element={<PromotionsPage />} />
       <Route path="salary-profiles" element={<SalaryProfilesPage />} />
       <Route path="reimbursements" element={<ReimbursementsPage />} />

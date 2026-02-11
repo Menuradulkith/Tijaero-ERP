@@ -51,6 +51,11 @@ class EmployeePayroll(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Text, ForeignKey("employees.employee_id"), nullable=False)
+    # Payroll period
+    payroll_month = Column(Integer, nullable=True)
+    payroll_year = Column(Integer, nullable=True)
+    payroll_batch_no = Column(String(100), nullable=True, index=True)
+    # Income
     basic_salary = Column(Numeric(60, 2), nullable=False)
     add_1_name = Column(String(100))
     add_1_value = Column(Numeric(60, 2))
@@ -59,13 +64,40 @@ class EmployeePayroll(Base):
     add_sales_commision = Column(Numeric(60, 2))
     add_salary_advance = Column(Numeric(60, 2))
     add_reimbursements = Column(Numeric(60, 2))
+    add_bonus = Column(Numeric(60, 2), nullable=True)
+    # Employee deductions
     less_epf_employee = Column(Numeric(60, 2))
     less_etf_employee = Column(Numeric(60, 2))
     less_stamp_duty = Column(Numeric(60, 2))
     less_late_deductions = Column(Numeric(60, 2))
+    less_salary_advance_repayment = Column(Numeric(60, 2))
+    less_loan_repayment = Column(Numeric(60, 2), nullable=True)
+    less_other_deductions = Column(Numeric(60, 2), nullable=True)
+    less_apit = Column(Numeric(60, 2), nullable=True)  # APIT tax deduction
+    # Employer contributions
     epf_employer = Column(Numeric(60, 2))
     etf_employer = Column(Numeric(60, 2))
-    less_salary_advance_repayment = Column(Numeric(60, 2))
+    # Calculated totals
+    gross_salary = Column(Numeric(60, 2), nullable=True)
+    total_deductions = Column(Numeric(60, 2), nullable=True)
+    net_salary = Column(Numeric(60, 2), nullable=True)
+    total_employer_cost = Column(Numeric(60, 2), nullable=True)
+    # Workflow
+    status = Column(String(30), nullable=True, default="draft")
+    approved_by = Column(Integer, nullable=True)
+    approved_date = Column(TIMESTAMP, nullable=True)
+    # Payment
+    payment_status = Column(String(30), nullable=True)
+    payment_date = Column(Date, nullable=True)
+    payment_reference = Column(String(200), nullable=True)
+    payment_method = Column(String(50), nullable=True)
+    # Statutory
+    statutory_payment_status = Column(String(30), nullable=True)
+    statutory_payment_date = Column(Date, nullable=True)
+    statutory_payment_reference = Column(String(200), nullable=True)
+    # Timestamps
+    created_at = Column(TIMESTAMP, nullable=True)
+    created_by = Column(Integer, nullable=True)
 
     employee = relationship("Employee", back_populates="payrolls")
 
@@ -82,6 +114,11 @@ class EmployeeSalaryProfile(Base):
     add_1_value = Column(Numeric(60, 2))
     add_2_name = Column(String(100))
     add_2_value = Column(Numeric(60, 2))
+    # Enhanced fields
+    designation = Column(String(200), nullable=True)
+    department = Column(String(200), nullable=True)
+    effective_from_date = Column(Date, nullable=True)
+    benefits = Column(Text, nullable=True)  # JSON or text description
 
     employee = relationship("Employee", back_populates="salary_profile")
 

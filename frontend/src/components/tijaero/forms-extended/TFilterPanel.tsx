@@ -314,4 +314,15 @@ export const SERVICE_JOB_STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
   { value: "closed", label: "Closed" },
 ];
 
+/** Reimbursement status filter options */
+export const REIMBURSEMENT_STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
+  { value: null, label: "All Statuses" },
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "partial_approved", label: "Partial Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "verified", label: "Verified" },
+  { value: "completed", label: "Completed" },
+];
+
 export default TFilterPanel;

@@ -99,6 +99,12 @@ export const ROUTES = {
     ATTENDANCE: '/hr/attendance',
     LEAVES: '/hr/leaves',
     PAYROLL: '/hr/payroll',
+    PAYROLL_PROCESSING: '/hr/payroll-processing',
+    SALARY_PROFILES: '/hr/salary-profiles',
+    DEDUCTIONS: '/hr/deductions',
+    REIMBURSEMENTS: '/hr/reimbursements',
+    PROMOTIONS: '/hr/promotions',
+    ASSETS: '/hr/assets',
   },
   
   // Reporting

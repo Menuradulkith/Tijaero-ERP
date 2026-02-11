@@ -8,6 +8,9 @@ import {
   ChequePaymentCreate,
   Expense,
   ExpenseCreate,
+  ExpenseUpdate,
+  ExpenseListResponse,
+  ExpensePaymentData,
   CustomerAdvancePayment,
   CustomerAdvancePaymentCreate,
   CustomerCreditNote,
@@ -124,14 +127,16 @@ export const chequePaymentsApi = {
 export const expensesApi = {
   getAll: async (params?: {
     branch_code?: string;
+    status?: string;
+    expense_category?: string;
+    payment_status?: string;
+    search?: string;
     date_from?: string;
     date_to?: string;
     skip?: number;
     limit?: number;
   }) => {
-    const response = await apiClient.get<Expense[]>("/finance/expenses", {
-      params,
-    });
+    const response = await apiClient.get<ExpenseListResponse>("/finance/expenses", { params });
     return response.data;
   },
 
@@ -142,6 +147,41 @@ export const expensesApi = {
 
   create: async (data: ExpenseCreate) => {
     const response = await apiClient.post<Expense>("/finance/expenses", data);
+    return response.data;
+  },
+
+  update: async (id: number, data: ExpenseUpdate) => {
+    const response = await apiClient.put<Expense>(`/finance/expenses/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    const response = await apiClient.delete(`/finance/expenses/${id}`);
+    return response.data;
+  },
+
+  submit: async (id: number) => {
+    const response = await apiClient.post<Expense>(`/finance/expenses/${id}/submit`);
+    return response.data;
+  },
+
+  approve: async (id: number, remarks?: string) => {
+    const response = await apiClient.post<Expense>(`/finance/expenses/${id}/approve`, remarks ? { remarks } : {});
+    return response.data;
+  },
+
+  reject: async (id: number, rejection_reason: string) => {
+    const response = await apiClient.post<Expense>(`/finance/expenses/${id}/reject`, { rejection_reason });
+    return response.data;
+  },
+
+  processPayment: async (id: number, data: ExpensePaymentData) => {
+    const response = await apiClient.post<Expense>(`/finance/expenses/${id}/process-payment`, data);
+    return response.data;
+  },
+
+  record: async (id: number, data: { account_code: string; cost_center?: string; remarks?: string }) => {
+    const response = await apiClient.post<Expense>(`/finance/expenses/${id}/record`, data);
     return response.data;
   },
 };

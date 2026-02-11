@@ -1,6 +1,6 @@
 from pydantic import BaseModel
-from datetime import date
-from typing import Optional
+from datetime import date, datetime
+from typing import Optional, List
 from decimal import Decimal
 
 # Salary Deduction Schemas
@@ -11,31 +11,126 @@ class SalaryDeductionBase(BaseModel):
 
 class SalaryDeductionCreate(SalaryDeductionBase):
     approval_id: Optional[int] = None
+    deduction_period: Optional[str] = None
+    epf_employee: Optional[Decimal] = None
+    etf_employee: Optional[Decimal] = None
+    stamp_duty: Optional[Decimal] = None
+    late_deductions: Optional[Decimal] = None
+    salary_advance_repayment: Optional[Decimal] = None
+    loan_repayment: Optional[Decimal] = None
+    other_deductions: Optional[Decimal] = None
+    remarks: Optional[str] = None
 
 class SalaryDeduction(SalaryDeductionBase):
     id: int
     approval_id: Optional[int] = None
+    deduction_period: Optional[str] = None
+    epf_employee: Optional[Decimal] = None
+    etf_employee: Optional[Decimal] = None
+    stamp_duty: Optional[Decimal] = None
+    late_deductions: Optional[Decimal] = None
+    salary_advance_repayment: Optional[Decimal] = None
+    loan_repayment: Optional[Decimal] = None
+    other_deductions: Optional[Decimal] = None
+    remarks: Optional[str] = None
+    created_by: Optional[int] = None
+    created_date: Optional[str] = None
     
+    class Config:
+        from_attributes = True
+
+# Reimbursement Item Schemas
+class ReimbursementItemBase(BaseModel):
+    expense_type: str
+    item_description: Optional[str] = None
+    amount: Decimal
+    receipt_date: Optional[date] = None
+    receipt_number: Optional[str] = None
+
+class ReimbursementItemCreate(ReimbursementItemBase):
+    pass
+
+class ReimbursementItemResponse(ReimbursementItemBase):
+    id: int
+    reimbursement_id: int
+
     class Config:
         from_attributes = True
 
 # Reimbursement Schemas
 class ReimbursementBase(BaseModel):
     employee_id: str
-    reimbursement_amount: Decimal
-    bill_date: date
-    remark: str
-    bill_image_path: Optional[str] = None
+    branch_code: str
+    claim_date: date
+    description: Optional[str] = None
+    reimbursement_type: str = "general"
+    remark: Optional[str] = None
 
 class ReimbursementCreate(ReimbursementBase):
-    approval_id: int
+    items: list[ReimbursementItemCreate] = []
 
-class Reimbursement(ReimbursementBase):
+class ReimbursementUpdate(BaseModel):
+    description: Optional[str] = None
+    reimbursement_type: Optional[str] = None
+    remark: Optional[str] = None
+
+class ReimbursementApprove(BaseModel):
+    approved_amount: Optional[Decimal] = None
+    remarks: Optional[str] = None
+
+class ReimbursementReject(BaseModel):
+    rejection_reason: str
+
+class ReimbursementVerify(BaseModel):
+    remarks: Optional[str] = None
+
+class ReimbursementPayment(BaseModel):
+    payment_method: str
+    payment_reference: Optional[str] = None
+    paid_amount: Decimal
+    remarks: Optional[str] = None
+
+class Reimbursement(BaseModel):
     id: int
-    approval_id: int
-    
+    reimbursement_no: str
+    employee_id: str
+    branch_code: str
+    claim_date: date
+    description: Optional[str] = None
+    reimbursement_type: str
+    total_amount: Decimal
+    approved_amount: Optional[Decimal] = None
+    status: str
+    approval_id: Optional[int] = None
+    approved_date: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    verified_by: Optional[int] = None
+    verified_date: Optional[str] = None
+    payment_status: Optional[str] = None
+    payment_date: Optional[str] = None
+    payment_method: Optional[str] = None
+    payment_reference: Optional[str] = None
+    paid_amount: Optional[Decimal] = None
+    remark: Optional[str] = None
+    bill_image_path: Optional[str] = None
+    # Resolved fields
+    employee_name: Optional[str] = None
+    branch_name: Optional[str] = None
+    items: list[ReimbursementItemResponse] = []
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
     class Config:
         from_attributes = True
+
+class ReimbursementListFilter(BaseModel):
+    employee_id: Optional[str] = None
+    branch_code: Optional[str] = None
+    status: Optional[str] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    skip: int = 0
+    limit: int = 100
 
 # Employee Payroll Schemas
 class EmployeePayrollBase(BaseModel):
@@ -48,22 +143,53 @@ class EmployeePayrollBase(BaseModel):
     add_sales_commision: Optional[Decimal] = None
     add_salary_advance: Optional[Decimal] = None
     add_reimbursements: Optional[Decimal] = None
+    add_bonus: Optional[Decimal] = None
     less_epf_employee: Optional[Decimal] = None
     less_etf_employee: Optional[Decimal] = None
     less_stamp_duty: Optional[Decimal] = None
     less_late_deductions: Optional[Decimal] = None
+    less_salary_advance_repayment: Optional[Decimal] = None
+    less_loan_repayment: Optional[Decimal] = None
+    less_other_deductions: Optional[Decimal] = None
+    less_apit: Optional[Decimal] = None
     epf_employer: Optional[Decimal] = None
     etf_employer: Optional[Decimal] = None
-    less_salary_advance_repayment: Optional[Decimal] = None
 
 class EmployeePayrollCreate(EmployeePayrollBase):
-    pass
+    payroll_month: Optional[int] = None
+    payroll_year: Optional[int] = None
+    payroll_batch_no: Optional[str] = None
 
-class EmployeePayroll(EmployeePayrollBase):
+class EmployeePayrollResponse(EmployeePayrollBase):
     id: int
+    payroll_month: Optional[int] = None
+    payroll_year: Optional[int] = None
+    payroll_batch_no: Optional[str] = None
+    gross_salary: Optional[Decimal] = None
+    total_deductions: Optional[Decimal] = None
+    net_salary: Optional[Decimal] = None
+    total_employer_cost: Optional[Decimal] = None
+    status: Optional[str] = None
+    approved_by: Optional[int] = None
+    approved_date: Optional[str] = None
+    payment_status: Optional[str] = None
+    payment_date: Optional[str] = None
+    payment_reference: Optional[str] = None
+    payment_method: Optional[str] = None
+    statutory_payment_status: Optional[str] = None
+    statutory_payment_date: Optional[str] = None
+    statutory_payment_reference: Optional[str] = None
+    created_at: Optional[str] = None
+    created_by: Optional[int] = None
+    # Resolved fields
+    employee_name: Optional[str] = None
     
     class Config:
         from_attributes = True
+
+# Keep backward compat alias
+class EmployeePayroll(EmployeePayrollResponse):
+    pass
 
 # Employee Salary Profile Schemas
 class EmployeeSalaryProfileBase(BaseModel):
@@ -75,13 +201,92 @@ class EmployeeSalaryProfileBase(BaseModel):
     add_2_value: Optional[Decimal] = None
 
 class EmployeeSalaryProfileCreate(EmployeeSalaryProfileBase):
-    pass
+    designation: Optional[str] = None
+    department: Optional[str] = None
+    effective_from_date: Optional[date] = None
+    benefits: Optional[str] = None
 
 class EmployeeSalaryProfile(EmployeeSalaryProfileBase):
     id: int
+    designation: Optional[str] = None
+    department: Optional[str] = None
+    effective_from_date: Optional[date] = None
+    benefits: Optional[str] = None
+    # Resolved
+    employee_name: Optional[str] = None
     
     class Config:
         from_attributes = True
+
+# Payroll Batch Schemas
+class PayrollBatchCreate(BaseModel):
+    payroll_month: int
+    payroll_year: int
+    description: Optional[str] = None
+
+class PayrollBatchResponse(BaseModel):
+    id: int
+    batch_no: str
+    payroll_month: int
+    payroll_year: int
+    description: Optional[str] = None
+    status: str
+    total_employees: Optional[int] = None
+    total_gross_salary: Optional[Decimal] = None
+    total_deductions: Optional[Decimal] = None
+    total_net_salary: Optional[Decimal] = None
+    total_employer_epf: Optional[Decimal] = None
+    total_employer_etf: Optional[Decimal] = None
+    total_employer_cost: Optional[Decimal] = None
+    total_apit: Optional[Decimal] = None
+    created_by: Optional[int] = None
+    created_at: Optional[str] = None
+    approved_by: Optional[int] = None
+    approved_date: Optional[str] = None
+    salary_payment_date: Optional[str] = None
+    salary_payment_reference: Optional[str] = None
+    statutory_payment_date: Optional[str] = None
+    statutory_payment_reference: Optional[str] = None
+    completed_date: Optional[str] = None
+    # Resolved
+    created_by_name: Optional[str] = None
+    approved_by_name: Optional[str] = None
+    payroll_records: Optional[List["EmployeePayrollResponse"]] = None
+
+    class Config:
+        from_attributes = True
+
+# Payroll Run (trigger) Schema
+class PayrollRunRequest(BaseModel):
+    payroll_month: int
+    payroll_year: int
+    description: Optional[str] = None
+
+# Payroll Batch Action Schemas
+class PayrollBatchApprove(BaseModel):
+    remarks: Optional[str] = None
+
+class PayrollBatchReject(BaseModel):
+    rejection_reason: str
+
+class PayrollBatchProcessPayment(BaseModel):
+    payment_method: str = "bank_transfer"
+    payment_reference: Optional[str] = None
+    payment_date: Optional[date] = None
+    remarks: Optional[str] = None
+
+class PayrollBatchProcessStatutory(BaseModel):
+    epf_reference: Optional[str] = None
+    etf_reference: Optional[str] = None
+    payment_date: Optional[date] = None
+    remarks: Optional[str] = None
+
+class PayrollBatchListFilter(BaseModel):
+    payroll_month: Optional[int] = None
+    payroll_year: Optional[int] = None
+    status: Optional[str] = None
+    skip: int = 0
+    limit: int = 100
 
 # Employee Promotion Schemas
 class EmployeePromotionBase(BaseModel):
