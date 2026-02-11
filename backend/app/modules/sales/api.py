@@ -617,3 +617,93 @@ def delete_payment_card(
     """Delete a payment card (soft delete by setting active=false)."""
     service.payment_card_service.delete(db, card_id)
     return None
+
+
+# =============================================================================
+# GL / Accounting Integration Endpoints (Scenario 30)
+# =============================================================================
+
+@router.get(
+    "/{invoice_id}/gl-entries",
+    response_model=List[Dict[str, Any]],
+    summary="Get GL Entries for Invoice",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_invoice_gl_entries(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get all General Ledger entries posted for a specific invoice."""
+    from app.modules.sales.accounting_integration import SalesAccountingIntegration
+    gl_integration = SalesAccountingIntegration(db)
+    return gl_integration.get_gl_entries_for_invoice(invoice_id)
+
+
+@router.get(
+    "/{invoice_id}/journal-entries",
+    response_model=List[Dict[str, Any]],
+    summary="Get Journal Entries for Invoice",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_invoice_journal_entries(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Get all auto-generated journal entries for a specific invoice."""
+    from app.modules.sales.accounting_integration import SalesAccountingIntegration
+    gl_integration = SalesAccountingIntegration(db)
+    return gl_integration.get_journal_entries_for_invoice(invoice_id)
+
+
+@router.get(
+    "/{invoice_id}/gl-status",
+    response_model=Dict[str, Any],
+    summary="Get GL Posting Status for Invoice",
+    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+)
+def get_invoice_gl_status(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+):
+    """Check whether an invoice has been posted to the General Ledger."""
+    from app.modules.sales.accounting_integration import SalesAccountingIntegration
+    gl_integration = SalesAccountingIntegration(db)
+    return gl_integration.get_gl_posting_status(invoice_id)
+
+
+@router.post(
+    "/{invoice_id}/post-to-gl",
+    response_model=Dict[str, Any],
+    summary="Manually Post Invoice to GL",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def manually_post_invoice_to_gl(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """
+    Manually trigger GL posting for an invoice.
+    Useful for invoices created before GL integration was enabled,
+    or when automatic posting failed.
+    Only works for completed/paid invoices.
+    """
+    from app.modules.sales.accounting_integration import SalesAccountingIntegration
+    
+    invoice = service.sales_service.get_invoice(db, invoice_id)
+    
+    if invoice.approval_status != 'completed':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot post to GL: invoice status is '{invoice.approval_status}'. Only completed invoices can be posted."
+        )
+    
+    gl_integration = SalesAccountingIntegration(db)
+    result = gl_integration.post_all_for_invoice(invoice, current_user.id)
+    
+    db.commit()
+    
+    return result

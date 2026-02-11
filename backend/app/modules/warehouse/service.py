@@ -222,7 +222,7 @@ class ItemTransferNoteService:
             ItemTransferNoteItems.itemtransfernote_id == transfer_note_id
         ).all()
         
-        # Update stock status for each item
+        # Update stock status for each item - mark in_transit and clear location
         for item in items:
             if item.barcode:
                 stock_item = self.db.query(SalesStock).filter(
@@ -230,6 +230,7 @@ class ItemTransferNoteService:
                 ).first()
                 if stock_item:
                     stock_item.status = "in_transit"
+                    stock_item.location_id = None  # No longer at source location
         
         # Update transfer note status
         db_transfer_note.status = TransferNoteStatus.DISPATCHED
@@ -663,6 +664,12 @@ class ItemReceiveNoteService:
             if stock_item:
                 # Update location to destination
                 stock_item.location_id = transfer_note.to_location_id
+                # Update branch_code to destination branch
+                to_location = self.db.query(Locations).filter(
+                    Locations.id == transfer_note.to_location_id
+                ).first()
+                if to_location and to_location.branch_code:
+                    stock_item.branch_code = to_location.branch_code
                 # Update status back to available
                 stock_item.status = "available"
                 stock_item.is_active = True
@@ -686,17 +693,24 @@ class ItemReceiveNoteService:
             transfer_note.status = TransferNoteStatus.PARTIALLY_RECEIVED
         
         # Create or update receive note
+        # received_approval_status: 0=pending, 1=complete, 2=partial
+        if already_received == total_items:
+            recv_status = 1  # Complete
+        elif already_received > 0:
+            recv_status = 2  # Partial
+        else:
+            recv_status = 0  # Pending
+
         existing_receive_note = self.get_by_transfer_note(transfer_note_id)
         if existing_receive_note:
             existing_receive_note.received_note = request.received_note
             existing_receive_note.recieved_user = request.received_user_id
             existing_receive_note.recieved_date = datetime.now()
-            if already_received == total_items:
-                existing_receive_note.received_approval_status = 1  # Complete
+            existing_receive_note.received_approval_status = recv_status
         else:
             new_receive_note = ItemReceiveNote(
                 item_transfer_note_id=transfer_note_id,
-                received_approval_status=1 if already_received == total_items else 0,
+                received_approval_status=recv_status,
                 received_note=request.received_note,
                 recieved_user=request.received_user_id,
                 recieved_date=datetime.now()

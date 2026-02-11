@@ -16,6 +16,11 @@ import CustomerPaymentsPage from "./pages/CustomerPaymentsPage";
 import PaymentApprovalsPage from "./pages/PaymentApprovalsPage";
 import PaymentMethodsPage from "./pages/PaymentMethodsPage";
 import ApprovalsPage from "./pages/ApprovalsPage";
+import ChartOfAccountsPage from "./pages/ChartOfAccountsPage";
+import JournalEntriesPage from "./pages/JournalEntriesPage";
+import GeneralLedgerPage from "./pages/GeneralLedgerPage";
+import AccountingPeriodsPage from "./pages/AccountingPeriodsPage";
+import CashFlowStatementsPage from "./pages/CashFlowStatementsPage";
 
 export default function FinanceRoutes() {
   return (
@@ -49,6 +54,12 @@ export default function FinanceRoutes() {
       {/* Other finance routes */}
       <Route path="supplier-payments" element={<SupplierPaymentsPage />} />
       <Route path="customer-payments" element={<CustomerPaymentsPage />} />
+      {/* Accounting routes */}
+      <Route path="chart-of-accounts" element={<ChartOfAccountsPage />} />
+      <Route path="journal-entries" element={<JournalEntriesPage />} />
+      <Route path="general-ledger" element={<GeneralLedgerPage />} />
+      <Route path="accounting-periods" element={<AccountingPeriodsPage />} />
+      <Route path="cash-flow" element={<CashFlowStatementsPage />} />
     </Routes>
   );
 }

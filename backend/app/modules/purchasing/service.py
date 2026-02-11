@@ -586,6 +586,15 @@ class PurchasingReturnService:
                 credit_service = SupplierCreditService()
                 credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
                 self.db.commit()
+
+            # ── GL Hook: Post purchase return to GL ──
+            try:
+                from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                gl_svc = PurchaseExpensePayrollGL(self.db)
+                gl_svc.post_purchase_return_to_gl(db_return, user_id=0)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Purchase return GL posting failed: {e}")
         
         return db_return
     
@@ -669,6 +678,17 @@ class PurchasingReturnService:
         
         self.db.commit()
         self.db.refresh(return_record)
+
+        # ── GL Hook: Post approved purchase return to GL ──
+        if approve and return_record.status == "approved":
+            try:
+                from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                gl_svc = PurchaseExpensePayrollGL(self.db)
+                gl_svc.post_purchase_return_to_gl(return_record, user_id=user_id)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Purchase return GL posting failed: {e}")
+
         return return_record
     
     def get_return(self, return_id: int) -> models.PurchasingReturn:
@@ -791,6 +811,18 @@ class GoodReceivedNoteService:
         
         self.db.commit()
         self.db.refresh(created_grn)
+        
+        # ── GL Auto-Posting: Scenario 31 – GRN Received ────────────────
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            gl_service.post_grn_to_gl(created_grn, user_id=grn.created_by or 0)
+            self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(f"GL posting for GRN {created_grn.good_received_no} failed (non-blocking): {gl_err}")
+            self.db.rollback()
+        # ────────────────────────────────────────────────────────────────
         
         return created_grn
     
@@ -1181,6 +1213,18 @@ class SupplierCreditsSettleService:
         self.db.commit()
         self.db.refresh(settle)
         
+        # ── GL Auto-Posting: Scenario 31 – Credit Settlement Verified ──
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            gl_service.post_credit_settlement_to_gl(settle, user_id=verified_by or 0)
+            self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(f"GL posting for credit settlement {settle.supplier_credits_settle_no} failed (non-blocking): {gl_err}")
+            self.db.rollback()
+        # ────────────────────────────────────────────────────────────────
+        
         return settle
     
     def cancel_settlement(self, settle_id: int, verified_by: int = None) -> models.SupplierCreditsSettle:
@@ -1349,7 +1393,21 @@ class SupplierPaymentService:
                 detail=f"Cannot verify payment with status '{payment.status}'"
             )
         
-        return self.repo.verify(payment_id, verified_by)
+        result = self.repo.verify(payment_id, verified_by)
+        
+        # ── GL Auto-Posting: Scenario 31 – Supplier Payment Verified ──
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            gl_service.post_supplier_payment_to_gl(result, user_id=verified_by)
+            self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(f"GL posting for supplier payment {result.payment_no} failed (non-blocking): {gl_err}")
+            self.db.rollback()
+        # ────────────────────────────────────────────────────────────────
+        
+        return result
     
     def cancel_payment(self, payment_id: int) -> models.SupplierPayment:
         payment = self.repo.get_by_id(payment_id)
@@ -1413,7 +1471,21 @@ class SupplierAdvancePaymentService:
                 detail=f"Supplier with id {data.supplier_id} not found"
             )
         
-        return self.repo.create(data, created_by)
+        advance = self.repo.create(data, created_by)
+        
+        # ── GL Auto-Posting: Scenario 31 – Supplier Advance Created ───
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            gl_service.post_supplier_advance_to_gl(advance, user_id=created_by or 0)
+            self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(f"GL posting for advance {advance.advance_no} failed (non-blocking): {gl_err}")
+            self.db.rollback()
+        # ────────────────────────────────────────────────────────────────
+        
+        return advance
     
     def get_advance(self, advance_id: int) -> models.SupplierAdvancePayment:
         advance = self.repo.get_by_id(advance_id)
@@ -1524,6 +1596,18 @@ class SupplierAdvancePaymentService:
         
         # Update the advance balance
         self.repo.apply_to_grn(data.advance_id, float(data.applied_amount))
+        
+        # ── GL Auto-Posting: Scenario 31 – Advance Applied to GRN ─────
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            gl_service.post_advance_application_to_gl(application, user_id=created_by or 0)
+            self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(f"GL posting for advance application failed (non-blocking): {gl_err}")
+            self.db.rollback()
+        # ────────────────────────────────────────────────────────────────
         
         return application
     

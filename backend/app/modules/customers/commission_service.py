@@ -338,6 +338,19 @@ class CommissionService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Payment not found or is not in 'pending' status"
             )
+        
+        # ── GL Auto-Posting: Scenario 32 – Commission Payment Verified ─
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(db)
+            gl_service.post_commission_payment_to_gl(payment, user_id=verified_by)
+            db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(f"GL posting for commission payment {payment.payment_no} failed (non-blocking): {gl_err}")
+            db.rollback()
+        # ────────────────────────────────────────────────────────────────
+        
         return payment
 
     def cancel_payment(self, db: Session, payment_id: int) -> CustomerAgentCommissionPayment:

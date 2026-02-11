@@ -88,6 +88,11 @@ export const ROUTES = {
     VOUCHERS: '/finance/vouchers',
     PAYMENTS: '/finance/payments',
     LEDGER: '/finance/ledger',
+    CHART_OF_ACCOUNTS: '/finance/chart-of-accounts',
+    JOURNAL_ENTRIES: '/finance/journal-entries',
+    GENERAL_LEDGER: '/finance/general-ledger',
+    ACCOUNTING_PERIODS: '/finance/accounting-periods',
+    CASH_FLOW: '/finance/cash-flow',
   },
   
   // HR Module
