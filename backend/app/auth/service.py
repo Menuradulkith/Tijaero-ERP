@@ -4,6 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from typing import List, Optional
 from datetime import date
+from app.core import timezone as tz
 from app.auth import models, schemas
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.core.exceptions import AuthenticationError
@@ -57,7 +58,7 @@ class AuthService:
             is_superuser=False,
             verify=True,
             blocked=False,
-            date_joined=date.today()
+            date_joined=tz.today()
         )
         db.add(user)
         db.flush()

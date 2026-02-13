@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
+from app.core import timezone as tz
 
 from app.modules.purchasing.models import (
     Supplier,
@@ -50,7 +51,7 @@ class SupplierCreditService:
     
     def get_days_overdue(self, grn_date: date, credit_days: int) -> int:
         due_date = self.calculate_due_date(grn_date, credit_days)
-        return (date.today() - due_date).days
+        return (tz.today() - due_date).days
     
     
     def get_supplier_credit_status(self, db: Session, supplier_id: int) -> Dict[str, Any]:
@@ -244,7 +245,7 @@ class SupplierCreditService:
             if isinstance(po_date, str):
                 po_date = datetime.strptime(po_date, "%Y-%m-%d").date()
             due_date = self.calculate_due_date(po_date, credit_days)
-            days_overdue = (date.today() - due_date).days
+            days_overdue = (tz.today() - due_date).days
             
             result.append({
                 "po_id": po.id,
@@ -323,7 +324,7 @@ class SupplierCreditService:
             if isinstance(po_date, str):
                 po_date = datetime.strptime(po_date, "%Y-%m-%d").date()
             due_date = self.calculate_due_date(po_date, 0)
-            days_overdue = (date.today() - due_date).days
+            days_overdue = (tz.today() - due_date).days
             
             result.append({
                 "po_id": po.id,
@@ -424,7 +425,7 @@ class SupplierCreditService:
         return total_pending
     
     def _get_overdue_grns(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
-        cutoff_date = date.today() - timedelta(days=credit_days)
+        cutoff_date = tz.today() - timedelta(days=credit_days)
         
         po_ids = db.query(PurchasingOrder.id).filter(
             PurchasingOrder.first_suppliers_id == supplier_id
@@ -450,7 +451,7 @@ class SupplierCreditService:
                     "grn_date": grn.good_received_date,
                     "supplier_invoice_no": grn.supplier_invoice_no,
                     "due_date": due_date,
-                    "days_overdue": (date.today() - due_date).days,
+                    "days_overdue": (tz.today() - due_date).days,
                     "remaining_amount": float(remaining)
                 })
         
@@ -475,7 +476,7 @@ class SupplierCreditService:
             remaining = self._get_grn_remaining_payable(db, grn.id)
             if remaining > 0:
                 due_date = self.calculate_due_date(grn.good_received_date, credit_days)
-                days_overdue = (date.today() - due_date).days
+                days_overdue = (tz.today() - due_date).days
                 unpaid_list.append({
                     "grn_id": grn.id,
                     "grn_no": grn.good_received_no,
@@ -765,7 +766,7 @@ class SupplierCreditService:
             supplier_credits_settle_no=settlement_data.supplier_credits_settle_no,
             branch_code=settlement_data.branch_code,
             suppliers_id=settlement_data.suppliers_id,
-            created_date=datetime.now()
+            created_date=tz.now()
         )
         db.add(settlement)
         db.flush()
@@ -779,7 +780,7 @@ class SupplierCreditService:
                 remarks=trans.remarks,
                 supplier_credit_settle_id=settlement.id,
                 good_received_id=trans.good_received_id,
-                created_date=datetime.now()
+                created_date=tz.now()
             )
             db.add(transaction)
         

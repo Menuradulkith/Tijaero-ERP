@@ -4,6 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import date, datetime
 from . import models, schemas
+from app.core import timezone as tz
 
 class SupplierRepository:
     def __init__(self, db: Session):
@@ -12,7 +13,7 @@ class SupplierRepository:
     def create(self, supplier: schemas.SupplierCreate) -> models.Supplier:
         db_supplier = models.Supplier(
             **supplier.model_dump(),
-            date_joined=datetime.now()
+            date_joined=tz.now()
         )
         self.db.add(db_supplier)
         self.db.commit()
@@ -70,8 +71,8 @@ class PurchasingOrderRepository:
         db_order = models.PurchasingOrder(
             **order_data,
             status=initial_status,
-            created_date=date.today(),
-            added_date=datetime.now()
+            created_date=tz.today(),
+            added_date=tz.now()
         )
         self.db.add(db_order)
         self.db.flush()
@@ -80,8 +81,8 @@ class PurchasingOrderRepository:
             db_item = models.PurchasingOrderItems(
                 **item.model_dump(),
                 purchasingorders_id=db_order.id,
-                created_date=date.today(),
-                added_date=datetime.now()
+                created_date=tz.today(),
+                added_date=tz.now()
             )
             self.db.add(db_item)
         
@@ -143,8 +144,8 @@ class PurchasingOrderRepository:
                     db_item = models.PurchasingOrderItems(
                         **item,
                         purchasingorders_id=db_order.id,
-                        created_date=date.today(),
-                        added_date=datetime.now()
+                        created_date=tz.today(),
+                        added_date=tz.now()
                     )
                     self.db.add(db_item)
             
@@ -184,7 +185,7 @@ class PurchasingReturnRepository:
     
     def create(self, return_data: schemas.PurchasingReturnCreate) -> models.PurchasingReturn:
         return_dict = return_data.model_dump(exclude={'items'})
-        db_return = models.PurchasingReturn(**return_dict, added_date=date.today())
+        db_return = models.PurchasingReturn(**return_dict, added_date=tz.today())
         self.db.add(db_return)
         self.db.flush()
         
@@ -193,7 +194,7 @@ class PurchasingReturnRepository:
                 **item.model_dump(),
                 purchasingreturn_id=db_return.id,
                 branch_code=return_dict['branch_code'],
-                added_date=datetime.now()
+                added_date=tz.now()
             )
             self.db.add(db_item)
         
@@ -221,8 +222,8 @@ class GoodReceivedNoteRepository:
     def create(self, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
         db_grn = models.GoodReceivedNote(
             **grn.model_dump(),
-            created_date=date.today(),
-            added_date=datetime.now()
+            created_date=tz.today(),
+            added_date=tz.now()
         )
         self.db.add(db_grn)
         self.db.flush()
@@ -268,8 +269,8 @@ class GoodReceivedNoteRepository:
     def create_item(self, item: schemas.GoodReceivedItemCreate) -> models.GoodReceivedItems:
         db_item = models.GoodReceivedItems(
             **item.model_dump(),
-            created_date=date.today(),
-            added_date=datetime.now()
+            created_date=tz.today(),
+            added_date=tz.now()
         )
         self.db.add(db_item)
         self.db.commit()
@@ -285,7 +286,7 @@ class SupplierCreditsSettleRepository:
         settle_data = settle.model_dump(exclude={"transactions"})
         db_settle = models.SupplierCreditsSettle(
             **settle_data,
-            created_date=datetime.now()
+            created_date=tz.now()
         )
         self.db.add(db_settle)
         self.db.flush()
@@ -294,7 +295,7 @@ class SupplierCreditsSettleRepository:
             db_transaction = models.SupplierCreditsSettleTransaction(
                 **transaction.model_dump(),
                 supplier_credit_settle_id=db_settle.id,
-                created_date=datetime.now()
+                created_date=tz.now()
             )
             self.db.add(db_transaction)
         
@@ -340,7 +341,7 @@ class SupplierPaymentRepository:
         self.db = db
     
     def _generate_payment_no(self) -> str:
-        today = date.today()
+        today = tz.today()
         prefix = f"SP-{today.strftime('%Y%m%d')}"
         
         # Advisory lock to prevent race conditions on sequence generation
@@ -379,7 +380,7 @@ class SupplierPaymentRepository:
                 invoice_reference=payment.invoice_reference,
                 remarks=payment.remarks,
                 status="pending",
-                created_date=datetime.now(),
+                created_date=tz.now(),
                 created_by=created_by
             )
             self.db.add(db_payment)
@@ -443,7 +444,7 @@ class SupplierPaymentRepository:
         if db_payment and db_payment.status == "pending":
             db_payment.status = "verified"
             db_payment.verified_by = verified_by
-            db_payment.verified_date = datetime.now()
+            db_payment.verified_date = tz.now()
             self.db.commit()
             self.db.refresh(db_payment)
         return db_payment
@@ -480,7 +481,7 @@ class SupplierAdvancePaymentRepository:
     
     def _generate_advance_no(self) -> str:
         """Generate unique advance payment number: ADV-YYYYMMDD-XXX"""
-        today = datetime.now()
+        today = tz.now()
         prefix = f"ADV-{today.strftime('%Y%m%d')}-"
         
         # Advisory lock to prevent race conditions on sequence generation

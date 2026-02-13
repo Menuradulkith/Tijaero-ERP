@@ -7,6 +7,7 @@ from app.modules.inventory.models import SalesStock
 from app.modules.finance.models import ChequePayments, CardPayments, BankDeposits
 from app.modules.customers.credit_service import CustomerCreditService
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
+from app.core import timezone as tz
 from decimal import Decimal
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
@@ -201,7 +202,7 @@ class SalesService:
     
     def get_sales_statistics(self, db: Session, branch_codes: Optional[List[str]] = None):
         """Get sales statistics for dashboard"""
-        today = date.today()
+        today = tz.today()
         current_month_start = today.replace(day=1)
         last_month_start = (today - relativedelta(months=1)).replace(day=1)
         last_month_end = current_month_start - relativedelta(days=1)
@@ -608,8 +609,8 @@ class SalesService:
         # Override sale_rep_id with the logged-in user
         invoice_dict['sale_rep_id'] = user_id
         
-        invoice_dict['created_date'] = date.today()
-        invoice_dict['created_date_time'] = datetime.now()
+        invoice_dict['created_date'] = tz.today()
+        invoice_dict['created_date_time'] = tz.now()
         invoice_dict['status'] = True
         
         # Set calculated totals
@@ -706,9 +707,9 @@ class SalesService:
             try:
                 invoice_dict['cheque_date'] = datetime.strptime(cheque_date_str, '%Y-%m-%d').date()
             except:
-                invoice_dict['cheque_date'] = date.today()
+                invoice_dict['cheque_date'] = tz.today()
         else:
-            invoice_dict['cheque_date'] = date.today()
+            invoice_dict['cheque_date'] = tz.today()
         
         # Create payment records based on payment method
         cheque_payment_id = None
@@ -724,7 +725,7 @@ class SalesService:
                 bank=cheque_bank or "",
                 amount=invoice_data.cheque_amount or 0,
                 cheque_date=invoice_dict['cheque_date'],
-                deposit_date=date.today(),
+                deposit_date=tz.today(),
                 remark=invoice_data.remarks or "",
                 payment_for="Sales Invoice",
                 invoice_no=invoice_data.invoice_no
@@ -738,7 +739,7 @@ class SalesService:
             cheque_bank_deposit = BankDeposits(
                 deposits_amount=invoice_data.cheque_amount or 0,
                 remarks=f"Cheque deposit - Cheque No: {cheque_number}, Bank: {cheque_bank or 'N/A'}",
-                created_date=datetime.now(),
+                created_date=tz.now(),
                 branch_code=invoice_data.branch_code,
                 bank_name=cheque_bank or "",
                 user_id=user_id,
@@ -766,7 +767,7 @@ class SalesService:
             card_payment = CardPayments(
                 card_type=card_type_map.get(payment_method, "VISA"),
                 amount=card_amount,
-                date_time=datetime.now(),
+                date_time=tz.now(),
                 remark=card_holder_name or "",
                 ref_number=card_ref_number or "",
                 invoice_no=invoice_data.invoice_no,
@@ -781,7 +782,7 @@ class SalesService:
             bank_deposit = BankDeposits(
                 deposits_amount=invoice_data.bank_transfer_amount or 0,
                 remarks=f"Ref: {bank_transfer_ref}" if bank_transfer_ref else "",
-                created_date=datetime.now(),
+                created_date=tz.now(),
                 branch_code=invoice_data.branch_code,
                 bank_name=bank_name or "",
                 user_id=user_id,
@@ -803,7 +804,7 @@ class SalesService:
             # Get customer for credit terms
             customer = db.query(Customer).filter(Customer.id == invoice_data.customer_id).first()
             credit_days = customer.credit_days if customer else 30
-            due_date = date.today() + timedelta(days=credit_days)
+            due_date = tz.today() + timedelta(days=credit_days)
             
             credit_payment = CreditPayments(
                 customer_id=invoice_data.customer_id,
@@ -811,7 +812,7 @@ class SalesService:
                 credit_terms=f"{credit_days} days",
                 due_date=due_date,
                 status="pending",  # Will be updated when approved
-                created_date=datetime.now()
+                created_date=tz.now()
             )
             db.add(credit_payment)
             db.flush()
@@ -831,7 +832,7 @@ class SalesService:
         for item_data in invoice_data.items:
             item_dict = item_data.model_dump()
             item_dict['invoice_id'] = invoice.id
-            item_dict['created_date'] = datetime.now()
+            item_dict['created_date'] = tz.now()
             
             # Get barcode from item_dict (keep it for reference)
             barcode = item_dict.get('barcode', None)
@@ -890,7 +891,7 @@ class SalesService:
                         
                         if grn_item:
                             barcode_link = InvoiceItemsBarcode(
-                                created_date=datetime.now(),
+                                created_date=tz.now(),
                                 good_received_items_id=grn_item.id,
                                 invoice_items_id=item.id
                             )
@@ -933,7 +934,7 @@ class SalesService:
                 invoice_id=invoice.id,
                 customer_id=invoice_data.customer_id,
                 discount_amount=coupon_amount,
-                used_date=datetime.now()
+                used_date=tz.now()
             )
             db.add(coupon_usage)
             
@@ -975,7 +976,7 @@ class SalesService:
                     voucher_id=redemption.voucher_id,
                     invoice_id=invoice.id,
                     amount_used=Decimal(str(redemption.amount_to_redeem)),
-                    used_date=datetime.now()
+                    used_date=tz.now()
                 )
                 db.add(voucher_usage)
                 
@@ -983,7 +984,7 @@ class SalesService:
                 # Any remaining balance is forfeited
                 voucher.balance = Decimal("0")  # Zero out balance
                 voucher.status = "fully_claimed"
-                voucher.claimed_date = datetime.now()
+                voucher.claimed_date = tz.now()
                 voucher.claimed_invoice_no = invoice_data.invoice_no
         
         elif gift_voucher_id and gift_voucher_amount > 0:
@@ -1008,14 +1009,14 @@ class SalesService:
                     voucher_id=gift_voucher_id,
                     invoice_id=invoice.id,
                     amount_used=gift_voucher_amount,
-                    used_date=datetime.now()
+                    used_date=tz.now()
                 )
                 db.add(voucher_usage)
                 
                 # ONE-TIME USE: Always mark as fully_claimed regardless of amount used
                 voucher.balance = Decimal("0")  # Zero out balance
                 voucher.status = "fully_claimed"
-                voucher.claimed_date = datetime.now()
+                voucher.claimed_date = tz.now()
                 voucher.claimed_invoice_no = invoice_data.invoice_no
         
         # =================================================================
@@ -1137,7 +1138,7 @@ class SalesService:
             for item_data in invoice_data.items:
                 item_dict = item_data.model_dump()
                 item_dict['invoice_id'] = invoice_id
-                item_dict['created_date'] = datetime.now()
+                item_dict['created_date'] = tz.now()
                 
                 barcode = item_dict.get('barcode', None)
                 sales_stock_id = None
@@ -1277,7 +1278,7 @@ class SalesService:
                 # Update approval record
                 approval_record.status = 'approved'
                 approval_record.status_changed_by = user_id
-                approval_record.remark = f"Approved by user {user_id} on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                approval_record.remark = f"Approved by user {user_id} on {tz.now().strftime('%Y-%m-%d %H:%M')}"
         else:
             # Create approval record if missing (for backward compatibility)
             approval_record = approval_service.create_approval_request(
@@ -1527,8 +1528,8 @@ class SalesService:
         
         # Create sale return record
         return_dict = sale_return_data.model_dump(exclude={'items'})
-        return_dict['added_date'] = date.today()
-        return_dict['cheque_date'] = date.today()
+        return_dict['added_date'] = tz.today()
+        return_dict['cheque_date'] = tz.today()
         return_dict['status'] = 'pending'
         return_dict['subtotal'] = float(subtotal)
         return_dict['tax_refund'] = float(tax_refund)
@@ -1550,7 +1551,7 @@ class SalesService:
                 'sold_price': item_data.sold_price,
                 'branch_code': item_data.branch_code or sale_return_data.branch_code,
                 'sale_return_id': sale_return.id,
-                'added_date': datetime.now(),
+                'added_date': tz.now(),
                 'invoice_item_id': item_data.invoice_item_id or (validated['invoice_item'].id if validated['invoice_item'] else None),
                 'sales_stock_id': validated['sales_stock'].id if validated['sales_stock'] else None,
                 'product_id': validated['product_id'],
@@ -1603,7 +1604,7 @@ class SalesService:
                     )
                 approval_record.status = 'approved'
                 approval_record.status_changed_by = user_id
-                approval_record.remark = f"Approved by user {user_id} on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                approval_record.remark = f"Approved by user {user_id} on {tz.now().strftime('%Y-%m-%d %H:%M')}"
         else:
             # Create approval record if missing (backward compatibility)
             approval_record = approval_service.create_approval_request(
@@ -1693,7 +1694,7 @@ class SalesService:
                     if stock:
                         stock.status = 'available'
                         stock.is_active = True
-                        stock.returned_date = datetime.now()
+                        stock.returned_date = tz.now()
                         item.restocked = True
                         items_restocked += item.quantity
                 elif item.barcode:
@@ -1704,7 +1705,7 @@ class SalesService:
                     if stock:
                         stock.status = 'available'
                         stock.is_active = True
-                        stock.returned_date = datetime.now()
+                        stock.returned_date = tz.now()
                         item.restocked = True
                         items_restocked += item.quantity
         
@@ -1721,7 +1722,7 @@ class SalesService:
             
             credit_note = CustomerCreditNotes(
                 customer_id=customer_id,
-                date=datetime.now(),
+                date=tz.now(),
                 amount=sale_return.total_refund,
                 remark=f"Sale Return: {sale_return.sale_return_no}",
                 invoice_no=invoice.invoice_no
@@ -1749,7 +1750,7 @@ class SalesService:
         sale_return.status = 'processed'
         sale_return.refund_status = 'processed'
         sale_return.refund_amount = sale_return.total_refund
-        sale_return.refund_date = date.today()
+        sale_return.refund_date = tz.today()
         sale_return.refund_reference = refund_reference
         sale_return.processed_by = user_id
         
@@ -1820,7 +1821,7 @@ class SalesService:
     
     def get_return_statistics(self, db: Session):
         """Get sale return statistics for dashboard."""
-        today = date.today()
+        today = tz.today()
         current_month_start = today.replace(day=1)
         
         total_returns = db.query(func.count(SaleReturn.id)).scalar() or 0
@@ -1882,7 +1883,7 @@ class SalesService:
             )
         
         # Generate settlement number with advisory lock for concurrency safety
-        settle_prefix = f"CS-{invoice.branch_code}-{date.today().strftime('%Y%m%d')}"
+        settle_prefix = f"CS-{invoice.branch_code}-{tz.today().strftime('%Y%m%d')}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": settle_prefix})
         settle_count = db.query(func.count(CustomerCreditsSettle.id)).scalar() or 0
         settle_no = f"{settle_prefix}-{settle_count + 1:04d}"
@@ -1891,7 +1892,7 @@ class SalesService:
         credit_settle = CustomerCreditsSettle(
             customer_credits_settle_no=settle_no,
             branch_code=invoice.branch_code,
-            created_date=datetime.now(),
+            created_date=tz.now(),
             customer_id=invoice.customer_id
         )
         db.add(credit_settle)
@@ -1927,7 +1928,7 @@ class SalesService:
             card_payment = CardPayments(
                 card_type=card_type_map.get(payment_method, "VISA"),
                 amount=payment_data.payment_amount,
-                date_time=datetime.now(),
+                date_time=tz.now(),
                 remark=payment_data.card_holder_name or f"Credit settlement for {invoice.invoice_no}",
                 ref_number=payment_data.card_ref_number or "",
                 invoice_no=invoice.invoice_no,
@@ -1941,7 +1942,7 @@ class SalesService:
             bank_deposit = BankDeposits(
                 deposits_amount=payment_data.payment_amount,
                 remarks=f"Ref: {payment_data.bank_transfer_ref}" if payment_data.bank_transfer_ref else f"Credit settlement for {invoice.invoice_no}",
-                created_date=datetime.now(),
+                created_date=tz.now(),
                 branch_code=invoice.branch_code,
                 bank_name=payment_data.bank_name or "",
                 user_id=user_id,
@@ -2142,7 +2143,7 @@ class SalesService:
             # Mark as verified and complete the sale
             invoice.bank_transfer_status = "verified"
             invoice.bank_transfer_verified_by = user_id
-            invoice.bank_transfer_verified_date = datetime.now()
+            invoice.bank_transfer_verified_date = tz.now()
             invoice.approval = True
             invoice.approval_status = "completed"
             invoice.paid_amount = float(invoice.grand_total)
@@ -2194,7 +2195,7 @@ class SalesService:
             # Mark as rejected and cancel the order
             invoice.bank_transfer_status = "rejected"
             invoice.bank_transfer_verified_by = user_id
-            invoice.bank_transfer_verified_date = datetime.now()
+            invoice.bank_transfer_verified_date = tz.now()
             invoice.bank_transfer_rejection_reason = rejection_reason
             invoice.approval = False
             invoice.approval_status = "cancelled"

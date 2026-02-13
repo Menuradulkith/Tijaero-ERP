@@ -112,13 +112,13 @@ export default function CommissionPaymentApprovalsPage() {
   });
 
   const agents = useMemo(
-    () => (allCustomers || []).filter((c) => c.is_customer_agent && c.active),
+    () => (allCustomers || []).filter((c: any) => c.is_customer_agent && c.active),
     [allCustomers]
   );
 
   const agentMap = useMemo(() => {
     const map = new Map<number, string>();
-    (allCustomers || []).forEach((c) => map.set(c.id, c.customer_name));
+    (allCustomers || []).forEach((c: any) => map.set(c.id, c.customer_name));
     return map;
   }, [allCustomers]);
 
@@ -288,7 +288,7 @@ export default function CommissionPaymentApprovalsPage() {
             }
           >
             <MenuItem value="">All Agents</MenuItem>
-            {agents.map((agent) => (
+            {agents.map((agent: any) => (
               <MenuItem key={agent.id} value={agent.id}>
                 {agent.customer_name}
               </MenuItem>
@@ -296,7 +296,7 @@ export default function CommissionPaymentApprovalsPage() {
           </TextField>
         </Box>
       }
-      renderItem={(payment, isSelected) => {
+      renderItem={(payment: PaymentWithAgent, isSelected: boolean) => {
         const statusChip = getStatusProps(payment.status, "commissionPaymentStatus");
         return (
           <SelectableListItem
@@ -627,7 +627,7 @@ export default function CommissionPaymentApprovalsPage() {
                       <TableBody>
                         {(
                           paymentDetails as CustomerAgentCommissionPaymentWithItems
-                        ).items.map((item, index) => (
+                        ).items.map((item: any, index: number) => (
                           <TableRow
                             key={item.id || index}
                             sx={{

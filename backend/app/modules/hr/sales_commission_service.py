@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from typing import List, Optional
 from decimal import Decimal
 from datetime import datetime, date
+from app.core import timezone as tz
 import calendar
 
 from app.modules.hr.sales_commission_models import (
@@ -255,7 +256,7 @@ class SalesCommissionService:
                 existing.gross_profit = gross_profit
                 existing.gross_profit_margin = gross_profit_margin
                 existing.total_invoices = total_invoices
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = tz.now()
                 summary = existing
             else:
                 summary = MonthlyBranchSalesSummary(
@@ -274,7 +275,7 @@ class SalesCommissionService:
                     gross_profit_margin=gross_profit_margin,
                     total_invoices=total_invoices,
                     status="draft",
-                    created_at=datetime.utcnow(),
+                    created_at=tz.now(),
                 )
                 self.db.add(summary)
             
@@ -314,8 +315,8 @@ class SalesCommissionService:
         # Update status
         summary.status = "finalized"
         summary.finalized_by = user_id
-        summary.finalized_at = datetime.utcnow()
-        summary.updated_at = datetime.utcnow()
+        summary.finalized_at = tz.now()
+        summary.updated_at = tz.now()
         
         self.db.commit()
         self.db.refresh(summary)
@@ -423,7 +424,7 @@ class SalesCommissionService:
                 individual_commission_amount=individual_commission,
                 status="pending",
                 remarks=f"Auto-calculated from {summary.month_name} branch sales",
-                created_at=datetime.utcnow(),
+                created_at=tz.now(),
             )
             self.db.add(commission)
             self.db.flush()
@@ -431,7 +432,7 @@ class SalesCommissionService:
         
         # Update summary status
         summary.status = "commission_calculated"
-        summary.updated_at = datetime.utcnow()
+        summary.updated_at = tz.now()
         
         self.db.commit()
         return results
@@ -463,10 +464,10 @@ class SalesCommissionService:
         
         commission.status = "approved"
         commission.approved_by = user_id
-        commission.approved_at = datetime.utcnow()
+        commission.approved_at = tz.now()
         if data.remarks:
             commission.remarks = data.remarks
-        commission.updated_at = datetime.utcnow()
+        commission.updated_at = tz.now()
         
         self.db.commit()
         self.db.refresh(commission)
@@ -512,7 +513,7 @@ class SalesCommissionService:
         # Delete the commission record (or mark as rejected)
         commission.status = "rejected"
         commission.remarks = f"Rejected: {data.rejection_reason}"
-        commission.updated_at = datetime.utcnow()
+        commission.updated_at = tz.now()
         
         self.db.commit()
         self.db.refresh(commission)
@@ -559,7 +560,7 @@ class SalesCommissionService:
         
         commission.status = "paid"
         commission.paid_in_payroll_id = payroll_id
-        commission.updated_at = datetime.utcnow()
+        commission.updated_at = tz.now()
         
         self.db.commit()
         self.db.refresh(commission)

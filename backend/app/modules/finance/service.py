@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from . import models, schemas, repository
 from fastapi import HTTPException, status
+from app.core import timezone as tz
 
 from app.modules.customers.models import (
     CustomerAdvancePayments,
@@ -134,7 +135,7 @@ class ExpenseService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot approve expense in '{expense.status}' status")
         expense.status = "approved"
         expense.approved_by = approved_by
-        expense.approved_date = datetime.now()
+        expense.approved_date = tz.now()
         if remarks:
             expense.remarks = (expense.remarks or "") + f"\n[Approval] {remarks}"
         self.db.commit()
@@ -481,7 +482,7 @@ class PettyCashService:
         Uses advisory lock to prevent duplicate numbers under concurrency.
         """
         from sqlalchemy import text
-        prefix = f"PCF-{date.today().strftime('%Y%m')}-"
+        prefix = f"PCF-{tz.today().strftime('%Y%m')}-"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = self.db.query(models.PettyCash).filter(
             models.PettyCash.petty_cash_no.like(f"{prefix}%")
@@ -502,7 +503,7 @@ class PettyCashService:
         """
         from sqlalchemy import text
         tag = "EXP" if txn_type == "expense" else "REP"
-        prefix = f"PCT-{tag}-{date.today().strftime('%Y%m')}-"
+        prefix = f"PCT-{tag}-{tz.today().strftime('%Y%m')}-"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = self.db.query(models.PettyCashTransaction).filter(
             models.PettyCashTransaction.transaction_no.like(f"{prefix}%")
@@ -570,10 +571,10 @@ class PettyCashService:
             current_balance=amount,
             branch_code=data.branch_code,
             opened_by=data.opened_by,
-            opened_date=date.today(),
+            opened_date=tz.today(),
             status="active",
             remarks=data.remarks,
-            created_date=datetime.now(),
+            created_date=tz.now(),
         )
         self.db.add(fund)
         self.db.flush()
@@ -635,11 +636,11 @@ class PettyCashService:
             purpose=data.purpose,
             receipt_number=data.receipt_number,
             description=data.description or f"{data.expense_type} expense",
-            transaction_date=data.transaction_date or date.today(),
+            transaction_date=data.transaction_date or tz.today(),
             recorded_by=data.recorded_by,
             branch_code=fund.branch_code,
             remarks=data.remarks,
-            created_date=datetime.now(),
+            created_date=tz.now(),
         )
         self.db.add(txn)
         self.db.flush()
@@ -697,11 +698,11 @@ class PettyCashService:
             balance_after=new_balance,
             approved_by=data.approved_by,
             description=data.description or "Fund replenishment",
-            transaction_date=data.transaction_date or date.today(),
+            transaction_date=data.transaction_date or tz.today(),
             recorded_by=data.recorded_by,
             branch_code=fund.branch_code,
             remarks=data.remarks,
-            created_date=datetime.now(),
+            created_date=tz.now(),
         )
         self.db.add(txn)
         self.db.flush()
@@ -752,7 +753,7 @@ class PettyCashService:
         fund.status = "closed"
         fund.closing_balance = physical  # Actual physical cash
         fund.closed_by = data.closed_by
-        fund.closed_date = date.today()
+        fund.closed_date = tz.today()
         fund.remarks = (fund.remarks or "") + (
             f" | Closed: expected={expected}, actual={physical}{discrepancy_note}"
             + (f" | {data.remarks}" if data.remarks else "")
@@ -929,7 +930,7 @@ class PettyCashService:
             ]
 
             je = gl._create_je_and_post(
-                entry_date=entry_date or date.today(),
+                entry_date=entry_date or tz.today(),
                 description=f"Auto GL - {transaction_type} | {description}",
                 lines=lines,
                 branch_code=fund.branch_code,

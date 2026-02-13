@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from datetime import date, datetime
+from app.core import timezone as tz
 from . import models, schemas
 
 from app.modules.customers.models import (
@@ -18,7 +19,7 @@ class BankDepositRepository:
     def create(self, deposit: schemas.BankDepositCreate) -> models.BankDeposits:
         db_deposit = models.BankDeposits(
             **deposit.model_dump(),
-            created_date=datetime.now()
+            created_date=tz.now()
         )
         self.db.add(db_deposit)
         self.db.commit()
@@ -62,7 +63,7 @@ class CardPaymentRepository:
     def create(self, payment: schemas.CardPaymentCreate) -> models.CardPayments:
         db_payment = models.CardPayments(
             **payment.model_dump(),
-            date_time=datetime.now()
+            date_time=tz.now()
         )
         self.db.add(db_payment)
         self.db.commit()
@@ -119,10 +120,10 @@ class ExpenseRepository:
         if not data.get("expenses_no"):
             data["expenses_no"] = self._generate_expense_no()
         if not data.get("expense_date"):
-            data["expense_date"] = date.today()
+            data["expense_date"] = tz.today()
         db_expense = models.Expenses(
             **data,
-            created_date=date.today(),
+            created_date=tz.today(),
             status="pending",
             submitted_by=submitted_by,
         )
@@ -178,7 +179,7 @@ class ExpenseRepository:
         Uses advisory lock to prevent duplicate numbers under concurrency.
         """
         from sqlalchemy import text
-        today = date.today().strftime("%Y%m%d")
+        today = tz.today().strftime("%Y%m%d")
         prefix = f"EXP-{today}-"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = self.db.query(models.Expenses).filter(
@@ -198,7 +199,7 @@ class CustomerAdvancePaymentRepository:
     def create(self, advance: schemas.CustomerAdvancePaymentCreate) -> CustomerAdvancePayments:
         # Advisory lock to prevent duplicate advance numbers under concurrency
         from sqlalchemy import text
-        prefix = f"ADV{date.today().strftime('%Y%m%d')}"
+        prefix = f"ADV{tz.today().strftime('%Y%m%d')}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         count = self.db.query(func.count(CustomerAdvancePayments.id)).scalar()
         advance_no = f"{prefix}{count + 1:04d}"
@@ -206,7 +207,7 @@ class CustomerAdvancePaymentRepository:
         db_advance = CustomerAdvancePayments(
             **advance.model_dump(),
             advance_payments_no=advance_no,
-            created_date=date.today(),
+            created_date=tz.today(),
             active=True
         )
         self.db.add(db_advance)
@@ -232,7 +233,7 @@ class CustomerCreditNoteRepository:
     def create(self, credit_note: schemas.CustomerCreditNoteCreate) -> CustomerCreditNotes:
         db_credit_note = CustomerCreditNotes(
             **credit_note.model_dump(),
-            date=datetime.now()
+            date=tz.now()
         )
         self.db.add(db_credit_note)
         self.db.commit()

@@ -6,6 +6,7 @@ Database operations for commission management
 from typing import List, Optional, Tuple
 from datetime import datetime, date
 from decimal import Decimal
+from app.core import timezone as tz
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, case, text
 
@@ -235,7 +236,7 @@ class CommissionRepository:
 
     def generate_payment_no(self, db: Session) -> str:
         """Generate next payment number: ACP-YYYYMMDD-XXXX"""
-        today = datetime.now().strftime("%Y%m%d")
+        today = tz.now().strftime("%Y%m%d")
         prefix = f"ACP-{today}-"
 
         # Advisory lock to prevent race conditions on sequence generation
@@ -281,7 +282,7 @@ class CommissionRepository:
 
         payment.status = "verified"
         payment.verified_by = verified_by
-        payment.verified_date = datetime.utcnow()
+        payment.verified_date = tz.now()
         db.commit()
         db.refresh(payment)
         return payment

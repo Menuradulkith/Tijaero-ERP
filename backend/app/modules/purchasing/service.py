@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from . import models, schemas, repository
 from fastapi import HTTPException, status
+from app.core import timezone as tz
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 
 DAILY_PO_LIMIT_PER_BRANCH = 5
@@ -81,7 +82,7 @@ class PurchasingOrderService:
     
     def check_daily_limit(self, branch_code: str, target_date: date = None) -> schemas.DailyPOLimitCheck:
         if target_date is None:
-            target_date = date.today()
+            target_date = tz.today()
         
         count = self.repo.count_daily_orders_by_branch(branch_code, target_date)
         remaining = max(0, DAILY_PO_LIMIT_PER_BRANCH - count)
@@ -531,7 +532,7 @@ class PurchasingReturnService:
         initial_status = "pending" if return_data.require_approval else "approved"
         stock_status = "return_pending" if return_data.require_approval else "returned_to_supplier"
 
-        now = datetime.now()
+        now = tz.now()
         db_return = models.PurchasingReturn(
             purchasing_return_no=return_no,
             branch_code=return_data.branch_code,
@@ -629,7 +630,7 @@ class PurchasingReturnService:
                 detail=f"Return is not pending approval. Current status: {return_record.status}"
             )
         
-        now = datetime.now()
+        now = tz.now()
         
         # Update approval record
         if return_record.approval_id:
@@ -861,7 +862,7 @@ class GoodReceivedNoteService:
                             advance_id=advance.id,
                             grn_id=created_grn.id,
                             applied_amount=apply_amount,
-                            application_date=date.today(),
+                            application_date=tz.today(),
                             remarks=f"Auto-applied during GRN {created_grn.good_received_no} creation"
                         )
                         self.db.add(application)
@@ -1282,7 +1283,7 @@ class SupplierCreditsSettleService:
         from datetime import datetime
         settle.status = "verified"
         settle.verified_by = verified_by
-        settle.verified_date = datetime.now()
+        settle.verified_date = tz.now()
         self.db.commit()
         self.db.refresh(settle)
         
@@ -1318,7 +1319,7 @@ class SupplierCreditsSettleService:
         from datetime import datetime
         settle.status = "cancelled"
         settle.verified_by = verified_by
-        settle.verified_date = datetime.now()
+        settle.verified_date = tz.now()
         self.db.commit()
         self.db.refresh(settle)
         

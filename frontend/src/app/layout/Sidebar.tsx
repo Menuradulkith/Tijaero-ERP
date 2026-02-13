@@ -94,8 +94,6 @@ const menuItems: MenuItem[] = [
       { text: "Gift Vouchers", icon: <ReceiptIcon />, path: "/sales/vouchers" },
       { text: "Agent Commissions", icon: <MonetizationOnIcon />, path: "/sales/agent-commissions" },
       { text: "Commission Approvals", icon: <FactCheckIcon />, path: "/sales/commission-approvals" },
-      { text: "Commission Payments", icon: <PaymentIcon />, path: "/sales/commission-payments" },
-      { text: "Commission Approvals", icon: <FactCheckIcon />, path: "/sales/commission-payment-approvals" },
       { text: "Settings", icon: <SettingsIcon />, path: "/sales/settings" },
     ],
   },
@@ -176,8 +174,10 @@ const menuItems: MenuItem[] = [
           { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/finance/approvals/payment-approvals" },
           { text: "Expense Approvals", icon: <FactCheckIcon />, path: "/finance/approvals/expense-approvals" },
           { text: "Bank Transfer Verify", icon: <AccountBalanceIcon />, path: "/finance/approvals/bank-transfer-verify" },
+          { text: "Commission Payment Approvals", icon: <FactCheckIcon />, path: "/finance/approvals/commission-payment-approvals" },
         ],
       },
+      { text: "Commission Payments", icon: <PaymentIcon />, path: "/finance/commission-payments" },
     ],
   },
   {
@@ -204,7 +204,7 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.WAREHOUSE_VIEW,
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse" },
-      { text: "Sales Track", icon: <ReceiptLongIcon />, path: "/warehouse/sales-track" },
+      { text: "Sales Track", icon: <ReceiptLongIcon />, path: "/sales/track" },
       { text: "Item Transfer Notes", icon: <SwapHorizIcon />, path: "/warehouse/item-transfer-notes" },
       { text: "ITN Approvals", icon: <FactCheckIcon />, path: "/warehouse/itn-approvals" },
       { text: "Receive Notes", icon: <InventoryIcon />, path: "/warehouse/receive-notes" },

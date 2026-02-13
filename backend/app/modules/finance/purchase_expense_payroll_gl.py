@@ -61,6 +61,7 @@ from decimal import Decimal
 from datetime import date, datetime
 from typing import Optional, List, Dict, Any
 import logging
+from app.core import timezone as tz
 
 from app.modules.finance.accounting_models import (
     ChartOfAccounts,
@@ -154,7 +155,7 @@ class PurchaseExpensePayrollGL:
         Lock is auto-released on COMMIT/ROLLBACK.
         """
         from sqlalchemy import text
-        today = date.today()
+        today = tz.today()
         full_prefix = f"{prefix}-{today.strftime('%Y%m')}-"
         # Advisory lock keyed on prefix — same pattern as cashbook
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": full_prefix})
@@ -260,7 +261,7 @@ class PurchaseExpensePayrollGL:
             branch_code=branch_code,
             created_by=user_id,
             posted_by=user_id,
-            posted_at=datetime.now(),
+            posted_at=tz.now(),
         )
         self.db.add(je)
         self.db.flush()
@@ -385,7 +386,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=grn.good_received_date or date.today(),
+            entry_date=grn.good_received_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=grn.branch_code,
@@ -441,7 +442,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=advance.payment_date or date.today(),
+            entry_date=advance.payment_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=advance.branch_code,
@@ -499,7 +500,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=application.application_date or date.today(),
+            entry_date=application.application_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=branch_code,
@@ -553,7 +554,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=date.today(),
+            entry_date=tz.today(),
             description=description,
             lines=lines,
             branch_code=settlement.branch_code,
@@ -610,7 +611,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=payment.payment_date or date.today(),
+            entry_date=payment.payment_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=payment.branch_code,
@@ -677,7 +678,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=expense.expense_date or expense.payment_date or date.today(),
+            entry_date=expense.expense_date or expense.payment_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=expense.branch_code,
@@ -843,7 +844,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=batch.salary_payment_date or date.today(),
+            entry_date=batch.salary_payment_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=None,  # Payroll is company-wide
@@ -903,7 +904,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=payment.payment_date or date.today(),
+            entry_date=payment.payment_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=payment.branch_code,
@@ -983,7 +984,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=getattr(purchase_return, "approved_date", None) or date.today(),
+            entry_date=getattr(purchase_return, "approved_date", None) or tz.today(),
             description=description,
             lines=lines,
             branch_code=purchase_return.branch_code,
@@ -1043,7 +1044,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=getattr(deposit, "created_date", None) or date.today(),
+            entry_date=getattr(deposit, "created_date", None) or tz.today(),
             description=description,
             lines=lines,
             branch_code=getattr(deposit, "branch_code", None) or "HQ",
@@ -1117,7 +1118,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=getattr(reimbursement, "payment_date", None) or date.today(),
+            entry_date=getattr(reimbursement, "payment_date", None) or tz.today(),
             description=description,
             lines=lines,
             branch_code=getattr(reimbursement, "branch_code", None),
@@ -1193,7 +1194,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=getattr(advance, "created_date", None) or date.today(),
+            entry_date=getattr(advance, "created_date", None) or tz.today(),
             description=description,
             lines=lines,
             branch_code=getattr(advance, "branch_code", None),
@@ -1281,7 +1282,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=getattr(settlement, "created_date", None) or date.today(),
+            entry_date=getattr(settlement, "created_date", None) or tz.today(),
             description=description,
             lines=lines,
             branch_code=getattr(settlement, "branch_code", None),
@@ -1347,7 +1348,7 @@ class PurchaseExpensePayrollGL:
         )
 
         je = self._create_je_and_post(
-            entry_date=date.today(),
+            entry_date=tz.today(),
             description=description,
             lines=lines,
             branch_code=getattr(invoice, "branch_code", None),

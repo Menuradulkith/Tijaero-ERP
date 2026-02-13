@@ -8,6 +8,7 @@
 export const ERP_CURRENCY = "LKR";
 export const ERP_CURRENCY_SYMBOL = "Rs.";
 export const ERP_LOCALE = "en-LK";
+export const ERP_TIMEZONE = "Asia/Colombo";
 
 /**
  * Format a number as currency with LKR and two decimal places
@@ -151,6 +152,7 @@ export function formatDateTimeReadable(date: Date | string | null | undefined): 
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
+      timeZone: ERP_TIMEZONE,
     });
   } catch {
     return "";

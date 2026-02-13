@@ -45,6 +45,7 @@ import {
   showSuccessToast,
   SortOption,
   TConfirmDialog,
+  TSearchableSelect,
   useMasterDetailState,
   useTConfirmDialog,
   modernTableStyles,
@@ -315,21 +316,18 @@ export default function CouponsPage() {
       emptyMessage="No coupons found"
       listHeader={
         <Box sx={{ p: 1, borderBottom: "1px solid", borderColor: "divider" }}>
-          <TextField
-            select
-            size="small"
-            fullWidth
+          <TSearchableSelect
             label="Filter by Status"
-            value={filterStatus || ""}
-            onChange={(e) => setFilterStatus(e.target.value || null)}
-          >
-            <MenuItem value="">All Statuses</MenuItem>
-            {STATUS_OPTIONS.map((opt) => (
-              <MenuItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </MenuItem>
-            ))}
-          </TextField>
+            value={filterStatus}
+            onChange={(val) => setFilterStatus(val as string | null)}
+            options={STATUS_OPTIONS.map((opt) => ({
+              value: opt.value,
+              label: opt.label,
+            }))}
+            showAllOption
+            allOptionLabel="All Statuses"
+            placeholder="Search status..."
+          />
         </Box>
       }
       renderItem={(coupon: CustomerCuponCodes, isSelected: boolean) => {

@@ -1,7 +1,5 @@
 import AgentCommissionsPage from "@/modules/sales/pages/AgentCommissionsPage";
 import CommissionApprovalsPage from "@/modules/sales/pages/CommissionApprovalsPage";
-import CommissionPaymentApprovalsPage from "@/modules/sales/pages/CommissionPaymentApprovalsPage";
-import CommissionPaymentsPage from "@/modules/sales/pages/CommissionPaymentsPage";
 import CouponsPage from "@/modules/sales/pages/CouponsPage";
 import VouchersPage from "@/modules/sales/pages/VouchersPage";
 import CustomersPage from "@/modules/sales/pages/CustomersPage";
@@ -12,6 +10,7 @@ import SalesDashboard from "@/modules/sales/pages/SalesDashboard";
 import SalesOrderApprovalsPage from "@/modules/sales/pages/SalesOrderApprovalsPage";
 import SalesPage from "@/modules/sales/pages/SalesPage";
 import SalesSettingsPage from "@/modules/sales/pages/SalesSettingsPage";
+import SalesTrackPage from "@/modules/sales/pages/SalesTrackPage";
 import { Route, Routes } from "react-router-dom";
 
 export default function SalesRoutes() {
@@ -23,6 +22,7 @@ export default function SalesRoutes() {
       <Route path="proforma" element={<QuotationsPage />} />
       <Route path="returns" element={<SaleReturnsPage />} />
       <Route path="return-approvals" element={<SaleReturnApprovalsPage />} />
+      <Route path="track" element={<SalesTrackPage />} />
       <Route path="dashboard" element={<SalesDashboard />} />
       <Route path="customers" element={<CustomersPage />} />
       <Route path="approvals" element={<SalesOrderApprovalsPage />} />
@@ -30,8 +30,6 @@ export default function SalesRoutes() {
       <Route path="vouchers" element={<VouchersPage />} />
       <Route path="agent-commissions" element={<AgentCommissionsPage />} />
       <Route path="commission-approvals" element={<CommissionApprovalsPage />} />
-      <Route path="commission-payments" element={<CommissionPaymentsPage />} />
-      <Route path="commission-payment-approvals" element={<CommissionPaymentApprovalsPage />} />
       <Route path="settings/*" element={<SalesSettingsPage />} />
     </Routes>
   );

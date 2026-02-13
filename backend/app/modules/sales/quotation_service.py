@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional, Tuple
+from app.core import timezone as tz
 
 from app.modules.sales.models import Invoice, InvoiceItems
 from app.modules.sales.quotation_models import (DiscountType, QuoteStatus,
@@ -79,7 +80,7 @@ class SalesQuoteService:
         is_estimate = quote_data.quote_type == QuoteTypeEnum.QUOTATION
         
         # Create quote object
-        now = datetime.now()
+        now = tz.now()
         quote = SalesQuote(
             quote_no=quote_no,
             quote_type=quote_data.quote_type.value,
@@ -148,7 +149,7 @@ class SalesQuoteService:
             self.repository.delete_items_by_quote_id(db, quote_id)
             
             # Add new items
-            now = datetime.now()
+            now = tz.now()
             quote.items = []
             for item_data in quote_data.items:
                 item = self._create_quote_item(item_data, now)
@@ -329,7 +330,7 @@ class SalesQuoteService:
             )
         
         # Generate invoice number
-        now = datetime.now()
+        now = tz.now()
         year = now.year
         
         # Acquire advisory lock to prevent duplicate invoice numbers
@@ -439,7 +440,7 @@ class SalesQuoteService:
         base_quote_no = original_quote.quote_no.split('-R')[0]  # Remove existing revision suffix
         new_quote_no = f"{base_quote_no}-R{next_revision}"
         
-        now = datetime.now()
+        now = tz.now()
         
         # Create new quote as revision
         new_quote = SalesQuote(
@@ -683,7 +684,7 @@ class SalesQuoteService:
             )
         
         # Generate PO number
-        now = datetime.now()
+        now = tz.now()
         year = now.year
         
         # Acquire advisory lock to prevent duplicate PO numbers

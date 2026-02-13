@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime
 from decimal import Decimal
+from app.core import timezone as tz
 from . import schemas
 from .models import SalaryDeductions, Reimbursements, ReimbursementItem, PayrollBatch
 from .sales_commission_models import SalesOfficerMonthlyCommission
@@ -57,7 +58,7 @@ class ReimbursementService:
 
     def _generate_reimbursement_no(self) -> str:
         """Generate unique reimbursement number: RMB-YYYYMMDD-NNN"""
-        today = date.today().strftime("%Y%m%d")
+        today = tz.today().strftime("%Y%m%d")
         prefix = f"RMB-{today}-"
         # Advisory lock to prevent race conditions on sequence generation
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
@@ -237,7 +238,7 @@ class ReimbursementService:
             r.status = "approved"
 
         r.approved_amount = approved_amount
-        r.approved_date = datetime.utcnow()
+        r.approved_date = tz.now()
         if data.remarks:
             r.remark = data.remarks
 
@@ -288,7 +289,7 @@ class ReimbursementService:
 
         r.status = "verified"
         r.verified_by = user_id
-        r.verified_date = datetime.utcnow()
+        r.verified_date = tz.now()
         if data.remarks:
             r.remark = data.remarks
 
@@ -307,7 +308,7 @@ class ReimbursementService:
         r.payment_method = data.payment_method
         r.payment_reference = data.payment_reference
         r.paid_amount = data.paid_amount
-        r.payment_date = datetime.utcnow()
+        r.payment_date = tz.now()
         r.payment_status = "paid"
         r.status = "completed"
         if data.remarks:
@@ -560,7 +561,7 @@ class PayrollService:
     # --- CRUD (backward compatible) ---
     def create_payroll(self, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
         db_payroll = EmployeePayroll(**payroll.model_dump())
-        db_payroll.created_at = datetime.utcnow()
+        db_payroll.created_at = tz.now()
         self.db.add(db_payroll)
         self.db.commit()
         self.db.refresh(db_payroll)
@@ -622,7 +623,7 @@ class PayrollService:
             description=data.description or f"Payroll for {year}-{month:02d}",
             status="draft",
             created_by=user_id,
-            created_at=datetime.utcnow(),
+            created_at=tz.now(),
         )
         self.db.add(batch)
         self.db.flush()
@@ -702,7 +703,7 @@ class PayrollService:
                 net_salary=calc["net_salary"],
                 total_employer_cost=calc["total_employer_cost"],
                 status="draft",
-                created_at=datetime.utcnow(),
+                created_at=tz.now(),
                 created_by=user_id,
             )
             self.db.add(payroll_record)
@@ -778,11 +779,11 @@ class PayrollService:
             )
         batch.status = "approved"
         batch.approved_by = user_id
-        batch.approved_date = datetime.utcnow()
+        batch.approved_date = tz.now()
         # Update all payroll records
         self.db.query(EmployeePayroll).filter(
             EmployeePayroll.payroll_batch_no == batch.batch_no
-        ).update({"status": "approved", "approved_by": user_id, "approved_date": datetime.utcnow()})
+        ).update({"status": "approved", "approved_by": user_id, "approved_date": tz.now()})
         self.db.commit()
         self.db.refresh(batch)
         return self._batch_to_response(batch, include_records=True)
@@ -816,7 +817,7 @@ class PayrollService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot process payment. Current status: {batch.status}"
             )
-        payment_date = data.payment_date or date.today()
+        payment_date = data.payment_date or tz.today()
         batch.status = "salary_paid"
         batch.salary_payment_date = payment_date
         batch.salary_payment_reference = data.payment_reference
@@ -850,7 +851,7 @@ class PayrollService:
         ).update({
             "status": "paid",
             "paid_in_payroll_id": batch.id,
-            "updated_at": datetime.utcnow(),
+            "updated_at": tz.now(),
         }, synchronize_session=False)
         
         self.db.commit()
@@ -880,7 +881,7 @@ class PayrollService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot process statutory. Must process salary payments first. Current status: {batch.status}"
             )
-        payment_date = data.payment_date or date.today()
+        payment_date = data.payment_date or tz.today()
         refs = []
         if data.epf_reference:
             refs.append(f"EPF: {data.epf_reference}")
@@ -987,7 +988,7 @@ class PayrollService:
                 detail=f"Cannot complete. Must process statutory payments first. Current status: {batch.status}"
             )
         batch.status = "completed"
-        batch.completed_date = datetime.utcnow()
+        batch.completed_date = tz.now()
         self.db.query(EmployeePayroll).filter(
             EmployeePayroll.payroll_batch_no == batch.batch_no
         ).update({"status": "completed"})

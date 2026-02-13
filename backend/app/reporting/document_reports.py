@@ -4,6 +4,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
+from app.core import timezone as tz
 
 from app.modules.purchasing.models import (
     PurchasingOrder, PurchasingOrderItems, GoodReceivedNote,
@@ -166,7 +167,7 @@ class DocumentReportService:
                 "show_signatures": show_signatures,
                 "custom_remarks": custom_remarks
             },
-            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
         )
     
     def generate_grn_report(
@@ -247,7 +248,7 @@ class DocumentReportService:
                 "show_signatures": show_signatures,
                 "custom_remarks": custom_remarks
             },
-            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
         )
     
     def generate_purchase_return_report(
@@ -338,7 +339,7 @@ class DocumentReportService:
                 "show_signatures": show_signatures,
                 "custom_remarks": custom_remarks
             },
-            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
     def generate_quotation_report(
@@ -423,7 +424,7 @@ class DocumentReportService:
                 "show_signatures": show_signatures,
                 "custom_remarks": custom_remarks
             },
-            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
 
@@ -511,7 +512,7 @@ class DocumentReportService:
                 "show_signatures": show_signatures,
                 "custom_remarks": custom_remarks
             },
-            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
     def generate_payroll_report(
@@ -529,7 +530,7 @@ class DocumentReportService:
         ).all()
         
         if not period:
-            period = datetime.now().strftime("%B %Y")
+            period = tz.now().strftime("%B %Y")
             
         company = self._get_company_info()
         
@@ -588,7 +589,7 @@ class DocumentReportService:
                 "show_signatures": show_signatures,
                 "custom_remarks": custom_remarks
             },
-            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
     def generate_credit_note_report(
@@ -684,7 +685,7 @@ class DocumentReportService:
                 "show_signatures": show_signatures,
                 "custom_remarks": custom_remarks
             },
-            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
 def get_document_report_service(db: Session) -> DocumentReportService:

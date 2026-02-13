@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from typing import List, Optional, Tuple
+from app.core import timezone as tz
 
 from app.modules.sales.quotation_models import (
     QuoteStatus,
@@ -90,7 +91,7 @@ class SalesQuoteRepository:
             query = query.filter(SalesQuote.created_date <= filters.date_to)
 
         if filters.is_expired is not None:
-            today = date.today()
+            today = tz.today()
             if filters.is_expired:
                 query = query.filter(SalesQuote.valid_until < today)
             else:
@@ -186,7 +187,7 @@ class SalesQuoteRepository:
         self, db: Session, quote_type: str, branch_code: str
     ) -> str:
         """Generate next quote number"""
-        year = datetime.now().year
+        year = tz.year()
         prefix = "QT" if quote_type == QuoteType.QUOTATION.value else "PI"
 
         # Advisory lock to prevent race conditions on sequence generation
@@ -258,7 +259,7 @@ class SalesQuoteRepository:
         """Get quotes expiring within given days"""
         from datetime import timedelta
 
-        today = date.today()
+        today = tz.today()
         expiry_date = today + timedelta(days=days)
 
         return (
@@ -277,7 +278,7 @@ class SalesQuoteRepository:
 
     def get_expired_quotes(self, db: Session) -> List[SalesQuote]:
         """Get all expired quotes that haven't been marked as expired"""
-        today = date.today()
+        today = tz.today()
 
         return (
             db.query(SalesQuote)
