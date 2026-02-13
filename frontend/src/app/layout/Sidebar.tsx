@@ -204,7 +204,7 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.WAREHOUSE_VIEW,
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse" },
-      { text: "Sales Track", icon: <ReceiptLongIcon />, path: "/sales/track" },
+      { text: "Sales Track", icon: <ReceiptLongIcon />, path: "/warehouse/sales-track" },
       { text: "Item Transfer Notes", icon: <SwapHorizIcon />, path: "/warehouse/item-transfer-notes" },
       { text: "ITN Approvals", icon: <FactCheckIcon />, path: "/warehouse/itn-approvals" },
       { text: "Receive Notes", icon: <InventoryIcon />, path: "/warehouse/receive-notes" },

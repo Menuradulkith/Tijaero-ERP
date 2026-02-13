@@ -124,8 +124,12 @@ class SalesService:
         # Calculate total pages
         total_pages = (total + page_size - 1) // page_size
         
+        # Convert SQLAlchemy models to Pydantic schemas
+        from . import schemas
+        items_schemas = [schemas.Invoice.model_validate(item) for item in items]
+        
         return {
-            "items": items,
+            "items": items_schemas,
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -192,8 +196,12 @@ class SalesService:
         # Calculate total pages
         total_pages = (total + page_size - 1) // page_size
         
+        # Convert SQLAlchemy models to Pydantic schemas
+        from . import schemas
+        items_schemas = [schemas.SaleReturn.model_validate(item) for item in items]
+        
         return {
-            "items": items,
+            "items": items_schemas,
             "total": total,
             "page": page,
             "page_size": page_size,
