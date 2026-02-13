@@ -3,6 +3,7 @@ from sqlalchemy import func, and_, desc
 from typing import List, Optional
 from datetime import datetime
 from fastapi import HTTPException, status
+from app.core import timezone as tz
 from . import models, schemas
 from app.core.security import get_password_hash, verify_password
 
@@ -45,7 +46,7 @@ class NotificationService:
             raise HTTPException(status_code=404, detail="Notification not found")
         
         notification.is_read = True
-        notification.read_date = datetime.utcnow()
+        notification.read_date = tz.now()
         self.db.commit()
         self.db.refresh(notification)
         return notification
@@ -59,7 +60,7 @@ class NotificationService:
             )
         ).update({
             "is_read": True,
-            "read_date": datetime.utcnow()
+            "read_date": tz.now()
         })
         self.db.commit()
         return count
@@ -127,7 +128,7 @@ class PreferencesService:
         for field, value in update_data.items():
             setattr(preferences, field, value)
         
-        preferences.updated_date = datetime.utcnow()
+        preferences.updated_date = tz.now()
         self.db.commit()
         self.db.refresh(preferences)
         return preferences

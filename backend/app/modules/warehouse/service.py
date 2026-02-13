@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from typing import List, Optional
 from datetime import datetime
+from app.core import timezone as tz
 from . import schemas
 from .models import (
     ItemTransferNote,
@@ -22,7 +23,7 @@ class ItemTransferNoteService:
     def create_transfer_note(self, transfer_note: schemas.ItemTransferNoteCreate) -> ItemTransferNote:
         db_transfer_note = ItemTransferNote(
             **transfer_note.model_dump(exclude={'status', 'approval_id'}),
-            added_date=datetime.now(),
+            added_date=tz.now(),
             status=TransferNoteStatus.PENDING
         )
         self.db.add(db_transfer_note)
@@ -390,7 +391,7 @@ class ItemTransferNoteItemService:
     def create_item(self, item: schemas.ItemTransferNoteItemCreate) -> ItemTransferNoteItems:
         db_item = ItemTransferNoteItems(
             **item.model_dump(),
-            created_date=datetime.now()
+            created_date=tz.now()
         )
         self.db.add(db_item)
         # Note: Stock status is NOT changed here. It only changes to "transfer_pending" 
@@ -457,7 +458,7 @@ class ItemTransferNoteApprovalService:
     ) -> ItemTransferNoteApproved:
         db_approval = ItemTransferNoteApproved(
             **approval.model_dump(),
-            approved_date=datetime.now()
+            approved_date=tz.now()
         )
         self.db.add(db_approval)
         self.db.commit()
@@ -488,7 +489,7 @@ class ItemTransferNoteApprovalService:
         
         for key, value in approval.model_dump().items():
             setattr(db_approval, key, value)
-        db_approval.approved_date = datetime.now()
+        db_approval.approved_date = tz.now()
         
         # If approval status changed to approved (1), update transfer note and stock
         if approval.approved_status == 1 and old_status != 1:
@@ -548,7 +549,7 @@ class ItemReceiveNoteService:
     ) -> ItemReceiveNote:
         db_receive_note = ItemReceiveNote(
             **receive_note.model_dump(),
-            recieved_date=datetime.now()
+            recieved_date=tz.now()
         )
         self.db.add(db_receive_note)
         self.db.commit()
@@ -602,7 +603,7 @@ class ItemReceiveNoteService:
         db_receive_note = self.get_receive_note(receive_note_id)
         for key, value in receive_note.model_dump().items():
             setattr(db_receive_note, key, value)
-        db_receive_note.recieved_date = datetime.now()
+        db_receive_note.recieved_date = tz.now()
         self.db.commit()
         self.db.refresh(db_receive_note)
         return db_receive_note
@@ -723,7 +724,7 @@ class ItemReceiveNoteService:
         if existing_receive_note:
             existing_receive_note.received_note = request.received_note
             existing_receive_note.recieved_user = request.received_user_id
-            existing_receive_note.recieved_date = datetime.now()
+            existing_receive_note.recieved_date = tz.now()
             existing_receive_note.received_approval_status = recv_status
         else:
             new_receive_note = ItemReceiveNote(
@@ -731,7 +732,7 @@ class ItemReceiveNoteService:
                 received_approval_status=recv_status,
                 received_note=request.received_note,
                 recieved_user=request.received_user_id,
-                recieved_date=datetime.now()
+                recieved_date=tz.now()
             )
             self.db.add(new_receive_note)
         

@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from typing import List, Optional
+from app.core import timezone as tz
 from app.modules.inventory import repository, schemas, models
 
 class InventoryService:
@@ -104,7 +105,7 @@ class SalesStockService:
             purchasing_order_items_id=item.purchasing_order_items_id,
             warranty_month=item.warranty_month,
             status=item.status,
-            added_date=datetime.now()
+            added_date=tz.now()
         )
         try:
             self.db.add(db_item)
@@ -219,7 +220,7 @@ class CompanyAssetService:
             good_received_note_id=item.good_received_note_id,
             purchasing_order_items_id=item.purchasing_order_items_id,
             status=item.status,
-            added_date=datetime.now()
+            added_date=tz.now()
         )
         try:
             self.db.add(db_item)

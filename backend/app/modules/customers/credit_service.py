@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
+from app.core import timezone as tz
 
 from app.modules.customers.models import (
     Customer, 
@@ -25,7 +26,7 @@ class CustomerCreditService:
         Validate that credit sales are only allowed during business hours (09:00 AM - 06:00 PM).
         Returns validation result with current time and allowed hours.
         """
-        current_time = datetime.now()
+        current_time = tz.now()
         current_hour = current_time.hour
         
         is_allowed = self.CREDIT_SALE_START_HOUR <= current_hour < self.CREDIT_SALE_END_HOUR
@@ -210,7 +211,7 @@ class CustomerCreditService:
     
     def get_days_overdue(self, invoice_date: date, credit_days: int) -> int:
         due_date = self.calculate_due_date(invoice_date, credit_days)
-        return (date.today() - due_date).days
+        return (tz.today() - due_date).days
     
 
     
@@ -265,7 +266,7 @@ class CustomerCreditService:
         return total_credit - total_settled
     
     def _get_overdue_invoices(self, db: Session, customer_id: int, credit_days: int) -> List[Dict]:
-        cutoff_date = date.today() - timedelta(days=credit_days)
+        cutoff_date = tz.today() - timedelta(days=credit_days)
         
         invoices = db.query(Invoice).filter(
             Invoice.customer_id == customer_id,
@@ -285,7 +286,7 @@ class CustomerCreditService:
                     "invoice_no": invoice.invoice_no,
                     "invoice_date": invoice.created_date,
                     "due_date": due_date,
-                    "days_overdue": (date.today() - due_date).days,
+                    "days_overdue": (tz.today() - due_date).days,
                     "credit_amount": float(invoice.credit_amount),
                     "remaining_amount": float(remaining)
                 })
@@ -403,7 +404,7 @@ class CustomerCreditService:
             customer_credits_settle_no=settlement_data.customer_credits_settle_no,
             branch_code=settlement_data.branch_code,
             customer_id=settlement_data.customer_id,
-            created_date=datetime.now()
+            created_date=tz.now()
         )
         db.add(settlement)
         db.flush()
@@ -418,7 +419,7 @@ class CustomerCreditService:
                 remarks=trans.remarks,
                 customer_credit_settle_id=settlement.id,
                 invoice_id=trans.invoice_id,
-                created_date=date.today()
+                created_date=tz.today()
             )
             db.add(transaction)
             created_transactions.append(transaction)

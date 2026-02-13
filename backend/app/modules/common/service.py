@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 from fastapi import HTTPException, status
+from app.core import timezone as tz
 from . import schemas
 from .models import Country, Locations, Approvals
 
@@ -44,7 +45,7 @@ class LocationService:
         location = Locations(
             name=data.name,
             branch_code=data.branch_code,
-            created_date=datetime.now()
+            created_date=tz.now()
         )
         self.db.add(location)
         self.db.commit()

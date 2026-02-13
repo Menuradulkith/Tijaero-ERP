@@ -21,6 +21,8 @@ import JournalEntriesPage from "./pages/JournalEntriesPage";
 import GeneralLedgerPage from "./pages/GeneralLedgerPage";
 import AccountingPeriodsPage from "./pages/AccountingPeriodsPage";
 import CashFlowStatementsPage from "./pages/CashFlowStatementsPage";
+import CommissionPaymentsPage from "./pages/CommissionPaymentsPage";
+import CommissionPaymentApprovalsPage from "./pages/CommissionPaymentApprovalsPage";
 
 export default function FinanceRoutes() {
   return (
@@ -48,9 +50,13 @@ export default function FinanceRoutes() {
       <Route path="approvals/payment-approvals" element={<PaymentApprovalsPage />} />
       <Route path="approvals/expense-approvals" element={<ExpenseApprovalsPage />} />
       <Route path="approvals/bank-transfer-verify" element={<BankTransferVerifyPage />} />
+      <Route path="approvals/commission-payment-approvals" element={<CommissionPaymentApprovalsPage />} />
       {/* Legacy routes for backward compatibility */}
       <Route path="bank-transfer-verify" element={<BankTransferVerifyPage />} />
       <Route path="payment-approvals" element={<PaymentApprovalsPage />} />
+      {/* Commission Payments */}
+      <Route path="commission-payments" element={<CommissionPaymentsPage />} />
+      <Route path="commission-payment-approvals" element={<CommissionPaymentApprovalsPage />} />
       {/* Other finance routes */}
       <Route path="supplier-payments" element={<SupplierPaymentsPage />} />
       <Route path="customer-payments" element={<CustomerPaymentsPage />} />

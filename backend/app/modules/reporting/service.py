@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc, extract
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date, timedelta
+from app.core import timezone as tz
 from . import schemas
 from app.modules.sales.models import Invoice, InvoiceItems
 from app.modules.finance.models import BankDeposits, CardPayments, ChequePayments, Expenses
@@ -360,7 +361,7 @@ class ReportingService:
 
     def get_dashboard_metrics(self) -> schemas.DashboardMetrics:
         """Get overall dashboard metrics"""
-        today = date.today()
+        today = tz.today()
         month_start = date(today.year, today.month, 1)
 
         # Sales today

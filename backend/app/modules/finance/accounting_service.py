@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 from datetime import date, datetime
 from decimal import Decimal
 from fastapi import HTTPException, status
+from app.core import timezone as tz
 
 from .accounting_models import (
     ChartOfAccounts,
@@ -194,7 +195,7 @@ class JournalEntryService:
         self.db = db
 
     def _generate_je_number(self) -> str:
-        today = date.today()
+        today = tz.today()
         prefix = f"JE-{today.strftime('%Y%m')}-"
         # Advisory lock to prevent race conditions on sequence generation
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
@@ -441,7 +442,7 @@ class JournalEntryService:
 
         je.status = "posted"
         je.posted_by = posted_by
-        je.posted_at = datetime.now()
+        je.posted_at = tz.now()
 
         self.db.commit()
 
@@ -472,7 +473,7 @@ class JournalEntryService:
                 detail="Journal entry has already been reversed"
             )
 
-        rev_date = reversal_date or date.today()
+        rev_date = reversal_date or tz.today()
         fiscal_year, fiscal_period = self._get_fiscal_period(rev_date)
         self._validate_period_open(fiscal_year, fiscal_period)
 
@@ -491,7 +492,7 @@ class JournalEntryService:
             branch_code=je.branch_code,
             created_by=reversed_by,
             posted_by=reversed_by,
-            posted_at=datetime.now(),
+            posted_at=tz.now(),
         )
         self.db.add(reversal_je)
         self.db.flush()
@@ -655,7 +656,7 @@ class JournalEntryService:
 
         je.status = "submitted"
         je.submitted_by = submitted_by
-        je.submitted_at = datetime.now()
+        je.submitted_at = tz.now()
         je.rejection_reason = None  # Clear any previous rejection
 
         if remarks:
@@ -679,7 +680,7 @@ class JournalEntryService:
 
         je.status = "approved"
         je.approved_by = approved_by
-        je.approved_at = datetime.now()
+        je.approved_at = tz.now()
 
         if remarks:
             je.description = je.description + f"\n[Approved] {remarks}"
@@ -927,7 +928,7 @@ class GeneralLedgerService:
             total_credit += credit
 
         return schemas.TrialBalanceResponse(
-            as_of_date=as_of_date or date.today(),
+            as_of_date=as_of_date or tz.today(),
             fiscal_year=fiscal_year,
             fiscal_period=fiscal_period,
             accounts=accounts,
@@ -1144,7 +1145,7 @@ class GeneralLedgerService:
                 total=other_exp_total,
             ),
             net_income=net_income,
-            generated_at=datetime.now(),
+            generated_at=tz.now(),
         )
 
     def get_balance_sheet(
@@ -1157,7 +1158,7 @@ class GeneralLedgerService:
         Assets = Liabilities + Equity
         Includes current-year net income in equity section.
         """
-        report_date = as_of_date or date.today()
+        report_date = as_of_date or tz.today()
 
         def _build_section(
             section_name: str,
@@ -1282,7 +1283,7 @@ class GeneralLedgerService:
             total_equity=total_equity,
             total_liabilities_and_equity=total_le,
             is_balanced=is_balanced,
-            generated_at=datetime.now(),
+            generated_at=tz.now(),
         )
 
     # ─────────────────────────────────────────────────────────────────────
@@ -1423,7 +1424,7 @@ class GeneralLedgerService:
                 detail="Journal entry has already been reversed"
             )
 
-        correction_date = data.correction_date or date.today()
+        correction_date = data.correction_date or tz.today()
 
         reversal_je = je_service.reverse_journal_entry(
             je_id=je_id,
@@ -1541,7 +1542,7 @@ class AccountingPeriodService:
             )
         period.status = "closed"
         period.closed_by = closed_by
-        period.closed_at = datetime.now()
+        period.closed_at = tz.now()
         self.db.commit()
         self.db.refresh(period)
         return period
@@ -2744,7 +2745,7 @@ class CashFlowService:
             "prepared_by": statement.prepared_by,
             "approved_by": statement.approved_by,
             "approved_at": statement.approved_at,
-            "generated_at": datetime.now(),
+            "generated_at": tz.now(),
         }
 
     def _get_cash_account_breakdown(self, as_of_date: date) -> List[dict]:
@@ -2873,7 +2874,7 @@ class CashFlowService:
             )
         statement.status = "approved"
         statement.approved_by = approved_by
-        statement.approved_at = datetime.now()
+        statement.approved_at = tz.now()
         self.db.commit()
         self.db.refresh(statement)
         return statement
@@ -2899,7 +2900,7 @@ class AccountingDashboardService:
         self.db = db
 
     def get_stats(self) -> schemas.AccountingDashboardStats:
-        today = date.today()
+        today = tz.today()
 
         total_accounts = self.db.query(func.count(ChartOfAccounts.id)).scalar() or 0
         active_accounts = self.db.query(func.count(ChartOfAccounts.id)).filter(

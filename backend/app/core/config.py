@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
     
+    # Timezone for all ERP operations (Sri Lanka Standard Time)
+    TIMEZONE: str = "Asia/Colombo"
+    
     DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

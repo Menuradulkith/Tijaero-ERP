@@ -2,6 +2,7 @@ from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
+from app.core import timezone as tz
 from app.modules.customers.models import Customer
 from app.modules.customers.schemas import CustomerCreate, CustomerUpdate
 
@@ -23,7 +24,7 @@ class CustomerRepository:
     def create(self, db: Session, customer: CustomerCreate, created_by: int) -> Customer:
         db_customer = Customer(
             **customer.dict(),
-            date_joined=datetime.utcnow(),
+            date_joined=tz.now(),
             created_by=created_by,
             updated_by=created_by
         )

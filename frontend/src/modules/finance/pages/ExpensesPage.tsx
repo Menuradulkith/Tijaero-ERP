@@ -50,6 +50,7 @@ import {
   TBranchFilter,
   TConfirmDialog,
   TFilterPanel,
+  TSearchableSelect,
   TStatusChip,
   useTConfirmDialog,
 } from "@/components/tijaero";
@@ -366,36 +367,31 @@ export default function ExpensesPage() {
               onChange={setFilterBranch}
             />
           </TFilterPanel>
-          <TextField
-            select
-            size="small"
+          <TSearchableSelect
             label="Status"
-            value={filterStatus || ""}
-            onChange={(e) => setFilterStatus(e.target.value || null)}
-            fullWidth
-          >
-            <MenuItem value="">All Statuses</MenuItem>
-            {STATUS_FILTER_OPTIONS.map((s) => (
-              <MenuItem key={s.value} value={s.value}>
-                {s.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            size="small"
+            value={filterStatus}
+            onChange={(val) => setFilterStatus(val as string | null)}
+            options={STATUS_FILTER_OPTIONS.map((s) => ({
+              value: s.value,
+              label: s.label,
+              color: s.color,
+            }))}
+            showAllOption
+            allOptionLabel="All Statuses"
+            placeholder="Search status..."
+          />
+          <TSearchableSelect
             label="Category"
-            value={filterCategory || ""}
-            onChange={(e) => setFilterCategory(e.target.value || null)}
-            fullWidth
-          >
-            <MenuItem value="">All Categories</MenuItem>
-            {EXPENSE_CATEGORIES.map((c) => (
-              <MenuItem key={c.value} value={c.value}>
-                {c.label}
-              </MenuItem>
-            ))}
-          </TextField>
+            value={filterCategory}
+            onChange={(val) => setFilterCategory(val as string | null)}
+            options={EXPENSE_CATEGORIES.map((c) => ({
+              value: c.value,
+              label: c.label,
+            }))}
+            showAllOption
+            allOptionLabel="All Categories"
+            placeholder="Search category..."
+          />
         </Box>
       }
       renderItem={(expense: Expense, isSelected: boolean) => {

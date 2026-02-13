@@ -46,6 +46,7 @@ import {
   SortOption,
   TConfirmDialog,
   TCurrency,
+  TSearchableSelect,
   TStatCard,
   TStatusChip,
   TStatusFilter,
@@ -393,21 +394,18 @@ export default function AgentCommissionsPage() {
       emptyMessage="No commissions found"
       listHeader={
         <Box sx={{ p: 1, borderBottom: "1px solid", borderColor: "divider", display: "flex", flexDirection: "column", gap: 1 }}>
-          <TextField
-            select
-            size="small"
-            fullWidth
+          <TSearchableSelect
             label="Filter by Agent"
-            value={filterAgentId || ""}
-            onChange={(e) => setFilterAgentId(e.target.value ? Number(e.target.value) : null)}
-          >
-            <MenuItem value="">All Agents</MenuItem>
-            {agents.map((agent) => (
-              <MenuItem key={agent.id} value={agent.id}>
-                {agent.customer_name}
-              </MenuItem>
-            ))}
-          </TextField>
+            value={filterAgentId}
+            onChange={(val) => setFilterAgentId(val ? Number(val) : null)}
+            options={agents.map((agent) => ({
+              value: agent.id,
+              label: agent.customer_name,
+            }))}
+            showAllOption
+            allOptionLabel="All Agents"
+            placeholder="Search agents..."
+          />
           <TStatusFilter
             options={COMMISSION_STATUS_OPTIONS}
             value={filterStatus}

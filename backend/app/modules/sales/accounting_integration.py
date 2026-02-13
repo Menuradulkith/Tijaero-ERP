@@ -59,6 +59,7 @@ from decimal import Decimal
 from datetime import date, datetime
 from typing import Optional, List, Dict, Any
 import logging
+from app.core import timezone as tz
 
 from app.modules.finance.accounting_models import (
     ChartOfAccounts,
@@ -136,7 +137,7 @@ class SalesAccountingIntegration:
         Lock is auto-released on COMMIT/ROLLBACK.
         """
         from sqlalchemy import text
-        today = date.today()
+        today = tz.today()
         full_prefix = f"{prefix}-{today.strftime('%Y%m')}-"
         # Advisory lock keyed on prefix — same pattern as cashbook
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": full_prefix})
@@ -245,7 +246,7 @@ class SalesAccountingIntegration:
             branch_code=branch_code,
             created_by=user_id,
             posted_by=user_id,
-            posted_at=datetime.now(),
+            posted_at=tz.now(),
         )
         self.db.add(je)
         self.db.flush()
@@ -421,7 +422,7 @@ class SalesAccountingIntegration:
         )
 
         je = self._create_je_and_post(
-            entry_date=invoice.created_date or date.today(),
+            entry_date=invoice.created_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=invoice.branch_code,
@@ -489,7 +490,7 @@ class SalesAccountingIntegration:
         )
 
         je = self._create_je_and_post(
-            entry_date=invoice.created_date or date.today(),
+            entry_date=invoice.created_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=invoice.branch_code,
@@ -548,7 +549,7 @@ class SalesAccountingIntegration:
         )
 
         je = self._create_je_and_post(
-            entry_date=invoice.created_date or date.today(),
+            entry_date=invoice.created_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=invoice.branch_code,
@@ -634,7 +635,7 @@ class SalesAccountingIntegration:
         )
 
         je = self._create_je_and_post(
-            entry_date=sale_return.added_date or date.today(),
+            entry_date=sale_return.added_date or tz.today(),
             description=description,
             lines=lines,
             branch_code=sale_return.branch_code,
@@ -852,7 +853,7 @@ class SalesAccountingIntegration:
         )
 
         je = self._create_je_and_post(
-            entry_date=getattr(voucher, "date", None) or date.today(),
+            entry_date=getattr(voucher, "date", None) or tz.today(),
             description=description,
             lines=lines,
             branch_code=getattr(voucher, "branch_code", None) or "HQ",
@@ -908,7 +909,7 @@ class SalesAccountingIntegration:
         )
 
         je = self._create_je_and_post(
-            entry_date=date.today(),
+            entry_date=tz.today(),
             description=description,
             lines=lines,
             branch_code=getattr(voucher, "branch_code", None) or "HQ",
@@ -962,7 +963,7 @@ class SalesAccountingIntegration:
         )
 
         je = self._create_je_and_post(
-            entry_date=date.today(),
+            entry_date=tz.today(),
             description=description,
             lines=lines,
             branch_code=getattr(voucher, "branch_code", None) or "HQ",

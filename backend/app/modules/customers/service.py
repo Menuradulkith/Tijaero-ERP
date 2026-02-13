@@ -4,6 +4,7 @@ from sqlalchemy import func
 from fastapi import HTTPException, status
 from datetime import datetime, date
 from decimal import Decimal
+from app.core import timezone as tz
 from app.modules.customers import repository, schemas
 from app.modules.customers.models import Customer, CustomerCuponCodes, CouponUsage, CustomerGiftVoucher, VoucherUsage
 from app.modules.products.models import Product
@@ -280,7 +281,7 @@ class CouponService:
             )
         
         # Check expiry date
-        if coupon.valid_until_date < date.today():
+        if coupon.valid_until_date < tz.today():
             return schemas.CouponValidationResponse(
                 valid=False,
                 message=f"Coupon expired on {coupon.valid_until_date}"
@@ -422,7 +423,7 @@ class CouponService:
             customer_id=customer_id,
             invoice_id=invoice_id,
             discount_amount=discount_amount,
-            used_date=datetime.now()
+            used_date=tz.now()
         )
         db.add(usage)
         db.commit()
@@ -499,7 +500,7 @@ class VoucherService:
             barcode_no=voucher_data.barcode_no,
             amount=voucher_data.amount,
             balance=voucher_data.amount,  # Initially, balance equals amount
-            date=date.today(),
+            date=tz.today(),
             valid_period_in_months=voucher_data.valid_period_in_months,
             status="active",
             purchased_invoice_no=voucher_data.purchased_invoice_no,
@@ -531,7 +532,7 @@ class VoucherService:
     
     def _is_expired(self, voucher: CustomerGiftVoucher) -> bool:
         """Check if voucher is expired"""
-        return date.today() > self._get_expiry_date(voucher)
+        return tz.today() > self._get_expiry_date(voucher)
     
     def validate_voucher(
         self,
@@ -661,7 +662,7 @@ class VoucherService:
             voucher_id=voucher_id,
             invoice_id=invoice_id,
             amount_used=amount_to_redeem,
-            used_date=datetime.now()
+            used_date=tz.now()
         )
         db.add(usage)
         
@@ -671,7 +672,7 @@ class VoucherService:
         # If fully claimed, update status
         if voucher.balance <= 0:
             voucher.status = "fully_claimed"
-            voucher.claimed_date = datetime.now()
+            voucher.claimed_date = tz.now()
             voucher.claimed_invoice_no = invoice_no
         
         db.commit()

@@ -6,6 +6,7 @@ Business logic for commission management
 from typing import List, Optional
 from datetime import datetime, date
 from decimal import Decimal
+from app.core import timezone as tz
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
@@ -191,7 +192,7 @@ class CommissionService:
         update_data = {
             "status": "approved",
             "approved_by": approved_by,
-            "approved_date": datetime.utcnow(),
+            "approved_date": tz.now(),
         }
         return commission_repository.update_commission(db, commission_id, update_data)
 

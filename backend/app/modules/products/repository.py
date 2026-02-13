@@ -1,6 +1,7 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
+from app.core import timezone as tz
 from app.modules.products.models import Product, Category, ItemsBrand, MinimumPrice
 from app.modules.products.schemas import ProductCreate, ProductUpdate, CategoryCreate, CategoryUpdate, BrandCreate, BrandUpdate
 
@@ -26,11 +27,10 @@ class ProductRepository:
         return db.query(Product).filter(search_filter).offset(skip).limit(limit).all()
     
     def create(self, db: Session, product: ProductCreate, created_by: int) -> Product:
-        from datetime import datetime, date
         db_product = Product(
             **product.dict(),
-            created_date=date.today(),
-            added_date=datetime.utcnow(),
+            created_date=tz.today(),
+            added_date=tz.now(),
         )
         db.add(db_product)
         db.commit()
@@ -75,10 +75,9 @@ class CategoryRepository:
         return query.offset(skip).limit(limit).all()
     
     def create(self, db: Session, category: CategoryCreate, created_by: int) -> Category:
-        from datetime import datetime
         db_category = Category(
             **category.dict(),
-            created_date=datetime.utcnow(),
+            created_date=tz.now(),
         )
         db.add(db_category)
         db.commit()
@@ -152,11 +151,10 @@ class MinimumPriceRepository:
         return db.query(MinimumPrice).filter(MinimumPrice.product_id == product_id).order_by(MinimumPrice.created_date.desc()).first()
     
     def create(self, db: Session, product_id: int, minimum_price: float) -> MinimumPrice:
-        from datetime import datetime
         db_price = MinimumPrice(
             product_id=product_id,
             minimum_price=minimum_price,
-            created_date=datetime.utcnow(),
+            created_date=tz.now(),
         )
         db.add(db_price)
         db.commit()

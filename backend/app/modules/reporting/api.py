@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import date, timedelta
+from app.core import timezone as tz
 from app.db.session import get_db
 from . import schemas, service
 
@@ -76,7 +77,7 @@ def get_quick_stats(
 ):
     reporting_service = service.ReportingService(db)
     
-    today = date.today()
+    today = tz.today()
     if period == "today":
         start_date = today
         end_date = today

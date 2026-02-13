@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from typing import List
 from datetime import datetime
+from app.core import timezone as tz
 from . import schemas
 from .models import CustomerSupport, CSJobItem, CustomerCallLog, WarrantyClaims
 
@@ -68,7 +69,7 @@ class CSJobItemService:
         self.db = db
     
     def create_job_item(self, item: schemas.CSJobItemCreate) -> CSJobItem:
-        db_item = CSJobItem(**item.model_dump(), date=datetime.now())
+        db_item = CSJobItem(**item.model_dump(), date=tz.now())
         self.db.add(db_item)
         self.db.commit()
         self.db.refresh(db_item)
@@ -107,7 +108,7 @@ class CustomerCallLogService:
         self.db = db
     
     def create_call_log(self, log: schemas.CustomerCallLogCreate) -> CustomerCallLog:
-        db_log = CustomerCallLog(**log.model_dump(), date=datetime.now())
+        db_log = CustomerCallLog(**log.model_dump(), date=tz.now())
         self.db.add(db_log)
         self.db.commit()
         self.db.refresh(db_log)
@@ -146,7 +147,7 @@ class WarrantyClaimService:
         self.db = db
     
     def create_warranty_claim(self, claim: schemas.WarrantyClaimCreate) -> WarrantyClaims:
-        db_claim = WarrantyClaims(**claim.model_dump(), created_date=datetime.now())
+        db_claim = WarrantyClaims(**claim.model_dump(), created_date=tz.now())
         self.db.add(db_claim)
         self.db.commit()
         self.db.refresh(db_claim)

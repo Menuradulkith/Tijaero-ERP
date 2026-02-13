@@ -10,6 +10,7 @@ export { TIconButton, type TIconButtonProps } from "./TIconButton";
 export { TTextField, type TTextFieldProps } from "./TTextField";
 export { TSelect, type TSelectProps, type TSelectOption } from "./TSelect";
 export { TAutocomplete, type TAutocompleteProps } from "./TAutocomplete";
+export { TSearchableSelect, type TSearchableSelectProps, type TSearchableSelectOption } from "./TSearchableSelect";
 export { TCheckbox, type TCheckboxProps } from "./TCheckbox";
 export { TSwitch, type TSwitchProps } from "./TSwitch";
 export { TDatePicker, type TDatePickerProps } from "./TDatePicker";

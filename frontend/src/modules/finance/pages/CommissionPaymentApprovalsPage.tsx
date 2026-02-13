@@ -1,15 +1,18 @@
 /**
- * CommissionApprovalsPage - Agent Commission Approvals
- * 
- * Dedicated approvals page for agent commissions.
- * Shows pending commissions and allows approve/reject actions.
+ * CommissionPaymentApprovalsPage - Commission Payment Verification/Approvals
+ *
+ * Dedicated approvals page for commission payments.
+ * Shows pending payments and allows verify/cancel actions.
  * Follows the same UI pattern as SalesOrderApprovalsPage.
+ * 
+ * Note: This page is titled "Commission Approvals" in the sidebar (for payments)
+ * Note: Moved from sales module to finance module for better organization.
  */
 
 import CancelIcon from "@mui/icons-material/Cancel";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import PersonIcon from "@mui/icons-material/Person";
+import VerifiedIcon from "@mui/icons-material/Verified";
 import {
   Box,
   Button,
@@ -18,6 +21,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableHead,
   TableRow,
   TextField,
   Typography,
@@ -48,54 +52,59 @@ import {
 
 import { usePermission } from "@/auth/permissions";
 import { customersApi } from "@/modules/customers/api";
-import { commissionsApi } from "@/modules/sales/commission-api";
-import { CustomerAgentCommissionWithDetails } from "@/modules/sales/commission-types";
+import { commissionPaymentsApi } from "@/modules/sales/commission-api";
+import {
+  CustomerAgentCommissionPayment,
+  CustomerAgentCommissionPaymentWithItems,
+} from "@/modules/sales/commission-types";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
+type PaymentWithAgent = CustomerAgentCommissionPayment & { agent_name?: string };
+
 const STATUS_FILTER_OPTIONS = [
   { value: "pending", label: "Pending", color: "warning" as const },
-  { value: "approved", label: "Approved", color: "success" as const },
-  { value: "paid", label: "Paid", color: "info" as const },
+  { value: "verified", label: "Verified", color: "success" as const },
+  { value: "cancelled", label: "Cancelled", color: "error" as const },
 ];
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_at", label: "Date Created" },
-  { value: "commission_amount", label: "Commission Amount" },
-  { value: "invoice_amount", label: "Invoice Amount" },
+  { value: "payment_amount", label: "Payment Amount" },
+  { value: "payment_date", label: "Payment Date" },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function CommissionApprovalsPage() {
+export default function CommissionPaymentApprovalsPage() {
   const queryClient = useQueryClient();
   const canApprove = usePermission("sales", "approve");
-  const canDelete = usePermission("customers", "delete");
+  const canUpdate = usePermission("customers", "update");
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_at");
   const [filterStatus, setFilterStatus] = useState<string | null>("pending");
   const [filterAgentId, setFilterAgentId] = useState<number | null>(null);
-  const [selectedCommission, setSelectedCommission] = useState<CustomerAgentCommissionWithDetails | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<PaymentWithAgent | null>(null);
 
   // Confirm dialogs
-  const approveDialog = useTConfirmDialog();
-  const rejectDialog = useTConfirmDialog();
+  const verifyDialog = useTConfirmDialog();
+  const cancelDialog = useTConfirmDialog();
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
-  const { data: commissionsData, isLoading, refetch } = useQuery({
-    queryKey: ["commission-approvals", filterStatus, filterAgentId],
+  const { data: paymentsData, isLoading, refetch } = useQuery({
+    queryKey: ["commission-payment-approvals", filterStatus, filterAgentId],
     queryFn: () =>
-      commissionsApi.getAll({
+      commissionPaymentsApi.getAll({
         status: filterStatus || undefined,
         agent_id: filterAgentId || undefined,
         limit: 500,
       }),
   });
 
-  const commissions = (commissionsData?.items || []) as CustomerAgentCommissionWithDetails[];
+  const payments = (paymentsData?.items || []) as PaymentWithAgent[];
 
   // Fetch agents
   const { data: allCustomers } = useQuery({
@@ -114,100 +123,116 @@ export default function CommissionApprovalsPage() {
     return map;
   }, [allCustomers]);
 
+  // Fetch payment details when selected
+  const { data: paymentDetails } = useQuery({
+    queryKey: ["commission-payment-detail", selectedPayment?.id],
+    queryFn: () =>
+      selectedPayment
+        ? commissionPaymentsApi.getById(selectedPayment.id)
+        : Promise.resolve(null),
+    enabled: !!selectedPayment,
+  });
+
   // ─── Filter & Sort ─────────────────────────────────────────────────────────
 
-  const filteredCommissions = useMemo(() => {
-    let filtered = [...commissions];
+  const filteredPayments = useMemo(() => {
+    let filtered = [...payments];
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        (c) =>
-          c.invoice_no?.toLowerCase().includes(q) ||
-          c.agent_name?.toLowerCase().includes(q) ||
-          c.customer_name?.toLowerCase().includes(q)
+        (p) =>
+          p.payment_no?.toLowerCase().includes(q) ||
+          p.agent_name?.toLowerCase().includes(q) ||
+          p.reference_number?.toLowerCase().includes(q)
       );
     }
 
     filtered.sort((a, b) => {
-      if (sortField === "commission_amount") {
-        return Number(b.commission_amount) - Number(a.commission_amount);
-      } else if (sortField === "invoice_amount") {
-        return Number(b.invoice_amount) - Number(a.invoice_amount);
+      if (sortField === "payment_amount") {
+        return Number(b.payment_amount) - Number(a.payment_amount);
+      } else if (sortField === "payment_date") {
+        return new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime();
       }
       return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
     });
 
     return filtered;
-  }, [commissions, searchQuery, sortField]);
+  }, [payments, searchQuery, sortField]);
 
   // Auto-select first
   useEffect(() => {
-    if (filteredCommissions.length > 0 && !selectedCommission) {
-      setSelectedCommission(filteredCommissions[0]);
+    if (filteredPayments.length > 0 && !selectedPayment) {
+      setSelectedPayment(filteredPayments[0]);
     }
-  }, [filteredCommissions, selectedCommission]);
+  }, [filteredPayments, selectedPayment]);
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
-  const approveMutation = useMutation({
-    mutationFn: (id: number) => commissionsApi.approve(id),
+  const verifyMutation = useMutation({
+    mutationFn: (id: number) => commissionPaymentsApi.verify(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["commission-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["commission-payment-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["commission-payments"] });
       queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
       queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Commission approved successfully");
-      setSelectedCommission(null);
+      showSuccessToast("Payment verified successfully");
+      setSelectedPayment(null);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to approve commission")),
+    onError: (error: unknown) => {
+      console.error("Verify payment error:", error);
+      showErrorToast(handleApiError(error, "Failed to verify payment"));
+    },
   });
 
-  const rejectMutation = useMutation({
-    mutationFn: (id: number) => commissionsApi.delete(id),
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) => commissionPaymentsApi.cancel(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["commission-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["commission-payment-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["commission-payments"] });
       queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
       queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Commission rejected (deleted)");
-      setSelectedCommission(null);
+      showSuccessToast("Payment cancelled successfully");
+      setSelectedPayment(null);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to reject commission")),
+    onError: (error: unknown) => {
+      console.error("Cancel payment error:", error);
+      showErrorToast(handleApiError(error, "Failed to cancel payment"));
+    },
   });
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleApprove = useCallback(() => {
-    if (!selectedCommission) return;
+  const handleVerify = useCallback(() => {
+    if (!selectedPayment) return;
 
     const currentHour = new Date().getHours();
     const isAfterHours = currentHour >= 18;
 
     if (isAfterHours) {
-      approveDialog.open(
-        "After-Hours Approval Warning",
-        `It is currently after 6:00 PM (now: ${new Date().toLocaleTimeString()}). Approving commissions after business hours is not recommended. Do you want to approve anyway?`,
-        () => approveMutation.mutate(selectedCommission.id)
+      verifyDialog.open(
+        "After-Hours Verification Warning",
+        `It is currently after 6:00 PM (now: ${new Date().toLocaleTimeString()}). Verifying payments after business hours is not recommended. Do you want to verify anyway?`,
+        () => verifyMutation.mutate(selectedPayment.id)
       );
     } else {
-      approveDialog.open(
-        "Approve Commission",
-        `Approve commission of ${fmtLKR(selectedCommission.commission_amount)} for agent "${selectedCommission.agent_name || agentMap.get(selectedCommission.customer_agent_id) || "Unknown"}"?`,
-        () => approveMutation.mutate(selectedCommission.id)
+      verifyDialog.open(
+        "Verify Payment",
+        `Verify payment ${selectedPayment.payment_no} of ${fmtLKR(selectedPayment.payment_amount)} for agent "${selectedPayment.agent_name || agentMap.get(selectedPayment.customer_agent_id) || "Unknown"}"?`,
+        () => verifyMutation.mutate(selectedPayment.id)
       );
     }
-  }, [selectedCommission, approveMutation, approveDialog, agentMap]);
+  }, [selectedPayment, verifyMutation, verifyDialog, agentMap]);
 
-  const handleReject = useCallback(() => {
-    if (!selectedCommission) return;
+  const handleCancel = useCallback(() => {
+    if (!selectedPayment) return;
 
-    rejectDialog.open(
-      "Reject Commission",
-      `Are you sure you want to reject this commission? This will delete the commission record and cannot be undone.`,
-      () => rejectMutation.mutate(selectedCommission.id)
+    cancelDialog.open(
+      "Cancel Payment",
+      `Are you sure you want to cancel payment ${selectedPayment.payment_no}? This will revert associated commission statuses and cannot be undone.`,
+      () => cancelMutation.mutate(selectedPayment.id)
     );
-  }, [selectedCommission, rejectMutation, rejectDialog]);
+  }, [selectedPayment, cancelMutation, cancelDialog]);
 
   // Helpers
   const getAgentName = (agentId: number) =>
@@ -217,16 +242,16 @@ export default function CommissionApprovalsPage() {
 
   const masterPanel = (
     <SearchableList
-      items={filteredCommissions}
+      items={filteredPayments}
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search by invoice, agent..."
+      placeholder="Search by payment no, agent..."
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
-      selectedItem={selectedCommission}
-      emptyMessage="No commissions found"
+      selectedItem={selectedPayment}
+      emptyMessage="No payments found"
       listHeader={
         <Box
           sx={{
@@ -265,13 +290,13 @@ export default function CommissionApprovalsPage() {
           />
         </Box>
       }
-      renderItem={(commission, isSelected) => {
-        const statusChip = getStatusProps(commission.status, "commissionStatus");
+      renderItem={(payment, isSelected) => {
+        const statusChip = getStatusProps(payment.status, "commissionPaymentStatus");
         return (
           <SelectableListItem
-            key={commission.id}
+            key={payment.id}
             isSelected={isSelected}
-            onClick={() => setSelectedCommission(commission)}
+            onClick={() => setSelectedPayment(payment)}
             primaryText={
               <Box
                 sx={{
@@ -288,14 +313,14 @@ export default function CommissionApprovalsPage() {
                     alignItems: "center",
                   }}
                 >
-                  <span>{commission.invoice_no || `Invoice #${commission.invoice_id}`}</span>
+                  <span>{payment.payment_no}</span>
                   {isSelected && (
                     <Typography
                       component="span"
                       variant="caption"
                       sx={{ color: "inherit", opacity: 0.7 }}
                     >
-                      (Invoice)
+                      (Payment No)
                     </Typography>
                   )}
                 </Box>
@@ -309,7 +334,7 @@ export default function CommissionApprovalsPage() {
                       }}
                     >
                       <Typography component="span" variant="caption">
-                        {commission.agent_name || getAgentName(commission.customer_agent_id)}
+                        {payment.agent_name || getAgentName(payment.customer_agent_id)}
                       </Typography>
                       <Typography
                         component="span"
@@ -327,9 +352,7 @@ export default function CommissionApprovalsPage() {
                       }}
                     >
                       <Typography component="span" variant="caption">
-                        {commission.created_at
-                          ? format(new Date(commission.created_at), "dd/MM/yyyy")
-                          : "N/A"}
+                        {format(new Date(payment.payment_date), "dd/MM/yyyy")}
                       </Typography>
                       <Typography
                         component="span"
@@ -347,7 +370,7 @@ export default function CommissionApprovalsPage() {
                       }}
                     >
                       <Typography component="span" variant="caption">
-                        Rs. {Number(commission.commission_amount).toLocaleString()}
+                        Rs. {Number(payment.payment_amount).toLocaleString()}
                       </Typography>
                       <Typography
                         component="span"
@@ -371,7 +394,7 @@ export default function CommissionApprovalsPage() {
             }
             secondaryText={
               !isSelected
-                ? `${commission.agent_name || getAgentName(commission.customer_agent_id)} - ${commission.created_at ? format(new Date(commission.created_at), "dd/MM/yyyy") : "N/A"}`
+                ? `${payment.agent_name || getAgentName(payment.customer_agent_id)} - ${format(new Date(payment.payment_date), "dd/MM/yyyy")}`
                 : undefined
             }
           />
@@ -393,35 +416,29 @@ export default function CommissionApprovalsPage() {
     >
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Sales" },
-          { label: "Commission Approvals", href: "/sales/commission-approvals" },
-          ...(selectedCommission
-            ? [{ label: selectedCommission.invoice_no || `Commission #${selectedCommission.id}` }]
-            : []),
+          { label: "Finance" },
+          { label: "Commission Payment Approvals", href: "/finance/commission-payment-approvals" },
+          ...(selectedPayment ? [{ label: selectedPayment.payment_no }] : []),
         ]}
-        title={
-          selectedCommission
-            ? selectedCommission.invoice_no || `Commission #${selectedCommission.id}`
-            : ""
-        }
+        title={selectedPayment ? selectedPayment.payment_no : ""}
         titleIcon={<FactCheckIcon color="primary" />}
-        noSelectionTitle="Select a Commission to Review"
+        noSelectionTitle="Select a Payment to Review"
         chips={
-          selectedCommission
+          selectedPayment
             ? [
                 {
                   label:
-                    selectedCommission.status.charAt(0).toUpperCase() +
-                    selectedCommission.status.slice(1),
-                  color: getStatusProps(selectedCommission.status, "commissionStatus").color,
+                    selectedPayment.status.charAt(0).toUpperCase() +
+                    selectedPayment.status.slice(1),
+                  color: getStatusProps(selectedPayment.status, "commissionPaymentStatus").color,
                 },
               ]
-            : [{ label: "Pending Approval", color: "warning" }]
+            : [{ label: "Pending Verification", color: "warning" }]
         }
       />
 
       {/* Approval Actions - Same style as SO Approvals */}
-      {selectedCommission && selectedCommission.status === "pending" && (
+      {selectedPayment && selectedPayment.status === "pending" && (
         <Box
           sx={{
             display: "flex",
@@ -436,91 +453,80 @@ export default function CommissionApprovalsPage() {
             <Button
               variant="contained"
               color="primary"
-              startIcon={<CheckCircleIcon />}
-              onClick={handleApprove}
-              disabled={approveMutation.isPending}
+              startIcon={<VerifiedIcon />}
+              onClick={handleVerify}
+              disabled={verifyMutation.isPending}
             >
-              Approve
+              Verify
             </Button>
           )}
-          {canDelete && (
+          {canUpdate && (
             <Button
               variant="outlined"
               color="error"
               startIcon={<CancelIcon />}
-              onClick={handleReject}
-              disabled={rejectMutation.isPending}
+              onClick={handleCancel}
+              disabled={cancelMutation.isPending}
             >
-              Reject / Delete
+              Cancel Payment
             </Button>
           )}
         </Box>
       )}
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
-        {!selectedCommission ? (
-          <EmptyState message="Select a commission from the list to review" />
+        {!selectedPayment ? (
+          <EmptyState message="Select a payment from the list to review" />
         ) : (
           <>
-            {/* Agent & Customer Information */}
-            <FormSection title="Agent & Customer Information" columns={2}>
+            {/* Payment Information */}
+            <FormSection title="Payment Information" columns={3}>
+              <TextField
+                label="Payment No"
+                size="small"
+                value={selectedPayment.payment_no}
+                disabled
+              />
               <TextField
                 label="Agent"
                 size="small"
-                value={selectedCommission.agent_name || getAgentName(selectedCommission.customer_agent_id)}
+                value={
+                  selectedPayment.agent_name ||
+                  getAgentName(selectedPayment.customer_agent_id)
+                }
                 disabled
                 InputProps={{
-                  startAdornment: <PersonIcon fontSize="small" color="primary" sx={{ mr: 1 }} />,
+                  startAdornment: (
+                    <PersonIcon fontSize="small" color="primary" sx={{ mr: 1 }} />
+                  ),
                 }}
               />
               <TextField
-                label="Customer"
+                label="Branch"
                 size="small"
-                value={
-                  selectedCommission.customer_name ||
-                  agentMap.get(selectedCommission.represented_customer_id) ||
-                  `Customer #${selectedCommission.represented_customer_id}`
-                }
+                value={selectedPayment.branch_code}
                 disabled
               />
             </FormSection>
 
-            {/* Invoice Information */}
-            <FormSection title="Invoice Information" columns={2}>
+            {/* Payment Details */}
+            <FormSection title="Payment Details" columns={3}>
               <TextField
-                label="Invoice"
+                label="Payment Date"
                 size="small"
-                value={selectedCommission.invoice_no || `Invoice #${selectedCommission.invoice_id}`}
+                value={format(new Date(selectedPayment.payment_date), "dd MMM yyyy")}
                 disabled
               />
               <TextField
-                label="Invoice Amount"
+                label="Payment Method"
                 size="small"
-                value={`Rs. ${fmtLKR(selectedCommission.invoice_amount)}`}
+                value={selectedPayment.payment_method}
                 disabled
               />
-            </FormSection>
-
-            {/* Commission Details */}
-            <FormSection title="Commission Details" columns={3}>
               <TextField
-                label="Commission Type"
+                label="Payment Amount"
                 size="small"
-                value={selectedCommission.commission_type === "PERCENT" ? "Percentage" : "Fixed Amount"}
-                disabled
-              />
-              {selectedCommission.commission_rate && (
-                <TextField
-                  label="Commission Rate"
-                  size="small"
-                  value={`${Number(selectedCommission.commission_rate)}%`}
-                  disabled
-                />
-              )}
-              <TextField
-                label="Commission Amount"
-                size="small"
-                value={`Rs. ${fmtLKR(selectedCommission.commission_amount)}`}
+                value={`Rs. ${fmtLKR(selectedPayment.payment_amount)}`}
                 disabled
                 sx={{
                   "& .MuiInputBase-input": {
@@ -531,68 +537,146 @@ export default function CommissionApprovalsPage() {
               />
             </FormSection>
 
+            {/* Bank/Reference Details */}
+            {(selectedPayment.reference_number || selectedPayment.bank_name) && (
+              <FormSection title="Reference Details" columns={2}>
+                {selectedPayment.reference_number && (
+                  <TextField
+                    label="Reference Number"
+                    size="small"
+                    value={selectedPayment.reference_number}
+                    disabled
+                  />
+                )}
+                {selectedPayment.bank_name && (
+                  <TextField
+                    label="Bank Name"
+                    size="small"
+                    value={selectedPayment.bank_name}
+                    disabled
+                  />
+                )}
+              </FormSection>
+            )}
+
             {/* Status & Dates */}
             <FormSection title="Status & Dates" columns={2}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 1 }}>
                 <Typography variant="body2" color="text.secondary">
                   Status:
                 </Typography>
-                <TStatusChip status={selectedCommission.status} statusMap="commissionStatus" />
+                <TStatusChip
+                  status={selectedPayment.status}
+                  statusMap="commissionPaymentStatus"
+                />
               </Box>
               <TextField
                 label="Created At"
                 size="small"
                 value={
-                  selectedCommission.created_at
-                    ? format(new Date(selectedCommission.created_at), "dd MMM yyyy HH:mm")
+                  selectedPayment.created_at
+                    ? format(new Date(selectedPayment.created_at), "dd MMM yyyy HH:mm")
                     : "N/A"
                 }
                 disabled
               />
-              {selectedCommission.approved_date && (
+              {selectedPayment.verified_date && (
                 <TextField
-                  label="Approved At"
+                  label="Verified At"
                   size="small"
-                  value={format(new Date(selectedCommission.approved_date), "dd MMM yyyy HH:mm")}
+                  value={format(
+                    new Date(selectedPayment.verified_date),
+                    "dd MMM yyyy HH:mm"
+                  )}
                   disabled
                 />
               )}
             </FormSection>
 
-            {/* Calculation Breakdown - Only for percentage */}
-            {selectedCommission.commission_type === "PERCENT" && selectedCommission.commission_rate && (
-              <FormSection title="Calculation Breakdown" columns={1}>
-                <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}>
-                  <Table size="small" sx={modernTableStyles}>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 600, width: "50%" }}>Invoice Amount</TableCell>
-                        <TableCell align="right">Rs. {fmtLKR(selectedCommission.invoice_amount)}</TableCell>
-                      </TableRow>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>Commission Rate</TableCell>
-                        <TableCell align="right">{Number(selectedCommission.commission_rate)}%</TableCell>
-                      </TableRow>
-                      <TableRow sx={{ "& td": { borderTop: 2, borderColor: "divider" } }}>
-                        <TableCell sx={{ fontWeight: 700 }}>Commission Amount</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700, color: "primary.main" }}>
-                          Rs. {fmtLKR(selectedCommission.commission_amount)}
-                        </TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </Paper>
-              </FormSection>
-            )}
+            {/* Payment Items */}
+            {paymentDetails &&
+              (paymentDetails as CustomerAgentCommissionPaymentWithItems)?.items
+                ?.length > 0 && (
+                <FormSection title="Commission Items" columns={1}>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      overflow: "hidden",
+                      width: "100%",
+                      borderRadius: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  >
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={modernTableStyles.headerRow}>
+                          <TableCell>Invoice</TableCell>
+                          <TableCell align="right">Invoice Amount</TableCell>
+                          <TableCell align="right">Commission</TableCell>
+                          <TableCell align="right">Paid Amount</TableCell>
+                          <TableCell>Status</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {(
+                          paymentDetails as CustomerAgentCommissionPaymentWithItems
+                        ).items.map((item, index) => (
+                          <TableRow
+                            key={item.id || index}
+                            sx={{
+                              ...modernTableStyles.bodyRow,
+                              ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                            }}
+                          >
+                            <TableCell>
+                              {item.invoice_no ||
+                                `Commission #${item.commission_id}`}
+                            </TableCell>
+                            <TableCell align="right">
+                              Rs. {fmtLKR(item.invoice_amount || 0)}
+                            </TableCell>
+                            <TableCell align="right">
+                              Rs. {fmtLKR(item.commission_amount || 0)}
+                            </TableCell>
+                            <TableCell align="right">
+                              <strong>Rs. {fmtLKR(item.paid_amount || 0)}</strong>
+                            </TableCell>
+                            <TableCell>
+                              <TStatusChip
+                                status={item.commission_status || "N/A"}
+                                statusMap="commissionStatus"
+                                fallbackLabel={item.commission_status || "N/A"}
+                                size="small"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow sx={modernTableStyles.footerRow}>
+                          <TableCell colSpan={3} align="right">
+                            <strong>Total:</strong>
+                          </TableCell>
+                          <TableCell align="right">
+                            <strong>
+                              Rs. {fmtLKR(selectedPayment.payment_amount)}
+                            </strong>
+                          </TableCell>
+                          <TableCell />
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </Paper>
+                </FormSection>
+              )}
 
             {/* Remarks */}
-            {selectedCommission.remarks && (
+            {selectedPayment.remarks && (
               <FormSection title="Remarks" columns={1}>
                 <TextField
                   multiline
                   rows={2}
                   fullWidth
-                  value={selectedCommission.remarks}
+                  value={selectedPayment.remarks}
                   disabled
                   size="small"
                 />
@@ -609,15 +693,15 @@ export default function CommissionApprovalsPage() {
   return (
     <>
       <MasterDetailLayout
-        title="Commission Approvals"
+        title="Commission Payment Approvals"
         icon={<FactCheckIcon color="primary" />}
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <TConfirmDialog {...approveDialog.dialogProps} />
-      <TConfirmDialog {...rejectDialog.dialogProps} />
+      <TConfirmDialog {...verifyDialog.dialogProps} />
+      <TConfirmDialog {...cancelDialog.dialogProps} />
     </>
   );
 }

@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
+from app.core import timezone as tz
 
 def get_fiscal_year(date: datetime = None) -> int:
     if date is None:
-        date = datetime.now()
+        date = tz.now()
     return date.year if date.month >= 4 else date.year - 1
 
 def add_business_days(start_date: datetime, days: int) -> datetime:
