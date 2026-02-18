@@ -396,7 +396,6 @@ export default function PaymentApprovalsPage() {
       }
       renderItem={(payment, isSelected) => {
         const paymentSupplier = supplierMap.get(payment.supplier_id);
-        const statusChip = getPaymentStatusProps(payment.status || "pending");
         const paymentDate = payment.payment_type === "payment"
           ? (payment as any).payment_date
           : payment.created_date;
@@ -404,6 +403,7 @@ export default function PaymentApprovalsPage() {
           ? (payment as any).payment_method
           : "Credit Settlement";
         const paymentType = payment.payment_type === "payment" ? "Direct Payment" : "Credit Settlement";
+        const statusProps = getPaymentStatusProps(payment.status || "pending");
         
         return (
           <SelectableListItem
@@ -449,9 +449,9 @@ export default function PaymentApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
                       <Chip
-                        label={statusChip.label}
+                        label={statusProps.label}
                         size="small"
-                        color={statusChip.color}
+                        color={statusProps.color}
                         sx={{ height: 18, fontSize: "0.65rem" }}
                       />
                       <Chip
@@ -470,7 +470,7 @@ export default function PaymentApprovalsPage() {
                 ? `${getSupplierName(payment.supplier_id)} - ${formatCurrency(payment.payment_amount)}`
                 : undefined
             }
-            statusChip={!isSelected ? statusChip : undefined}
+            statusChip={!isSelected ? statusProps : undefined}
           />
         );
       }}

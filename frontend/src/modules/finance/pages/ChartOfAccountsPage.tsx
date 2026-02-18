@@ -1,40 +1,32 @@
 /**
  * ChartOfAccountsPage - Chart of Accounts Management
  *
- * Displays accounts in a flat list with tree view option.
- * Uses MasterDetailLayout with Tijaero components.
+ * Displays accounts in a flat list with Master-Detail layout.
+ * Follows the same UI pattern as PurchaseOrdersPage / SalesPage.
+ * Uses ActionToolbar with inline editing, TFilterPanel, expanded list items.
  */
 
-import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
-import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import {
   Box,
-  Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  MenuItem,
-  TextField,
-  Typography,
-  Switch,
   FormControlLabel,
+  MenuItem,
+  Paper,
+  Switch,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
-  Paper,
+  TextField,
+  Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Controller, useForm } from "react-hook-form";
 
 import {
+  ActionToolbar,
   DetailPanelHeader,
   EmptyState,
   FormSection,
@@ -44,10 +36,12 @@ import {
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  TConfirmDialog,
-  useTConfirmDialog,
+  TFilterPanel,
+  TSearchableSelect,
   type SortOption,
+  useMasterDetailState,
 } from "@/components/tijaero";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { chartOfAccountsApi } from "@/modules/finance/api";
 import type {
@@ -72,36 +66,99 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "account_type", label: "Account Type" },
 ];
 
+const STATUS_FILTER_OPTIONS = [
+  { value: "active", label: "Active", color: "success" as const },
+  { value: "inactive", label: "Inactive", color: "default" as const },
+];
+
+const getTypeColor = (type: string) =>
+  ACCOUNT_TYPES.find((t) => t.value === type)?.color || ("default" as const);
+
+// ─── Form Data ───────────────────────────────────────────────────────────────
+
+type AccountFormData = ChartOfAccountCreate;
+
+const INITIAL_FORM_DATA: AccountFormData = {
+  account_code: "",
+  account_name: "",
+  account_type: "Asset",
+  account_category: "",
+  parent_account_id: null,
+  is_active: true,
+  is_system_account: false,
+  normal_balance: "Debit",
+  description: "",
+};
+
+const resetFormFromAccount = (account: ChartOfAccount): AccountFormData => ({
+  account_code: account.account_code,
+  account_name: account.account_name,
+  account_type: account.account_type,
+  account_category: account.account_category || "",
+  parent_account_id: account.parent_account_id,
+  is_active: account.is_active,
+  is_system_account: account.is_system_account,
+  normal_balance: account.normal_balance || "Debit",
+  description: account.description || "",
+});
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ChartOfAccountsPage() {
   const queryClient = useQueryClient();
+  const confirmDialog = useConfirmDialog();
 
-  // State
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("account_code");
+  // Filter states
   const [filterType, setFilterType] = useState<string | null>(null);
-  const [filterActive, setFilterActive] = useState<boolean | null>(null);
-  const [selectedAccount, setSelectedAccount] = useState<ChartOfAccount | null>(null);
+  const [filterActive, setFilterActive] = useState<string | null>("active");
 
-  // Dialogs
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const deleteDialog = useTConfirmDialog();
+  // ─── Master-Detail State ───────────────────────────────────────────────────
+
+  const {
+    searchQuery,
+    setSearchQuery,
+    sortField,
+    setSortField,
+    selectedItem: selectedAccount,
+    setSelectedItem: setSelectedAccount,
+    isEditing,
+    setIsEditing,
+    isCreating,
+    setIsCreating,
+    formData,
+    setFormData,
+    handleSelectItem: handleSelectAccount,
+    handleNew,
+    handleCancel: handleCancelBase,
+    handleStartEdit,
+  } = useMasterDetailState<ChartOfAccount, AccountFormData>({
+    initialFormData: INITIAL_FORM_DATA,
+    resetFormFromItem: resetFormFromAccount,
+    favoritesKey: "chart_of_accounts_favorites",
+    defaultSortField: "account_code",
+    confirmUnsavedChanges: () =>
+      confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      }),
+  });
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
-  const { data: accounts = [], isLoading } = useQuery({
+  const { data: accounts = [], isLoading, refetch } = useQuery({
     queryKey: ["chart-of-accounts", filterType, filterActive],
     queryFn: () =>
       chartOfAccountsApi.getAll({
         account_type: filterType ?? undefined,
-        is_active: filterActive ?? undefined,
+        is_active: filterActive === null ? undefined : filterActive === "active",
         limit: 1000,
       }),
   });
 
-  // Also fetch all accounts for parent dropdown
+  // Fetch all accounts for parent dropdown
   const { data: allAccounts = [] } = useQuery({
     queryKey: ["chart-of-accounts-all"],
     queryFn: () => chartOfAccountsApi.getAll({ limit: 1000 }),
@@ -131,15 +188,23 @@ export default function ChartOfAccountsPage() {
   }, [accounts, searchQuery, sortField]);
 
   useEffect(() => {
-    if (filteredAccounts.length > 0 && !selectedAccount) {
-      setSelectedAccount(filteredAccounts[0]);
+    if (filteredAccounts.length > 0 && !selectedAccount && !isCreating) {
+      handleSelectAccount(filteredAccounts[0]);
     }
-  }, [filteredAccounts, selectedAccount]);
+  }, [filteredAccounts, selectedAccount, isCreating]);
+
+  const handleCancel = useCallback(
+    (items: ChartOfAccount[]) => {
+      handleCancelBase(items);
+    },
+    [handleCancelBase]
+  );
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["chart-of-accounts"] });
+    queryClient.invalidateQueries({ queryKey: ["chart-of-accounts-all"] });
   };
 
   const createMutation = useMutation({
@@ -147,8 +212,9 @@ export default function ChartOfAccountsPage() {
     onSuccess: (data) => {
       invalidate();
       showSuccessToast("Account created successfully");
-      setCreateDialogOpen(false);
-      setSelectedAccount(data);
+      setIsCreating(false);
+      setIsEditing(false);
+      setTimeout(() => handleSelectAccount(data), 0);
     },
     onError: (err: unknown) =>
       showErrorToast(handleApiError(err, "Failed to create account")),
@@ -160,7 +226,7 @@ export default function ChartOfAccountsPage() {
     onSuccess: (data) => {
       invalidate();
       showSuccessToast("Account updated");
-      setEditDialogOpen(false);
+      setIsEditing(false);
       setSelectedAccount(data);
     },
     onError: (err: unknown) =>
@@ -192,274 +258,357 @@ export default function ChartOfAccountsPage() {
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleDelete = useCallback(() => {
-    if (!selectedAccount) return;
-    deleteDialog.open(
-      "Delete Account",
-      `Are you sure you want to delete account "${selectedAccount.account_code} - ${selectedAccount.account_name}"?`,
-      () => deleteMutation.mutate(selectedAccount.id)
-    );
-  }, [selectedAccount, deleteDialog, deleteMutation]);
+  const handleSave = useCallback(async () => {
+    if (isCreating) {
+      createMutation.mutate(formData);
+    } else if (selectedAccount) {
+      updateMutation.mutate({
+        id: selectedAccount.id,
+        data: {
+          account_name: formData.account_name,
+          account_category: formData.account_category,
+          parent_account_id: formData.parent_account_id,
+          is_active: formData.is_active,
+          normal_balance: formData.normal_balance,
+          description: formData.description,
+        },
+      });
+    }
+  }, [isCreating, selectedAccount, formData, createMutation, updateMutation]);
 
-  const getTypeColor = (type: AccountType) =>
-    ACCOUNT_TYPES.find((t) => t.value === type)?.color || "default";
+  const handleDelete = useCallback(async () => {
+    if (!selectedAccount || selectedAccount.is_system_account) return;
+    const confirmed = await confirmDialog.confirm({
+      title: "Delete Account",
+      message: `Are you sure you want to delete account "${selectedAccount.account_code} - ${selectedAccount.account_name}"?`,
+      confirmText: "Delete",
+      confirmColor: "error",
+    });
+    if (confirmed) {
+      deleteMutation.mutate(selectedAccount.id);
+    }
+  }, [selectedAccount, confirmDialog, deleteMutation]);
 
-  // ─── Forms ─────────────────────────────────────────────────────────────────
+  const canEdit = !!selectedAccount;
+  const canDelete = !!(selectedAccount && !selectedAccount.is_system_account);
+  const isFormValid = !!(formData.account_code && formData.account_name && formData.account_type && formData.account_category);
+  const isSaving = createMutation.isPending || updateMutation.isPending;
 
-  const createForm = useForm<ChartOfAccountCreate>({
-    defaultValues: {
-      account_code: "",
-      account_name: "",
-      account_type: "Asset",
-      account_category: "",
-      parent_account_id: null,
-      is_active: true,
-      is_system_account: false,
-      normal_balance: "Debit",
-      description: "",
-    },
-  });
+  // Parent account & child accounts for detail view
+  const parentAccount = selectedAccount?.parent_account_id
+    ? allAccounts.find((a) => a.id === selectedAccount.parent_account_id)
+    : null;
 
-  const editForm = useForm<Partial<ChartOfAccountCreate>>();
+  const childAccounts = selectedAccount
+    ? allAccounts.filter((a) => a.parent_account_id === selectedAccount.id)
+    : [];
 
   // ─── Master Panel ──────────────────────────────────────────────────────────
 
   const masterPanel = (
-    <SearchableList
+    <SearchableList<ChartOfAccount>
       items={filteredAccounts}
       isLoading={isLoading}
-      searchValue={searchQuery}
+      searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
       placeholder="Search accounts..."
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
+      selectedItem={selectedAccount}
+      onSelectItem={handleSelectAccount}
+      emptyMessage="No accounts found"
       listHeader={
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, p: 1 }}>
-          <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1 }}>
-            {accounts.length === 0 && (
-              <Button
-                variant="contained"
-                size="small"
-                color="secondary"
-                startIcon={<PlaylistAddIcon />}
+        <TFilterPanel>
+          {accounts.length === 0 && (
+            <Box sx={{ width: "100%" }}>
+              <button
                 onClick={() => seedMutation.mutate()}
                 disabled={seedMutation.isPending}
+                style={{
+                  width: "100%",
+                  padding: "6px 12px",
+                  background: "#9c27b0",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  fontSize: "0.8125rem",
+                }}
               >
                 {seedMutation.isPending ? "Seeding..." : "Seed Standard COA"}
-              </Button>
-            )}
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                createForm.reset();
-                setCreateDialogOpen(true);
-              }}
-            >
-              New Account
-            </Button>
-          </Box>
-          <TextField
-            select
-            size="small"
-            label="Account Type"
-            value={filterType || ""}
-            onChange={(e) => setFilterType(e.target.value || null)}
-            fullWidth
-          >
-            <MenuItem value="">All Types</MenuItem>
-            {ACCOUNT_TYPES.map((t) => (
-              <MenuItem key={t.value} value={t.value}>
-                {t.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            size="small"
-            label="Status"
-            value={filterActive === null ? "" : filterActive ? "active" : "inactive"}
-            onChange={(e) => {
-              const v = e.target.value;
-              setFilterActive(v === "" ? null : v === "active");
-            }}
-            fullWidth
-          >
-            <MenuItem value="">All</MenuItem>
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="inactive">Inactive</MenuItem>
-          </TextField>
-        </Box>
-      }
-      renderItem={(account: ChartOfAccount, isSelected: boolean) => (
-        <SelectableListItem
-          key={account.id}
-          id={account.id}
-          isSelected={isSelected}
-          onClick={() => setSelectedAccount(account)}
-          primaryText={
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-              <Typography variant="body2" fontWeight={600}>
-                {account.account_code}
-              </Typography>
-              <Chip
-                label={account.account_type}
-                size="small"
-                color={getTypeColor(account.account_type)}
-                variant="outlined"
-              />
+              </button>
             </Box>
-          }
-          secondaryText={
-            !isSelected ? account.account_name : undefined
-          }
-        />
-      )}
+          )}
+          <TSearchableSelect
+            label="Account Type"
+            value={filterType}
+            onChange={(val) => setFilterType(val as string | null)}
+            options={ACCOUNT_TYPES.map((t) => ({
+              value: t.value,
+              label: t.label,
+              color: t.color,
+            }))}
+            showAllOption
+            allOptionLabel="All Types"
+            placeholder="Search types..."
+          />
+          <TSearchableSelect
+            label="Status"
+            value={filterActive}
+            onChange={(val) => setFilterActive(val as string | null)}
+            options={STATUS_FILTER_OPTIONS.map((s) => ({
+              value: s.value,
+              label: s.label,
+              color: s.color,
+            }))}
+            showAllOption
+            allOptionLabel="All Statuses"
+            placeholder="Search status..."
+          />
+        </TFilterPanel>
+      }
+      renderItem={(account: ChartOfAccount, isSelected: boolean) => {
+        const typeColor = getTypeColor(account.account_type);
+        return (
+          <SelectableListItem
+            key={account.id}
+            id={account.id}
+            isSelected={isSelected}
+            onClick={() => handleSelectAccount(account)}
+            primaryText={
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{account.account_code}</span>
+                  {isSelected && (
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Account Code)
+                    </Typography>
+                  )}
+                </Box>
+                {isSelected && (
+                  <>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {account.account_name}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Name)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {account.account_category || "N/A"}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Category)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                      <Chip
+                        label={account.account_type}
+                        size="small"
+                        color={typeColor}
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                      <Chip
+                        label={account.is_active ? "Active" : "Inactive"}
+                        size="small"
+                        color={account.is_active ? "success" : "default"}
+                        variant="outlined"
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                    </Box>
+                  </>
+                )}
+              </Box>
+            }
+            secondaryText={!isSelected ? account.account_name : undefined}
+            statusChip={!isSelected ? { label: account.account_type, color: typeColor } : undefined}
+          />
+        );
+      }}
     />
   );
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
 
-  const detail = selectedAccount;
-
-  const parentAccount = detail?.parent_account_id
-    ? allAccounts.find((a) => a.id === detail.parent_account_id)
-    : null;
-
-  const childAccounts = detail
-    ? allAccounts.filter((a) => a.parent_account_id === detail.id)
-    : [];
-
   const detailPanel = (
-    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Finance" },
+          { label: "Finance", href: "/finance" },
           { label: "Chart of Accounts", href: "/finance/chart-of-accounts" },
-          ...(detail ? [{ label: detail.account_code }] : []),
+          ...(selectedAccount || isCreating
+            ? [{ label: isCreating ? "New Account" : `${selectedAccount?.account_code}` }]
+            : []),
         ]}
-        title={detail ? `${detail.account_code} - ${detail.account_name}` : ""}
+        title={selectedAccount ? `${selectedAccount.account_code} - ${selectedAccount.account_name}` : ""}
         titleIcon={<AccountTreeIcon color="primary" />}
+        isCreating={isCreating}
+        createTitle="New Account"
         noSelectionTitle="Select an Account"
         chips={
-          detail
+          selectedAccount && !isCreating
             ? [
-                { label: detail.account_type.charAt(0).toUpperCase() + detail.account_type.slice(1), color: getTypeColor(detail.account_type) },
-                ...(detail.is_active ? [] : [{ label: "Inactive", color: "default" as const }]),
+                { label: selectedAccount.account_type, color: getTypeColor(selectedAccount.account_type) },
+                ...(selectedAccount.is_active ? [] : [{ label: "Inactive", color: "default" as const }]),
               ]
             : []
         }
       />
 
-      {detail && (
-        <>
-          {/* Action Buttons */}
-          <Box sx={{ display: "flex", gap: 1, p: 1, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<EditIcon />}
-              onClick={() => {
-                editForm.reset({
-                  account_name: detail.account_name,
-                  account_category: detail.account_category,
-                  parent_account_id: detail.parent_account_id,
-                  is_active: detail.is_active,
-                  normal_balance: detail.normal_balance,
-                  description: detail.description,
-                });
-                setEditDialogOpen(true);
-              }}
-            >
-              Edit
-            </Button>
-            {!detail.is_system_account && (
-              <Button
-                variant="outlined"
-                size="small"
-                color="error"
-                startIcon={<DeleteIcon />}
-                onClick={handleDelete}
-              >
-                Delete
-              </Button>
-            )}
-          </Box>
+      <ActionToolbar
+        hasSelectedItem={!!selectedAccount}
+        isCreating={isCreating}
+        isEditing={isEditing}
+        isSaving={isSaving}
+        isFormValid={isFormValid}
+        onNew={handleNew}
+        onSave={handleSave}
+        onCancel={() => handleCancel(filteredAccounts)}
+        onEdit={canEdit ? handleStartEdit : undefined}
+        onDelete={canDelete ? handleDelete : undefined}
+        canDelete={canDelete || false}
+      />
 
-          {/* Account Details */}
-          <Box sx={{ p: 2, overflow: "auto" }}>
-            <FormSection title="Account Information">
-              <Table size="small">
-                <TableBody>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600, width: 180 }}>Account Code</TableCell>
-                    <TableCell>{detail.account_code}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Account Name</TableCell>
-                    <TableCell>{detail.account_name}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Account Type</TableCell>
-                    <TableCell>
-                      <Chip label={detail.account_type} size="small" color={getTypeColor(detail.account_type)} />
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Category</TableCell>
-                    <TableCell>{detail.account_category}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Normal Balance</TableCell>
-                    <TableCell>
-                      <Chip label={detail.normal_balance} size="small" variant="outlined" />
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Parent Account</TableCell>
-                    <TableCell>
-                      {parentAccount
-                        ? `${parentAccount.account_code} - ${parentAccount.account_name}`
-                        : "None (Root)"}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={detail.is_active ? "Active" : "Inactive"}
-                        size="small"
-                        color={detail.is_active ? "success" : "default"}
-                      />
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>System Account</TableCell>
-                    <TableCell>{detail.is_system_account ? "Yes" : "No"}</TableCell>
-                  </TableRow>
-                  {detail.description && (
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Description</TableCell>
-                      <TableCell>{detail.description}</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!selectedAccount && !isCreating ? (
+          <EmptyState message="Select an account from the list or create a new one" />
+        ) : (
+          <>
+            {/* Account Information */}
+            <FormSection title="Account Information" columns={3}>
+              <TextField
+                label="Account Code"
+                size="small"
+                value={formData.account_code}
+                onChange={(e) => setFormData({ ...formData, account_code: e.target.value })}
+                disabled={!isCreating}
+                required
+              />
+              <TextField
+                label="Account Name"
+                size="small"
+                value={formData.account_name}
+                onChange={(e) => setFormData({ ...formData, account_name: e.target.value })}
+                disabled={!isEditing && !isCreating}
+                required
+              />
+              <TextField
+                select
+                label="Account Type"
+                size="small"
+                value={formData.account_type}
+                onChange={(e) => setFormData({ ...formData, account_type: e.target.value as AccountType })}
+                disabled={!isCreating}
+                required
+              >
+                {ACCOUNT_TYPES.map((t) => (
+                  <MenuItem key={t.value} value={t.value}>
+                    {t.label}
+                  </MenuItem>
+                ))}
+              </TextField>
             </FormSection>
 
-            {/* Child Accounts */}
-            {childAccounts.length > 0 && (
-              <FormSection title={`Sub-Accounts (${childAccounts.length})`}>
-                <Paper variant="outlined">
+            <FormSection title="Classification" columns={3}>
+              <TextField
+                label="Category"
+                size="small"
+                value={formData.account_category}
+                onChange={(e) => setFormData({ ...formData, account_category: e.target.value })}
+                disabled={!isEditing && !isCreating}
+                required
+              />
+              <TextField
+                select
+                label="Normal Balance"
+                size="small"
+                value={formData.normal_balance}
+                onChange={(e) => setFormData({ ...formData, normal_balance: e.target.value as "Debit" | "Credit" })}
+                disabled={!isEditing && !isCreating}
+              >
+                <MenuItem value="Debit">Debit</MenuItem>
+                <MenuItem value="Credit">Credit</MenuItem>
+              </TextField>
+              <TextField
+                select
+                label="Parent Account"
+                size="small"
+                value={formData.parent_account_id ?? ""}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    parent_account_id: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                disabled={!isEditing && !isCreating}
+              >
+                <MenuItem value="">None (Root Account)</MenuItem>
+                {allAccounts
+                  .filter((a) => a.id !== selectedAccount?.id)
+                  .map((a) => (
+                    <MenuItem key={a.id} value={a.id}>
+                      {a.account_code} - {a.account_name}
+                    </MenuItem>
+                  ))}
+              </TextField>
+            </FormSection>
+
+            <FormSection title="Details" columns={2}>
+              <TextField
+                label="Description"
+                size="small"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                disabled={!isEditing && !isCreating}
+                multiline
+                rows={2}
+                fullWidth
+              />
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pt: 1 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.is_active}
+                      onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                      disabled={!isEditing && !isCreating}
+                    />
+                  }
+                  label="Active"
+                />
+                {selectedAccount?.is_system_account && (
+                  <Typography variant="caption" color="text.secondary">
+                    System account — cannot be deleted
+                  </Typography>
+                )}
+              </Box>
+            </FormSection>
+
+            {/* Parent Account Info (view mode) */}
+            {!isEditing && !isCreating && parentAccount && (
+              <FormSection title="Parent Account">
+                <TextField
+                  label="Parent"
+                  size="small"
+                  value={`${parentAccount.account_code} - ${parentAccount.account_name}`}
+                  disabled
+                />
+              </FormSection>
+            )}
+
+            {/* Child Accounts (view mode only) */}
+            {!isEditing && !isCreating && childAccounts.length > 0 && (
+              <FormSection title={`Sub-Accounts (${childAccounts.length})`} columns={1}>
+                <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
                   <Table size="small">
                     <TableHead>
-                      <TableRow>
-                        <TableCell>Code</TableCell>
-                        <TableCell>Name</TableCell>
-                        <TableCell>Type</TableCell>
-                        <TableCell>Status</TableCell>
+                      <TableRow sx={{ bgcolor: "action.hover" }}>
+                        <TableCell sx={{ fontWeight: 700 }}>Code</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -468,12 +617,12 @@ export default function ChartOfAccountsPage() {
                           key={child.id}
                           hover
                           sx={{ cursor: "pointer" }}
-                          onClick={() => setSelectedAccount(child)}
+                          onClick={() => handleSelectAccount(child)}
                         >
                           <TableCell>{child.account_code}</TableCell>
                           <TableCell>{child.account_name}</TableCell>
                           <TableCell>
-                            <Chip label={child.account_type} size="small" variant="outlined" />
+                            <Chip label={child.account_type} size="small" color={getTypeColor(child.account_type)} variant="outlined" />
                           </TableCell>
                           <TableCell>
                             <Chip
@@ -489,255 +638,25 @@ export default function ChartOfAccountsPage() {
                 </Paper>
               </FormSection>
             )}
-          </Box>
-        </>
-      )}
-
-      {!detail && (
-        <EmptyState message="Select an account from the list to view details" />
-      )}
+          </>
+        )}
+      </Box>
     </Box>
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <>
       <MasterDetailLayout
         title="Chart of Accounts"
         icon={<AccountTreeIcon color="primary" />}
+        onRefresh={refetch}
+        isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-
-      {/* Create Dialog */}
-      <Dialog
-        open={createDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Create New Account</DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
-            <Controller
-              name="account_code"
-              control={createForm.control}
-              rules={{ required: "Account code is required" }}
-              render={({ field, fieldState }) => (
-                <TextField
-                  {...field}
-                  label="Account Code"
-                  fullWidth
-                  size="small"
-                  error={!!fieldState.error}
-                  helperText={fieldState.error?.message}
-                />
-              )}
-            />
-            <Controller
-              name="account_name"
-              control={createForm.control}
-              rules={{ required: "Account name is required" }}
-              render={({ field, fieldState }) => (
-                <TextField
-                  {...field}
-                  label="Account Name"
-                  fullWidth
-                  size="small"
-                  error={!!fieldState.error}
-                  helperText={fieldState.error?.message}
-                />
-              )}
-            />
-            <Controller
-              name="account_type"
-              control={createForm.control}
-              render={({ field }) => (
-                <TextField {...field} select label="Account Type" fullWidth size="small">
-                  {ACCOUNT_TYPES.map((t) => (
-                    <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-            <Controller
-              name="account_category"
-              control={createForm.control}
-              rules={{ required: "Category is required" }}
-              render={({ field, fieldState }) => (
-                <TextField
-                  {...field}
-                  label="Category"
-                  fullWidth
-                  size="small"
-                  error={!!fieldState.error}
-                  helperText={fieldState.error?.message}
-                />
-              )}
-            />
-            <Controller
-              name="normal_balance"
-              control={createForm.control}
-              render={({ field }) => (
-                <TextField {...field} select label="Normal Balance" fullWidth size="small">
-                  <MenuItem value="Debit">Debit</MenuItem>
-                  <MenuItem value="Credit">Credit</MenuItem>
-                </TextField>
-              )}
-            />
-            <Controller
-              name="parent_account_id"
-              control={createForm.control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  value={field.value ?? ""}
-                  onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
-                  select
-                  label="Parent Account"
-                  fullWidth
-                  size="small"
-                >
-                  <MenuItem value="">None (Root Account)</MenuItem>
-                  {allAccounts.map((a) => (
-                    <MenuItem key={a.id} value={a.id}>
-                      {a.account_code} - {a.account_name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-            <Controller
-              name="description"
-              control={createForm.control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Description"
-                  fullWidth
-                  size="small"
-                  multiline
-                  rows={2}
-                />
-              )}
-            />
-            <Controller
-              name="is_active"
-              control={createForm.control}
-              render={({ field }) => (
-                <FormControlLabel
-                  control={<Switch checked={field.value} onChange={field.onChange} />}
-                  label="Active"
-                />
-              )}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={createForm.handleSubmit((data) => createMutation.mutate(data))}
-            disabled={createMutation.isPending}
-          >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <Dialog
-        open={editDialogOpen}
-        onClose={() => setEditDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Edit Account</DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
-            <Controller
-              name="account_name"
-              control={editForm.control}
-              render={({ field }) => (
-                <TextField {...field} label="Account Name" fullWidth size="small" />
-              )}
-            />
-            <Controller
-              name="account_category"
-              control={editForm.control}
-              render={({ field }) => (
-                <TextField {...field} label="Category" fullWidth size="small" />
-              )}
-            />
-            <Controller
-              name="normal_balance"
-              control={editForm.control}
-              render={({ field }) => (
-                <TextField {...field} select label="Normal Balance" fullWidth size="small">
-                  <MenuItem value="Debit">Debit</MenuItem>
-                  <MenuItem value="Credit">Credit</MenuItem>
-                </TextField>
-              )}
-            />
-            <Controller
-              name="parent_account_id"
-              control={editForm.control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  value={field.value ?? ""}
-                  onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
-                  select
-                  label="Parent Account"
-                  fullWidth
-                  size="small"
-                >
-                  <MenuItem value="">None (Root Account)</MenuItem>
-                  {allAccounts
-                    .filter((a) => a.id !== detail?.id)
-                    .map((a) => (
-                      <MenuItem key={a.id} value={a.id}>
-                        {a.account_code} - {a.account_name}
-                      </MenuItem>
-                    ))}
-                </TextField>
-              )}
-            />
-            <Controller
-              name="description"
-              control={editForm.control}
-              render={({ field }) => (
-                <TextField {...field} label="Description" fullWidth size="small" multiline rows={2} />
-              )}
-            />
-            <Controller
-              name="is_active"
-              control={editForm.control}
-              render={({ field }) => (
-                <FormControlLabel
-                  control={<Switch checked={field.value ?? true} onChange={field.onChange} />}
-                  label="Active"
-                />
-              )}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={editForm.handleSubmit((data) => {
-              if (detail) updateMutation.mutate({ id: detail.id, data });
-            })}
-            disabled={updateMutation.isPending}
-          >
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <TConfirmDialog {...deleteDialog.dialogProps} />
-    </Box>
+      <ConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }
