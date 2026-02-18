@@ -2,26 +2,28 @@
  * ExpensesPage - Business Expense Recording & Management
  *
  * Full workflow: Create → Submit → Approve → Process Payment → Record
- * Uses MasterDetailLayout with Tijaero components.
+ * Refactored to match Purchasing/Sales Master-Detail pattern with inline editing.
  */
 
-import AddIcon from "@mui/icons-material/Add";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
 import PaymentIcon from "@mui/icons-material/Payment";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SendIcon from "@mui/icons-material/Send";
+import ThumbDownIcon from "@mui/icons-material/ThumbDown";
+import ReceiptIcon from "@mui/icons-material/Receipt";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   MenuItem,
+  Step,
+  StepLabel,
+  Stepper,
   TextField,
   Typography,
 } from "@mui/material";
@@ -31,6 +33,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 import {
+  ActionToolbar,
   DetailPanelHeader,
   EmptyState,
   EXPENSE_CATEGORIES,
@@ -53,11 +56,13 @@ import {
   TSearchableSelect,
   TStatusChip,
   useTConfirmDialog,
+  useMasterDetailState,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
 import { expensesApi } from "@/modules/finance/api";
 import type { Expense, ExpenseCreate, ExpensePaymentData } from "@/modules/finance/types";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -76,22 +81,48 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "expenses_no", label: "Expense No" },
 ];
 
+const FORM_STEPS = ["Expense Information", "Payment Details"];
+
+// Initial form data
+const INITIAL_FORM_DATA: Partial<ExpenseCreate> = {
+  expense_type: "operational",
+  expense_category: "miscellaneous",
+  expenses_method: "other_expenses",
+  expense_amount: 0,
+  branch_code: "",
+  vendor_name: "",
+  description: "",
+  receipt_number: "",
+  bill_reference: "",
+  remarks: "",
+};
+
+const resetFormFromExpense = (expense: Expense): Partial<ExpenseCreate> => ({
+  expense_type: expense.expense_type,
+  expense_category: expense.expense_category,
+  expenses_method: expense.expenses_method,
+  expense_amount: expense.expense_amount,
+  branch_code: expense.branch_code,
+  vendor_name: expense.vendor_name,
+  description: expense.description,
+  receipt_number: expense.receipt_number,
+  bill_reference: expense.bill_reference,
+  remarks: expense.remarks,
+});
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ExpensesPage() {
   const queryClient = useQueryClient();
+  const confirmDialog = useConfirmDialog();
 
   // State
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("created_date");
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
-  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [formStep, setFormStep] = useState(0);
 
-  // Dialogs
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  // Workflow dialogs (kept for submit, approve, reject, payment, record actions)
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -104,6 +135,59 @@ export default function ExpensesPage() {
   // Ref data
   const { data: refData } = useReferenceData(["branches"]);
   const branches = refData?.branches || [];
+
+  // Master detail state
+  const {
+    searchQuery,
+    setSearchQuery,
+    sortField,
+    setSortField,
+    selectedItem: selectedExpense,
+    setSelectedItem: setSelectedExpense,
+    isEditing,
+    setIsEditing,
+    isCreating,
+    setIsCreating,
+    favorites,
+    toggleFavorite,
+    formData,
+    setFormData,
+    handleSelectItem: handleSelectExpense,
+    handleNew: handleNewExpenseBase,
+    handleCancel: handleCancelBase,
+    handleStartEdit: handleStartEditBase,
+  } = useMasterDetailState<Expense, Partial<ExpenseCreate>>({
+    initialFormData: INITIAL_FORM_DATA,
+    resetFormFromItem: resetFormFromExpense,
+    favoritesKey: "expenses_favorites",
+    defaultSortField: "created_date",
+    confirmUnsavedChanges: () =>
+      confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      }),
+  });
+
+  const handleStartEdit = useCallback(() => {
+    handleStartEditBase();
+    setFormStep(0);
+  }, [handleStartEditBase]);
+
+  const handleCancel = useCallback(
+    (items: Expense[]) => {
+      handleCancelBase(items);
+      setFormStep(0);
+    },
+    [handleCancelBase]
+  );
+
+  const handleNewExpense = useCallback(() => {
+    handleNewExpenseBase();
+    setFormStep(0);
+  }, [handleNewExpenseBase]);
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -173,8 +257,9 @@ export default function ExpensesPage() {
     onSuccess: (data) => {
       invalidate();
       showSuccessToast("Expense recorded successfully");
-      setCreateDialogOpen(false);
+      setIsCreating(false);
       setSelectedExpense(data);
+      setFormStep(0);
     },
     onError: (err: unknown) =>
       showErrorToast(handleApiError(err, "Failed to create expense")),
@@ -186,7 +271,7 @@ export default function ExpensesPage() {
     onSuccess: (data) => {
       invalidate();
       showSuccessToast("Expense updated");
-      setEditDialogOpen(false);
+      setIsEditing(false);
       setSelectedExpense(data);
     },
     onError: (err: unknown) =>
@@ -273,6 +358,32 @@ export default function ExpensesPage() {
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
+  // Validation
+  const isFormValid = useMemo(() => {
+    if (!isCreating && !isEditing) return true;
+    return !!(
+      formData.expense_type &&
+      formData.expense_category &&
+      formData.expenses_method &&
+      formData.expense_amount &&
+      formData.expense_amount > 0 &&
+      formData.branch_code &&
+      formData.vendor_name
+    );
+  }, [isCreating, isEditing, formData]);
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  const handleSave = useCallback(async () => {
+    if (!isFormValid) return;
+    
+    if (isCreating) {
+      createMutation.mutate(formData as ExpenseCreate);
+    } else if (isEditing && selectedExpense) {
+      updateMutation.mutate({ id: selectedExpense.id, data: formData });
+    }
+  }, [isCreating, isEditing, isFormValid, formData, selectedExpense, createMutation, updateMutation]);
+
   const handleSubmitExpense = useCallback(() => {
     if (!selectedExpense) return;
     submitDialog.open(
@@ -302,27 +413,8 @@ export default function ExpensesPage() {
 
   const getCategoryLabel = (val: string) =>
     EXPENSE_CATEGORIES.find((c) => c.value === val)?.label || val;
-  const getMethodLabel = (val: string) =>
-    EXPENSES_METHOD.find((m) => m.value === val)?.label || val;
 
-  // ─── Forms ─────────────────────────────────────────────────────────────────
-
-  const createForm = useForm<ExpenseCreate>({
-    defaultValues: {
-      expense_type: "operational",
-      expense_category: "miscellaneous",
-      expenses_method: "other_expenses",
-      expense_amount: 0,
-      branch_code: "",
-      vendor_name: "",
-      description: "",
-      receipt_number: "",
-      bill_reference: "",
-      remarks: "",
-    },
-  });
-
-  const editForm = useForm<Partial<ExpenseCreate>>();
+  // ─── Forms for workflow dialogs ────────────────────────────────────────────
 
   const paymentForm = useForm<ExpensePaymentData>({
     defaultValues: {
@@ -350,16 +442,6 @@ export default function ExpensesPage() {
       onSortChange={setSortField}
       listHeader={
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1, p: 1 }}>
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              New
-            </Button>
-          </Box>
           <TFilterPanel>
             <TBranchFilter
               branches={branches}
@@ -395,32 +477,67 @@ export default function ExpensesPage() {
         </Box>
       }
       renderItem={(expense: Expense, isSelected: boolean) => {
-        const { color } = getStatusProps(expense.status, "expenseStatus");
         return (
           <SelectableListItem
             key={expense.id}
             id={expense.id}
             isSelected={isSelected}
-            onClick={() => setSelectedExpense(expense)}
+            onClick={() => handleSelectExpense(expense)}
             primaryText={
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                <span>{expense.expenses_no}</span>
-                <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                  <Typography variant="caption" fontWeight={600}>
-                    Rs. {fmtLKR(expense.expense_amount)}
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 0.5,
+                  width: "100%",
+                }}
+              >
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <Typography variant="body2" fontWeight={600}>
+                    {expense.expenses_no}
                   </Typography>
-                  <Chip
-                    label={expense.status}
-                    size="small"
-                    color={color}
-                    variant="outlined"
-                  />
+                  <Typography variant="body2" fontWeight={600} color="primary">
+                    {fmtLKR(expense.expense_amount)}
+                  </Typography>
                 </Box>
+                {isSelected && (
+                  <>
+                    <Typography variant="caption" color="text.secondary">
+                      {getCategoryLabel(expense.expense_category)} • {expense.vendor_name || "No vendor"}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {format(new Date(expense.created_date), "dd/MM/yyyy")}
+                    </Typography>
+                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
+                      <TStatusChip
+                        status={expense.status}
+                        statusMap="expenseStatus"
+                        size="small"
+                      />
+                    </Box>
+                  </>
+                )}
               </Box>
             }
             secondaryText={
               !isSelected
                 ? `${getCategoryLabel(expense.expense_category)} - ${expense.vendor_name || "No vendor"} - ${format(new Date(expense.created_date), "dd/MM/yyyy")}`
+                : undefined
+            }
+            isFavorite={favorites.includes(expense.id)}
+            onToggleFavorite={(e) => toggleFavorite(expense.id, e)}
+            statusChip={
+              !isSelected
+                ? {
+                    label: expense.status.charAt(0).toUpperCase() + expense.status.slice(1),
+                    color: getStatusProps(expense.status, "expenseStatus").color,
+                  }
                 : undefined
             }
           />
@@ -433,397 +550,393 @@ export default function ExpensesPage() {
 
   const detail = expenseDetail || selectedExpense;
 
-  const detailPanel = (
-    <Box
-      sx={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-      }}
-    >
-      <DetailPanelHeader
-        breadcrumbs={[
-          { label: "Finance" },
-          { label: "Expenses", href: "/finance/expenses" },
-          ...(detail ? [{ label: detail.expenses_no }] : []),
-        ]}
-        title={detail ? detail.expenses_no : ""}
-        titleIcon={<ReceiptLongIcon color="primary" />}
-        noSelectionTitle="Select an Expense"
-        chips={
-          detail
-            ? [
-                {
-                  label:
-                    detail.status.charAt(0).toUpperCase() +
-                    detail.status.slice(1),
-                  color: getStatusProps(detail.status, "expenseStatus").color,
-                },
-              ]
-            : []
-        }
-      />
+  // Workflow action buttons based on status
+  const getWorkflowActions = () => {
+    if (!selectedExpense || isCreating || isEditing) return null;
 
-      {/* Action Buttons */}
-      {detail && (
-        <Box
-          sx={{
-            display: "flex",
-            gap: 1,
-            p: 1,
-            borderBottom: 1,
-            borderColor: "divider",
-            bgcolor: "background.paper",
-            flexWrap: "wrap",
+    const actions: React.ReactNode[] = [];
+
+    if (selectedExpense.status === "pending") {
+      actions.push(
+        <Button
+          key="submit"
+          variant="contained"
+          size="small"
+          startIcon={<SendIcon />}
+          onClick={handleSubmitExpense}
+        >
+          Submit
+        </Button>
+      );
+    } else if (selectedExpense.status === "submitted") {
+      actions.push(
+        <Button
+          key="approve"
+          variant="contained"
+          size="small"
+          color="success"
+          startIcon={<CheckCircleIcon />}
+          onClick={handleApprove}
+        >
+          Approve
+        </Button>,
+        <Button
+          key="reject"
+          variant="outlined"
+          size="small"
+          color="error"
+          startIcon={<ThumbDownIcon />}
+          onClick={() => setRejectDialogOpen(true)}
+        >
+          Reject
+        </Button>
+      );
+    } else if (selectedExpense.status === "approved") {
+      actions.push(
+        <Button
+          key="payment"
+          variant="contained"
+          size="small"
+          color="primary"
+          startIcon={<PaymentIcon />}
+          onClick={() => {
+            paymentForm.reset({
+              payment_method: "cash",
+              payment_reference: "",
+              remarks: "",
+            });
+            setPaymentDialogOpen(true);
           }}
         >
-          {detail.status === "pending" && (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<SendIcon />}
-                onClick={handleSubmitExpense}
-              >
-                Submit for Approval
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<EditIcon />}
-                onClick={() => {
-                  editForm.reset({
-                    expense_type: detail.expense_type,
-                    expense_category: detail.expense_category,
-                    expenses_method: detail.expenses_method,
-                    expense_amount: detail.expense_amount,
-                    vendor_name: detail.vendor_name || "",
-                    description: detail.description || "",
-                    receipt_number: detail.receipt_number || "",
-                    bill_reference: detail.bill_reference || "",
-                    remarks: detail.remarks || "",
-                  });
-                  setEditDialogOpen(true);
-                }}
-              >
-                Edit
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                color="error"
-                startIcon={<DeleteIcon />}
-                onClick={handleDelete}
-              >
-                Delete
-              </Button>
-            </>
-          )}
-          {detail.status === "submitted" && (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                color="success"
-                startIcon={<CheckCircleIcon />}
-                onClick={handleApprove}
-              >
-                Approve
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                color="error"
-                onClick={() => setRejectDialogOpen(true)}
-              >
-                Reject
-              </Button>
-            </>
-          )}
-          {detail.status === "approved" && (
-            <Button
-              variant="contained"
-              size="small"
-              color="primary"
-              startIcon={<PaymentIcon />}
-              onClick={() => {
-                paymentForm.reset({
-                  payment_method: "cash",
-                  payment_reference: "",
-                  remarks: "",
-                });
-                setPaymentDialogOpen(true);
-              }}
-            >
-              Process Payment
-            </Button>
-          )}
-          {detail.status === "paid" && (
-            <Button
-              variant="contained"
-              size="small"
-              color="secondary"
-              onClick={() => {
-                recordForm.reset({ account_code: "", cost_center: "" });
-                setRecordDialogOpen(true);
-              }}
-            >
-              Record in Accounting
-            </Button>
-          )}
-          {detail.status === "rejected" && (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<SendIcon />}
-                onClick={handleSubmitExpense}
-              >
-                Resubmit
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<EditIcon />}
-                onClick={() => {
-                  editForm.reset({
-                    expense_type: detail.expense_type,
-                    expense_category: detail.expense_category,
-                    expenses_method: detail.expenses_method,
-                    expense_amount: detail.expense_amount,
-                    vendor_name: detail.vendor_name || "",
-                    description: detail.description || "",
-                    receipt_number: detail.receipt_number || "",
-                    bill_reference: detail.bill_reference || "",
-                    remarks: detail.remarks || "",
-                  });
-                  setEditDialogOpen(true);
-                }}
-              >
-                Edit & Resubmit
-              </Button>
-            </>
-          )}
-        </Box>
-      )}
+          Process Payment
+        </Button>
+      );
+    } else if (selectedExpense.status === "paid") {
+      actions.push(
+        <Button
+          key="record"
+          variant="contained"
+          size="small"
+          color="secondary"
+          startIcon={<ReceiptIcon />}
+          onClick={() => {
+            recordForm.reset({ account_code: "", cost_center: "" });
+            setRecordDialogOpen(true);
+          }}
+        >
+          Record in Accounting
+        </Button>
+      );
+    } else if (selectedExpense.status === "rejected") {
+      actions.push(
+        <Button
+          key="resubmit"
+          variant="contained"
+          size="small"
+          startIcon={<SendIcon />}
+          onClick={handleSubmitExpense}
+        >
+          Resubmit
+        </Button>
+      );
+    }
+
+    return actions.length > 0 ? <>{actions}</> : null;
+  };
+
+  const canEdit = selectedExpense && (selectedExpense.status === "pending" || selectedExpense.status === "rejected");
+  const canDelete = selectedExpense && selectedExpense.status === "pending" ? true : false;
+
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "Finance", href: "/finance" },
+          { label: "Expenses", href: "/finance/expenses" },
+          ...(selectedExpense || isCreating
+            ? [{ label: isCreating ? "New Expense" : selectedExpense?.expenses_no || `EXP-${selectedExpense?.id}` }]
+            : []),
+        ]}
+        title={selectedExpense ? selectedExpense.expenses_no || `EXP-${selectedExpense.id}` : ""}
+        titleIcon={<ReceiptLongIcon color="primary" />}
+        isCreating={isCreating}
+        createTitle="New Expense"
+        noSelectionTitle="Select an Expense"
+        isFavorite={selectedExpense ? favorites.includes(selectedExpense.id) : false}
+        onToggleFavorite={selectedExpense ? (e) => toggleFavorite(selectedExpense.id, e) : undefined}
+      />
+
+      <ActionToolbar
+        hasSelectedItem={!!selectedExpense}
+        isCreating={isCreating}
+        isEditing={isEditing}
+        isSaving={isSaving}
+        isFormValid={isFormValid}
+        onNew={handleNewExpense}
+        onSave={handleSave}
+        onCancel={() => handleCancel(filteredExpenses)}
+        onEdit={canEdit ? handleStartEdit : undefined}
+        onDelete={canDelete ? handleDelete : undefined}
+        canDelete={canDelete}
+        endActions={getWorkflowActions()}
+      />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
-        {!detail ? (
-          <EmptyState message="Select an expense from the list to view details" />
+        {!selectedExpense && !isCreating ? (
+          <EmptyState message="Select an expense from the list or create a new one" />
         ) : (
           <>
+            {/* Stepper for create mode */}
+            {isCreating && (
+              <Stepper activeStep={formStep} sx={{ mb: 3 }}>
+                {FORM_STEPS.map((label) => (
+                  <Step key={label}>
+                    <StepLabel>{label}</StepLabel>
+                  </Step>
+                ))}
+              </Stepper>
+            )}
+
             {/* Rejection Warning */}
-            {detail.status === "rejected" && detail.rejection_reason && (
+            {detail && detail.status === "rejected" && detail.rejection_reason && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 <strong>Rejected:</strong> {detail.rejection_reason}
               </Alert>
             )}
 
-            {/* Expense Details */}
-            <FormSection title="Expense Details" columns={3}>
-              <TextField
-                label="Expense No"
-                size="small"
-                value={detail.expenses_no}
-                disabled
-              />
-              <TextField
-                label="Category"
-                size="small"
-                value={getCategoryLabel(detail.expense_category)}
-                disabled
-              />
-              <TextField
-                label="Type"
-                size="small"
-                value={
-                  EXPENSE_TYPES.find((t) => t.value === detail.expense_type)
-                    ?.label || detail.expense_type
-                }
-                disabled
-              />
-              <TextField
-                label="Method"
-                size="small"
-                value={getMethodLabel(detail.expenses_method)}
-                disabled
-              />
-              <TextField
-                label="Amount (Rs.)"
-                size="small"
-                value={fmtLKR(detail.expense_amount)}
-                disabled
-              />
-              <TextField
-                label="Expense Date"
-                size="small"
-                value={
-                  detail.expense_date
-                    ? format(new Date(detail.expense_date), "dd MMM yyyy")
-                    : "N/A"
-                }
-                disabled
-              />
-              <TextField
-                label="Vendor"
-                size="small"
-                value={detail.vendor_name || "N/A"}
-                disabled
-              />
-              <TextField
-                label="Receipt No"
-                size="small"
-                value={detail.receipt_number || "N/A"}
-                disabled
-              />
-              <TextField
-                label="Bill Reference"
-                size="small"
-                value={detail.bill_reference || "N/A"}
-                disabled
-              />
-            </FormSection>
+            {/* Step 1: Expense Information (always show in view/edit mode) */}
+            {(formStep === 0 || !isCreating) && (
+              <>
+                <FormSection title="Expense Information" columns={3}>
+                  <TextField
+                    label="Expense Type"
+                    size="small"
+                    select
+                    value={formData.expense_type || "operational"}
+                    onChange={(e) => setFormData({ ...formData, expense_type: e.target.value as any })}
+                    disabled={!isEditing && !isCreating}
+                    required
+                  >
+                    {EXPENSE_TYPES.map((type) => (
+                      <MenuItem key={type.value} value={type.value}>
+                        {type.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
 
-            {/* Description */}
-            {detail.description && (
-              <FormSection title="Description" columns={1}>
-                <TextField
-                  label="Description"
-                  size="small"
-                  value={detail.description}
-                  disabled
-                  multiline
-                  rows={2}
-                />
-              </FormSection>
-            )}
+                  <TextField
+                    label="Category"
+                    size="small"
+                    select
+                    value={formData.expense_category || "miscellaneous"}
+                    onChange={(e) => setFormData({ ...formData, expense_category: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    required
+                  >
+                    {EXPENSE_CATEGORIES.map((cat) => (
+                      <MenuItem key={cat.value} value={cat.value}>
+                        {cat.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
 
-            {/* Branch & Status */}
-            <FormSection title="Status & Branch" columns={3}>
-              <TextField
-                label="Branch"
-                size="small"
-                value={detail.branch_code}
-                disabled
-              />
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1,
-                  py: 1,
-                }}
-              >
-                <Typography variant="body2" color="text.secondary">
-                  Status:
-                </Typography>
-                <TStatusChip
-                  status={detail.status}
-                  statusMap="expenseStatus"
-                />
-              </Box>
-              <TextField
-                label="Created"
-                size="small"
-                value={
-                  detail.created_date
-                    ? format(new Date(detail.created_date), "dd MMM yyyy")
-                    : "N/A"
-                }
-                disabled
-              />
-            </FormSection>
+                  <TextField
+                    label="Expense Method"
+                    size="small"
+                    select
+                    value={formData.expenses_method || "other_expenses"}
+                    onChange={(e) => setFormData({ ...formData, expenses_method: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    required
+                  >
+                    {EXPENSES_METHOD.map((method) => (
+                      <MenuItem key={method.value} value={method.value}>
+                        {method.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
 
-            {/* Approval Info */}
-            {(detail.approved_by || detail.approved_date) && (
-              <FormSection title="Approval Information" columns={2}>
-                <TextField
-                  label="Approved By"
-                  size="small"
-                  value={detail.approved_by || "N/A"}
-                  disabled
-                />
-                <TextField
-                  label="Approved Date"
-                  size="small"
-                  value={
-                    detail.approved_date
-                      ? format(
-                          new Date(detail.approved_date),
-                          "dd MMM yyyy HH:mm"
-                        )
-                      : "N/A"
-                  }
-                  disabled
-                />
-              </FormSection>
-            )}
+                  <TextField
+                    label="Amount (Rs.)"
+                    size="small"
+                    type="number"
+                    value={formData.expense_amount || 0}
+                    onChange={(e) =>
+                      setFormData({ ...formData, expense_amount: parseFloat(e.target.value) || 0 })
+                    }
+                    disabled={!isEditing && !isCreating}
+                    required
+                    inputProps={{ step: 0.01, min: 0 }}
+                  />
 
-            {/* Payment Info */}
-            {detail.payment_status === "paid" && (
-              <FormSection title="Payment Information" columns={3}>
-                <TextField
-                  label="Payment Method"
-                  size="small"
-                  value={
-                    EXPENSE_PAYMENT_METHODS.find(
-                      (m) => m.value === detail.payment_method
-                    )?.label ||
-                    detail.payment_method ||
-                    "N/A"
-                  }
-                  disabled
-                />
-                <TextField
-                  label="Payment Date"
-                  size="small"
-                  value={
-                    detail.payment_date
-                      ? format(new Date(detail.payment_date), "dd MMM yyyy")
-                      : "N/A"
-                  }
-                  disabled
-                />
-                <TextField
-                  label="Payment Reference"
-                  size="small"
-                  value={detail.payment_reference || "N/A"}
-                  disabled
-                />
-              </FormSection>
-            )}
+                  <Autocomplete
+                    size="small"
+                    options={branches}
+                    getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
+                    value={branches.find((b) => b.branch_code === formData.branch_code) || null}
+                    onChange={(_, newValue) =>
+                      setFormData({ ...formData, branch_code: newValue?.branch_code || "" })
+                    }
+                    disabled={!isEditing && !isCreating}
+                    renderInput={(params) => <TextField {...params} label="Branch" required />}
+                  />
 
-            {/* Accounting Info */}
-            {(detail.account_code || detail.cost_center) && (
-              <FormSection title="Accounting" columns={2}>
-                <TextField
-                  label="Account Code"
-                  size="small"
-                  value={detail.account_code || "N/A"}
-                  disabled
-                />
-                <TextField
-                  label="Cost Center"
-                  size="small"
-                  value={detail.cost_center || "N/A"}
-                  disabled
-                />
-              </FormSection>
-            )}
+                  <TextField
+                    label="Vendor Name"
+                    size="small"
+                    value={formData.vendor_name || ""}
+                    onChange={(e) => setFormData({ ...formData, vendor_name: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    required
+                  />
 
-            {/* Remarks */}
-            {detail.remarks && (
-              <FormSection title="Remarks" columns={1}>
-                <TextField
-                  label="Remarks"
-                  size="small"
-                  value={detail.remarks}
-                  disabled
-                  multiline
-                  rows={3}
-                />
-              </FormSection>
+                  <TextField
+                    label="Receipt Number"
+                    size="small"
+                    value={formData.receipt_number || ""}
+                    onChange={(e) => setFormData({ ...formData, receipt_number: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                  />
+
+                  <TextField
+                    label="Bill Reference"
+                    size="small"
+                    value={formData.bill_reference || ""}
+                    onChange={(e) => setFormData({ ...formData, bill_reference: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                  />
+
+                  <TextField
+                    label="Description"
+                    size="small"
+                    value={formData.description || ""}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    multiline
+                    rows={2}
+                    sx={{ gridColumn: "span 3" }}
+                  />
+                </FormSection>
+
+                {/* View mode: show additional fields */}
+                {!isCreating && !isEditing && detail && (
+                  <>
+                    <FormSection title="Status & Dates" columns={3}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Status:
+                        </Typography>
+                        <TStatusChip status={detail.status} statusMap="expenseStatus" />
+                      </Box>
+                      <TextField
+                        label="Created Date"
+                        size="small"
+                        value={
+                          detail.created_date
+                            ? format(new Date(detail.created_date), "dd MMM yyyy")
+                            : "N/A"
+                        }
+                        disabled
+                      />
+                      <TextField
+                        label="Expense Date"
+                        size="small"
+                        value={
+                          detail.expense_date
+                            ? format(new Date(detail.expense_date), "dd MMM yyyy")
+                            : "N/A"
+                        }
+                        disabled
+                      />
+                    </FormSection>
+
+                    {/* Approval Info */}
+                    {(detail.approved_by || detail.approved_date) && (
+                      <FormSection title="Approval Information" columns={2}>
+                        <TextField
+                          label="Approved By"
+                          size="small"
+                          value={detail.approved_by || "N/A"}
+                          disabled
+                        />
+                        <TextField
+                          label="Approved Date"
+                          size="small"
+                          value={
+                            detail.approved_date
+                              ? format(new Date(detail.approved_date), "dd MMM yyyy HH:mm")
+                              : "N/A"
+                          }
+                          disabled
+                        />
+                      </FormSection>
+                    )}
+
+                    {/* Payment Info */}
+                    {detail.payment_status === "paid" && (
+                      <FormSection title="Payment Information" columns={3}>
+                        <TextField
+                          label="Payment Method"
+                          size="small"
+                          value={
+                            EXPENSE_PAYMENT_METHODS.find((m) => m.value === detail.payment_method)
+                              ?.label ||
+                            detail.payment_method ||
+                            "N/A"
+                          }
+                          disabled
+                        />
+                        <TextField
+                          label="Payment Date"
+                          size="small"
+                          value={
+                            detail.payment_date
+                              ? format(new Date(detail.payment_date), "dd MMM yyyy")
+                              : "N/A"
+                          }
+                          disabled
+                        />
+                        <TextField
+                          label="Payment Reference"
+                          size="small"
+                          value={detail.payment_reference || "N/A"}
+                          disabled
+                        />
+                      </FormSection>
+                    )}
+
+                    {/* Accounting Info */}
+                    {(detail.account_code || detail.cost_center) && (
+                      <FormSection title="Accounting" columns={2}>
+                        <TextField
+                          label="Account Code"
+                          size="small"
+                          value={detail.account_code || "N/A"}
+                          disabled
+                        />
+                        <TextField
+                          label="Cost Center"
+                          size="small"
+                          value={detail.cost_center || "N/A"}
+                          disabled
+                        />
+                      </FormSection>
+                    )}
+                  </>
+                )}
+
+                <FormSection title="Remarks" columns={1}>
+                  <TextField
+                    label="Remarks"
+                    size="small"
+                    value={formData.remarks || ""}
+                    onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    multiline
+                    rows={3}
+                  />
+                </FormSection>
+              </>
             )}
           </>
         )}
@@ -837,349 +950,14 @@ export default function ExpensesPage() {
     <>
       <MasterDetailLayout
         title="Expenses"
-        icon={<ReceiptLongIcon color="primary" />}
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["expenses"] });
+          queryClient.invalidateQueries({ queryKey: ["expense-detail"] });
+        }}
+        isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-
-      {/* Create Dialog */}
-      <Dialog
-        open={createDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <form
-          onSubmit={createForm.handleSubmit((data) =>
-            createMutation.mutate(data)
-          )}
-        >
-          <DialogTitle>Record New Expense</DialogTitle>
-          <DialogContent>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
-                gap: 2,
-                mt: 1,
-              }}
-            >
-              <Controller
-                name="expense_category"
-                control={createForm.control}
-                rules={{ required: "Category is required" }}
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    select
-                    label="Category"
-                    required
-                    error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
-                    fullWidth
-                  >
-                    {EXPENSE_CATEGORIES.map((c) => (
-                      <MenuItem key={c.value} value={c.value}>
-                        {c.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              />
-              <Controller
-                name="expense_type"
-                control={createForm.control}
-                render={({ field }) => (
-                  <TextField {...field} select label="Expense Type" fullWidth>
-                    {EXPENSE_TYPES.map((t) => (
-                      <MenuItem key={t.value} value={t.value}>
-                        {t.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              />
-              <Controller
-                name="expenses_method"
-                control={createForm.control}
-                rules={{ required: "Method is required" }}
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    select
-                    label="Expense Method"
-                    required
-                    error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
-                    fullWidth
-                  >
-                    {EXPENSES_METHOD.map((m) => (
-                      <MenuItem key={m.value} value={m.value}>
-                        {m.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              />
-              <Controller
-                name="expense_amount"
-                control={createForm.control}
-                rules={{
-                  required: "Amount required",
-                  min: { value: 0.01, message: "Min 0.01" },
-                }}
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    type="number"
-                    label="Amount (Rs.)"
-                    required
-                    error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
-                    fullWidth
-                  />
-                )}
-              />
-              <Controller
-                name="vendor_name"
-                control={createForm.control}
-                render={({ field }) => (
-                  <TextField {...field} label="Vendor Name" fullWidth />
-                )}
-              />
-              <Controller
-                name="branch_code"
-                control={createForm.control}
-                rules={{ required: "Branch is required" }}
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    select
-                    label="Branch"
-                    required
-                    error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
-                    fullWidth
-                  >
-                    {branches.map(
-                      (b: { branch_code: string; branch_name: string }) => (
-                        <MenuItem key={b.branch_code} value={b.branch_code}>
-                          {b.branch_name}
-                        </MenuItem>
-                      )
-                    )}
-                  </TextField>
-                )}
-              />
-              <Controller
-                name="receipt_number"
-                control={createForm.control}
-                render={({ field }) => (
-                  <TextField {...field} label="Receipt Number" fullWidth />
-                )}
-              />
-              <Controller
-                name="bill_reference"
-                control={createForm.control}
-                render={({ field }) => (
-                  <TextField {...field} label="Bill Reference" fullWidth />
-                )}
-              />
-              <Controller
-                name="expense_date"
-                control={createForm.control}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    type="date"
-                    label="Expense Date"
-                    InputLabelProps={{ shrink: true }}
-                    fullWidth
-                  />
-                )}
-              />
-              <Box sx={{ gridColumn: "span 3" }}>
-                <Controller
-                  name="description"
-                  control={createForm.control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Description"
-                      multiline
-                      rows={2}
-                      fullWidth
-                    />
-                  )}
-                />
-              </Box>
-              <Box sx={{ gridColumn: "span 3" }}>
-                <Controller
-                  name="remarks"
-                  control={createForm.control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Remarks"
-                      multiline
-                      rows={2}
-                      fullWidth
-                    />
-                  )}
-                />
-              </Box>
-            </Box>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={createMutation.isPending}
-            >
-              {createMutation.isPending ? "Saving..." : "Record Expense"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <Dialog
-        open={editDialogOpen}
-        onClose={() => setEditDialogOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <form
-          onSubmit={editForm.handleSubmit((data) =>
-            selectedExpense &&
-            updateMutation.mutate({ id: selectedExpense.id, data })
-          )}
-        >
-          <DialogTitle>Edit Expense</DialogTitle>
-          <DialogContent>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
-                gap: 2,
-                mt: 1,
-              }}
-            >
-              <Controller
-                name="expense_category"
-                control={editForm.control}
-                render={({ field }) => (
-                  <TextField {...field} select label="Category" fullWidth>
-                    {EXPENSE_CATEGORIES.map((c) => (
-                      <MenuItem key={c.value} value={c.value}>
-                        {c.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              />
-              <Controller
-                name="expense_type"
-                control={editForm.control}
-                render={({ field }) => (
-                  <TextField {...field} select label="Expense Type" fullWidth>
-                    {EXPENSE_TYPES.map((t) => (
-                      <MenuItem key={t.value} value={t.value}>
-                        {t.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              />
-              <Controller
-                name="expenses_method"
-                control={editForm.control}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    select
-                    label="Expense Method"
-                    fullWidth
-                  >
-                    {EXPENSES_METHOD.map((m) => (
-                      <MenuItem key={m.value} value={m.value}>
-                        {m.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              />
-              <Controller
-                name="expense_amount"
-                control={editForm.control}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    type="number"
-                    label="Amount (Rs.)"
-                    fullWidth
-                  />
-                )}
-              />
-              <Controller
-                name="vendor_name"
-                control={editForm.control}
-                render={({ field }) => (
-                  <TextField {...field} label="Vendor Name" fullWidth />
-                )}
-              />
-              <Controller
-                name="receipt_number"
-                control={editForm.control}
-                render={({ field }) => (
-                  <TextField {...field} label="Receipt Number" fullWidth />
-                )}
-              />
-              <Box sx={{ gridColumn: "span 3" }}>
-                <Controller
-                  name="description"
-                  control={editForm.control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Description"
-                      multiline
-                      rows={2}
-                      fullWidth
-                    />
-                  )}
-                />
-              </Box>
-              <Box sx={{ gridColumn: "span 3" }}>
-                <Controller
-                  name="remarks"
-                  control={editForm.control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Remarks"
-                      multiline
-                      rows={2}
-                      fullWidth
-                    />
-                  )}
-                />
-              </Box>
-            </Box>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={updateMutation.isPending}
-            >
-              {updateMutation.isPending ? "Saving..." : "Save Changes"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
 
       {/* Reject Dialog */}
       <Dialog
@@ -1368,6 +1146,7 @@ export default function ExpensesPage() {
       </Dialog>
 
       {/* Confirm Dialogs */}
+      <ConfirmDialog {...confirmDialog.dialogProps} />
       <TConfirmDialog {...submitDialog.dialogProps} />
       <TConfirmDialog {...approveDialog.dialogProps} />
       <TConfirmDialog {...deleteDialog.dialogProps} />
