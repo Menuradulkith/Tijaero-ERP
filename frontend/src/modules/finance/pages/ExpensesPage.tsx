@@ -1,10 +1,5 @@
-/**
- * ExpensesPage - Business Expense Recording & Management
- *
- * Full workflow: Create → Submit → Approve → Process Payment → Record
- * Refactored to match Purchasing/Sales Master-Detail pattern with inline editing.
- */
 
+    
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PaymentIcon from "@mui/icons-material/Payment";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
