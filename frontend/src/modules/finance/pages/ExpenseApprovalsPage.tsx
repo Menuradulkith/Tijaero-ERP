@@ -12,12 +12,10 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  MenuItem,
   TextField,
   Typography,
 } from "@mui/material";
@@ -44,6 +42,7 @@ import {
   TBranchFilter,
   TConfirmDialog,
   TFilterPanel,
+  TSearchableSelect,
   TStatusChip,
   useTConfirmDialog,
 } from "@/components/tijaero";
@@ -55,9 +54,9 @@ import type { Expense } from "@/modules/finance/types";
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = [
-  { value: "submitted", label: "Submitted" },
-  { value: "approved", label: "Approved" },
-  { value: "rejected", label: "Rejected" },
+  { value: "submitted", label: "Submitted", color: "info" as const },
+  { value: "approved", label: "Approved", color: "success" as const },
+  { value: "rejected", label: "Rejected", color: "error" as const },
 ];
 
 const SORT_OPTIONS: SortOption[] = [
@@ -74,7 +73,7 @@ export default function ExpenseApprovalsPage() {
   // State
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_date");
-  const [filterStatus, setFilterStatus] = useState<string>("submitted");
+  const [filterStatus, setFilterStatus] = useState<string | null>("submitted");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
 
@@ -204,33 +203,32 @@ export default function ExpenseApprovalsPage() {
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
+      selectedItem={selectedExpense}
+      emptyMessage="No expenses found"
       listHeader={
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, p: 1 }}>
-          <TFilterPanel>
-            <TBranchFilter
-              branches={branches}
-              value={filterBranch}
-              onChange={setFilterBranch}
-            />
-          </TFilterPanel>
-          <TextField
-            select
-            size="small"
+        <TFilterPanel>
+          <TBranchFilter
+            branches={branches}
+            value={filterBranch}
+            onChange={setFilterBranch}
+          />
+          <TSearchableSelect
             label="Status"
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            fullWidth
-          >
-            {STATUS_FILTER_OPTIONS.map((s) => (
-              <MenuItem key={s.value} value={s.value}>
-                {s.label}
-              </MenuItem>
-            ))}
-          </TextField>
-        </Box>
+            onChange={(val) => setFilterStatus(val as string | null)}
+            options={STATUS_FILTER_OPTIONS.map((s) => ({
+              value: s.value,
+              label: s.label,
+              color: s.color,
+            }))}
+            showAllOption
+            allOptionLabel="All Statuses"
+            placeholder="Search status..."
+          />
+        </TFilterPanel>
       }
       renderItem={(expense: Expense, isSelected: boolean) => {
-        const { color } = getStatusProps(expense.status, "expenseStatus");
+        const statusChip = getStatusProps(expense.status, "expenseStatus");
         return (
           <SelectableListItem
             key={expense.id}
@@ -238,26 +236,58 @@ export default function ExpenseApprovalsPage() {
             isSelected={isSelected}
             onClick={() => setSelectedExpense(expense)}
             primaryText={
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                <span>{expense.expenses_no}</span>
-                <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                  <Typography variant="caption" fontWeight={600}>
-                    Rs. {fmtLKR(expense.expense_amount)}
-                  </Typography>
-                  <Chip
-                    label={expense.status}
-                    size="small"
-                    color={color}
-                    variant="outlined"
-                  />
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{expense.expenses_no}</span>
+                  {isSelected && (
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Expense No)
+                    </Typography>
+                  )}
                 </Box>
+                {isSelected && (
+                  <>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {getCategoryLabel(expense.expense_category)}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Category)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {expense.vendor_name || "No vendor"}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Vendor)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        Rs. {fmtLKR(expense.expense_amount)}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Amount)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
+                      <TStatusChip
+                        status={expense.status}
+                        statusMap="expenseStatus"
+                        size="small"
+                      />
+                    </Box>
+                  </>
+                )}
               </Box>
             }
             secondaryText={
               !isSelected
-                ? `${getCategoryLabel(expense.expense_category)} - ${expense.vendor_name || "No vendor"}`
+                ? `${getCategoryLabel(expense.expense_category)} - ${expense.vendor_name || "No vendor"} - Rs. ${fmtLKR(expense.expense_amount)}`
                 : undefined
             }
+            statusChip={!isSelected ? statusChip : undefined}
           />
         );
       }}
@@ -519,6 +549,11 @@ export default function ExpenseApprovalsPage() {
       <MasterDetailLayout
         title="Expense Approvals"
         icon={<ReceiptLongIcon color="primary" />}
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["expense-approvals"] });
+          queryClient.invalidateQueries({ queryKey: ["expense-approval-detail"] });
+        }}
+        isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />

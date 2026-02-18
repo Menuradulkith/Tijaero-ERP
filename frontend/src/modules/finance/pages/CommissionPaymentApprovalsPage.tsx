@@ -16,7 +16,6 @@ import VerifiedIcon from "@mui/icons-material/Verified";
 import {
   Box,
   Button,
-  Chip,
   Paper,
   Table,
   TableBody,
@@ -42,6 +41,7 @@ import {
   SelectableListItem,
   SortOption,
   TConfirmDialog,
+  TFilterPanel,
   TSearchableSelect,
   TStatusChip,
   modernTableStyles,
@@ -253,16 +253,7 @@ export default function CommissionPaymentApprovalsPage() {
       selectedItem={selectedPayment}
       emptyMessage="No payments found"
       listHeader={
-        <Box
-          sx={{
-            p: 1,
-            borderBottom: "1px solid",
-            borderColor: "divider",
-            display: "flex",
-            flexDirection: "column",
-            gap: 1,
-          }}
-        >
+        <TFilterPanel>
           <TSearchableSelect
             label="Status"
             value={filterStatus}
@@ -288,7 +279,7 @@ export default function CommissionPaymentApprovalsPage() {
             allOptionLabel="All Agents"
             placeholder="Search agents..."
           />
-        </Box>
+        </TFilterPanel>
       }
       renderItem={(payment, isSelected) => {
         const statusChip = getStatusProps(payment.status, "commissionPaymentStatus");
@@ -381,11 +372,10 @@ export default function CommissionPaymentApprovalsPage() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                      <Chip
-                        label={statusChip.label}
+                      <TStatusChip
+                        status={payment.status}
+                        statusMap="commissionPaymentStatus"
                         size="small"
-                        color={statusChip.color}
-                        sx={{ height: 18, fontSize: "0.65rem" }}
                       />
                     </Box>
                   </>
@@ -397,6 +387,7 @@ export default function CommissionPaymentApprovalsPage() {
                 ? `${payment.agent_name || getAgentName(payment.customer_agent_id)} - ${format(new Date(payment.payment_date), "dd/MM/yyyy")}`
                 : undefined
             }
+            statusChip={!isSelected ? statusChip : undefined}
           />
         );
       }}

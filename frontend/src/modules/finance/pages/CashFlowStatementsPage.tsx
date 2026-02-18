@@ -2,12 +2,11 @@
  * CashFlowStatementsPage - Cash Flow Statement Management
  *
  * Generate, finalize, and approve cash flow statements.
- * Uses MasterDetailLayout with Tijaero components.
+ * Follows the Purchasing/Sales Master-Detail UI pattern with ActionToolbar,
+ * TFilterPanel, TSearchableSelect, expanded list items, and onRefresh.
  */
 
-import AddIcon from "@mui/icons-material/Add";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import DeleteIcon from "@mui/icons-material/Delete";
 import LockIcon from "@mui/icons-material/Lock";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import {
@@ -18,7 +17,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  MenuItem,
   Paper,
   Table,
   TableBody,
@@ -33,6 +31,7 @@ import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  ActionToolbar,
   DetailPanelHeader,
   EmptyState,
   fmtLKR,
@@ -44,10 +43,12 @@ import {
   showErrorToast,
   showSuccessToast,
   TCurrency,
-  TConfirmDialog,
-  useTConfirmDialog,
+  TFilterPanel,
+  TSearchableSelect,
   type SortOption,
+  modernTableStyles,
 } from "@/components/tijaero";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { cashFlowStatementsApi } from "@/modules/finance/api";
 import type {
@@ -56,6 +57,12 @@ import type {
 } from "@/modules/finance/types";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
+
+const STATUS_FILTER_OPTIONS = [
+  { value: "draft", label: "Draft", color: "default" as const },
+  { value: "final", label: "Final", color: "info" as const },
+  { value: "approved", label: "Approved", color: "success" as const },
+];
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_at", label: "Date Created" },
@@ -76,6 +83,7 @@ const getStatusColor = (status: CashFlowStatementStatus) => {
 
 export default function CashFlowStatementsPage() {
   const queryClient = useQueryClient();
+  const confirmDialog = useConfirmDialog();
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
@@ -84,7 +92,7 @@ export default function CashFlowStatementsPage() {
   const [filterYear, setFilterYear] = useState<number | "">(new Date().getFullYear());
   const [selectedStatement, setSelectedStatement] = useState<CashFlowStatement | null>(null);
 
-  // Dialogs
+  // Generate dialog
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [genYear, setGenYear] = useState(new Date().getFullYear());
   const [genStartDate, setGenStartDate] = useState(() => {
@@ -94,13 +102,9 @@ export default function CashFlowStatementsPage() {
   });
   const [genEndDate, setGenEndDate] = useState(() => new Date().toISOString().split("T")[0]);
 
-  const deleteDialog = useTConfirmDialog();
-  const finalizeDialog = useTConfirmDialog();
-  const approveDialog = useTConfirmDialog();
-
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
-  const { data: statements = [], isLoading } = useQuery({
+  const { data: statements = [], isLoading, refetch } = useQuery({
     queryKey: ["cash-flow-statements", filterStatus, filterYear],
     queryFn: () =>
       cashFlowStatementsApi.getAll({
@@ -125,17 +129,14 @@ export default function CashFlowStatementsPage() {
     let filtered = [...statements];
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (s) => s.statement_no?.toLowerCase().includes(q)
-      );
+      filtered = filtered.filter((s) => s.statement_no?.toLowerCase().includes(q));
     }
     filtered.sort((a, b) => {
       if (sortField === "fiscal_year") return b.fiscal_year - a.fiscal_year;
       if (sortField === "statement_no")
         return (b.statement_no || "").localeCompare(a.statement_no || "");
       return (
-        new Date(b.created_at || "").getTime() -
-        new Date(a.created_at || "").getTime()
+        new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime()
       );
     });
     return filtered;
@@ -201,70 +202,77 @@ export default function CashFlowStatementsPage() {
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleFinalize = useCallback(() => {
+  const handleFinalize = useCallback(async () => {
     if (!selectedStatement) return;
-    finalizeDialog.open(
-      "Finalize Statement",
-      `Finalize "${selectedStatement.statement_no}"?`,
-      () => finalizeMutation.mutate(selectedStatement.id)
-    );
-  }, [selectedStatement, finalizeDialog, finalizeMutation]);
+    const confirmed = await confirmDialog.confirm({
+      title: "Finalize Statement",
+      message: `Finalize "${selectedStatement.statement_no}"? Once finalized, changes cannot be made.`,
+      confirmText: "Finalize",
+      confirmColor: "primary",
+    });
+    if (confirmed) finalizeMutation.mutate(selectedStatement.id);
+  }, [selectedStatement, confirmDialog, finalizeMutation]);
 
-  const handleApprove = useCallback(() => {
+  const handleApprove = useCallback(async () => {
     if (!selectedStatement) return;
-    approveDialog.open(
-      "Approve Statement",
-      `Approve "${selectedStatement.statement_no}"? This is the final step.`,
-      () => approveMutation.mutate(selectedStatement.id)
-    );
-  }, [selectedStatement, approveDialog, approveMutation]);
+    const confirmed = await confirmDialog.confirm({
+      title: "Approve Statement",
+      message: `Approve "${selectedStatement.statement_no}"? This is the final step.`,
+      confirmText: "Approve",
+      confirmColor: "success",
+    });
+    if (confirmed) approveMutation.mutate(selectedStatement.id);
+  }, [selectedStatement, confirmDialog, approveMutation]);
 
-  const handleDelete = useCallback(() => {
-    if (!selectedStatement) return;
-    deleteDialog.open(
-      "Delete Statement",
-      `Delete "${selectedStatement.statement_no}"?`,
-      () => deleteMutation.mutate(selectedStatement.id)
-    );
-  }, [selectedStatement, deleteDialog, deleteMutation]);
+  const handleDelete = useCallback(async () => {
+    if (!selectedStatement || selectedStatement.status !== "draft") return;
+    const confirmed = await confirmDialog.confirm({
+      title: "Delete Statement",
+      message: `Delete draft statement "${selectedStatement.statement_no}"?`,
+      confirmText: "Delete",
+      confirmColor: "error",
+    });
+    if (confirmed) deleteMutation.mutate(selectedStatement.id);
+  }, [selectedStatement, confirmDialog, deleteMutation]);
+
+  const canDelete = !!(selectedStatement && selectedStatement.status === "draft");
+  const detail = statementDetail || selectedStatement;
+
+  // Group lines by section
+  const operatingLines = detail?.lines?.filter((l) => l.section === "Operating") || [];
+  const investingLines = detail?.lines?.filter((l) => l.section === "Investing") || [];
+  const financingLines = detail?.lines?.filter((l) => l.section === "Financing") || [];
 
   // ─── Master Panel ──────────────────────────────────────────────────────────
 
   const masterPanel = (
-    <SearchableList
+    <SearchableList<CashFlowStatement>
       items={filteredStatements}
       isLoading={isLoading}
-      searchValue={searchQuery}
+      searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
       placeholder="Search statements..."
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
+      selectedItem={selectedStatement}
+      onSelectItem={(stmt) => setSelectedStatement(stmt)}
+      emptyMessage="No cash flow statements found"
       listHeader={
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, p: 1 }}>
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => setGenerateDialogOpen(true)}
-            >
-              Generate
-            </Button>
-          </Box>
-          <TextField
-            select
-            size="small"
+        <TFilterPanel>
+          <TSearchableSelect
             label="Status"
-            value={filterStatus || ""}
-            onChange={(e) => setFilterStatus(e.target.value || null)}
-            fullWidth
-          >
-            <MenuItem value="">All Statuses</MenuItem>
-            <MenuItem value="draft">Draft</MenuItem>
-            <MenuItem value="final">Final</MenuItem>
-            <MenuItem value="approved">Approved</MenuItem>
-          </TextField>
+            value={filterStatus}
+            onChange={(val) => setFilterStatus(val as string | null)}
+            options={STATUS_FILTER_OPTIONS.map((s) => ({
+              value: s.value,
+              label: s.label,
+              color: s.color,
+            }))}
+            showAllOption
+            allOptionLabel="All Statuses"
+            placeholder="Search status..."
+          />
           <TextField
             label="Fiscal Year"
             type="number"
@@ -273,49 +281,90 @@ export default function CashFlowStatementsPage() {
             onChange={(e) => setFilterYear(e.target.value ? Number(e.target.value) : "")}
             fullWidth
           />
-        </Box>
+        </TFilterPanel>
       }
-      renderItem={(stmt: CashFlowStatement, isSelected: boolean) => (
-        <SelectableListItem
-          key={stmt.id}
-          id={stmt.id}
-          isSelected={isSelected}
-          onClick={() => setSelectedStatement(stmt)}
-          primaryText={
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-              <span>{stmt.statement_no}</span>
-              <Chip
-                label={stmt.status}
-                size="small"
-                color={getStatusColor(stmt.status)}
-                variant="outlined"
-              />
-            </Box>
-          }
-          secondaryText={
-            !isSelected
-              ? `FY ${stmt.fiscal_year} | ${format(new Date(stmt.start_date), "dd/MM")} - ${format(new Date(stmt.end_date), "dd/MM/yyyy")}`
-              : undefined
-          }
-        />
-      )}
+      renderItem={(stmt: CashFlowStatement, isSelected: boolean) => {
+        const statusColor = getStatusColor(stmt.status);
+        return (
+          <SelectableListItem
+            key={stmt.id}
+            id={stmt.id}
+            isSelected={isSelected}
+            onClick={() => setSelectedStatement(stmt)}
+            primaryText={
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{stmt.statement_no}</span>
+                  {isSelected && (
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Statement No)
+                    </Typography>
+                  )}
+                </Box>
+                {isSelected && (
+                  <>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        FY {stmt.fiscal_year}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Fiscal Year)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {format(new Date(stmt.start_date), "dd/MM/yyyy")} - {format(new Date(stmt.end_date), "dd/MM/yyyy")}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Period)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption" fontWeight={600}>
+                        Closing: Rs. {fmtLKR(stmt.closing_cash_balance)}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Balance)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
+                      <Chip
+                        label={stmt.status.charAt(0).toUpperCase() + stmt.status.slice(1)}
+                        size="small"
+                        color={statusColor}
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                    </Box>
+                  </>
+                )}
+              </Box>
+            }
+            secondaryText={
+              !isSelected
+                ? `FY ${stmt.fiscal_year} | ${format(new Date(stmt.start_date), "dd/MM")} - ${format(new Date(stmt.end_date), "dd/MM/yyyy")}`
+                : undefined
+            }
+            statusChip={
+              !isSelected
+                ? {
+                    label: stmt.status.charAt(0).toUpperCase() + stmt.status.slice(1),
+                    color: statusColor,
+                  }
+                : undefined
+            }
+          />
+        );
+      }}
     />
   );
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
 
-  const detail = statementDetail || selectedStatement;
-
-  // Group lines by section
-  const operatingLines = detail?.lines?.filter((l) => l.section === "Operating") || [];
-  const investingLines = detail?.lines?.filter((l) => l.section === "Investing") || [];
-  const financingLines = detail?.lines?.filter((l) => l.section === "Financing") || [];
-
   const detailPanel = (
-    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Finance" },
+          { label: "Finance", href: "/finance" },
           { label: "Cash Flow Statements", href: "/finance/cash-flow" },
           ...(detail ? [{ label: detail.statement_no }] : []),
         ]}
@@ -334,12 +383,19 @@ export default function CashFlowStatementsPage() {
         }
       />
 
-      {detail && (
-        <>
-          {/* Action Buttons */}
-          <Box sx={{ display: "flex", gap: 1, p: 1, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper", flexWrap: "wrap" }}>
-            {detail.status === "draft" && (
-              <>
+      <ActionToolbar
+        hasSelectedItem={!!selectedStatement}
+        isCreating={false}
+        isEditing={false}
+        isSaving={false}
+        isFormValid={false}
+        onNew={() => setGenerateDialogOpen(true)}
+        onDelete={canDelete ? handleDelete : undefined}
+        canDelete={canDelete || false}
+        endActions={
+          detail ? (
+            <Box sx={{ display: "flex", gap: 1 }}>
+              {detail.status === "draft" && (
                 <Button
                   variant="contained"
                   size="small"
@@ -348,31 +404,28 @@ export default function CashFlowStatementsPage() {
                 >
                   Finalize
                 </Button>
+              )}
+              {detail.status === "final" && (
                 <Button
-                  variant="outlined"
+                  variant="contained"
                   size="small"
-                  color="error"
-                  startIcon={<DeleteIcon />}
-                  onClick={handleDelete}
+                  color="success"
+                  startIcon={<CheckCircleIcon />}
+                  onClick={handleApprove}
                 >
-                  Delete
+                  Approve
                 </Button>
-              </>
-            )}
-            {detail.status === "final" && (
-              <Button
-                variant="contained"
-                size="small"
-                color="success"
-                startIcon={<CheckCircleIcon />}
-                onClick={handleApprove}
-              >
-                Approve
-              </Button>
-            )}
-          </Box>
+              )}
+            </Box>
+          ) : undefined
+        }
+      />
 
-          <Box sx={{ p: 2, overflow: "auto" }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!detail ? (
+          <EmptyState message="Select a cash flow statement from the list or generate a new one" />
+        ) : (
+          <>
             {/* Summary Cards */}
             <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2, mb: 2 }}>
               <Paper sx={{ p: 2, textAlign: "center" }}>
@@ -413,66 +466,72 @@ export default function CashFlowStatementsPage() {
             </Box>
 
             {/* Statement Details */}
-            <FormSection title="Statement Information">
-              <Table size="small">
-                <TableBody>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600, width: 180 }}>Period</TableCell>
-                    <TableCell>
-                      {format(new Date(detail.start_date), "dd/MM/yyyy")} -{" "}
-                      {format(new Date(detail.end_date), "dd/MM/yyyy")}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Fiscal Year</TableCell>
-                    <TableCell>{detail.fiscal_year}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Method</TableCell>
-                    <TableCell>{detail.method}</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
+            <FormSection title="Statement Information" columns={3}>
+              <TextField
+                label="Statement No"
+                size="small"
+                value={detail.statement_no}
+                disabled
+              />
+              <TextField
+                label="Period"
+                size="small"
+                value={`${format(new Date(detail.start_date), "dd/MM/yyyy")} - ${format(new Date(detail.end_date), "dd/MM/yyyy")}`}
+                disabled
+              />
+              <TextField
+                label="Fiscal Year"
+                size="small"
+                value={detail.fiscal_year}
+                disabled
+              />
+            </FormSection>
+
+            <FormSection title="Method" columns={2}>
+              <TextField
+                label="Cash Flow Method"
+                size="small"
+                value={detail.method}
+                disabled
+              />
             </FormSection>
 
             {/* Cash Flow Sections */}
-            <FormSection title="Cash from Operating Activities">
+            <FormSection title="Cash from Operating Activities" columns={1}>
               <SectionTable
                 lines={operatingLines}
                 netAmount={detail.net_cash_from_operating}
               />
             </FormSection>
 
-            <FormSection title="Cash from Investing Activities">
+            <FormSection title="Cash from Investing Activities" columns={1}>
               <SectionTable
                 lines={investingLines}
                 netAmount={detail.net_cash_from_investing}
               />
             </FormSection>
 
-            <FormSection title="Cash from Financing Activities">
+            <FormSection title="Cash from Financing Activities" columns={1}>
               <SectionTable
                 lines={financingLines}
                 netAmount={detail.net_cash_from_financing}
               />
             </FormSection>
-          </Box>
-        </>
-      )}
-
-      {!detail && (
-        <EmptyState message="Select a cash flow statement from the list to view details" />
-      )}
+          </>
+        )}
+      </Box>
     </Box>
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <>
       <MasterDetailLayout
         title="Cash Flow Statements"
         icon={<MonetizationOnIcon color="primary" />}
+        onRefresh={refetch}
+        isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
@@ -533,10 +592,8 @@ export default function CashFlowStatementsPage() {
         </DialogActions>
       </Dialog>
 
-      <TConfirmDialog {...deleteDialog.dialogProps} />
-      <TConfirmDialog {...finalizeDialog.dialogProps} />
-      <TConfirmDialog {...approveDialog.dialogProps} />
-    </Box>
+      <ConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }
 
@@ -557,10 +614,10 @@ function SectionTable({ lines, netAmount }: SectionTableProps) {
   }
 
   return (
-    <Paper variant="outlined">
+    <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
       <Table size="small">
         <TableHead>
-          <TableRow>
+          <TableRow sx={modernTableStyles.headerRow}>
             <TableCell>#</TableCell>
             <TableCell>Description</TableCell>
             <TableCell align="right">Amount</TableCell>
@@ -568,7 +625,7 @@ function SectionTable({ lines, netAmount }: SectionTableProps) {
         </TableHead>
         <TableBody>
           {lines.map((line) => (
-            <TableRow key={line.line_number}>
+            <TableRow key={line.line_number} sx={modernTableStyles.bodyRow}>
               <TableCell>{line.line_number}</TableCell>
               <TableCell>{line.line_description}</TableCell>
               <TableCell
@@ -582,7 +639,7 @@ function SectionTable({ lines, netAmount }: SectionTableProps) {
               </TableCell>
             </TableRow>
           ))}
-          <TableRow sx={{ bgcolor: "action.hover" }}>
+          <TableRow sx={modernTableStyles.footerRow}>
             <TableCell colSpan={2} sx={{ fontWeight: 700 }}>
               Net Cash
             </TableCell>
