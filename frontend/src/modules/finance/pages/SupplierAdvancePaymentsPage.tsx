@@ -1,55 +1,52 @@
 /**
  * Supplier Advance Payments Page
  * 
- * Page for managing supplier advance payments.
- * Uses Tijaero components for consistent UI.
+ * Master-Detail layout for managing supplier advance payments.
+ * Follows the Purchasing/Sales UI pattern with Tijaero components.
  */
 
-import { useState, useMemo, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Box,
-  Grid,
-  Paper,
-  Typography,
-  TextField,
-  Chip,
   Autocomplete,
+  Box,
+  Chip,
   InputAdornment,
-  IconButton,
-  Tooltip,
+  MenuItem,
+  TextField,
+  Typography,
 } from "@mui/material";
 import {
-  Add as AddIcon,
   AccountBalanceWallet as WalletIcon,
-  Store as SupplierIcon,
-  Delete as DeleteIcon,
-  Refresh as RefreshIcon,
   CheckCircle as CheckCircleIcon,
 } from "@mui/icons-material";
-import { suppliersApi, supplierAdvancePaymentsApi } from "@/modules/purchasing/api";
-import { SupplierAdvancePaymentCreate } from "@/modules/purchasing/types";
-import { useReferenceData } from "@/hooks";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
-// Tijaero Components
 import {
-  TPageHeader,
-  TStatCard,
-  TTable,
-  TButton,
-  TTextField,
-  TSelect,
-  TFormDialog,
-  TLoading,
-  TEmptyState,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  DetailPanelHeader,
+  ActionToolbar,
+  FormSection,
+  EmptyState,
   handleApiError,
+  useMasterDetailState,
   showErrorToast,
   showSuccessToast,
+  SortOption,
   TBranchFilter,
   TFilterPanel,
-  TConfirmDialog,
-  useConfirmDialog,
+  TSupplierFilter,
+  GENERIC_PAYMENT_METHOD,
 } from "@/components/tijaero";
+
+import { suppliersApi, supplierAdvancePaymentsApi } from "@/modules/purchasing/api";
+import {
+  SupplierAdvancePayment,
+  SupplierAdvancePaymentCreate,
+} from "@/modules/purchasing/types";
+import { useReferenceData } from "@/hooks";
 
 // Types
 interface Branch {
@@ -63,42 +60,79 @@ interface Supplier {
   company_name?: string;
 }
 
-// Format currency helper
-const formatCurrency = (value: number | string | undefined) => {
-  const num = Number(value) || 0;
-  return `Rs. ${num.toLocaleString("en-LK", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+const SORT_OPTIONS: SortOption[] = [
+  { value: "created_at", label: "Date" },
+  { value: "advance_no", label: "Advance No" },
+  { value: "original_amount", label: "Amount" },
+];
+
+const INITIAL_FORM_DATA: Partial<SupplierAdvancePaymentCreate> = {
+  supplier_id: 0,
+  payment_date: new Date().toISOString().split("T")[0],
+  payment_method: "Bank Transfer",
+  original_amount: 0,
+  reference_number: "",
+  bank_name: "",
+  branch_code: "",
+  remarks: "",
 };
 
-// Format date helper
-const formatDate = (dateString: string | undefined) => {
-  if (!dateString) return "-";
-  return new Date(dateString).toLocaleDateString("en-LK");
-};
+const resetFormFromItem = (item: SupplierAdvancePayment): Partial<SupplierAdvancePaymentCreate> => ({
+  supplier_id: item.supplier_id || 0,
+  payment_date: item.payment_date?.split("T")[0] || new Date().toISOString().split("T")[0],
+  payment_method: item.payment_method || "Bank Transfer",
+  original_amount: Number(item.original_amount) || 0,
+  reference_number: item.reference_number || "",
+  bank_name: item.bank_name || "",
+  branch_code: item.branch_code || "",
+  remarks: item.remarks || "",
+});
 
 export default function SupplierAdvancePaymentsPage() {
+  const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
+
+  // Validation state
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const handleBlur = (fieldName: string) => {
+    setTouched((prev) => ({ ...prev, [fieldName]: true }));
+  };
 
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
-  const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(null);
+  const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
 
-  // Dialog states
-  const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  // Form data
-  const [formData, setFormData] = useState<Partial<SupplierAdvancePaymentCreate>>({
-    supplier_id: 0,
-    payment_date: new Date().toISOString().split("T")[0],
-    payment_method: "Bank Transfer",
-    original_amount: 0,
-    reference_number: "",
-    bank_name: "",
-    branch_code: "",
-    remarks: "",
+  const {
+    searchQuery,
+    setSearchQuery,
+    sortField,
+    setSortField,
+    selectedItem,
+    setSelectedItem,
+    isEditing,
+    setIsEditing,
+    isCreating,
+    setIsCreating,
+    favorites,
+    toggleFavorite,
+    formData,
+    setFormData,
+    handleSelectItem,
+    handleNew,
+    handleCancel,
+  } = useMasterDetailState<SupplierAdvancePayment, Partial<SupplierAdvancePaymentCreate>>({
+    initialFormData: INITIAL_FORM_DATA,
+    resetFormFromItem: resetFormFromItem,
+    favoritesKey: "supplier_advance_payments_favorites",
+    defaultSortField: "created_at",
+    confirmUnsavedChanges: () =>
+      confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      }),
   });
 
   // Reference data
@@ -112,385 +146,527 @@ export default function SupplierAdvancePaymentsPage() {
   });
 
   // Fetch supplier advance payments
-  const { data: advances = [], isLoading, refetch } = useQuery({
-    queryKey: ["supplier-advance-payments", filterBranch, selectedSupplierId],
+  const {
+    data: advances = [],
+    isLoading,
+    refetch,
+  } = useQuery({
+    queryKey: ["supplier-advance-payments", filterBranch, filterSupplier],
     queryFn: () =>
       supplierAdvancePaymentsApi.getAll({
         branch_code: filterBranch ?? undefined,
-        supplier_id: selectedSupplierId ?? undefined,
+        supplier_id: filterSupplier ?? undefined,
       }),
   });
 
-  // Calculate stats
-  const stats = useMemo(() => {
-    const total = advances.reduce((sum, a) => sum + Number(a.original_amount || 0), 0);
-    const applied = advances.reduce((sum, a) => sum + Number(a.applied_amount || 0), 0);
-    const remaining = advances.reduce((sum, a) => sum + Number(a.remaining_amount || 0), 0);
-    const fullyApplied = advances.filter(a => a.is_fully_applied).length;
-    return { total, applied, remaining, count: advances.length, fullyApplied };
-  }, [advances]);
+  // Filtered & sorted list
+  const filteredAdvances = useMemo(() => {
+    if (!advances) return [];
 
-  // Create advance mutation
-  const createAdvance = useCallback(async () => {
-    if (!formData.supplier_id || !formData.original_amount || formData.original_amount <= 0) {
-      showErrorToast("Please select a supplier and enter a valid amount");
-      return;
-    }
+    let filtered = advances.filter(
+      (adv) =>
+        (adv.advance_no || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (adv.supplier_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(adv.id).includes(searchQuery)
+    );
 
-    if (!formData.branch_code) {
-      showErrorToast("Please select a branch");
-      return;
-    }
-
-    try {
-      setSaving(true);
-      await supplierAdvancePaymentsApi.create(formData as SupplierAdvancePaymentCreate);
-      showSuccessToast("Supplier advance payment created successfully");
-      setShowForm(false);
-      setFormData({
-        supplier_id: 0,
-        payment_date: new Date().toISOString().split("T")[0],
-        payment_method: "Bank Transfer",
-        original_amount: 0,
-        reference_number: "",
-        bank_name: "",
-        branch_code: "",
-        remarks: "",
-      });
-      refetch();
-    } catch (err: unknown) {
-      console.error("Failed to create supplier advance:", err);
-      showErrorToast(handleApiError(err, "Failed to create advance payment"));
-    } finally {
-      setSaving(false);
-    }
-  }, [formData, refetch]);
-
-  // Delete advance
-  const handleDelete = useCallback(async (advanceId: number) => {
-    const confirmed = await confirmDialog.confirm({
-      title: "Delete Advance Payment",
-      message: "Are you sure you want to delete this advance payment? This action cannot be undone.",
-      confirmText: "Delete",
-      cancelText: "Cancel",
+    // Sort
+    filtered.sort((a, b) => {
+      if (sortField === "created_at") {
+        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+      }
+      if (sortField === "original_amount") {
+        return Number(b.original_amount || 0) - Number(a.original_amount || 0);
+      }
+      const fieldA = a[sortField as keyof SupplierAdvancePayment] || "";
+      const fieldB = b[sortField as keyof SupplierAdvancePayment] || "";
+      return String(fieldA).localeCompare(String(fieldB));
     });
 
-    if (!confirmed) return;
+    return filtered;
+  }, [advances, searchQuery, sortField]);
 
-    try {
-      await supplierAdvancePaymentsApi.delete(advanceId);
-      showSuccessToast("Advance payment deleted");
-      refetch();
-    } catch (err: unknown) {
-      console.error("Failed to delete advance:", err);
-      showErrorToast(handleApiError(err, "Failed to delete advance payment"));
+  // Auto-select first item
+  useEffect(() => {
+    if (filteredAdvances.length > 0 && !selectedItem && !isCreating) {
+      handleSelectItem(filteredAdvances[0]);
     }
-  }, [confirmDialog, refetch]);
+  }, [filteredAdvances, selectedItem, isCreating]);
 
-  return (
-    <Box>
-      {/* Page Header */}
-      <TPageHeader
-        title="Supplier Advance Payments"
-        subtitle="Manage advance payments to suppliers"
-        icon={<SupplierIcon />}
-        actions={
-          <TButton
-            variant="primary"
-            startIcon={<AddIcon />}
-            onClick={() => setShowForm(true)}
-          >
-            Create Advance
-          </TButton>
-        }
+  // Mutations
+  const createMutation = useMutation({
+    mutationFn: (data: SupplierAdvancePaymentCreate) => supplierAdvancePaymentsApi.create(data),
+    onSuccess: (newItem) => {
+      queryClient.invalidateQueries({ queryKey: ["supplier-advance-payments"] });
+      showSuccessToast("Supplier advance payment created successfully");
+      setIsCreating(false);
+      setIsEditing(false);
+      setTouched({});
+      setTimeout(() => handleSelectItem(newItem), 0);
+    },
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to create advance payment"));
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => supplierAdvancePaymentsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["supplier-advance-payments"] });
+      showSuccessToast("Advance payment deleted successfully");
+      setSelectedItem(null);
+    },
+    onError: (error: unknown) => {
+      showErrorToast(handleApiError(error, "Failed to delete advance payment"));
+    },
+  });
+
+  // Helper functions
+  const getSupplierName = useCallback(
+    (supplierId: number) => {
+      const supplier = suppliers.find((s: Supplier) => s.id === supplierId);
+      return supplier?.full_name || supplier?.company_name || `Supplier #${supplierId}`;
+    },
+    [suppliers]
+  );
+
+  // Delete handler
+  const handleDelete = useCallback(async () => {
+    if (selectedItem && !selectedItem.is_fully_applied && Number(selectedItem.applied_amount) === 0) {
+      const confirmed = await confirmDialog.confirm({
+        title: "Delete Advance Payment",
+        message: `Are you sure you want to delete advance "${selectedItem.advance_no}"? This action cannot be undone.`,
+        confirmText: "Delete",
+        confirmColor: "error",
+      });
+      if (confirmed) {
+        deleteMutation.mutate(selectedItem.id);
+      }
+    } else {
+      showErrorToast("Cannot delete an advance that has been applied");
+    }
+  }, [selectedItem, deleteMutation, confirmDialog]);
+
+  // Can delete check
+  const canDelete = !!(
+    selectedItem &&
+    !selectedItem.is_fully_applied &&
+    Number(selectedItem.applied_amount) === 0
+  );
+
+  // Validation
+  const getFieldError = (fieldName: string): string | undefined => {
+    if (!touched[fieldName] && !isCreating) return undefined;
+
+    switch (fieldName) {
+      case "supplier_id":
+        if (!formData.supplier_id || formData.supplier_id === 0) return "Supplier is required";
+        break;
+      case "branch_code":
+        if (!formData.branch_code) return "Branch is required";
+        break;
+      case "original_amount":
+        if (!formData.original_amount || formData.original_amount <= 0) return "Amount must be greater than 0";
+        break;
+      case "payment_date":
+        if (!formData.payment_date) return "Payment date is required";
+        break;
+    }
+    return undefined;
+  };
+
+  const hasError = (fieldName: string): boolean => !!getFieldError(fieldName);
+
+  const isFormValid =
+    !!formData.supplier_id &&
+    formData.supplier_id > 0 &&
+    !!formData.branch_code &&
+    !!formData.original_amount &&
+    formData.original_amount > 0 &&
+    !!formData.payment_date;
+
+  const isSaving = createMutation.isPending;
+
+  const handleSave = useCallback(() => {
+    if (isCreating) {
+      createMutation.mutate(formData as SupplierAdvancePaymentCreate);
+    }
+  }, [isCreating, formData, createMutation]);
+
+  const handleNewAdvance = useCallback(() => {
+    handleNew();
+    setTouched({});
+  }, [handleNew]);
+
+  const handleSelectWithCheck = useCallback(
+    async (item: SupplierAdvancePayment) => {
+      await handleSelectItem(item);
+      setTouched({});
+    },
+    [handleSelectItem]
+  );
+
+  // Master panel
+  const masterPanel = (
+    <SearchableList<SupplierAdvancePayment>
+      items={filteredAdvances}
+      isLoading={isLoading}
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
+      placeholder="Search advances..."
+      sortOptions={SORT_OPTIONS}
+      sortField={sortField}
+      onSortChange={setSortField}
+      selectedItem={selectedItem}
+      onSelectItem={handleSelectWithCheck}
+      emptyMessage="No supplier advance payments found"
+      listHeader={
+        <TFilterPanel>
+          <TBranchFilter
+            branches={branches}
+            value={filterBranch}
+            onChange={setFilterBranch}
+          />
+          <TSupplierFilter
+            suppliers={suppliers || []}
+            value={filterSupplier}
+            onChange={setFilterSupplier}
+          />
+        </TFilterPanel>
+      }
+      renderItem={(adv, isSelected) => (
+        <SelectableListItem
+          key={adv.id}
+          id={adv.id}
+          isSelected={isSelected}
+          onClick={() => handleSelectWithCheck(adv)}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              {/* Advance No */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{adv.advance_no || `ADV-${adv.id}`}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Advance No)
+                  </Typography>
+                )}
+              </Box>
+              {/* Additional fields when selected */}
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {adv.supplier_name || getSupplierName(adv.supplier_id)}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Supplier)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      Rs. {Number(adv.original_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Original)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption" sx={{ color: "success.main" }}>
+                      Rs. {Number(adv.remaining_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Remaining)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {adv.payment_date ? new Date(adv.payment_date).toLocaleDateString() : "-"}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      (Date)
+                    </Typography>
+                  </Box>
+                  {/* Status Chip */}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label={adv.is_fully_applied ? "Fully Applied" : "Active"}
+                      size="small"
+                      color={adv.is_fully_applied ? "default" : "success"}
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                  </Box>
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={
+            !isSelected
+              ? `${adv.supplier_name || getSupplierName(adv.supplier_id)} - Rs. ${Number(adv.original_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`
+              : undefined
+          }
+          isFavorite={favorites.includes(adv.id)}
+          onToggleFavorite={(e) => toggleFavorite(adv.id, e)}
+          statusChip={
+            !isSelected
+              ? adv.is_fully_applied
+                ? { label: "Fully Applied", color: "default" }
+                : { label: "Active", color: "success" }
+              : undefined
+          }
+        />
+      )}
+    />
+  );
+
+  // Detail panel
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "Finance", href: "/finance" },
+          { label: "Advance Payments", href: "/finance/advance-payments" },
+          { label: "Supplier Advances", href: "/finance/advance-payments/supplier" },
+          ...(selectedItem || isCreating
+            ? [{ label: isCreating ? "New Advance" : selectedItem?.advance_no || `ADV-${selectedItem?.id}` }]
+            : []),
+        ]}
+        title={selectedItem ? (selectedItem.advance_no || `ADV-${selectedItem.id}`) : ""}
+        titleIcon={<WalletIcon color="primary" />}
+        isCreating={isCreating}
+        createTitle="New Supplier Advance Payment"
+        noSelectionTitle="Select an Advance Payment"
+        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
+        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
-      {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Total Advances"
-            value={formatCurrency(stats.total)}
-            icon={<WalletIcon />}
-            color="primary"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Applied"
-            value={formatCurrency(stats.applied)}
-            icon={<CheckCircleIcon />}
-            color="warning"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Available Balance"
-            value={formatCurrency(stats.remaining)}
-            icon={<WalletIcon />}
-            color="success"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Fully Applied"
-            value={`${stats.fullyApplied} / ${stats.count}`}
-            icon={<SupplierIcon />}
-            color="info"
-          />
-        </Grid>
-      </Grid>
+      <ActionToolbar
+        hasSelectedItem={!!selectedItem}
+        isCreating={isCreating}
+        isEditing={isEditing}
+        isSaving={isSaving}
+        isFormValid={isFormValid}
+        onNew={handleNewAdvance}
+        onSave={handleSave}
+        onCancel={() => handleCancel(filteredAdvances)}
+        onDelete={canDelete ? handleDelete : undefined}
+        canDelete={canDelete}
+      />
 
-      {/* Filters */}
-      <TFilterPanel>
-        <TBranchFilter
-          branches={branches}
-          value={filterBranch}
-          onChange={setFilterBranch}
-        />
-        <Autocomplete
-          size="small"
-          options={suppliers}
-          getOptionLabel={(option: Supplier) => option.full_name || option.company_name || ""}
-          value={suppliers.find((s: Supplier) => s.id === selectedSupplierId) || null}
-          onChange={(_, newValue) => setSelectedSupplierId(newValue?.id || null)}
-          renderInput={(params) => (
-            <TextField {...params} label="Filter by Supplier" placeholder="All Suppliers" />
-          )}
-          sx={{ minWidth: 250 }}
-        />
-        <TButton
-          variant="outlined"
-          startIcon={<RefreshIcon />}
-          onClick={() => refetch()}
-        >
-          Refresh
-        </TButton>
-      </TFilterPanel>
-
-      {/* Data Table */}
-      {isLoading ? (
-        <TLoading message="Loading supplier advances..." />
-      ) : advances.length === 0 ? (
-        <TEmptyState
-          icon={<WalletIcon sx={{ fontSize: 64 }} />}
-          title="No Supplier Advances Found"
-          message="No advance payments match your current filters"
-          action={{
-            label: "Create Advance",
-            onClick: () => setShowForm(true),
-            icon: <AddIcon />,
-          }}
-        />
-      ) : (
-        <Paper sx={{ borderRadius: 2, overflow: "hidden" }}>
-          <TTable
-            columns={[
-              { field: "advance_no", header: "Advance No", width: 130 },
-              {
-                field: "supplier_name",
-                header: "Supplier",
-                width: 180,
-                render: (_value, row: any) => {
-                  const supplier = suppliers.find((s: Supplier) => s.id === row.supplier_id);
-                  return row.supplier_name || supplier?.full_name || `ID: ${row.supplier_id}`;
-                },
-              },
-              { field: "payment_method", header: "Method", width: 120 },
-              {
-                field: "original_amount",
-                header: "Original",
-                width: 120,
-                align: "right",
-                render: (_value, row: any) => (
-                  <Typography fontWeight="bold">
-                    {formatCurrency(row.original_amount)}
-                  </Typography>
-                ),
-              },
-              {
-                field: "applied_amount",
-                header: "Applied",
-                width: 120,
-                align: "right",
-                render: (_value, row: any) => (
-                  <Typography color="warning.main">
-                    {formatCurrency(row.applied_amount)}
-                  </Typography>
-                ),
-              },
-              {
-                field: "remaining_amount",
-                header: "Remaining",
-                width: 120,
-                align: "right",
-                render: (_value, row: any) => (
-                  <Typography fontWeight="bold" color="success.main">
-                    {formatCurrency(row.remaining_amount)}
-                  </Typography>
-                ),
-              },
-              { field: "branch_code", header: "Branch", width: 100 },
-              {
-                field: "payment_date",
-                header: "Date",
-                width: 100,
-                render: (_value, row: any) => formatDate(row.payment_date),
-              },
-              {
-                field: "status",
-                header: "Status",
-                width: 120,
-                render: (_value, row: any) => (
-                  <Chip
-                    label={row.is_fully_applied ? "Fully Applied" : "Active"}
-                    color={row.is_fully_applied ? "default" : "success"}
-                    size="small"
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!selectedItem && !isCreating ? (
+          <EmptyState message="Select a supplier advance payment from the list or create a new one" />
+        ) : (
+          <>
+            <FormSection title="Supplier Information" columns={3}>
+              <Autocomplete
+                size="small"
+                options={suppliers}
+                getOptionLabel={(option: Supplier) =>
+                  option.company_name
+                    ? `${option.full_name} (${option.company_name})`
+                    : option.full_name || ""
+                }
+                value={suppliers.find((s: Supplier) => s.id === formData.supplier_id) || null}
+                onChange={(_, newValue: Supplier | null) => {
+                  setFormData({ ...formData, supplier_id: newValue?.id || 0 });
+                  handleBlur("supplier_id");
+                }}
+                disabled={!isEditing && !isCreating}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Supplier"
+                    required
+                    error={hasError("supplier_id")}
+                    helperText={getFieldError("supplier_id")}
                   />
-                ),
-              },
-              {
-                field: "actions",
-                header: "Actions",
-                width: 80,
-                align: "center",
-                render: (_value, row: any) => (
-                  <Box sx={{ display: "flex", gap: 0.5, justifyContent: "center" }}>
-                    {!row.is_fully_applied && Number(row.applied_amount) === 0 && (
-                      <Tooltip title="Delete">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleDelete(row.id)}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                  </Box>
-                ),
-              },
-            ]}
-            data={advances}
-            getRowKey={(row: any) => row.id}
-            stickyHeader
-            maxHeight={500}
-          />
-        </Paper>
-      )}
+                )}
+              />
+              <Autocomplete
+                size="small"
+                options={branches}
+                getOptionLabel={(option: Branch) => `${option.branch_code} - ${option.branch_name}`}
+                value={branches.find((b) => b.branch_code === formData.branch_code) || null}
+                onChange={(_, newValue) => {
+                  setFormData({ ...formData, branch_code: newValue?.branch_code || "" });
+                  handleBlur("branch_code");
+                }}
+                disabled={!isEditing && !isCreating}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Branch"
+                    required
+                    error={hasError("branch_code")}
+                    helperText={getFieldError("branch_code")}
+                  />
+                )}
+              />
+              <TextField
+                label="Payment Date"
+                size="small"
+                type="date"
+                value={formData.payment_date || ""}
+                onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
+                onBlur={() => handleBlur("payment_date")}
+                disabled={!isEditing && !isCreating}
+                InputLabelProps={{ shrink: true }}
+                required
+                error={hasError("payment_date")}
+                helperText={getFieldError("payment_date")}
+              />
+            </FormSection>
 
-      {/* Form Dialog */}
-      <TFormDialog
-        open={showForm}
-        onClose={() => setShowForm(false)}
-        title="Create Supplier Advance Payment"
-        icon={<SupplierIcon />}
-        maxWidth="sm"
-        onSubmit={(e) => {
-          e.preventDefault();
-          createAdvance();
-        }}
-        isSubmitting={saving}
-        submitDisabled={!formData.supplier_id || !formData.original_amount || !formData.branch_code}
-        submitText={saving ? "Creating..." : "Create Advance"}
-      >
-        <Grid container spacing={2}>
-          <Grid item xs={12}>
-            <Autocomplete
-              size="small"
-              options={suppliers}
-              getOptionLabel={(option: Supplier) => option.full_name || option.company_name || ""}
-              value={suppliers.find((s: Supplier) => s.id === formData.supplier_id) || null}
-              onChange={(_, newValue) => setFormData({ ...formData, supplier_id: newValue?.id || 0 })}
-              renderInput={(params) => (
-                <TextField {...params} label="Supplier" required />
-              )}
-              fullWidth
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <TSelect
-              fullWidth
-              label="Payment Method"
-              value={formData.payment_method || "Bank Transfer"}
-              onChange={(value) => setFormData({ ...formData, payment_method: String(value) })}
-              options={[
-                { value: "Cash", label: "💵 Cash" },
-                { value: "Bank Transfer", label: "🏦 Bank Transfer" },
-                { value: "Cheque", label: "📝 Cheque" },
-              ]}
-              required
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <TTextField
-              fullWidth
-              label="Amount"
-              type="number"
-              value={formData.original_amount || ""}
-              onChange={(e) => setFormData({ ...formData, original_amount: parseFloat(e.target.value) || 0 })}
-              InputProps={{
-                startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
-              }}
-              required
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <TSelect
-              fullWidth
-              label="Branch"
-              value={formData.branch_code || ""}
-              onChange={(value) => setFormData({ ...formData, branch_code: String(value) })}
-              options={branches.map((b) => ({ value: b.branch_code, label: b.branch_name }))}
-              required
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Payment Date"
-              type="date"
-              value={formData.payment_date || ""}
-              onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
-              InputLabelProps={{ shrink: true }}
-              required
-            />
-          </Grid>
-          {(formData.payment_method === "Bank Transfer" || formData.payment_method === "Cheque") && (
-            <>
-              <Grid item xs={12} sm={6}>
-                <TTextField
-                  fullWidth
+            <FormSection title="Payment Details" columns={3}>
+              <TextField
+                select
+                label="Payment Method"
+                size="small"
+                value={formData.payment_method || "Bank Transfer"}
+                onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+                disabled={!isEditing && !isCreating}
+              >
+                {GENERIC_PAYMENT_METHOD.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Amount"
+                size="small"
+                type="number"
+                value={formData.original_amount || ""}
+                onChange={(e) => setFormData({ ...formData, original_amount: parseFloat(e.target.value) || 0 })}
+                onBlur={() => handleBlur("original_amount")}
+                disabled={!isEditing && !isCreating}
+                required
+                error={hasError("original_amount")}
+                helperText={getFieldError("original_amount")}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                }}
+                inputProps={{ min: 0, step: 0.01 }}
+              />
+              {/* Conditional fields for Bank Transfer / Cheque */}
+              {(formData.payment_method === "Bank Transfer" || formData.payment_method === "Cheque") && (
+                <TextField
                   label={formData.payment_method === "Cheque" ? "Cheque Number" : "Reference Number"}
+                  size="small"
                   value={formData.reference_number || ""}
                   onChange={(e) => setFormData({ ...formData, reference_number: e.target.value })}
+                  disabled={!isEditing && !isCreating}
                 />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TTextField
-                  fullWidth
+              )}
+            </FormSection>
+
+            {/* Bank info for Bank Transfer / Cheque */}
+            {(formData.payment_method === "Bank Transfer" || formData.payment_method === "Cheque") && (
+              <FormSection title="Bank Information" columns={3}>
+                <TextField
                   label="Bank Name"
+                  size="small"
                   value={formData.bank_name || ""}
                   onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                  disabled={!isEditing && !isCreating}
                 />
-              </Grid>
-            </>
-          )}
-          <Grid item xs={12}>
-            <TTextField
-              fullWidth
-              label="Remarks"
-              value={formData.remarks || ""}
-              onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-              multiline
-              rows={2}
-            />
-          </Grid>
-        </Grid>
-      </TFormDialog>
+              </FormSection>
+            )}
 
-      {/* Confirm Dialog */}
-      <TConfirmDialog {...confirmDialog.dialogProps} />
+            {/* View-only amount tracking section */}
+            {selectedItem && !isCreating && (
+              <FormSection title="Amount Tracking" columns={4}>
+                <TextField
+                  label="Original Amount"
+                  size="small"
+                  value={`Rs. ${Number(selectedItem.original_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                  disabled
+                  InputProps={{ readOnly: true }}
+                />
+                <TextField
+                  label="Applied Amount"
+                  size="small"
+                  value={`Rs. ${Number(selectedItem.applied_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                  disabled
+                  InputProps={{ readOnly: true }}
+                  sx={{
+                    "& .MuiInputBase-input.Mui-disabled": {
+                      WebkitTextFillColor: "orange",
+                    },
+                  }}
+                />
+                <TextField
+                  label="Remaining Amount"
+                  size="small"
+                  value={`Rs. ${Number(selectedItem.remaining_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                  disabled
+                  InputProps={{ readOnly: true }}
+                  sx={{
+                    "& .MuiInputBase-input.Mui-disabled": {
+                      WebkitTextFillColor: "green",
+                      fontWeight: "bold",
+                    },
+                  }}
+                />
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">Status:</Typography>
+                  <Chip
+                    label={selectedItem.is_fully_applied ? "Fully Applied" : "Active"}
+                    size="small"
+                    color={selectedItem.is_fully_applied ? "default" : "success"}
+                    icon={selectedItem.is_fully_applied ? <CheckCircleIcon /> : undefined}
+                  />
+                </Box>
+              </FormSection>
+            )}
+
+            {/* Tracking info */}
+            {selectedItem && !isCreating && (
+              <FormSection title="Tracking" columns={2}>
+                <TextField
+                  label="Created Date"
+                  size="small"
+                  value={selectedItem.created_at ? new Date(selectedItem.created_at).toLocaleString() : "-"}
+                  disabled
+                  InputProps={{ readOnly: true }}
+                />
+                <TextField
+                  label="Last Updated"
+                  size="small"
+                  value={selectedItem.updated_at ? new Date(selectedItem.updated_at).toLocaleString() : "-"}
+                  disabled
+                  InputProps={{ readOnly: true }}
+                />
+              </FormSection>
+            )}
+
+            <FormSection title="Remarks" columns={1}>
+              <TextField
+                label="Remarks"
+                size="small"
+                value={formData.remarks || ""}
+                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                disabled={!isEditing && !isCreating}
+                multiline
+                rows={2}
+              />
+            </FormSection>
+          </>
+        )}
+      </Box>
     </Box>
+  );
+
+  return (
+    <>
+      <MasterDetailLayout
+        title="Supplier Advance Payments"
+        onRefresh={refetch}
+        isLoading={isLoading}
+        masterPanel={masterPanel}
+        detailPanel={detailPanel}
+      />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

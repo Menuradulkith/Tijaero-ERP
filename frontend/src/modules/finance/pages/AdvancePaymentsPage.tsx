@@ -11,10 +11,6 @@ import {
   Box,
   Grid,
   Paper,
-  Typography,
-  TextField,
-  Chip,
-  Autocomplete,
   InputAdornment,
   IconButton,
   Tooltip,
@@ -48,6 +44,12 @@ import {
   TFormDialog,
   TLoading,
   TEmptyState,
+  TAutocomplete,
+  TStatusChip,
+  TCurrency,
+  TDate,
+  TDatePicker,
+  fmtLKR,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -75,21 +77,6 @@ interface Supplier {
   full_name: string;
   company_name?: string;
 }
-
-// Format currency helper
-const formatCurrency = (value: number | string | undefined) => {
-  const num = Number(value) || 0;
-  return `Rs. ${num.toLocaleString("en-LK", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-};
-
-// Format date helper
-const formatDate = (dateString: string | undefined) => {
-  if (!dateString) return "-";
-  return new Date(dateString).toLocaleDateString("en-LK");
-};
 
 export default function AdvancePaymentsPage() {
   const confirmDialog = useConfirmDialog();
@@ -152,8 +139,8 @@ export default function AdvancePaymentsPage() {
     queryKey: ["customer-advance-payments", filterBranch, selectedCustomerId],
     queryFn: () =>
       advancePaymentsApi.getAll({
-        branch_code: filterBranch ?? undefined,
-        customer_id: selectedCustomerId ?? undefined,
+        branch_code: filterBranch || undefined,
+        customer_id: selectedCustomerId || undefined,
       }),
     enabled: activeTab === "customer",
   });
@@ -163,8 +150,8 @@ export default function AdvancePaymentsPage() {
     queryKey: ["supplier-advance-payments", filterBranch, selectedSupplierId],
     queryFn: () =>
       supplierAdvancePaymentsApi.getAll({
-        branch_code: filterBranch ?? undefined,
-        supplier_id: selectedSupplierId ?? undefined,
+        branch_code: filterBranch || undefined,
+        supplier_id: selectedSupplierId || undefined,
       }),
     enabled: activeTab === "supplier",
   });
@@ -301,7 +288,7 @@ export default function AdvancePaymentsPage() {
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Total Advances"
-            value={formatCurrency(customerStats.total)}
+            value={`Rs. ${fmtLKR(customerStats.total)}`}
             icon={<WalletIcon />}
             color="primary"
           />
@@ -339,15 +326,15 @@ export default function AdvancePaymentsPage() {
           value={filterBranch}
           onChange={setFilterBranch}
         />
-        <Autocomplete
-          size="small"
+        <TAutocomplete
+          label="Filter by Customer"
+          placeholder="All Customers"
           options={customers}
           getOptionLabel={(option: Customer) => option.customer_name || ""}
           value={customers.find((c: Customer) => c.id === selectedCustomerId) || null}
-          onChange={(_, newValue) => setSelectedCustomerId(newValue?.id || null)}
-          renderInput={(params) => (
-            <TextField {...params} label="Filter by Customer" placeholder="All Customers" />
-          )}
+          onChange={(newValue) => setSelectedCustomerId((newValue as Customer)?.id || null)}
+          isOptionEqualToValue={(option, value) => option.id === value.id}
+          size="small"
           sx={{ minWidth: 250 }}
         />
         <TButton
@@ -394,9 +381,7 @@ export default function AdvancePaymentsPage() {
                 width: 120,
                 align: "right",
                 render: (_value, row: any) => (
-                  <Typography fontWeight="bold" color="primary.main">
-                    {formatCurrency(row.payment_amount)}
-                  </Typography>
+                  <TCurrency value={row.payment_amount} fontWeight="bold" color="primary.main" />
                 ),
               },
               { field: "branch_code", header: "Branch", width: 100 },
@@ -404,17 +389,16 @@ export default function AdvancePaymentsPage() {
                 field: "cheque_date",
                 header: "Date",
                 width: 100,
-                render: (_value, row: any) => formatDate(row.cheque_date),
+                render: (_value, row: any) => <TDate value={row.cheque_date} />,
               },
               {
                 field: "active",
                 header: "Status",
                 width: 100,
                 render: (_value, row: any) => (
-                  <Chip
-                    label={row.active ? "Active" : "Inactive"}
-                    color={row.active ? "success" : "default"}
-                    size="small"
+                  <TStatusChip
+                    status={row.active ? "active" : "inactive"}
+                    statusMap="activeInactive"
                   />
                 ),
               },
@@ -438,7 +422,7 @@ export default function AdvancePaymentsPage() {
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Total Advances"
-            value={formatCurrency(supplierStats.total)}
+            value={`Rs. ${fmtLKR(supplierStats.total)}`}
             icon={<WalletIcon />}
             color="primary"
           />
@@ -446,7 +430,7 @@ export default function AdvancePaymentsPage() {
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Applied"
-            value={formatCurrency(supplierStats.applied)}
+            value={`Rs. ${fmtLKR(supplierStats.applied)}`}
             icon={<CheckCircleIcon />}
             color="warning"
           />
@@ -454,7 +438,7 @@ export default function AdvancePaymentsPage() {
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Available Balance"
-            value={formatCurrency(supplierStats.remaining)}
+            value={`Rs. ${fmtLKR(supplierStats.remaining)}`}
             icon={<WalletIcon />}
             color="success"
           />
@@ -476,15 +460,15 @@ export default function AdvancePaymentsPage() {
           value={filterBranch}
           onChange={setFilterBranch}
         />
-        <Autocomplete
-          size="small"
+        <TAutocomplete
+          label="Filter by Supplier"
+          placeholder="All Suppliers"
           options={suppliers}
           getOptionLabel={(option: Supplier) => option.full_name || option.company_name || ""}
           value={suppliers.find((s: Supplier) => s.id === selectedSupplierId) || null}
-          onChange={(_, newValue) => setSelectedSupplierId(newValue?.id || null)}
-          renderInput={(params) => (
-            <TextField {...params} label="Filter by Supplier" placeholder="All Suppliers" />
-          )}
+          onChange={(newValue) => setSelectedSupplierId((newValue as Supplier)?.id || null)}
+          isOptionEqualToValue={(option, value) => option.id === value.id}
+          size="small"
           sx={{ minWidth: 250 }}
         />
         <TButton
@@ -531,9 +515,7 @@ export default function AdvancePaymentsPage() {
                 width: 120,
                 align: "right",
                 render: (_value, row: any) => (
-                  <Typography fontWeight="bold">
-                    {formatCurrency(row.original_amount)}
-                  </Typography>
+                  <TCurrency value={row.original_amount} fontWeight="bold" />
                 ),
               },
               {
@@ -542,9 +524,7 @@ export default function AdvancePaymentsPage() {
                 width: 120,
                 align: "right",
                 render: (_value, row: any) => (
-                  <Typography color="warning.main">
-                    {formatCurrency(row.applied_amount)}
-                  </Typography>
+                  <TCurrency value={row.applied_amount} color="warning.main" />
                 ),
               },
               {
@@ -553,9 +533,7 @@ export default function AdvancePaymentsPage() {
                 width: 120,
                 align: "right",
                 render: (_value, row: any) => (
-                  <Typography fontWeight="bold" color="success.main">
-                    {formatCurrency(row.remaining_amount)}
-                  </Typography>
+                  <TCurrency value={row.remaining_amount} fontWeight="bold" color="success.main" />
                 ),
               },
               { field: "branch_code", header: "Branch", width: 100 },
@@ -563,17 +541,20 @@ export default function AdvancePaymentsPage() {
                 field: "payment_date",
                 header: "Date",
                 width: 100,
-                render: (_value, row: any) => formatDate(row.payment_date),
+                render: (_value, row: any) => <TDate value={row.payment_date} />,
               },
               {
                 field: "status",
                 header: "Status",
                 width: 120,
                 render: (_value, row: any) => (
-                  <Chip
-                    label={row.is_fully_applied ? "Fully Applied" : "Active"}
-                    color={row.is_fully_applied ? "default" : "success"}
-                    size="small"
+                  <TStatusChip
+                    status={row.is_fully_applied ? "inactive" : "active"}
+                    statusMap="activeInactive"
+                    customMap={{
+                      active: { label: "Active", color: "success" },
+                      inactive: { label: "Fully Applied", color: "default" },
+                    }}
                   />
                 ),
               },
@@ -668,16 +649,15 @@ export default function AdvancePaymentsPage() {
       >
         <Grid container spacing={2}>
           <Grid item xs={12}>
-            <Autocomplete
-              size="small"
+            <TAutocomplete
+              label="Customer"
               options={customers}
               getOptionLabel={(option: Customer) => option.customer_name || ""}
               value={customers.find((c: Customer) => c.id === customerFormData.customer_id) || null}
-              onChange={(_, newValue) => setCustomerFormData({ ...customerFormData, customer_id: newValue?.id || 0 })}
-              renderInput={(params) => (
-                <TextField {...params} label="Customer" required />
-              )}
-              fullWidth
+              onChange={(newValue) => setCustomerFormData({ ...customerFormData, customer_id: (newValue as Customer)?.id || 0 })}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              required
+              size="small"
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -723,13 +703,11 @@ export default function AdvancePaymentsPage() {
             />
           </Grid>
           <Grid item xs={12}>
-            <TextField
+            <TDatePicker
               fullWidth
               label="Payment Date"
-              type="date"
               value={customerFormData.cheque_date || ""}
-              onChange={(e) => setCustomerFormData({ ...customerFormData, cheque_date: e.target.value })}
-              InputLabelProps={{ shrink: true }}
+              onChange={(value) => setCustomerFormData({ ...customerFormData, cheque_date: value || "" })}
               required
             />
           </Grid>
@@ -763,16 +741,15 @@ export default function AdvancePaymentsPage() {
       >
         <Grid container spacing={2}>
           <Grid item xs={12}>
-            <Autocomplete
-              size="small"
+            <TAutocomplete
+              label="Supplier"
               options={suppliers}
               getOptionLabel={(option: Supplier) => option.full_name || option.company_name || ""}
               value={suppliers.find((s: Supplier) => s.id === supplierFormData.supplier_id) || null}
-              onChange={(_, newValue) => setSupplierFormData({ ...supplierFormData, supplier_id: newValue?.id || 0 })}
-              renderInput={(params) => (
-                <TextField {...params} label="Supplier" required />
-              )}
-              fullWidth
+              onChange={(newValue) => setSupplierFormData({ ...supplierFormData, supplier_id: (newValue as Supplier)?.id || 0 })}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              required
+              size="small"
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -781,11 +758,7 @@ export default function AdvancePaymentsPage() {
               label="Payment Method"
               value={supplierFormData.payment_method || "Bank Transfer"}
               onChange={(value) => setSupplierFormData({ ...supplierFormData, payment_method: String(value) })}
-              options={[
-                { value: "Cash", label: "💵 Cash" },
-                { value: "Bank Transfer", label: "🏦 Bank Transfer" },
-                { value: "Cheque", label: "📝 Cheque" },
-              ]}
+              options={[...GENERIC_PAYMENT_METHOD]}
               required
             />
           </Grid>
@@ -813,13 +786,11 @@ export default function AdvancePaymentsPage() {
             />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField
+            <TDatePicker
               fullWidth
               label="Payment Date"
-              type="date"
               value={supplierFormData.payment_date || ""}
-              onChange={(e) => setSupplierFormData({ ...supplierFormData, payment_date: e.target.value })}
-              InputLabelProps={{ shrink: true }}
+              onChange={(value) => setSupplierFormData({ ...supplierFormData, payment_date: value || "" })}
               required
             />
           </Grid>
