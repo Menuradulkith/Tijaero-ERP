@@ -1,203 +1,314 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Box, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, MenuItem, Autocomplete } from "@mui/material";
-import { Add as AddIcon } from "@mui/icons-material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm, Controller } from "react-hook-form";
+/**
+ * Credit Notes Page - Master-Detail Layout
+ * Follows the Purchasing/Sales UI pattern with Tijaero components.
+ */
+
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
-  TPageHeader,
-  TButton,
-  TCurrency,
-  showSuccessToast,
-  showErrorToast,
+  Autocomplete,
+  Box,
+  InputAdornment,
+  TextField,
+  Typography,
+} from "@mui/material";
+import {
+  NoteAlt as CreditNoteIcon,
+} from "@mui/icons-material";
+
+import {
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  DetailPanelHeader,
+  FormSection,
+  EmptyState,
+  useMasterDetailState,
+  SortOption,
   TFilterPanel,
 } from "@/components/tijaero";
+
 import { creditNotesApi } from "@/modules/finance/api";
+import { CustomerCreditNote, CustomerCreditNoteCreate } from "@/modules/finance/types";
 import { customersApi } from "@/modules/customers/api";
-import { CustomerCreditNoteCreate } from "@/modules/finance/types";
+
+interface Customer {
+  id: number;
+  customer_name: string;
+}
+
+const SORT_OPTIONS: SortOption[] = [
+  { value: "date", label: "Date" },
+  { value: "amount", label: "Amount" },
+  { value: "customer_id", label: "Customer" },
+];
+
+const INITIAL_FORM_DATA: Partial<CustomerCreditNoteCreate> = {
+  customer_id: 0,
+  amount: 0,
+  remark: "",
+  invoice_no: "",
+};
+
+const resetFormFromItem = (item: CustomerCreditNote): Partial<CustomerCreditNoteCreate> => ({
+  customer_id: item.customer_id || 0,
+  amount: Number(item.amount) || 0,
+  remark: item.remark || "",
+  invoice_no: item.invoice_no || "",
+});
 
 export default function CreditNotesPage() {
-  const queryClient = useQueryClient();
-  const [openDialog, setOpenDialog] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<number | null>(null);
+  const [filterCustomerId, setFilterCustomerId] = useState<number | null>(null);
 
-  const { data: customers } = useQuery({
+  const {
+    searchQuery,
+    setSearchQuery,
+    sortField,
+    setSortField,
+    selectedItem,
+    isCreating,
+    favorites,
+    toggleFavorite,
+    formData,
+    handleSelectItem,
+  } = useMasterDetailState<CustomerCreditNote, Partial<CustomerCreditNoteCreate>>({
+    initialFormData: INITIAL_FORM_DATA,
+    resetFormFromItem,
+    favoritesKey: "credit_notes_favorites",
+    defaultSortField: "date",
+  });
+
+  const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
   });
 
-  const { data: creditNotes, isLoading } = useQuery({
-    queryKey: ["credit-notes", selectedCustomer],
+  const { data: creditNotes = [], isLoading, refetch } = useQuery({
+    queryKey: ["credit-notes", filterCustomerId],
     queryFn: () =>
       creditNotesApi.getAll({
-        customer_id: selectedCustomer || undefined,
+        customer_id: filterCustomerId || undefined,
       }),
   });
 
-  const { control, handleSubmit, reset } = useForm<CustomerCreditNoteCreate>({
-    defaultValues: {
-      customer_id: 0,
-      amount: 0,
-      remark: "",
-      invoice_no: "",
+  const getCustomerName = useCallback(
+    (customerId: number): string => {
+      const customer = customers.find((c: Customer) => c.id === customerId);
+      return customer?.customer_name || `Customer #${customerId}`;
     },
-  });
+    [customers]
+  );
 
-  const createMutation = useMutation({
-    mutationFn: creditNotesApi.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["credit-notes"] });
-      showSuccessToast("Credit note created successfully");
-      setOpenDialog(false);
-      reset();
-    },
-    onError: () => {
-      showErrorToast("Failed to create credit note");
-    },
-  });
-
-  const columns: GridColDef[] = [
-    { field: "id", headerName: "ID", width: 70 },
-    {
-      field: "amount",
-      headerName: "Amount (Rs.)",
-      width: 130,
-      renderCell: (params) => <TCurrency value={params.value} showSymbol={false} />,
-    },
-    { field: "invoice_no", headerName: "Invoice No", width: 130 },
-    {
-      field: "date",
-      headerName: "Date",
-      width: 180,
-      valueFormatter: (value) => new Date(value).toLocaleString(),
-    },
-    { field: "remark", headerName: "Remark", width: 300 },
-  ];
-
-  const onSubmit = (data: CustomerCreditNoteCreate) => {
-    createMutation.mutate(data);
-  };
-
-  const handleAdd = () => {
-    reset({
-      customer_id: 0,
-      amount: 0,
-      remark: "",
-      invoice_no: "",
+  const filteredNotes = useMemo(() => {
+    if (!creditNotes) return [];
+    let filtered = creditNotes.filter(
+      (n) =>
+        getCustomerName(n.customer_id).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (n.invoice_no || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (n.remark || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(n.id).includes(searchQuery)
+    );
+    filtered.sort((a, b) => {
+      if (sortField === "date") return new Date(b.date || "").getTime() - new Date(a.date || "").getTime();
+      if (sortField === "amount") return Number(b.amount || 0) - Number(a.amount || 0);
+      const fA = a[sortField as keyof CustomerCreditNote] || "";
+      const fB = b[sortField as keyof CustomerCreditNote] || "";
+      return String(fA).localeCompare(String(fB));
     });
-    setOpenDialog(true);
-  };
+    return filtered;
+  }, [creditNotes, searchQuery, sortField, getCustomerName]);
 
-  return (
-    <Box>
-      <TPageHeader
-        title="Customer Credit Notes"
-        actions={
-          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
-            Issue Credit Note
-          </TButton>
-        }
+  useEffect(() => {
+    if (filteredNotes.length > 0 && !selectedItem && !isCreating) {
+      handleSelectItem(filteredNotes[0]);
+    }
+  }, [filteredNotes, selectedItem, isCreating]);
+
+  const handleSelectWithCheck = useCallback(
+    async (item: CustomerCreditNote) => {
+      await handleSelectItem(item);
+    },
+    [handleSelectItem]
+  );
+
+  const selectedCustomer = useMemo(
+    () => customers.find((c: Customer) => c.id === formData.customer_id) || null,
+    [customers, formData.customer_id]
+  );
+
+  const filterCustomer = useMemo(
+    () => customers.find((c: Customer) => c.id === filterCustomerId) || null,
+    [customers, filterCustomerId]
+  );
+
+  const masterPanel = (
+    <SearchableList<CustomerCreditNote>
+      items={filteredNotes}
+      isLoading={isLoading}
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
+      placeholder="Search credit notes..."
+      sortOptions={SORT_OPTIONS}
+      sortField={sortField}
+      onSortChange={setSortField}
+      selectedItem={selectedItem}
+      onSelectItem={handleSelectWithCheck}
+      emptyMessage="No credit notes found"
+      listHeader={
+        <TFilterPanel>
+          <Autocomplete
+            size="small"
+            options={customers}
+            getOptionLabel={(option: Customer) => option.customer_name || `Customer #${option.id}`}
+            value={filterCustomer}
+            onChange={(_, newValue) => setFilterCustomerId(newValue?.id || null)}
+            renderInput={(params) => <TextField {...params} label="Filter by Customer" placeholder="All Customers" />}
+            sx={{ minWidth: 200 }}
+          />
+        </TFilterPanel>
+      }
+      renderItem={(note, isSelected) => (
+        <SelectableListItem
+          key={note.id}
+          id={note.id}
+          isSelected={isSelected}
+          onClick={() => handleSelectWithCheck(note)}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{`CN-${note.id}`}</span>
+                {isSelected && (
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    (Credit Note)
+                  </Typography>
+                )}
+              </Box>
+              {isSelected && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">{getCustomerName(note.customer_id)}</Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Customer)</Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      Rs. {Number(note.amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Amount)</Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {note.date ? new Date(note.date).toLocaleDateString() : "-"}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Date)</Typography>
+                  </Box>
+                  {note.invoice_no && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">{note.invoice_no}</Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Invoice)</Typography>
+                    </Box>
+                  )}
+                </>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected ? `${getCustomerName(note.customer_id)} - Rs. ${Number(note.amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}` : undefined}
+          isFavorite={favorites.includes(note.id)}
+          onToggleFavorite={(e) => toggleFavorite(note.id, e)}
+        />
+      )}
+    />
+  );
+
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "Finance", href: "/finance" },
+          { label: "Payment Methods", href: "/finance/payment-methods" },
+          { label: "Credit Notes", href: "/finance/payment-methods/credit-notes" },
+          ...(selectedItem || isCreating ? [{ label: isCreating ? "New Credit Note" : `CN-${selectedItem?.id}` }] : []),
+        ]}
+        title={selectedItem ? `CN-${selectedItem.id}` : ""}
+        titleIcon={<CreditNoteIcon color="primary" />}
+        isCreating={isCreating}
+        createTitle="New Credit Note"
+        noSelectionTitle="Select a Credit Note"
+        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
+        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
-      <TFilterPanel>
-        <Autocomplete
-          size="small"
-          options={customers || []}
-          getOptionLabel={(option) => option.customer_name}
-          value={customers?.find((c) => c.id === selectedCustomer) || null}
-          onChange={(_, newValue) => setSelectedCustomer(newValue?.id || null)}
-          renderInput={(params) => (
-            <TextField {...params} label="Filter by Customer" placeholder="All Customers" />
-          )}
-          sx={{ minWidth: 300 }}
-        />
-      </TFilterPanel>
+      {/* Actions disabled - read-only mode */}
 
-      <Paper sx={{ height: 600 }}>
-        <DataGrid
-          rows={creditNotes || []}
-          columns={columns}
-          loading={isLoading}
-        />
-      </Paper>
-
-      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogTitle>Issue Credit Note</DialogTitle>
-          <DialogContent>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
-              <Controller
-                name="customer_id"
-                control={control}
-                rules={{ required: "Customer is required" }}
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    select
-                    label="Customer"
-                    required
-                    error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
-                    fullWidth
-                  >
-                    {customers?.map((c) => (
-                      <MenuItem key={c.id} value={c.id}>{c.customer_name}</MenuItem>
-                    ))}
-                  </TextField>
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!selectedItem && !isCreating ? (
+          <EmptyState message="Select a credit note from the list or create a new one" />
+        ) : (
+          <>
+            <FormSection title="Credit Note Information" columns={2}>
+              <Autocomplete
+                size="small"
+                options={customers}
+                getOptionLabel={(option: Customer) => option.customer_name || `Customer #${option.id}`}
+                value={selectedCustomer}
+                disabled
+                readOnly
+                renderInput={(params) => (
+                  <TextField {...params} label="Customer" InputProps={{ ...params.InputProps, readOnly: true }} />
                 )}
               />
-              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-                <Controller
-                  name="amount"
-                  control={control}
-                  rules={{ required: "Amount is required", min: { value: 0.01, message: "Must be at least 0.01" } }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      type="number"
-                      label="Amount"
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                      fullWidth
-                    />
-                  )}
-                />
-                <Controller
-                  name="invoice_no"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField {...field} label="Invoice Number" fullWidth />
-                  )}
-                />
-              </Box>
-              <Controller
-                name="remark"
-                control={control}
-                rules={{ required: "Remark is required" }}
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    label="Remark"
-                    required
-                    multiline
-                    rows={4}
-                    error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
-                    fullWidth
-                  />
-                )}
+              <TextField
+                label="Amount"
+                size="small"
+                type="number"
+                value={formData.amount || ""}
+                disabled
+                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment>, readOnly: true }}
               />
-            </Box>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={createMutation.isPending}>
-              {createMutation.isPending ? "Saving..." : "Issue"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
+            </FormSection>
+
+            <FormSection title="Reference Details" columns={2}>
+              <TextField
+                label="Invoice Number"
+                size="small"
+                value={formData.invoice_no || ""}
+                disabled
+                InputProps={{ readOnly: true }}
+              />
+              {selectedItem && !isCreating && (
+                <TextField
+                  label="Date"
+                  size="small"
+                  value={selectedItem.date ? new Date(selectedItem.date).toLocaleString() : "-"}
+                  disabled
+                  InputProps={{ readOnly: true }}
+                />
+              )}
+            </FormSection>
+
+            <FormSection title="Remarks" columns={1}>
+              <TextField
+                label="Remark"
+                size="small"
+                value={formData.remark || ""}
+                disabled
+                InputProps={{ readOnly: true }}
+                multiline
+                rows={2}
+              />
+            </FormSection>
+          </>
+        )}
+      </Box>
     </Box>
+  );
+
+  return (
+    <MasterDetailLayout
+      title="Credit Notes"
+      onRefresh={refetch}
+      isLoading={isLoading}
+      masterPanel={masterPanel}
+      detailPanel={detailPanel}
+    />
   );
 }
