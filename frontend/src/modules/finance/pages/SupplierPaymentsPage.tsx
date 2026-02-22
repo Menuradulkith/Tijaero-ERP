@@ -53,11 +53,6 @@ import {
   FormControlLabel,
   Switch,
   Autocomplete,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
 } from "@mui/material";
 import PaymentIcon from "@mui/icons-material/Payment";
 import BusinessIcon from "@mui/icons-material/Business";
@@ -72,11 +67,9 @@ import SearchIcon from "@mui/icons-material/Search";
 import WarningIcon from "@mui/icons-material/Warning";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import PrintIcon from "@mui/icons-material/Print";
-import FilterListIcon from "@mui/icons-material/FilterList";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import { 
-  useConfirmDialog,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -93,13 +86,18 @@ import {
   TLoading,
 } from "@/components/tijaero";
 import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
   DetailPanelHeader,
+  ActionToolbar,
+  FormSection,
   EmptyState,
+  modernTableStyles,
+  TFilterPanel,
 } from "@/components/tijaero";
 
 import {
@@ -1610,28 +1608,24 @@ export default function SupplierPaymentsPage() {
     <Box sx={{ p: 2 }}>
       {/* Header with actions */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
-        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <AssessmentIcon />
-          Payment History
-        </Typography>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<PrintIcon />}
-            onClick={handlePrintPaymentHistory}
-            disabled={filteredPaymentHistory.length === 0}
-          >
-            Print Report
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<ArrowBackIcon />}
-            onClick={() => setViewMode("overview")}
-          >
-            Back to Overview
-          </Button>
-        </Box>
+        <Button
+          variant="text"
+          startIcon={<ArrowBackIcon />}
+          onClick={() => setViewMode("overview")}
+          size="small"
+        >
+          Back to Overview
+        </Button>
+        <Button
+          variant="contained"
+          color="primary"
+          size="small"
+          startIcon={<PrintIcon />}
+          onClick={handlePrintPaymentHistory}
+          disabled={filteredPaymentHistory.length === 0}
+        >
+          Print Report
+        </Button>
       </Box>
 
       {/* Summary Cards */}
@@ -1759,97 +1753,77 @@ export default function SupplierPaymentsPage() {
       </Grid>
 
       {/* Filters */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <FilterListIcon fontSize="small" />
-          Filters
-        </Typography>
-        <Grid container spacing={2} sx={{ mt: 1 }}>
-          <Grid item xs={12} sm={6} md={2}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Date From"
-              type="date"
-              value={historyDateFrom}
-              onChange={(e) => setHistoryDateFrom(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Date To"
-              type="date"
-              value={historyDateTo}
-              onChange={(e) => setHistoryDateTo(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <TextField
-              fullWidth
-              select
-              size="small"
-              label="Branch"
-              value={historyBranchFilter}
-              onChange={(e) => setHistoryBranchFilter(e.target.value)}
-            >
-              <MenuItem value="all">All Branches</MenuItem>
-              {branches.map((b) => (
-                <MenuItem key={b.branch_code} value={b.branch_code}>
-                  {b.branch_name}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <TextField
-              fullWidth
-              select
-              size="small"
-              label="Type"
-              value={historyTypeFilter}
-              onChange={(e) => setHistoryTypeFilter(e.target.value)}
-            >
-              <MenuItem value="all">All Types</MenuItem>
-              <MenuItem value="credit_settlement">Credit Settlement</MenuItem>
-              <MenuItem value="payment">Direct Payment</MenuItem>
-            </TextField>
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <TextField
-              fullWidth
-              select
-              size="small"
-              label="Status"
-              value={historyStatusFilter}
-              onChange={(e) => setHistoryStatusFilter(e.target.value)}
-            >
-              <MenuItem value="all">All Status</MenuItem>
-              <MenuItem value="pending">Pending</MenuItem>
-              <MenuItem value="verified">Verified</MenuItem>
-              <MenuItem value="cancelled">Cancelled</MenuItem>
-            </TextField>
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <TextField
-              fullWidth
-              select
-              size="small"
-              label="Payment Method"
-              value={historyPaymentMethodFilter}
-              onChange={(e) => setHistoryPaymentMethodFilter(e.target.value)}
-            >
-              <MenuItem value="all">All Methods</MenuItem>
-              <MenuItem value="Cash">Cash</MenuItem>
-              <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
-              <MenuItem value="Cheque">Cheque</MenuItem>
-            </TextField>
-          </Grid>
-        </Grid>
-      </Paper>
+      <TFilterPanel>
+        <TextField
+          size="small"
+          label="Date From"
+          type="date"
+          value={historyDateFrom}
+          onChange={(e) => setHistoryDateFrom(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+        />
+        <TextField
+          size="small"
+          label="Date To"
+          type="date"
+          value={historyDateTo}
+          onChange={(e) => setHistoryDateTo(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+        />
+        <TextField
+          select
+          size="small"
+          label="Branch"
+          value={historyBranchFilter}
+          onChange={(e) => setHistoryBranchFilter(e.target.value)}
+          sx={{ minWidth: 140 }}
+        >
+          <MenuItem value="all">All Branches</MenuItem>
+          {branches.map((b) => (
+            <MenuItem key={b.branch_code} value={b.branch_code}>
+              {b.branch_name}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Type"
+          value={historyTypeFilter}
+          onChange={(e) => setHistoryTypeFilter(e.target.value)}
+          sx={{ minWidth: 140 }}
+        >
+          <MenuItem value="all">All Types</MenuItem>
+          <MenuItem value="credit_settlement">Credit Settlement</MenuItem>
+          <MenuItem value="payment">Direct Payment</MenuItem>
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Status"
+          value={historyStatusFilter}
+          onChange={(e) => setHistoryStatusFilter(e.target.value)}
+          sx={{ minWidth: 120 }}
+        >
+          <MenuItem value="all">All Status</MenuItem>
+          <MenuItem value="pending">Pending</MenuItem>
+          <MenuItem value="verified">Verified</MenuItem>
+          <MenuItem value="cancelled">Cancelled</MenuItem>
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Payment Method"
+          value={historyPaymentMethodFilter}
+          onChange={(e) => setHistoryPaymentMethodFilter(e.target.value)}
+          sx={{ minWidth: 140 }}
+        >
+          <MenuItem value="all">All Methods</MenuItem>
+          <MenuItem value="Cash">Cash</MenuItem>
+          <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
+          <MenuItem value="Cheque">Cheque</MenuItem>
+        </TextField>
+      </TFilterPanel>
 
       {/* Payment History Table */}
       {loadingHistory ? (
@@ -1872,7 +1846,7 @@ export default function SupplierPaymentsPage() {
           <TableContainer sx={{ maxHeight: 500 }}>
             <Table size="small" stickyHeader>
               <TableHead>
-                <TableRow>
+                <TableRow sx={modernTableStyles.headerRow}>
                   <TableCell>Date</TableCell>
                   <TableCell>Type</TableCell>
                   <TableCell>Document No.</TableCell>
@@ -2536,50 +2510,13 @@ export default function SupplierPaymentsPage() {
 
       {/* Outstanding Documents Preview */}
       <Paper sx={{ p: 2 }}>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-          <Typography variant="subtitle1" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <DescriptionIcon fontSize="small" />
-            Outstanding Documents
-          </Typography>
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<AccountBalanceWalletIcon />}
-              onClick={() => {
-                setViewMode("advances");
-                loadAdvancePayments(selectedSupplier!.id);
-                // Also load payment status to get available GRNs for applying advances
-                loadPaymentStatus(selectedSupplier!.id);
-              }}
-            >
-              Advances
-            </Button>
-            <Button
-              variant="outlined"
-              color="info"
-              startIcon={<AssessmentIcon />}
-              onClick={() => {
-                setViewMode("history");
-                loadPaymentHistory(selectedSupplier!.id);
-              }}
-            >
-              View History
-            </Button>
-            <Button
-              variant="contained"
-              color="primary"
-              startIcon={<PaymentIcon />}
-              onClick={handleStartPayment}
-              disabled={outstandingDocuments.length === 0}
-            >
-              Make Payment
-            </Button>
-          </Box>
-        </Box>
+        <Typography variant="subtitle1" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <DescriptionIcon fontSize="small" />
+          Outstanding Documents
+        </Typography>
 
         {/* Filters Section */}
-        <Box sx={{ mb: 2, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
+        <TFilterPanel>
           {/* PO/Document Search */}
           <TextField
             placeholder="Search PO, Invoice..."
@@ -2616,7 +2553,7 @@ export default function SupplierPaymentsPage() {
             sx={{ minWidth: 200 }}
             disableClearable
           />
-        </Box>
+        </TFilterPanel>
 
         {/* Payment Type Tabs */}
         <Tabs
@@ -3115,82 +3052,66 @@ export default function SupplierPaymentsPage() {
       </Paper>
 
       {/* Payment Method */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Payment Method
-        </Typography>
-        <Divider sx={{ mb: 2 }} />
-
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
+      <FormSection title="Payment Method" columns={2}>
+        <TextField
+          select
+          label="Payment Method"
+          size="small"
+          value={paymentMethod}
+          onChange={(e) => setPaymentMethod(e.target.value)}
+        >
+          {PAYMENT_METHODS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          label="Payment Date"
+          size="small"
+          type="date"
+          value={paymentDate}
+          onChange={(e) => setPaymentDate(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+        />
+        <TextField
+          label={paymentMethod === "Cheque" ? "Cheque Number" : "Reference Number"}
+          size="small"
+          value={referenceNumber}
+          onChange={(e) => setReferenceNumber(e.target.value)}
+          required={paymentMethod !== "Cash"}
+        />
+        {paymentMethod === "Cheque" && (
+          <>
             <TextField
-              select
-              fullWidth
-              label="Payment Method"
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-            >
-              {PAYMENT_METHODS.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Grid>
-          <Grid item xs={12} sm={6}>
+              label="Bank Name"
+              size="small"
+              value={bankName}
+              onChange={(e) => setBankName(e.target.value)}
+              required
+            />
             <TextField
-              fullWidth
-              label="Payment Date"
+              label="Cheque Date"
+              size="small"
               type="date"
-              value={paymentDate}
-              onChange={(e) => setPaymentDate(e.target.value)}
+              value={chequeDate}
+              onChange={(e) => setChequeDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
             />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label={paymentMethod === "Cheque" ? "Cheque Number" : "Reference Number"}
-              value={referenceNumber}
-              onChange={(e) => setReferenceNumber(e.target.value)}
-              required={paymentMethod !== "Cash"}
-            />
-          </Grid>
-          {paymentMethod === "Cheque" && (
-            <>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Bank Name"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Cheque Date"
-                  type="date"
-                  value={chequeDate}
-                  onChange={(e) => setChequeDate(e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-            </>
-          )}
-          <Grid item xs={12}>
-            <TextField
-              fullWidth
-              label="Remarks"
-              multiline
-              rows={2}
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-            />
-          </Grid>
-        </Grid>
-      </Paper>
+          </>
+        )}
+      </FormSection>
+
+      <FormSection title="Remarks" columns={1}>
+        <TextField
+          label="Remarks"
+          size="small"
+          multiline
+          rows={2}
+          value={remarks}
+          onChange={(e) => setRemarks(e.target.value)}
+        />
+      </FormSection>
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
@@ -3440,6 +3361,47 @@ export default function SupplierPaymentsPage() {
         }
       />
 
+      {/* Action Toolbar - contextual actions based on view mode */}
+      {selectedSupplier && viewMode === "overview" && (
+        <ActionToolbar
+          hasSelectedItem={!!selectedSupplier}
+          isCreating={false}
+          isEditing={false}
+          isSaving={saving}
+          isFormValid={false}
+          onNew={handleStartPayment}
+          endActions={
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                color="secondary"
+                startIcon={<AccountBalanceWalletIcon />}
+                onClick={() => {
+                  setViewMode("advances");
+                  loadAdvancePayments(selectedSupplier!.id);
+                  loadPaymentStatus(selectedSupplier!.id);
+                }}
+              >
+                Advances
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="info"
+                startIcon={<AssessmentIcon />}
+                onClick={() => {
+                  setViewMode("history");
+                  loadPaymentHistory(selectedSupplier!.id);
+                }}
+              >
+                View History
+              </Button>
+            </Box>
+          }
+        />
+      )}
+
       {/* Stepper for payment workflow */}
       {viewMode !== "overview" && viewMode !== "history" && viewMode !== "advances" && (
         <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: "divider" }}>
@@ -3473,29 +3435,7 @@ export default function SupplierPaymentsPage() {
         )}
       </Box>
 
-      {confirmDialog.dialogProps.open && (
-        <Dialog
-          open={confirmDialog.dialogProps.open}
-          onClose={() => confirmDialog.dialogProps.onCancel?.()}
-        >
-          <DialogTitle>{confirmDialog.dialogProps.title}</DialogTitle>
-          <DialogContent>
-            <DialogContentText>{confirmDialog.dialogProps.message}</DialogContentText>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => confirmDialog.dialogProps.onCancel?.()} color="inherit">
-              Cancel
-            </Button>
-            <Button
-              onClick={() => confirmDialog.dialogProps.onConfirm?.()}
-              color="error"
-              variant="contained"
-            >
-              {confirmDialog.dialogProps.confirmText || "Confirm"}
-            </Button>
-          </DialogActions>
-        </Dialog>
-      )}
+      <ConfirmDialog {...confirmDialog.dialogProps} />
 
       {/* View Advance Applications Dialog - Using TFormDialog */}
       <TFormDialog
