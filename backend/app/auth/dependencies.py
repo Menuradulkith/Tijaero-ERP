@@ -13,6 +13,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if not payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    try:
+        user_id = int(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     # Eager load branches relationship for branch-based access control
     user = db.query(User).options(joinedload(User.branches)).filter(User.id == user_id).first()
     if not user:
@@ -79,14 +85,11 @@ def require_branch_access(branch_code: str):
 
 
 def require_permission(resource: str, action: str):
-    def permission_checker(current_user: User = Depends(get_current_active_user)):
-        # Superuser has all permissions
-        if current_user.is_superuser:
-            return True
-        
-        # Check specific permissions
-        # This is a placeholder. Actual implementation depends on your permission model.
-        # For now, we assume if you are active, you have access.
-        # Ideally: Check if user has permission for `resource` and `action`
-        return True
-    return permission_checker
+    """Dependency factory that enforces RBAC permission checks.
+    
+    Delegates to app.auth.rbac.require_permission which is the canonical
+    implementation.  This wrapper exists so that modules that imported
+    require_permission from dependencies.py continue to work correctly.
+    """
+    from app.auth.rbac import require_permission as _rbac_require_permission
+    return _rbac_require_permission(resource, action)

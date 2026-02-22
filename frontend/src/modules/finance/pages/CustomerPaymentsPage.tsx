@@ -42,11 +42,6 @@ import {
   IconButton,
   FormControlLabel,
   Switch,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
 } from "@mui/material";
 import PaymentIcon from "@mui/icons-material/Payment";
 import PersonIcon from "@mui/icons-material/Person";
@@ -63,8 +58,8 @@ import PrintIcon from "@mui/icons-material/Print";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import ReceiptIcon from "@mui/icons-material/Receipt";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import {
-  useConfirmDialog,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -75,6 +70,7 @@ import {
   TTable,
   TPageHeader,
   TLoading,
+  TFilterPanel,
 } from "@/components/tijaero";
 import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 
@@ -761,11 +757,11 @@ export default function CustomerPaymentsPage() {
       emptyMessage="No customers found"
       width={300}
       listHeader={
-        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
+        <TFilterPanel>
           <Typography variant="caption" color="text.secondary">
-            {filteredCustomers.length} customers
+            {filteredCustomers.length} customer{filteredCustomers.length !== 1 ? "s" : ""}
           </Typography>
-        </Box>
+        </TFilterPanel>
       }
       renderItem={(customer, isSelected) => {
         const usage = getCreditUsage(customer);
@@ -783,15 +779,19 @@ export default function CustomerPaymentsPage() {
                 </Box>
                 {isSelected && (
                   <>
-                    <Typography variant="caption" component="span">
-                      {customer.company_name || customer.mobile_contact_number || "Individual"}
-                    </Typography>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography variant="caption" component="span">
+                        {customer.company_name || customer.mobile_contact_number || "Individual"}
+                      </Typography>
+                      <Typography variant="caption" color="text.disabled">(Customer)</Typography>
+                    </Box>
                     {customer.max_credit_limit > 0 && (
                       <>
-                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <Typography variant="caption">
                             Credit: {(customer.left_credit_amount ?? customer.max_credit_limit).toLocaleString()} / {customer.max_credit_limit.toLocaleString()}
                           </Typography>
+                          <Typography variant="caption" color="text.disabled">(Credit)</Typography>
                         </Box>
                         <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
                           <Box
@@ -812,34 +812,21 @@ export default function CustomerPaymentsPage() {
                       </>
                     )}
                     {outstanding > 0 && (
-                      <Typography variant="caption" color="warning.main">
-                        Outstanding: {formatCurrency(outstanding)}
-                      </Typography>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Typography variant="caption" color="warning.main">
+                          Outstanding: {formatCurrency(outstanding)}
+                        </Typography>
+                        <Typography variant="caption" color="text.disabled">(Outstanding)</Typography>
+                      </Box>
                     )}
                   </>
                 )}
               </Box>
             }
             secondaryText={
-              !isSelected ? (
-                <Box component="span">
-                  <Typography variant="caption" display="block">
-                    {customer.company_name || customer.mobile_contact_number || "Individual"}
-                  </Typography>
-                  {customer.max_credit_limit > 0 && (
-                    <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
-                      <Box
-                        sx={{
-                          width: `${Math.min(usage, 100)}%`,
-                          height: "100%",
-                          bgcolor: usage > 80 ? "error.main" : usage > 50 ? "warning.main" : "success.main",
-                          borderRadius: 1,
-                        }}
-                      />
-                    </Box>
-                  )}
-                </Box>
-              ) : undefined
+              !isSelected
+                ? customer.company_name || customer.mobile_contact_number || "Individual"
+                : undefined
             }
             statusChip={
               !isSelected && customer.max_credit_limit > 0
@@ -2240,31 +2227,19 @@ export default function CustomerPaymentsPage() {
           renderReviewView()
         )}
       </Box>
-
-      {confirmDialog.dialogProps.open && (
-        <Dialog open={confirmDialog.dialogProps.open} onClose={() => confirmDialog.dialogProps.onCancel?.()}>
-          <DialogTitle>{confirmDialog.dialogProps.title}</DialogTitle>
-          <DialogContent>
-            <DialogContentText>{confirmDialog.dialogProps.message}</DialogContentText>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => confirmDialog.dialogProps.onCancel?.()} color="inherit">Cancel</Button>
-            <Button onClick={() => confirmDialog.dialogProps.onConfirm?.()} color="error" variant="contained">
-              {confirmDialog.dialogProps.confirmText || "Confirm"}
-            </Button>
-          </DialogActions>
-        </Dialog>
-      )}
     </Box>
   );
 
   return (
-    <MasterDetailLayout
-      title="Customer Payments"
-      icon={<PaymentIcon />}
-      onRefresh={loadCustomers}
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
-    />
+    <>
+      <MasterDetailLayout
+        title="Customer Payments"
+        icon={<PaymentIcon />}
+        onRefresh={loadCustomers}
+        masterPanel={masterPanel}
+        detailPanel={detailPanel}
+      />
+      <ConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

@@ -378,7 +378,8 @@ class JournalEntryService:
                 JournalEntry.description.ilike(s),
             ))
 
-        total = query.count()
+        from app.common.pagination import fast_count
+        total = fast_count(query)
         items = query.order_by(JournalEntry.entry_date.desc(), JournalEntry.id.desc()).offset(
             filters.skip
         ).limit(filters.limit).all()
@@ -835,7 +836,8 @@ class GeneralLedgerService:
                 ChartOfAccounts.account_code.ilike(s),
             ))
 
-        total = query.count()
+        from app.common.pagination import fast_count
+        total = fast_count(query)
         rows = query.order_by(
             GeneralLedger.posting_date.desc(),
             GeneralLedger.id.desc()

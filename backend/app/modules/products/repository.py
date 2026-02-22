@@ -59,10 +59,11 @@ class ProductRepository:
         return True
     
     def count(self, db: Session, active_only: bool = True) -> int:
-        query = db.query(Product)
+        from sqlalchemy import func
+        query = db.query(func.count(Product.id))
         if active_only:
             query = query.filter(Product.active == True)
-        return query.count()
+        return query.scalar() or 0
 
 class CategoryRepository:
     def get_by_id(self, db: Session, category_id: int) -> Optional[Category]:

@@ -17,6 +17,18 @@ export const authApi = {
     return response.data;
   },
 
+  refreshToken: async (refreshToken: string): Promise<LoginResponse> => {
+    const response = await apiClient.post<LoginResponse>(
+      "/auth/refresh",
+      { refresh_token: refreshToken },
+      {
+        // Skip the interceptor for refresh calls to avoid infinite loops
+        headers: { "X-Skip-Auth-Intercept": "true" },
+      }
+    );
+    return response.data;
+  },
+
   getCurrentUser: async (): Promise<User> => {
     const response = await apiClient.get<User>("/users/me");
     return response.data;

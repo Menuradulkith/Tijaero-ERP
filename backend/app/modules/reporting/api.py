@@ -4,68 +4,81 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import date, timedelta
 from app.core import timezone as tz
+from app.core.simple_rate_limit import rate_limit
 from app.db.session import get_db
 from . import schemas, service
 
 router = APIRouter(prefix="/reporting", tags=["reporting"])
 
+_limit_30 = rate_limit(30)
+_limit_60 = rate_limit(60)
+
 
 @router.post("/sales", response_model=schemas.SalesReportResponse)
 def generate_sales_report(
-    request: schemas.SalesReportRequest,
-    db: Session = Depends(get_db)
+    body: schemas.SalesReportRequest,
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_limit_30),
 ):
     reporting_service = service.ReportingService(db)
-    return reporting_service.get_sales_report(request)
+    return reporting_service.get_sales_report(body)
 
 
 @router.post("/finance", response_model=schemas.FinanceReportResponse)
 def generate_finance_report(
-    request: schemas.FinanceReportRequest,
-    db: Session = Depends(get_db)
+    body: schemas.FinanceReportRequest,
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_limit_30),
 ):
     reporting_service = service.ReportingService(db)
-    return reporting_service.get_finance_report(request)
+    return reporting_service.get_finance_report(body)
 
 
 @router.post("/inventory", response_model=schemas.InventoryReportResponse)
 def generate_inventory_report(
-    request: schemas.InventoryReportRequest,
-    db: Session = Depends(get_db)
+    body: schemas.InventoryReportRequest,
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_limit_30),
 ):
     reporting_service = service.ReportingService(db)
-    return reporting_service.get_inventory_report(request)
+    return reporting_service.get_inventory_report(body)
 
 
 @router.post("/hr", response_model=schemas.HRReportResponse)
 def generate_hr_report(
-    request: schemas.HRReportRequest,
-    db: Session = Depends(get_db)
+    body: schemas.HRReportRequest,
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_limit_30),
 ):
     reporting_service = service.ReportingService(db)
-    return reporting_service.get_hr_report(request)
+    return reporting_service.get_hr_report(body)
 
 
 @router.post("/warehouse", response_model=schemas.WarehouseReportResponse)
 def generate_warehouse_report(
-    request: schemas.WarehouseReportRequest,
-    db: Session = Depends(get_db)
+    body: schemas.WarehouseReportRequest,
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_limit_30),
 ):
     reporting_service = service.ReportingService(db)
-    return reporting_service.get_warehouse_report(request)
+    return reporting_service.get_warehouse_report(body)
 
 
 @router.post("/support", response_model=schemas.SupportReportResponse)
 def generate_support_report(
-    request: schemas.SupportReportRequest,
-    db: Session = Depends(get_db)
+    body: schemas.SupportReportRequest,
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_limit_30),
 ):
     reporting_service = service.ReportingService(db)
-    return reporting_service.get_support_report(request)
+    return reporting_service.get_support_report(body)
 
 
 @router.get("/dashboard", response_model=schemas.DashboardMetrics)
-def get_dashboard_metrics(db: Session = Depends(get_db)):
+def get_dashboard_metrics(
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_limit_60),
+):
     reporting_service = service.ReportingService(db)
     return reporting_service.get_dashboard_metrics()
 
@@ -73,7 +86,8 @@ def get_dashboard_metrics(db: Session = Depends(get_db)):
 @router.get("/quick-stats")
 def get_quick_stats(
     period: str = Query("today", regex="^(today|week|month|year)$"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_limit_60),
 ):
     reporting_service = service.ReportingService(db)
     

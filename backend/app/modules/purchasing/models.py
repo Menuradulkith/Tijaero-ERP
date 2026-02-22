@@ -13,7 +13,7 @@ class GoodReceivedNote(Base):
     supplier_invoice_no = Column(String(200), nullable=False)
     supplier_invoice_date = Column(Date, nullable=False)
     remark = Column(Text)
-    branch_code = Column(String(200), nullable=False)
+    branch_code = Column(String(200), nullable=False, index=True)
     created_date = Column(Date, nullable=False)
     good_received_locations_id = Column(Integer, ForeignKey("good_received_locations.id"), nullable=False)
     purchasingorders_id = Column(Integer, ForeignKey("purchasing_orders.id"), nullable=False)
@@ -90,7 +90,7 @@ class PurchasingOrder(Base):
     id = Column(Integer, primary_key=True, index=True)
     purchasing_order_no = Column(String(200), nullable=False)
     purchasing_invoice_no = Column(String(200), nullable=False)
-    branch_code = Column(String(200), nullable=False)
+    branch_code = Column(String(200), nullable=False, index=True)
     payment_method = Column(String(30), nullable=False)
     purchasing_order_date = Column(Date, nullable=False)
     good_received_note_date = Column(Date, nullable=False)
@@ -101,7 +101,7 @@ class PurchasingOrder(Base):
     second_suppliers_id = Column(Integer, ForeignKey("supplier.id"), nullable=False)
     added_date = Column(TIMESTAMP, nullable=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"))
-    status = Column(String(30), nullable=False, default="pending")
+    status = Column(String(30), nullable=False, default="pending", index=True)
     sales_quote_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True)  # Link to source quotation
 
     first_supplier = relationship("Supplier", foreign_keys=[first_suppliers_id], back_populates="purchasing_orders_first")

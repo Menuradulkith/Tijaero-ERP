@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.db.session import get_db
-from app.auth.dependencies import get_current_user, require_permission, get_user_branch_filter, validate_branch_access
-from app.auth.rbac import Permissions
+from app.auth.dependencies import get_current_user, get_user_branch_filter, validate_branch_access
+from app.auth.rbac import require_permission, Permissions
 from app.auth.models import User
 from . import schemas, service
 

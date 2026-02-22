@@ -19,16 +19,16 @@ class Invoice(Base, TimestampMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     is_tax_invoice = Column(Boolean, nullable=False, default=False)  # True: tax-inclusive, False: tax-exclusive
-    invoice_no = Column(String(200), unique=True, nullable=False)
-    branch_code = Column(String(200), nullable=False)
+    invoice_no = Column(String(200), unique=True, nullable=False, index=True)
+    branch_code = Column(String(200), nullable=False, index=True)
     payment_method = Column(String(30), nullable=False)
     remarks = Column(Text)
-    created_date = Column(Date, nullable=False)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
+    created_date = Column(Date, nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
     sale_rep_id = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
     customer_agent_id = Column(Integer, ForeignKey("customers.id"))
     approval = Column(Boolean, nullable=False)
-    approval_status = Column(String(30), nullable=False, default="pending_approval")  # pending_approval, approved, completed
+    approval_status = Column(String(30), nullable=False, default="pending_approval", index=True)  # pending_approval, approved, completed
     customer_advance_payments_id = Column(
         Integer, ForeignKey("customer_advance_payments.id")
     )
@@ -60,7 +60,7 @@ class Invoice(Base, TimestampMixin):
     grand_total = Column(Numeric(60, 2), nullable=False, default=0)  # Final total after tax/discount
     paid_amount = Column(Numeric(60, 2), nullable=False, default=0)  # Amount paid so far
     balance_due = Column(Numeric(60, 2), nullable=False, default=0)  # Outstanding balance
-    payment_status = Column(String(30), nullable=False, default="unpaid")  # unpaid, partial, paid
+    payment_status = Column(String(30), nullable=False, default="unpaid", index=True)  # unpaid, partial, paid
     
     # Service charges (for card payments)
     service_charge_rate = Column(Numeric(5, 3), nullable=False, default=0)  # e.g., 0.03 for 3%
@@ -124,8 +124,8 @@ class InvoiceItems(Base, TimestampMixin):
     warrenty_month = Column(String(30), nullable=False)
     selling_price = Column(Numeric(60, 2), nullable=False)
     created_date = Column(TIMESTAMP, nullable=False)
-    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
     quantity = Column(Integer, nullable=False)
     minimum_selling_price = Column(Numeric(60, 2), nullable=False)
     
@@ -173,19 +173,19 @@ class SaleReturn(Base, TimestampMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     sale_return_no = Column(String(200), unique=True, nullable=False)
-    branch_code = Column(String(200), nullable=False)
+    branch_code = Column(String(200), nullable=False, index=True)
     remark = Column(Text)
-    added_date = Column(Date, nullable=False)
+    added_date = Column(Date, nullable=False, index=True)
     good_received_locations_id = Column(
         Integer, ForeignKey("good_received_locations.id"), nullable=False
     )
-    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False, index=True)
     cheque_date = Column(Date, nullable=False)
     payment_method = Column(String(30), nullable=False)  # cash, bank_transfer, credit_note, cheque
     approval_id = Column(Integer, ForeignKey("approvals.id"))
     
     # Return status tracking
-    status = Column(String(30), nullable=False, default="pending")  # pending, approved, processed, rejected
+    status = Column(String(30), nullable=False, default="pending", index=True)  # pending, approved, processed, rejected
     
     # Return reason
     return_reason = Column(String(100), nullable=True)  # defective, wrong_item, customer_changed_mind, damaged, other
@@ -273,8 +273,8 @@ class InvoiceCardPayment(Base, TimestampMixin):
     __tablename__ = "invoice_card_payments"
 
     id = Column(Integer, primary_key=True, index=True)
-    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
-    payment_card_id = Column(Integer, ForeignKey("payment_cards.id"), nullable=False)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False, index=True)
+    payment_card_id = Column(Integer, ForeignKey("payment_cards.id"), nullable=False, index=True)
     amount = Column(Numeric(60, 2), nullable=False)  # Base amount
     service_charge = Column(Numeric(60, 2), nullable=False, default=0)  # Calculated service charge
     total_amount = Column(Numeric(60, 2), nullable=False)  # amount + service_charge
