@@ -7,9 +7,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _get_database_url() -> str:
+    """Convert DATABASE_URL to use psycopg3 driver (postgresql+psycopg).
+    Handles both 'postgresql://' and 'postgresql+psycopg2://' formats."""
+    url = settings.DATABASE_URL
+    if url.startswith("postgresql+psycopg2://"):
+        url = url.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+    elif url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return url
+
+
 # Performance-optimized database engine configuration
 engine = create_engine(
-    settings.DATABASE_URL,
+    _get_database_url(),
     poolclass=QueuePool,
     pool_pre_ping=True,       # Verify connections before use
     pool_size=10,             # Base pool size

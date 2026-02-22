@@ -107,8 +107,9 @@ class SalesService:
                 )
             )
         
-        # Get total count before pagination
-        total = query.count()
+        # Get total count efficiently (subquery instead of full table scan)
+        from app.common.pagination import fast_count
+        total = fast_count(query)
         
         # Apply sorting
         sort_column = getattr(Invoice, sort_by, Invoice.created_date)
@@ -179,8 +180,9 @@ class SalesService:
                 )
             )
         
-        # Get total count before pagination
-        total = query.count()
+        # Get total count efficiently (subquery instead of full table scan)
+        from app.common.pagination import fast_count
+        total = fast_count(query)
         
         # Apply sorting
         sort_column = getattr(SaleReturn, sort_by, SaleReturn.added_date)

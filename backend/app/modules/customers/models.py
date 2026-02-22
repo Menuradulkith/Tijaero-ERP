@@ -33,7 +33,7 @@ class Customer(Base, AuditMixin):
     
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(30), nullable=False)
-    customer_name = Column(String(255), nullable=False)
+    customer_name = Column(String(255), nullable=False, index=True)
     name_in_cheque_card = Column(String(255))
     occupation = Column(String(255))
     company_name = Column(String(255))
@@ -47,7 +47,7 @@ class Customer(Base, AuditMixin):
     civil_status = Column(String(30), nullable=False)
     passport_no = Column(String(50))
     no_of_kids = Column(String(30), nullable=False)
-    email = Column(String(75))
+    email = Column(String(75), index=True)
     home_contact_number = Column(String(12))
     mobile_contact_number = Column(String(12), nullable=False)
     credit_days = Column(Integer, nullable=False)

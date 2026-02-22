@@ -30,14 +30,14 @@ class SalesStock(Base):
     __tablename__ = "sales_stock"
     
     id = Column(Integer, primary_key=True, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
     barcode = Column(Text, nullable=False, unique=True)
-    branch_code = Column(String(200), nullable=False)
+    branch_code = Column(String(200), nullable=False, index=True)
     location_id = Column(Integer, ForeignKey("good_received_locations.id"), nullable=True)
     good_received_note_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False)
     purchasing_order_items_id = Column(Integer, ForeignKey("purchasing_order_items.id"), nullable=False)
     warranty_month = Column(String(30), nullable=True)  
-    status = Column(String(50), nullable=False, default="available")  
+    status = Column(String(50), nullable=False, default="available", index=True)  
     is_active = Column(Boolean, nullable=False, default=True)  
     returned_date = Column(TIMESTAMP, nullable=True)  
     purchase_return_id = Column(Integer, ForeignKey("purchasing_return.id"), nullable=True)  

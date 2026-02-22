@@ -80,16 +80,16 @@ class User(Base, TimestampMixin):
     profile_picture_id = Column(Integer)
 
     groups = relationship(
-        "Group", secondary=user_groups, back_populates="users", lazy="selectin"
+        "Group", secondary=user_groups, back_populates="users", lazy="select"
     )
     permissions = relationship(
         "Permission",
         secondary=user_permissions,
         back_populates="users",
-        lazy="selectin",
+        lazy="select",
     )
     branches = relationship(
-        "Branch", secondary=user_branches, back_populates="users", lazy="selectin"
+        "Branch", secondary=user_branches, back_populates="users", lazy="select"
     )
     country = relationship("Country", back_populates="users", lazy="select")
 

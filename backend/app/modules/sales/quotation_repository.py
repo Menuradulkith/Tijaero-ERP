@@ -106,8 +106,9 @@ class SalesQuoteRepository:
                 )
             )
 
-        # Get total count
-        total = query.count()
+        # Get total count efficiently
+        from app.common.pagination import fast_count
+        total = fast_count(query)
 
         # Apply pagination
         quotes = (

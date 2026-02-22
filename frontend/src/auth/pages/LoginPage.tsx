@@ -29,13 +29,13 @@ export default function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: authApi.login,
     onSuccess: async (data) => {
-      // First, store the token temporarily so the next request can use it
-      login(data.access_token, null as any);
+      // First, store the tokens temporarily so the next request can use them
+      login(data.access_token, data.refresh_token, null as any);
 
       // Then get the user data
       try {
         const user = await authApi.getCurrentUser();
-        login(data.access_token, user);
+        login(data.access_token, data.refresh_token, user);
         showSuccessToast("Login successful");
         navigate("/dashboard");
       } catch (error: unknown) {

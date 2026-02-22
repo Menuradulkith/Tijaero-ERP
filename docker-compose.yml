@@ -44,6 +44,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     command: >
       sh -c "
         echo 'Checking for migrations...' &&
@@ -57,7 +63,7 @@ services:
         python scripts/init_permissions.py &&
         echo 'Ensuring admin user exists...' &&
         python scripts/ensure_admin.py &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+        gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --timeout 120 --graceful-timeout 30 --access-logfile - --error-logfile -
       "
 
   # Frontend
@@ -74,7 +80,8 @@ services:
     networks:
       - erp_network
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   # Adminer - Database Management Tool
   adminer:

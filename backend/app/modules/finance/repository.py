@@ -170,7 +170,8 @@ class ExpenseRepository:
                 models.Expenses.description.ilike(s),
                 models.Expenses.receipt_number.ilike(s),
             ))
-        total = query.count()
+        from app.common.pagination import fast_count
+        total = fast_count(query)
         items = query.order_by(models.Expenses.created_date.desc()).offset(filters.skip).limit(filters.limit).all()
         return items, total
 

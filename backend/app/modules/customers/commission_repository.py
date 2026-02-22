@@ -74,7 +74,8 @@ class CommissionRepository:
         if date_to:
             query = query.filter(CustomerAgentCommission.created_at <= datetime.combine(date_to, datetime.max.time()))
 
-        total = query.count()
+        from app.common.pagination import fast_count
+        total = fast_count(query)
 
         results = query.order_by(
             CustomerAgentCommission.created_at.desc()
@@ -186,7 +187,8 @@ class CommissionRepository:
                 )
             )
 
-        total = query.count()
+        from app.common.pagination import fast_count
+        total = fast_count(query)
 
         results = query.order_by(
             CustomerAgentCommissionPayment.created_at.desc()
@@ -522,7 +524,8 @@ class CommissionRepository:
         if date_to:
             query = query.filter(CustomerAgentCommissionPayment.payment_date <= date_to)
 
-        total = query.count()
+        from app.common.pagination import fast_count
+        total = fast_count(query)
         results = query.order_by(
             CustomerAgentCommissionPayment.payment_date.desc()
         ).offset(skip).limit(limit).all()
