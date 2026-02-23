@@ -55,8 +55,8 @@ export default function SaleReturnDialog({
   });
 
   // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   const { control, handleSubmit, watch, setValue, reset } = useForm<SaleReturnCreate>({
     defaultValues: {

@@ -86,8 +86,8 @@ export default function BankDepositsPage() {
     defaultSortField: "created_date",
   });
 
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches: Branch[] = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches: Branch[] = filteredBranches || [];
 
   const { data: deposits = [], isLoading, refetch } = useQuery({
     queryKey: ["bank-deposits", filterBranch, filterVerified],

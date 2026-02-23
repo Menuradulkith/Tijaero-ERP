@@ -136,8 +136,8 @@ export default function SupplierAdvancePaymentsPage() {
   });
 
   // Reference data
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches: Branch[] = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches: Branch[] = filteredBranches || [];
 
   // Fetch suppliers
   const { data: suppliers = [] } = useQuery({

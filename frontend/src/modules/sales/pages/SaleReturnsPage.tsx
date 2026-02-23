@@ -289,8 +289,8 @@ export default function SaleReturnsPage() {
     });
 
     // Use aggregated endpoint for branches/products
-    const { data: refData } = useReferenceData(["branches", "products"]);
-    const branches = refData?.branches || [];
+    const { data: refData, filteredBranches } = useReferenceData(["branches", "products"]);
+    const branches = filteredBranches || [];
     const products = refData?.products || [];
 
     const getProductName = useCallback((productId?: number) => {

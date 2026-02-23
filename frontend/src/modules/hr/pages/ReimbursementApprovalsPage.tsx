@@ -87,8 +87,8 @@ export default function ReimbursementApprovalsPage() {
   const verifyDialog = useConfirmDialog();
 
   // Ref data
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 

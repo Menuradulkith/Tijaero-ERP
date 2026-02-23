@@ -88,8 +88,8 @@ export default function PayrollApprovalsPage() {
   const approveDialog = useConfirmDialog();
 
   // Ref data
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 

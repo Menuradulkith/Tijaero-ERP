@@ -3,11 +3,16 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
 from app.db.session import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_current_active_user, get_user_branch_filter, validate_branch_access
 from app.auth.models import User
 from . import schemas, service
 
-router = APIRouter(prefix="/hr", tags=["hr"])
+# All HR endpoints require authentication
+router = APIRouter(
+    prefix="/hr",
+    tags=["hr"],
+    dependencies=[Depends(get_current_active_user)],
+)
 
 # Salary Deductions Endpoints
 @router.post("/deductions", response_model=schemas.SalaryDeduction, status_code=status.HTTP_201_CREATED)

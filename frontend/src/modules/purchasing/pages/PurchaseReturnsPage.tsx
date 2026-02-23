@@ -301,8 +301,8 @@ export default function PurchaseReturnsPage() {
   }, []);
 
   // OPTIMIZED: Use aggregated endpoint for branches
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   const filteredReturns = useMemo(() => {
     if (!returns) return [];

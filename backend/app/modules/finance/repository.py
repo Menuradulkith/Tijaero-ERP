@@ -36,6 +36,8 @@ class BankDepositRepository:
         
         if filters.branch_code:
             query = query.filter(models.BankDeposits.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            query = query.filter(models.BankDeposits.branch_code.in_(filters.branch_codes))
         if filters.verified is not None:
             query = query.filter(models.BankDeposits.verified == filters.verified)
         if filters.date_from:
@@ -78,6 +80,10 @@ class CardPaymentRepository:
     def get_all(self, filters: schemas.PaymentListFilter) -> List[models.CardPayments]:
         query = self.db.query(models.CardPayments)
         
+        if filters.branch_code:
+            query = query.filter(models.CardPayments.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            query = query.filter(models.CardPayments.branch_code.in_(filters.branch_codes))
         if filters.date_from:
             query = query.filter(models.CardPayments.date_time >= filters.date_from)
         if filters.date_to:
@@ -104,6 +110,10 @@ class ChequePaymentRepository:
     def get_all(self, filters: schemas.PaymentListFilter) -> List[models.ChequePayments]:
         query = self.db.query(models.ChequePayments)
         
+        if filters.branch_code:
+            query = query.filter(models.ChequePayments.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            query = query.filter(models.ChequePayments.branch_code.in_(filters.branch_codes))
         if filters.date_from:
             query = query.filter(models.ChequePayments.cheque_date >= filters.date_from)
         if filters.date_to:
@@ -152,6 +162,8 @@ class ExpenseRepository:
         query = self.db.query(models.Expenses)
         if filters.branch_code:
             query = query.filter(models.Expenses.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            query = query.filter(models.Expenses.branch_code.in_(filters.branch_codes))
         if filters.status:
             query = query.filter(models.Expenses.status == filters.status)
         if filters.expense_category:

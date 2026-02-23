@@ -130,8 +130,8 @@ export default function CustomerAdvancePaymentsPage() {
   });
 
   // Reference data
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches: Branch[] = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches: Branch[] = filteredBranches || [];
 
   // Fetch customers
   const { data: customers = [] } = useQuery({

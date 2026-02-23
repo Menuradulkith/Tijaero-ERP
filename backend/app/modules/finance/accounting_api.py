@@ -17,6 +17,8 @@ from typing import List, Optional
 from datetime import date
 
 from app.db.session import get_db
+from app.auth.dependencies import get_current_active_user
+from app.auth.models import User
 from . import accounting_schemas as schemas
 from .accounting_service import (
     ChartOfAccountsService,
@@ -27,7 +29,12 @@ from .accounting_service import (
     AccountingDashboardService,
 )
 
-router = APIRouter(prefix="/finance/accounting", tags=["accounting"])
+# All accounting endpoints require authentication
+router = APIRouter(
+    prefix="/finance/accounting",
+    tags=["accounting"],
+    dependencies=[Depends(get_current_active_user)],
+)
 
 
 # =============================================================================

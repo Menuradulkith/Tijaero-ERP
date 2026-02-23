@@ -243,7 +243,7 @@ export default function GoodReceivedNotesPage() {
   });
 
   // OPTIMIZED: Fetch locations and branches in a single call
-  const { data: refData } = useReferenceData(["locations", "branches"]);
+  const { data: refData, filteredBranches } = useReferenceData(["locations", "branches"]);
 
   // Load suppliers for filter
   useEffect(() => {
@@ -268,8 +268,8 @@ export default function GoodReceivedNotesPage() {
 
   // Get all branches from reference data
   const branchesData = useMemo(() => {
-    return { items: refData?.branches || [] };
-  }, [refData?.branches]);
+    return { items: filteredBranches || [] };
+  }, [filteredBranches]);
 
   const handleNewGRN = useCallback(() => {
     handleNewGRNBase();

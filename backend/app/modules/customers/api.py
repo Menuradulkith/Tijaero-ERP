@@ -3,10 +3,12 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.auth.models import User
+from app.auth.dependencies import get_current_active_user
 from app.auth.rbac import require_permission, Permissions
 from app.modules.customers import schemas, service
 
-router = APIRouter()
+# All customer endpoints require authentication
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 @router.get(
     "/",

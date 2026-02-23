@@ -53,8 +53,8 @@ export default function SalesDashboard() {
   });
 
   // Branch list for filter dropdown
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // Calculate trends from statistics
   const trends = useMemo(() => {

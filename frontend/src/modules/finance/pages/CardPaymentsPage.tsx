@@ -94,8 +94,8 @@ export default function CardPaymentsPage() {
     defaultSortField: "date_time",
   });
 
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches: Branch[] = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches: Branch[] = filteredBranches || [];
 
   const { data: payments = [], isLoading, refetch } = useQuery({
     queryKey: ["card-payments", filterBranch],

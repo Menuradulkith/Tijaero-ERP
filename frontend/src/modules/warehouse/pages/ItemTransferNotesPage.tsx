@@ -185,8 +185,8 @@ export default function ItemTransferNotesPage() {
   const locations = locationsData || [];
 
   // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   const handleNewITN = useCallback(() => {
     handleNewITNBase();

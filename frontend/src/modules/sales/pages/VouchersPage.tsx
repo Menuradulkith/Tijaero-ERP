@@ -150,8 +150,8 @@ export default function VouchersPage() {
   });
 
   // Data fetching
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   const { data: vouchers, isLoading, refetch } = useQuery({
     queryKey: ["vouchers"],

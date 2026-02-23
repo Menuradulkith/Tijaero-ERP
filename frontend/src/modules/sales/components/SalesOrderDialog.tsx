@@ -47,11 +47,11 @@ export default function SalesOrderDialog({
   const isView = !!invoice;
 
   // OPTIMIZED: Single API call for customers, products, branches (was 3 calls)
-  const { data: refData } = useReferenceData(["customers", "products", "branches", "sales_stock"]);
+  const { data: refData, filteredBranches } = useReferenceData(["customers", "products", "branches", "sales_stock"]);
   const customers = refData?.customers || [];
   const products = refData?.products || [];
   const salesStock = refData?.sales_stock || [];
-  const branches = refData?.branches || [];
+  const branches = filteredBranches || [];
 
   const { control, handleSubmit, watch, setValue } = useForm<InvoiceCreate>({
     defaultValues: {

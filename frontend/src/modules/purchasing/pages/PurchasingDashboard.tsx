@@ -62,8 +62,8 @@ export default function PurchasingDashboard() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   const { data: suppliers, isLoading: suppliersLoading } = useQuery({
     queryKey: ["suppliers"],

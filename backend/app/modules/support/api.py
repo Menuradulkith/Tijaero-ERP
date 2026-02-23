@@ -3,9 +3,16 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
 from app.db.session import get_db
+from app.auth.dependencies import get_current_active_user, get_user_branch_filter, validate_branch_access
+from app.auth.models import User
 from . import schemas, service
 
-router = APIRouter(prefix="/support", tags=["support"])
+# All support endpoints require authentication
+router = APIRouter(
+    prefix="/support",
+    tags=["support"],
+    dependencies=[Depends(get_current_active_user)],
+)
 
 # Customer Support Endpoints
 @router.post("/tickets", response_model=schemas.CustomerSupport, status_code=status.HTTP_201_CREATED)

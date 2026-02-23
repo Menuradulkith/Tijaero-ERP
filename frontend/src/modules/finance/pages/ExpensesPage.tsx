@@ -128,8 +128,8 @@ export default function ExpensesPage() {
   const approveDialog = useTConfirmDialog();
 
   // Ref data
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // Master detail state
   const {

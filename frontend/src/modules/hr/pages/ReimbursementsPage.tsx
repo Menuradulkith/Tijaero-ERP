@@ -144,8 +144,8 @@ export default function ReimbursementsPage() {
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
 
   // Reference data
-  const { data: refData } = useReferenceData(["branches", "employees"]);
-  const branches = refData?.branches || [];
+  const { data: refData, filteredBranches } = useReferenceData(["branches", "employees"]);
+  const branches = filteredBranches || [];
   const employees = refData?.employees || [];
 
   // Master-detail state

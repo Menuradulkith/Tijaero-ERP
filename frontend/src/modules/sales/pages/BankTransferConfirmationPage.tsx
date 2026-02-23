@@ -104,9 +104,9 @@ export default function BankTransferConfirmationPage() {
   });
 
   // Fetch products and branches
-  const { data: refData } = useReferenceData(["products", "branches"]);
+  const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
   const products = (refData?.products || []) as Product[];
-  const branches = refData?.branches || [];
+  const branches = filteredBranches || [];
 
   // Create lookup maps
   const customerMap = useMemo(() => {

@@ -6,9 +6,16 @@ from datetime import date, timedelta
 from app.core import timezone as tz
 from app.core.simple_rate_limit import rate_limit
 from app.db.session import get_db
+from app.auth.dependencies import get_current_active_user, get_user_branch_filter
+from app.auth.models import User
 from . import schemas, service
 
-router = APIRouter(prefix="/reporting", tags=["reporting"])
+# All reporting endpoints require authentication
+router = APIRouter(
+    prefix="/reporting",
+    tags=["reporting"],
+    dependencies=[Depends(get_current_active_user)],
+)
 
 _limit_30 = rate_limit(30)
 _limit_60 = rate_limit(60)

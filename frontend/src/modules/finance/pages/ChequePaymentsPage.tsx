@@ -93,8 +93,8 @@ export default function ChequePaymentsPage() {
     defaultSortField: "cheque_date",
   });
 
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches: Branch[] = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches: Branch[] = filteredBranches || [];
 
   const { data: cheques = [], isLoading, refetch } = useQuery({
     queryKey: ["cheque-payments", filterBranch],
