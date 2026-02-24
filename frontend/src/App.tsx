@@ -45,7 +45,7 @@ function App() {
     <Box
       sx={{
         display: "flex",
-        minHeight: "100vh",
+        minHeight: "100dvh",
         width: "100%",
         maxWidth: "100vw",
         overflow: "hidden",

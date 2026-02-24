@@ -18,7 +18,9 @@ export default function ProtectedRoute({
   const user = useAuthStore((state) => state.user);
   const location = useLocation();
 
-  // Check authentication first
+  // isAuthenticated is pre-populated from localStorage synchronously in
+  // authStore.ts, so this check is correct on the very first render after
+  // a page refresh — no redirect-on-refresh.
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }

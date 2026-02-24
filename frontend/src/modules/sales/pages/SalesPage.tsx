@@ -2,6 +2,7 @@ import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
 import {
   ActionToolbar,
+  canPrintDocument,
   CUSTOMER_PAYMENT_METHOD,
   DetailPanelHeader,
   EmptyState,
@@ -16,6 +17,8 @@ import {
   showSuccessToast,
   SortOption,
   TConfirmDialog,
+  TPrintButton,
+  TPrintPreviewDialog,
   TStatusChip,
   TSteps,
   useMasterDetailState,
@@ -34,7 +37,6 @@ import {
   Delete as DeleteIcon,
   Edit as EditIcon,
   MenuBook as MenuBookIcon,
-  Print as PrintIcon,
   Receipt as ReceiptIcon,
   ThumbUp as ApproveIcon,
   LocalOffer as CouponIcon,
@@ -145,6 +147,8 @@ export default function SalesPage() {
   // Dialog states
   const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState(false);
   const [selectedInvoiceForView, setSelectedInvoiceForView] = useState<Invoice | null>(null);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [selectedItemForPrint, setSelectedItemForPrint] = useState<Invoice | null>(null);
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
   const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
   const [currentItemRemark, setCurrentItemRemark] = useState("");
@@ -1237,14 +1241,6 @@ export default function SalesPage() {
     return () => clearTimeout(timeoutId);
   }, [lineItems.length, couponCode, state.formData.customer_id, discountType, discountValue]); // Revalidate when discount changes
 
-  // Handle view invoice details
-  const handleViewDetails = () => {
-    if (state.selectedItem) {
-      setSelectedInvoiceForView(state.selectedItem);
-      setInvoiceDetailsOpen(true);
-    }
-  };
-
   // Custom actions for toolbar
   const customActions = state.selectedItem && !state.isCreating && !state.isEditing ? (
     <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
@@ -1292,11 +1288,17 @@ export default function SalesPage() {
       >
         Edit
       </Button>
-      <Tooltip title="Print Invoice">
-        <IconButton size="small" onClick={handleViewDetails}>
-          <PrintIcon />
-        </IconButton>
-      </Tooltip>
+      <TPrintButton
+        documentType="invoice"
+        documentId={state.selectedItem.id}
+        disabled={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"])}
+        disabledReason="Cannot print cancelled invoices"
+        tooltip="Print Invoice"
+        onClick={() => {
+          setSelectedItemForPrint(state.selectedItem);
+          setPrintDialogOpen(true);
+        }}
+      />
     </Box>
   ) : undefined;
 
@@ -3359,6 +3361,20 @@ export default function SalesPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Print Preview Dialog */}
+      {selectedItemForPrint && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => {
+            setPrintDialogOpen(false);
+            setSelectedItemForPrint(null);
+          }}
+          documentType="invoice"
+          documentId={selectedItemForPrint.id}
+          title={`Print Invoice: ${selectedItemForPrint.invoice_no}`}
+        />
+      )}
     </>
   );
 }

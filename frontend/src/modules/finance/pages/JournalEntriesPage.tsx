@@ -40,6 +40,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   ActionToolbar,
+  canPrintDocument,
   DetailPanelHeader,
   EmptyState,
   fmtLKR,
@@ -51,6 +52,8 @@ import {
   showErrorToast,
   showSuccessToast,
   TFilterPanel,
+  TPrintButton,
+  TPrintPreviewDialog,
   TSearchableSelect,
   type SortOption,
   useMasterDetailState,
@@ -149,6 +152,10 @@ export default function JournalEntriesPage() {
   // Reverse dialog
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
   const [reverseReason, setReverseReason] = useState("");
+
+  // Print dialog
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [selectedJEForPrint, setSelectedJEForPrint] = useState<JournalEntry | null>(null);
 
   // ─── Master-Detail State ───────────────────────────────────────────────────
 
@@ -581,6 +588,17 @@ export default function JournalEntriesPage() {
                   Reverse
                 </Button>
               )}
+              <TPrintButton
+                documentType="journal-entry"
+                documentId={detail.id}
+                disabled={!canPrintDocument(detail.status, [])}
+                disabledReason="Cannot print this journal entry"
+                tooltip="Print Journal Entry"
+                onClick={() => {
+                  setSelectedJEForPrint(selectedJE);
+                  setPrintDialogOpen(true);
+                }}
+              />
             </Box>
           ) : undefined
         }
@@ -915,6 +933,20 @@ export default function JournalEntriesPage() {
       </Dialog>
 
       <ConfirmDialog {...confirmDialog.dialogProps} />
+
+      {/* Print Preview Dialog */}
+      {selectedJEForPrint && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => {
+            setPrintDialogOpen(false);
+            setSelectedJEForPrint(null);
+          }}
+          documentType="journal-entry"
+          documentId={selectedJEForPrint.id}
+          title={`Print Journal Entry: ${selectedJEForPrint.journal_entry_no}`}
+        />
+      )}
     </>
   );
 }

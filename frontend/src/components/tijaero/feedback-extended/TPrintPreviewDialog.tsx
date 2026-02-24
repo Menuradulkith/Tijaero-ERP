@@ -15,6 +15,7 @@ import {
     Typography,
 } from "@mui/material";
 import React, { useMemo, useState } from "react";
+import { useAuthStore } from "@/state/authStore";
 import { TButton } from "../base/TButton";
 import { getReportUrl, TPrintDocumentType } from "../base/TPrintButton";
 
@@ -37,11 +38,13 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
     const [showDiscount, setShowDiscount] = useState(true);
     const [showSignatures, setShowSignatures] = useState(true);
     const [customRemarks, setCustomRemarks] = useState("");
+    const token = useAuthStore((s) => s.token);
 
     const reportUrl = useMemo(() => {
         const baseUrl = getReportUrl(documentType, documentId);
         const params = new URLSearchParams();
 
+        if (token) params.append("token", token);
         if (!showHeader) params.append("show_header", "false");
         if (!showDiscount) params.append("show_discount", "false");
         if (!showSignatures) params.append("show_signatures", "false");
@@ -51,7 +54,7 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
 
         const queryString = params.toString();
         return queryString ? `${baseUrl}?${queryString}` : baseUrl;
-    }, [documentType, documentId, showHeader, showDiscount, showSignatures, customRemarks]);
+    }, [documentType, documentId, showHeader, showDiscount, showSignatures, customRemarks, token]);
 
     const handlePrint = () => {
         const printUrl = new URL(reportUrl);

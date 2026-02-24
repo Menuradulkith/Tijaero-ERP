@@ -268,9 +268,18 @@ export default function Sidebar({
     );
     if (currentParent) {
       setExpandedMenu(currentParent.text);
-      // Check for nested sub-menu expansion
+      // Check for nested sub-menu expansion.
+      // Match either by the sub-menu's own path OR by any of its children's
+      // paths — this handles groups like "Accounting" whose children
+      // (/finance/journal-entries, etc.) don't share the parent path prefix
+      // (/finance/chart-of-accounts).
       const nestedParent = currentParent.subItems?.find(
-        (sub) => sub.subItems && location.pathname.startsWith(sub.path)
+        (sub) =>
+          sub.subItems &&
+          (location.pathname.startsWith(sub.path) ||
+            sub.subItems.some((child) =>
+              location.pathname.startsWith(child.path)
+            ))
       );
       if (nestedParent) {
         setExpandedSubMenu(nestedParent.text);
@@ -345,7 +354,7 @@ export default function Sidebar({
 
   const drawer = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <Toolbar sx={{ bgcolor: "primary.main", color: "white", minHeight: { xs: 48, sm: 56 } }}>
+      <Toolbar sx={{ bgcolor: "primary.main", color: "white", minHeight: "var(--header-height)" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <AccountBalanceIcon fontSize="small" />
           <Typography variant="subtitle1" fontWeight={600} noWrap>
@@ -511,7 +520,7 @@ export default function Sidebar({
         position: "fixed",
         left: iconNavWidth,
         top: 0,
-        height: "100vh",
+        height: "100dvh",
         zIndex: 1200,
       }}
     >

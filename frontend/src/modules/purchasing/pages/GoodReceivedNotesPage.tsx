@@ -1315,6 +1315,7 @@ export default function GoodReceivedNotesPage() {
             <TPrintButton
               documentType="grn"
               documentId={selectedGRN.id}
+              tooltip="Print GRN"
               onClick={() => handlePrint(selectedGRN.id)}
             />
           ) : undefined
@@ -2001,12 +2002,18 @@ export default function GoodReceivedNotesPage() {
       <ConfirmDialog {...confirmDialog.dialogProps} />
 
       {/* Print Preview Dialog */}
-      <TPrintPreviewDialog
-        open={printDialogOpen}
-        onClose={() => setPrintDialogOpen(false)}
-        documentType="grn"
-        documentId={selectedGrnIdForPrint || 0}
-      />
+      {selectedGrnIdForPrint && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => {
+            setPrintDialogOpen(false);
+            setSelectedGrnIdForPrint(null);
+          }}
+          documentType="grn"
+          documentId={selectedGrnIdForPrint}
+          title={`Print GRN: ${selectedGRN?.good_received_no || ''}`}
+        />
+      )}
 
       {/* Credit Limit Override Dialog */}
       <Dialog

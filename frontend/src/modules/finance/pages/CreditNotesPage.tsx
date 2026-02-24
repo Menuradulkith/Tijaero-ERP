@@ -17,12 +17,16 @@ import {
 } from "@mui/icons-material";
 
 import {
+  ActionToolbar,
+  canPrintDocument,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
   DetailPanelHeader,
   FormSection,
   EmptyState,
+  TPrintButton,
+  TPrintPreviewDialog,
   useMasterDetailState,
   SortOption,
   TFilterPanel,
@@ -59,6 +63,8 @@ const resetFormFromItem = (item: CustomerCreditNote): Partial<CustomerCreditNote
 
 export default function CreditNotesPage() {
   const [filterCustomerId, setFilterCustomerId] = useState<number | null>(null);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [selectedItemForPrint, setSelectedItemForPrint] = useState<CustomerCreditNote | null>(null);
 
   const {
     searchQuery,
@@ -237,7 +243,29 @@ export default function CreditNotesPage() {
         onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
-      {/* Actions disabled - read-only mode */}
+      <ActionToolbar
+        hasSelectedItem={!!selectedItem}
+        isCreating={isCreating}
+        isEditing={false}
+        canCreate={false}
+        canUpdate={false}
+        canDelete={false}
+        endActions={
+          selectedItem && !isCreating ? (
+            <TPrintButton
+              documentType="credit-note"
+              documentId={selectedItem.id}
+              disabled={!canPrintDocument("approved", [])}
+              disabledReason="Cannot print this credit note"
+              tooltip="Print Credit Note"
+              onClick={() => {
+                setSelectedItemForPrint(selectedItem);
+                setPrintDialogOpen(true);
+              }}
+            />
+          ) : undefined
+        }
+      />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
@@ -303,12 +331,28 @@ export default function CreditNotesPage() {
   );
 
   return (
-    <MasterDetailLayout
-      title="Credit Notes"
-      onRefresh={refetch}
-      isLoading={isLoading}
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
-    />
+    <>
+      <MasterDetailLayout
+        title="Credit Notes"
+        onRefresh={refetch}
+        isLoading={isLoading}
+        masterPanel={masterPanel}
+        detailPanel={detailPanel}
+      />
+
+      {/* Print Preview Dialog */}
+      {selectedItemForPrint && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => {
+            setPrintDialogOpen(false);
+            setSelectedItemForPrint(null);
+          }}
+          documentType="credit-note"
+          documentId={selectedItemForPrint.id}
+          title={`Print Credit Note: CN-${selectedItemForPrint.id}`}
+        />
+      )}
+    </>
   );
 }

@@ -29,6 +29,7 @@ import { Controller, useForm } from "react-hook-form";
 
 import {
   ActionToolbar,
+  canPrintDocument,
   DetailPanelHeader,
   EmptyState,
   EXPENSE_CATEGORIES,
@@ -48,11 +49,14 @@ import {
   TBranchFilter,
   TConfirmDialog,
   TFilterPanel,
+  TPrintButton,
+  TPrintPreviewDialog,
   TSearchableSelect,
   TStatusChip,
   useTConfirmDialog,
   useMasterDetailState,
 } from "@/components/tijaero";
+
 
 import { useReferenceData } from "@/hooks";
 import { expensesApi } from "@/modules/finance/api";
@@ -122,6 +126,8 @@ export default function ExpensesPage() {
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [selectedExpenseForPrint, setSelectedExpenseForPrint] = useState<Expense | null>(null);
 
   const deleteDialog = useTConfirmDialog();
   const submitDialog = useTConfirmDialog();
@@ -673,7 +679,23 @@ export default function ExpensesPage() {
         onEdit={canEdit ? handleStartEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}
         canDelete={canDelete}
-        endActions={getWorkflowActions()}
+        endActions={
+          <>
+            {getWorkflowActions()}
+            {selectedExpense && !isCreating && !isEditing && (
+              <TPrintButton
+                documentType="expense"
+                documentId={selectedExpense.id}
+                disabled={!canPrintDocument(selectedExpense.status, [])}
+                disabledReason="Cannot print this expense"
+                onClick={() => {
+                  setSelectedExpenseForPrint(selectedExpense);
+                  setPrintDialogOpen(true);
+                }}
+              />
+            )}
+          </>
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -1145,6 +1167,20 @@ export default function ExpensesPage() {
       <TConfirmDialog {...submitDialog.dialogProps} />
       <TConfirmDialog {...approveDialog.dialogProps} />
       <TConfirmDialog {...deleteDialog.dialogProps} />
+
+      {/* Print Preview Dialog */}
+      {selectedExpenseForPrint && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => {
+            setPrintDialogOpen(false);
+            setSelectedExpenseForPrint(null);
+          }}
+          documentType="expense"
+          documentId={selectedExpenseForPrint.id}
+          title={`Print Expense: ${selectedExpenseForPrint.expenses_no}`}
+        />
+      )}
     </>
   );
 }

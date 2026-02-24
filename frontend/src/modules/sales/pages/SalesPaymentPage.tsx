@@ -229,7 +229,7 @@ export default function SalesPaymentPage() {
 
     if (loadingInvoice) {
         return (
-            <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
+            <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100dvh" }}>
                 <Typography>Loading payment details...</Typography>
             </Box>
         );
@@ -246,7 +246,7 @@ export default function SalesPaymentPage() {
     return (
         <Box
             sx={{
-                minHeight: "100vh",
+                minHeight: "100dvh",
                 background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
                 p: 3,
             }}

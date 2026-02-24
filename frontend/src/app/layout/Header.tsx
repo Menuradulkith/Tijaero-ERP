@@ -59,7 +59,7 @@ export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: H
         color: "text.primary",
       }}
     >
-      <Toolbar sx={{ minHeight: { xs: 48, sm: 56 }, py: 0 }}>
+      <Toolbar sx={{ minHeight: "var(--header-height)", py: 0 }}>
         <IconButton
           color="inherit"
           edge="start"

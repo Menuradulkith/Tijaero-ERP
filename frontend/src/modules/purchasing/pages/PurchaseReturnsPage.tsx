@@ -745,6 +745,7 @@ export default function PurchaseReturnsPage() {
               documentId={selectedReturn.id}
               disabled={!canPrintDocument(selectedReturn.status)}
               disabledReason="Cannot print draft/pending returns"
+              tooltip="Print Purchase Return"
               onClick={() => handlePrint(selectedReturn.id)}
             />
           ) : undefined
@@ -1127,12 +1128,19 @@ export default function PurchaseReturnsPage() {
       />
       <ConfirmDialog {...confirmDialog.dialogProps} />
 
-      <TPrintPreviewDialog
-        open={printDialogOpen}
-        onClose={() => setPrintDialogOpen(false)}
-        documentType="purchase-return"
-        documentId={selectedReturnIdForPrint || 0}
-      />
+      {/* Print Preview Dialog */}
+      {selectedReturnIdForPrint && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => {
+            setPrintDialogOpen(false);
+            setSelectedReturnIdForPrint(null);
+          }}
+          documentType="purchase-return"
+          documentId={selectedReturnIdForPrint}
+          title={`Print Purchase Return: ${selectedReturn?.purchasing_return_no || ''}`}
+        />
+      )}
     </>
   );
 }

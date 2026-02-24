@@ -42,10 +42,13 @@ import {
   showSuccessToast,
   SortOption,
   TConfirmDialog,
+  TPrintButton,
+  TPrintPreviewDialog,
   useMasterDetailState,
   useTConfirmDialog,
   modernTableStyles,
 } from "@/components/tijaero";
+
 
 import { usePermission } from "@/auth/permissions";
 import { useReferenceData } from "@/hooks";
@@ -268,6 +271,7 @@ export default function VouchersPage() {
   }, [formData, isEditing, selectedVoucher]);
 
   const confirmDialog = useTConfirmDialog();
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
 
   const handleDelete = useCallback(async () => {
     if (!selectedVoucher) return;
@@ -461,6 +465,16 @@ export default function VouchersPage() {
         onSave={handleSave}
         onCancel={() => baseHandleCancel(filteredVouchers)}
         onEdit={handleStartEdit}
+        endActions={
+          selectedVoucher && !isCreating && !isEditing ? (
+            <TPrintButton
+              documentType="voucher"
+              documentId={selectedVoucher.id}
+              tooltip="Print Voucher"
+              onClick={() => setPrintDialogOpen(true)}
+            />
+          ) : undefined
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -678,6 +692,17 @@ export default function VouchersPage() {
         detailPanel={detailPanel}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      {/* Print Preview Dialog */}
+      {selectedVoucher && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => setPrintDialogOpen(false)}
+          documentType="voucher"
+          documentId={selectedVoucher.id}
+          title={`Print Voucher: ${selectedVoucher.barcode_no}`}
+        />
+      )}
     </>
   );
 }

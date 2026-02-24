@@ -1436,12 +1436,18 @@ export default function PurchaseOrdersPage() {
       <ConfirmDialog {...confirmDialog.dialogProps} />
 
       {/* Print Preview Dialog */}
-      <TPrintPreviewDialog
-        open={printDialogOpen}
-        onClose={() => setPrintDialogOpen(false)}
-        documentType="purchase-order"
-        documentId={selectedPoIdForPrint || 0}
-      />
+      {selectedPoIdForPrint && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => {
+            setPrintDialogOpen(false);
+            setSelectedPoIdForPrint(null);
+          }}
+          documentType="purchase-order"
+          documentId={selectedPoIdForPrint}
+          title={`Print Purchase Order: ${selectedOrder?.purchasing_order_no || ''}`}
+        />
+      )}
     </>
   );
 }
