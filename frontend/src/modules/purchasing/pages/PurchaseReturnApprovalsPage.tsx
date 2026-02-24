@@ -92,9 +92,9 @@ export default function PurchaseReturnApprovalsPage() {
   });
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
-  const { data: refData } = useReferenceData(["products", "branches"]);
+  const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
-  const branches = refData?.branches || [];
+  const branches = filteredBranches || [];
 
   // Create lookup maps
   const grnMap = useMemo(() => {

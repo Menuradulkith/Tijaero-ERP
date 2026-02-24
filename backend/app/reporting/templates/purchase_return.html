@@ -1,421 +1,140 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Purchase Return - {{ return_data.purchasing_return_no }}</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
-            line-height: 1.4;
-            color: #333;
-            background: #fff;
-            padding: 15px;
-        }
-
-        .document {
-            max-width: 800px;
-            margin: 0 auto;
-            background: #fff;
-            padding: 20px;
-        }
-
-        /* Header */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #1a4480;
-        }
-
-        .company-info {
-            flex: 1;
-        }
-
-        .company-info .logo {
-            width: 50px;
-            height: 50px;
-            background: #1a4480;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            font-weight: bold;
-            font-size: 18px;
-            float: left;
-            margin-right: 10px;
-        }
-
-        .company-info h1 {
-            font-size: 20px;
-            color: #1a4480;
-            font-weight: bold;
-            margin-bottom: 2px;
-        }
-
-        .company-info h1 span {
-            font-style: italic;
-            font-weight: normal;
-        }
-
-        .company-info p {
-            color: #666;
-            font-size: 10px;
-            line-height: 1.3;
-        }
-
-        /* Document Info Grid */
-        .doc-info {
-            width: 280px;
-        }
-
-        .doc-info table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 10px;
-        }
-
-        .doc-info td {
-            border: 1px solid #1a4480;
-            padding: 3px 6px;
-        }
-
-        .doc-info td.label {
-            background: #1a4480;
-            color: #fff;
-            font-weight: bold;
-            width: 45%;
-        }
-
-        .doc-info td.value {
-            background: #fff;
-        }
-
-        /* Supplier Info */
-        .supplier-section {
-            margin-bottom: 15px;
-            padding: 8px;
-            border: 1px solid #ddd;
-            background: #f9f9f9;
-        }
-
-        .supplier-section table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .supplier-section td.label {
-            font-weight: bold;
-            width: 120px;
-            color: #1a4480;
-        }
-
-        /* Items Table */
-        .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-        }
-
-        .items-table th {
-            background: #1a4480;
-            color: #fff;
-            padding: 8px 6px;
-            text-align: center;
-            font-weight: bold;
-            border: 1px solid #1a4480;
-        }
-
-        .items-table td {
-            border: 1px solid #ccc;
-            padding: 6px;
-            text-align: center;
-        }
-
-        .items-table td.description {
-            text-align: left;
-        }
-
-        .items-table td.amount {
-            text-align: right;
-        }
-
-        .items-table tbody tr:nth-child(even) {
-            background: #f9f9f9;
-        }
-
-        /* Barcode Display */
-        .barcode-cell {
-            font-family: 'Courier New', monospace;
-            font-size: 10px;
-            background: #f5f5f5;
-            padding: 2px 4px;
-            border-radius: 2px;
-        }
-
-        /* Totals Box */
-        .totals-section {
-            display: flex;
-            justify-content: flex-end;
-            margin-bottom: 15px;
-        }
-
-        .totals-box {
-            width: 200px;
-        }
-
-        .totals-box table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .totals-box td {
-            border: 1px solid #1a4480;
-            padding: 4px 8px;
-        }
-
-        .totals-box td.label {
-            background: #1a4480;
-            color: #fff;
-            font-weight: bold;
-        }
-
-        .totals-box td.value {
-            text-align: right;
-            font-weight: bold;
-        }
-
-        /* Remarks */
-        .remarks-section {
-            background: #f9f9f9;
-            padding: 10px;
-            border: 1px solid #ddd;
-            margin-bottom: 15px;
-        }
-
-        .remarks-section h3 {
-            font-size: 10px;
-            text-transform: uppercase;
-            color: #1a4480;
-            margin-bottom: 5px;
-        }
-
-        /* Signatures */
-        .signatures {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 30px;
-            padding-top: 10px;
-        }
-
-        .signature-box {
-            text-align: center;
-            width: 30%;
-        }
-
-        .signature-box .line {
-            border-top: 1px solid #333;
-            margin-bottom: 5px;
-            min-height: 40px;
-        }
-
-        .signature-box .title {
-            font-size: 10px;
-            font-weight: bold;
-        }
-
-        /* Print Info */
-        .print-info {
-            margin-top: 20px;
-            padding-top: 10px;
-            border-top: 1px dashed #ccc;
-            font-size: 9px;
-            color: #999;
-            text-align: center;
-            width: 100%;
-        }
-
-        @media print {
-            body {
-                padding: 0;
-            }
-
-            .document {
-                border: none;
-                padding: 10px;
-            }
-        }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',Arial,sans-serif;font-size:10px;line-height:1.5;color:#212529;background:#fff}
+        .page{max-width:210mm;margin:0 auto;padding:12mm 15mm}
+        .header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:8px;border-bottom:3px solid #1a4480;margin-bottom:4px}
+        .company{flex:1}
+        .company .logo{width:44px;height:44px;background:#1a4480;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px;vertical-align:middle;margin-right:8px}
+        .company .name{display:inline-block;vertical-align:middle}
+        .company .name h1{font-size:17px;color:#1a4480;line-height:1.2}
+        .company .name h1 small{font-size:11px;font-weight:400;color:#6c757d}
+        .company .addr{font-size:9px;color:#6c757d;margin-top:2px;line-height:1.3}
+        .doc-banner{background:#1a4480;color:#fff;text-align:center;padding:6px 0;font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+        .info-grid{display:flex;gap:8px;margin-bottom:8px}
+        .info-box{flex:1;border:1px solid #dee2e6;border-radius:3px;overflow:hidden}
+        .info-box .info-title{background:#e9ecef;padding:3px 6px;font-size:9px;font-weight:700;text-transform:uppercase;color:#495057;border-bottom:1px solid #dee2e6}
+        .info-box table{width:100%;border-collapse:collapse}
+        .info-box td{padding:2px 6px;font-size:9px;vertical-align:top}
+        .info-box td.lbl{font-weight:600;color:#495057;width:38%;white-space:nowrap}
+        .info-box td.val{color:#212529}
+        .tbl{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:9px}
+        .tbl thead th{background:#1a4480;color:#fff;padding:5px 6px;text-align:left;font-weight:600;border:1px solid #1a4480}
+        .tbl thead th.r{text-align:right}.tbl thead th.c{text-align:center}
+        .tbl tbody td{padding:4px 6px;border:1px solid #dee2e6;vertical-align:top}
+        .tbl tbody td.r{text-align:right}.tbl tbody td.c{text-align:center}
+        .tbl tbody td .sub{color:#6c757d;font-size:8px}
+        .tbl tbody tr:nth-child(even){background:#f8f9fa}
+        .totals-row{display:flex;justify-content:flex-end;margin-bottom:8px}
+        .totals{width:220px}
+        .totals table{width:100%;border-collapse:collapse}
+        .totals td{padding:3px 8px;border:1px solid #dee2e6;font-size:9px}
+        .totals td.lbl{background:#f8f9fa;font-weight:600;color:#495057;width:55%}
+        .totals td.val{text-align:right;font-weight:600;color:#212529}
+        .totals tr.grand td{background:#1a4480;color:#fff;font-size:10px;border-color:#1a4480}
+        .remarks{border:1px solid #dee2e6;border-radius:3px;padding:6px 8px;margin-bottom:8px;background:#f8f9fa}
+        .remarks h4{font-size:9px;text-transform:uppercase;color:#495057;margin-bottom:3px}
+        .remarks p{font-size:9px;color:#495057;line-height:1.4}
+        .sigs{display:flex;justify-content:space-between;margin-top:25px;gap:15px}
+        .sig{text-align:center;flex:1}
+        .sig .line{border-top:1px solid #6c757d;margin-top:35px;margin-bottom:4px}
+        .sig .role{font-size:9px;font-weight:600;color:#495057}
+        .footer{margin-top:12px;padding-top:6px;border-top:1px solid #dee2e6;display:flex;justify-content:space-between;font-size:8px;color:#adb5bd}
+        @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:8mm 10mm;max-width:100%}}
     </style>
 </head>
-
 <body>
-    <div class="document">
-        <!-- Header -->
-        {% if options.show_header %}
-        <div class="header">
-            <div class="company-info">
-                <div class="logo">T</div>
-                <h1>{{ company.name | default('TIJAERO') }} <span>Solutions</span></h1>
-                <p>
-                    {{ company.address | default('Ground Floor, Unity Plaza') }}<br>
-                    Tel: {{ company.phone | default('011-2345678') }}<br>
-                    E-mail: {{ company.email | default('info@tijaero.lk') }}
-                </p>
-            </div>
-            <div class="doc-info">
-                <table>
-                    <tr>
-                        <td class="label">Return No.</td>
-                        <td class="value">{{ return_data.purchasing_return_no }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Date</td>
-                        <td class="value">{{ return_data.added_date }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Status</td>
-                        <td class="value">{{ return_data.status | default('Pending') | upper }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Branch</td>
-                        <td class="value">{{ branch.branch_name | default(return_data.branch_code) }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">GRN No.</td>
-                        <td class="value">{{ grn.good_received_no | default('N/A') }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">PO No.</td>
-                        <td class="value">{{ po.purchasing_order_no | default('N/A') }}</td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Supplier Info -->
-        <div class="supplier-section">
-            <table>
-                <tr>
-                    <td class="label">Supplier</td>
-                    <td>{{ supplier.full_name | default('N/A') }}</td>
-                </tr>
-                <tr>
-                    <td class="label">Company</td>
-                    <td>{{ supplier.company_name | default('N/A') }}</td>
-                </tr>
-                <tr>
-                    <td class="label">Contact</td>
-                    <td>{{ supplier.mobile_contact_number | default('N/A') }}</td>
-                </tr>
-            </table>
-        </div>
-
-        <!-- Items Table -->
-        <table class="items-table">
-            <thead>
-                <tr>
-                    <th style="width: 30px;">NO</th>
-                    <th>Product</th>
-                    <th>Barcode</th>
-                    <th style="width: 70px;">Branch</th>
-                    <th style="width: 80px;">Unit Price</th>
-                    <th style="width: 80px;">Added Date</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in items %}
-                <tr>
-                    <td>{{ loop.index }}</td>
-                    <td class="description">{{ item.product_name | default('Product #' ~ item.product_id) }}</td>
-                    <td><span class="barcode-cell">{{ item.barcode | default('-') }}</span></td>
-                    <td>{{ item.branch_code | default('-') }}</td>
-                    <td class="amount">{{ "%.2f" | format(item.purchasing_price | default(0)) }}</td>
-                    <td>{{ item.added_date | default('-') }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        <!-- Totals -->
-        <div class="totals-section">
-            <div class="totals-box">
-                <table>
-                    <tr>
-                        <td class="label">Total Items</td>
-                        <td class="value">{{ items | length }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Total Qty</td>
-                        <td class="value">{{ total_quantity }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Return Value</td>
-                        <td class="value">{{ "%.2f" | format(total_value) }}</td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-
-        <!-- Remarks -->
-        {% if return_data.remark or options.custom_remarks %}
-        <div class="remarks-section">
-            {% if return_data.remark %}
-            <h3>Internal Remarks</h3>
-            <p>{{ return_data.remark }}</p>
-            {% endif %}
-
-            {% if options.custom_remarks %}
-            <h3>Additional Remarks</h3>
-            <p>{{ options.custom_remarks }}</p>
-            {% endif %}
-        </div>
-        {% endif %}
-
-        <!-- Signatures -->
-        {% if options.show_signatures %}
-        <div class="signatures">
-            <div class="signature-box">
-                <div class="line"></div>
-                <div class="title">Requested By</div>
-            </div>
-            <div class="signature-box">
-                <div class="line"></div>
-                <div class="title">Store Manager</div>
-            </div>
-            <div class="signature-box">
-                <div class="line"></div>
-                <div class="title">Approved By</div>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Print Info -->
-        <div class="print-info">
-            Generated on {{ generated_at }} | Document ID: {{ return_data.id }}
+<div class="page">
+    {% if options.show_header %}
+    <div class="header">
+        <div class="company">
+            <span class="logo">T</span>
+            <div class="name"><h1>{{ company.name | default('TIJAERO') }}<br><small>{{ company.tagline | default('Solutions') }}</small></h1></div>
+            <div class="addr">{{ company.address | default('Ground Floor, Unity Plaza') }}<br>Tel: {{ company.phone | default('011-2345678') }} &nbsp;|&nbsp; {{ company.email | default('info@tijaero.lk') }}</div>
         </div>
     </div>
-    <script>
-        window.onload = function () {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('auto_print') === 'true') {
-                setTimeout(() => {
-                    window.print();
-                }, 500);
-            }
-        }
-    </script>
-</body>
+    {% endif %}
 
+    <div class="doc-banner">Purchase Return</div>
+
+    <div class="info-grid">
+        <div class="info-box">
+            <div class="info-title">Supplier Details</div>
+            <table>
+                <tr><td class="lbl">Supplier</td><td class="val">{{ supplier.full_name | default('N/A') }}</td></tr>
+                <tr><td class="lbl">Company</td><td class="val">{{ supplier.company_name | default('N/A') }}</td></tr>
+                <tr><td class="lbl">Contact</td><td class="val">{{ supplier.mobile_contact_number | default('N/A') }}</td></tr>
+            </table>
+        </div>
+        <div class="info-box">
+            <div class="info-title">Return Details</div>
+            <table>
+                <tr><td class="lbl">Return No.</td><td class="val"><strong>{{ return_data.purchasing_return_no }}</strong></td></tr>
+                <tr><td class="lbl">Date</td><td class="val">{{ return_data.added_date }}</td></tr>
+                <tr><td class="lbl">Status</td><td class="val">{{ return_data.status | default('Draft') | upper }}</td></tr>
+                <tr><td class="lbl">Branch</td><td class="val">{{ branch.branch_name | default(return_data.branch_code) }}</td></tr>
+                <tr><td class="lbl">GRN Ref.</td><td class="val">{{ grn.good_received_no | default('-') }}</td></tr>
+                <tr><td class="lbl">PO Ref.</td><td class="val">{{ po.purchasing_order_no | default('-') }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th class="c" style="width:28px">No</th>
+                <th>Product</th>
+                <th class="c" style="width:100px">Barcode</th>
+                <th class="c" style="width:65px">Branch</th>
+                <th class="r" style="width:80px">Purchase Price</th>
+                <th class="c" style="width:70px">Added Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td class="c">{{ loop.index }}</td>
+                <td>{{ item.product_name | default('Product #' ~ item.product_id) }}</td>
+                <td class="c" style="font-family:'Consolas','Courier New',monospace;font-size:8px">{{ item.barcode | default('-') }}</td>
+                <td class="c">{{ item.branch_code | default('-') }}</td>
+                <td class="r">{{ "%.2f" | format(item.purchasing_price) }}</td>
+                <td class="c">{{ item.added_date | default('-') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals-row">
+        <div class="totals">
+            <table>
+                <tr><td class="lbl">Total Quantity</td><td class="val">{{ total_quantity }}</td></tr>
+                <tr class="grand"><td class="lbl">Total Value (LKR)</td><td class="val">{{ "%.2f" | format(total_value) }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    {% if return_data.remark %}
+    <div class="remarks"><h4>Remarks</h4><p>{{ return_data.remark }}</p></div>
+    {% endif %}
+
+    {% if options.show_signatures %}
+    <div class="sigs">
+        <div class="sig"><div class="line"></div><div class="role">Returned By</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Approved By</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Supplier Received</div></div>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        <span>{{ company.name | default('TIJAERO') }} ERP &mdash; PURCHASE RETURN</span>
+        <span>Generated: {{ generated_at }} | Ref: {{ return_data.purchasing_return_no }}</span>
+    </div>
+</div>
+<script>window.onload=function(){if(new URLSearchParams(location.search).get('auto_print')==='true')setTimeout(()=>window.print(),500)};</script>
+</body>
 </html>

@@ -63,7 +63,7 @@ export interface TPageLayoutProps {
   sidebarCollapsed?: boolean;
   /** Callback when sidebar collapse state changes */
   onSidebarCollapse?: (collapsed: boolean) => void;
-  /** Full height layout (100vh) */
+  /** Full height layout (100dvh) */
   fullHeight?: boolean;
   /** Background color */
   bgcolor?: string;
@@ -144,7 +144,7 @@ export const TPageLayout: React.FC<TPageLayoutProps> = ({
       <Box
         sx={{
           p: padding && !paper ? paddingValue : 0,
-          height: fullHeight ? '100vh' : 'auto',
+          height: fullHeight ? '100dvh' : 'auto',
           bgcolor,
           ...sx,
         }}
@@ -159,7 +159,7 @@ export const TPageLayout: React.FC<TPageLayoutProps> = ({
       maxWidth={maxWidth}
       sx={{
         py: padding && !paper ? paddingValue : 0,
-        height: fullHeight ? '100vh' : 'auto',
+        height: fullHeight ? '100dvh' : 'auto',
         bgcolor,
         ...sx,
       }}

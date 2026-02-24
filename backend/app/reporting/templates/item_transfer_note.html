@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quotation - {{ quote.quote_no }}</title>
+    <title>ITN - {{ itn.itn_no }}</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:'Segoe UI',Arial,sans-serif;font-size:10px;line-height:1.5;color:#212529;background:#fff}
@@ -23,6 +23,12 @@
         .info-box td{padding:2px 6px;font-size:9px;vertical-align:top}
         .info-box td.lbl{font-weight:600;color:#495057;width:38%;white-space:nowrap}
         .info-box td.val{color:#212529}
+        .transfer-flow{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px;padding:10px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:3px}
+        .transfer-loc{text-align:center;flex:1;padding:8px;border:1px solid #dee2e6;border-radius:3px;background:#fff}
+        .transfer-loc .loc-label{font-size:8px;text-transform:uppercase;color:#6c757d;margin-bottom:2px}
+        .transfer-loc .loc-name{font-size:11px;font-weight:700;color:#1a4480}
+        .transfer-loc .loc-detail{font-size:8px;color:#495057;margin-top:1px}
+        .transfer-arrow{font-size:22px;color:#1a4480;font-weight:700}
         .tbl{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:9px}
         .tbl thead th{background:#1a4480;color:#fff;padding:5px 6px;text-align:left;font-weight:600;border:1px solid #1a4480}
         .tbl thead th.r{text-align:right}.tbl thead th.c{text-align:center}
@@ -30,10 +36,8 @@
         .tbl tbody td.r{text-align:right}.tbl tbody td.c{text-align:center}
         .tbl tbody td .sub{color:#6c757d;font-size:8px}
         .tbl tbody tr:nth-child(even){background:#f8f9fa}
-        .tbl tfoot td{padding:5px 6px;border:1px solid #1a4480;font-weight:700;background:#e9ecef}
-        .tbl tfoot td.r{text-align:right}
         .totals-row{display:flex;justify-content:flex-end;margin-bottom:8px}
-        .totals{width:220px}
+        .totals{width:200px}
         .totals table{width:100%;border-collapse:collapse}
         .totals td{padding:3px 8px;border:1px solid #dee2e6;font-size:9px}
         .totals td.lbl{background:#f8f9fa;font-weight:600;color:#495057;width:55%}
@@ -62,28 +66,33 @@
     </div>
     {% endif %}
 
-    <div class="doc-banner">Quotation</div>
+    <div class="doc-banner">Item Transfer Note</div>
 
     <div class="info-grid">
         <div class="info-box">
-            <div class="info-title">Customer Details</div>
+            <div class="info-title">Transfer Details</div>
             <table>
-                <tr><td class="lbl">Customer</td><td class="val">{{ customer.customer_name | default('N/A') }}</td></tr>
-                <tr><td class="lbl">Address</td><td class="val">{{ customer.address | default('N/A') }}</td></tr>
-                <tr><td class="lbl">Contact</td><td class="val">{{ customer.mobile_number | default('N/A') }}</td></tr>
-                <tr><td class="lbl">Email</td><td class="val">{{ customer.email | default('N/A') }}</td></tr>
+                <tr><td class="lbl">ITN No.</td><td class="val"><strong>{{ itn.itn_no }}</strong></td></tr>
+                <tr><td class="lbl">Transfer Date</td><td class="val">{{ itn.transfer_date }}</td></tr>
+                <tr><td class="lbl">Created</td><td class="val">{{ itn.created_date }}</td></tr>
+                <tr><td class="lbl">Status</td><td class="val">{{ itn.status | default('Draft') | upper }}</td></tr>
+                <tr><td class="lbl">Priority</td><td class="val">{{ itn.priority | default('Normal') | title }}</td></tr>
+                <tr><td class="lbl">Branch</td><td class="val">{{ branch.branch_name | default(itn.branch_code) }}</td></tr>
             </table>
         </div>
-        <div class="info-box">
-            <div class="info-title">Document Details</div>
-            <table>
-                <tr><td class="lbl">Quote No.</td><td class="val"><strong>{{ quote.quote_no }}</strong></td></tr>
-                <tr><td class="lbl">Date</td><td class="val">{{ quote.created_date }}</td></tr>
-                <tr><td class="lbl">Valid Until</td><td class="val">{{ quote.valid_until }}</td></tr>
-                <tr><td class="lbl">Status</td><td class="val">{{ quote.status | default('Draft') | upper }}</td></tr>
-                <tr><td class="lbl">Branch</td><td class="val">{{ branch.branch_name | default(quote.branch_code) }}</td></tr>
-                <tr><td class="lbl">Sales Rep</td><td class="val">{{ quote.sales_rep_name | default('-') }}</td></tr>
-            </table>
+    </div>
+
+    <div class="transfer-flow">
+        <div class="transfer-loc">
+            <div class="loc-label">From</div>
+            <div class="loc-name">{{ itn.from_warehouse_name | default('Warehouse #' ~ itn.from_warehouse_id) }}</div>
+            {% if itn.from_location %}<div class="loc-detail">{{ itn.from_location }}</div>{% endif %}
+        </div>
+        <div class="transfer-arrow">&#10132;</div>
+        <div class="transfer-loc">
+            <div class="loc-label">To</div>
+            <div class="loc-name">{{ itn.to_warehouse_name | default('Warehouse #' ~ itn.to_warehouse_id) }}</div>
+            {% if itn.to_location %}<div class="loc-detail">{{ itn.to_location }}</div>{% endif %}
         </div>
     </div>
 
@@ -91,24 +100,24 @@
         <thead>
             <tr>
                 <th class="c" style="width:28px">No</th>
-                <th>Product / Description</th>
+                <th style="width:80px">Code</th>
+                <th>Product Name</th>
+                <th class="c" style="width:100px">Barcode</th>
                 <th class="c" style="width:40px">Qty</th>
-                <th class="r" style="width:80px">Unit Price</th>
-                {% if options.show_discount %}<th class="r" style="width:65px">Discount</th>{% endif %}
-                <th class="c" style="width:55px">Warranty</th>
-                <th class="r" style="width:90px">Amount (LKR)</th>
+                <th class="c" style="width:45px">UOM</th>
+                <th>Remarks</th>
             </tr>
         </thead>
         <tbody>
             {% for item in items %}
             <tr>
                 <td class="c">{{ loop.index }}</td>
-                <td>{{ item.product_name | default('Product #' ~ item.product_id) }}{% if item.description %}<br><span class="sub">{{ item.description }}</span>{% endif %}</td>
+                <td>{{ item.product_code | default('-') }}</td>
+                <td>{{ item.product_name }}</td>
+                <td class="c" style="font-family:'Consolas','Courier New',monospace;font-size:8px">{{ item.barcode | default('-') }}</td>
                 <td class="c">{{ item.quantity }}</td>
-                <td class="r">{{ "%.2f" | format(item.selling_price) }}</td>
-                {% if options.show_discount %}<td class="r">{{ "%.2f" | format(item.discount_amount) }}</td>{% endif %}
-                <td class="c">{{ item.warrenty_month | default('-') }}</td>
-                <td class="r">{{ "%.2f" | format(item.total_amount) }}</td>
+                <td class="c">{{ item.uom | default('PCS') }}</td>
+                <td>{{ item.remarks | default('-') }}</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -117,33 +126,30 @@
     <div class="totals-row">
         <div class="totals">
             <table>
-                <tr><td class="lbl">Items</td><td class="val">{{ items | length }}</td></tr>
-                <tr><td class="lbl">Sub Total</td><td class="val">{{ "%.2f" | format(totals.subtotal) }}</td></tr>
-                {% if options.show_discount and totals.discount > 0 %}<tr><td class="lbl">Discount</td><td class="val">-{{ "%.2f" | format(totals.discount) }}</td></tr>{% endif %}
-                <tr class="grand"><td class="lbl">Grand Total (LKR)</td><td class="val">{{ "%.2f" | format(totals.total_amount) }}</td></tr>
+                <tr class="grand"><td class="lbl">Total Quantity</td><td class="val">{{ total_quantity }}</td></tr>
             </table>
         </div>
     </div>
 
-    {% if quote.remarks or quote.customer_notes or options.custom_remarks %}
-    <div class="remarks">
-        {% if quote.remarks %}<h4>Internal Remarks</h4><p>{{ quote.remarks }}</p>{% endif %}
-        {% if quote.customer_notes %}<h4>Customer Notes</h4><p>{{ quote.customer_notes }}</p>{% endif %}
-        {% if options.custom_remarks %}<h4>Additional Remarks</h4><p>{{ options.custom_remarks }}</p>{% endif %}
-    </div>
+    {% if itn.transfer_reason %}
+    <div class="remarks"><h4>Transfer Reason</h4><p>{{ itn.transfer_reason }}</p></div>
+    {% endif %}
+
+    {% if itn.remarks %}
+    <div class="remarks"><h4>Remarks</h4><p>{{ itn.remarks }}</p></div>
     {% endif %}
 
     {% if options.show_signatures %}
     <div class="sigs">
-        <div class="sig"><div class="line"></div><div class="role">Prepared By</div></div>
-        <div class="sig"><div class="line"></div><div class="role">Checking Officer</div></div>
-        <div class="sig"><div class="line"></div><div class="role">Customer Acceptance</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Issued By</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Dispatched By</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Received By</div></div>
     </div>
     {% endif %}
 
     <div class="footer">
-        <span>{{ company.name | default('TIJAERO') }} ERP &mdash; {% if quote.is_estimate %}ESTIMATE{% else %}OFFICIAL QUOTATION{% endif %}</span>
-        <span>Generated: {{ generated_at }} | Ref: {{ quote.quote_no }}</span>
+        <span>{{ company.name | default('TIJAERO') }} ERP &mdash; ITEM TRANSFER NOTE</span>
+        <span>Generated: {{ generated_at }} | Ref: {{ itn.itn_no }}</span>
     </div>
 </div>
 <script>window.onload=function(){if(new URLSearchParams(location.search).get('auto_print')==='true')setTimeout(()=>window.print(),500)};</script>

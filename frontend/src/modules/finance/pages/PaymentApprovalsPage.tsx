@@ -141,8 +141,8 @@ export default function PaymentApprovalsPage() {
   });
 
   // OPTIMIZED: Single API call for branches
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // Create supplier lookup map
   const supplierMap = useMemo(() => {

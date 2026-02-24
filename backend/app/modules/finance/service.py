@@ -251,12 +251,15 @@ class CustomerAdvancePaymentService:
     def list_all_advances(
         self, 
         branch_code: Optional[str] = None, 
+        branch_codes: Optional[List[str]] = None,
         customer_id: Optional[int] = None
     ) -> List[CustomerAdvancePayments]:
         """List all advance payments with optional filters"""
         query = self.db.query(CustomerAdvancePayments)
         if branch_code:
             query = query.filter(CustomerAdvancePayments.branch_code == branch_code)
+        elif branch_codes:
+            query = query.filter(CustomerAdvancePayments.branch_code.in_(branch_codes))
         if customer_id:
             query = query.filter(CustomerAdvancePayments.customer_id == customer_id)
         return query.order_by(CustomerAdvancePayments.created_date.desc()).all()
@@ -355,6 +358,8 @@ class CashbookService:
         # Apply filters
         if filters.branch_code:
             query = query.filter(models.CashbookEntryRecord.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            query = query.filter(models.CashbookEntryRecord.branch_code.in_(filters.branch_codes))
         if filters.date_from:
             query = query.filter(models.CashbookEntryRecord.transaction_date >= datetime.combine(filters.date_from, datetime.min.time()))
         if filters.date_to:
@@ -848,6 +853,8 @@ class PettyCashService:
         )
         if filters.branch_code:
             query = query.filter(models.PettyCash.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            query = query.filter(models.PettyCash.branch_code.in_(filters.branch_codes))
         if filters.status:
             query = query.filter(models.PettyCash.status == filters.status)
         if filters.date_from:

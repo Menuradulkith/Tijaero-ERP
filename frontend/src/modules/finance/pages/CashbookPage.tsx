@@ -124,8 +124,8 @@ export default function CashbookPage() {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [showBreakdown, setShowBreakdown] = useState(true);
 
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   const { data: report, isLoading } = useQuery({
     queryKey: ["cashbook", dateFrom, dateTo, branchCode, entryType, paymentMethod],

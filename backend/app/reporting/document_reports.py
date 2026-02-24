@@ -16,8 +16,12 @@ from app.modules.inventory.models import SalesStock
 from app.modules.products.models import Product
 from app.modules.settings.models import Settings
 from app.auth.models import Branch
-from app.modules.customers.models import Customer
+from app.modules.customers.models import Customer, CustomerGiftVoucher, VoucherUsage
 from app.modules.employees.models import Employee, EmployeeSalaryProfile, EmployeePayroll
+from app.modules.finance.models import Expenses
+from app.modules.finance.accounting_models import JournalEntry, JournalEntryLine, ChartOfAccounts
+from app.modules.warehouse.models import ItemTransferNote, ItemTransferNoteItems
+from app.modules.common.models import Locations
 
 
 class DocumentReportService:
@@ -304,8 +308,6 @@ class DocumentReportService:
                 "added_date": added_date
             })
             total_quantity += 1
-            total_value += unit_price
-
             total_value += unit_price
 
         template = self.env.get_template("purchase_return.html")
@@ -680,6 +682,251 @@ class DocumentReportService:
                 "tax_refund": float(sale_return.tax_refund or 0),
                 "total_refund": float(sale_return.total_refund or 0)
             },
+            options={
+                "show_header": show_header,
+                "show_signatures": show_signatures,
+                "custom_remarks": custom_remarks
+            },
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+    def generate_expense_report(
+        self,
+        expense_id: int,
+        show_header: bool = True,
+        show_signatures: bool = True,
+        custom_remarks: Optional[str] = None
+    ) -> str:
+        """Generate a printable expense report."""
+        expense = self.db.query(Expenses).filter(Expenses.id == expense_id).first()
+
+        if not expense:
+            raise HTTPException(status_code=404, detail=f"Expense #{expense_id} not found")
+
+        company = self._get_company_info()
+        branch = self._get_branch_info(expense.branch_code)
+
+        template = self.env.get_template("expense.html")
+        return template.render(
+            company=company,
+            expense={
+                "id": expense.id,
+                "expenses_no": expense.expenses_no,
+                "expense_type": expense.expense_type or "operational",
+                "expense_category": expense.expense_category or "miscellaneous",
+                "expenses_method": expense.expenses_method or "",
+                "expense_amount": float(expense.expense_amount or 0),
+                "expense_date": str(expense.expense_date) if expense.expense_date else "",
+                "created_date": str(expense.created_date) if expense.created_date else "",
+                "vendor_name": expense.vendor_name,
+                "description": expense.description,
+                "receipt_number": expense.receipt_number,
+                "bill_reference": expense.bill_reference,
+                "remarks": expense.remarks,
+                "branch_code": expense.branch_code,
+                "status": expense.status or "pending",
+                "approved_date": str(expense.approved_date) if expense.approved_date else None,
+                "account_code": expense.account_code,
+                "payment_status": expense.payment_status,
+                "payment_date": str(expense.payment_date) if expense.payment_date else None,
+                "payment_method": expense.payment_method,
+                "payment_reference": expense.payment_reference,
+            },
+            branch=branch,
+            options={
+                "show_header": show_header,
+                "show_signatures": show_signatures,
+                "custom_remarks": custom_remarks
+            },
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+    def generate_itn_report(
+        self,
+        itn_id: int,
+        show_header: bool = True,
+        show_signatures: bool = True,
+        custom_remarks: Optional[str] = None
+    ) -> str:
+        """Generate a printable Item Transfer Note report."""
+        itn = self.db.query(ItemTransferNote).options(
+            joinedload(ItemTransferNote.items).joinedload(ItemTransferNoteItems.product),
+            joinedload(ItemTransferNote.from_location),
+            joinedload(ItemTransferNote.to_location)
+        ).filter(ItemTransferNote.id == itn_id).first()
+
+        if not itn:
+            raise HTTPException(status_code=404, detail=f"Item Transfer Note #{itn_id} not found")
+
+        company = self._get_company_info()
+        branch = self._get_branch_info(itn.branch_code)
+
+        from_loc = itn.from_location
+        to_loc = itn.to_location
+
+        items = []
+        total_quantity = 0
+        for item in itn.items:
+            product = item.product
+            items.append({
+                "product_code": product.product_code if product and hasattr(product, 'product_code') else "",
+                "product_name": product.name if product else f"Product #{item.product_id}",
+                "barcode": item.barcode or "",
+                "quantity": 1,
+                "uom": getattr(product, 'uom', '') or "" if product else "",
+                "remarks": item.remark or "",
+            })
+            total_quantity += 1
+
+        template = self.env.get_template("item_transfer_note.html")
+        return template.render(
+            company=company,
+            itn={
+                "id": itn.id,
+                "itn_no": itn.item_transfer_note,
+                "transfer_date": str(itn.added_date) if itn.added_date else "",
+                "created_date": str(itn.created_date) if itn.created_date else "",
+                "branch_code": itn.branch_code,
+                "status": itn.status or "pending",
+                "remark": itn.remark,
+                "remarks": itn.remark,
+                "from_warehouse_name": from_loc.name if from_loc else f"Location #{itn.from_location_id}",
+                "from_warehouse_id": itn.from_location_id,
+                "to_warehouse_name": to_loc.name if to_loc else f"Location #{itn.to_location_id}",
+                "to_warehouse_id": itn.to_location_id,
+                "priority": "Normal",
+            },
+            branch=branch,
+            items=items,
+            total_quantity=total_quantity,
+            options={
+                "show_header": show_header,
+                "show_signatures": show_signatures,
+                "custom_remarks": custom_remarks
+            },
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+    def generate_voucher_report(
+        self,
+        voucher_id: int,
+        show_header: bool = True,
+        show_signatures: bool = True,
+        custom_remarks: Optional[str] = None
+    ) -> str:
+        """Generate a printable gift voucher report."""
+        voucher = self.db.query(CustomerGiftVoucher).options(
+            joinedload(CustomerGiftVoucher.usages)
+        ).filter(CustomerGiftVoucher.id == voucher_id).first()
+
+        if not voucher:
+            raise HTTPException(status_code=404, detail=f"Gift Voucher #{voucher_id} not found")
+
+        company = self._get_company_info()
+        branch = self._get_branch_info(voucher.branch_code) if voucher.branch_code else {"branch_name": ""}
+
+        # Build usage history
+        usage_history = []
+        amount_used = 0
+        for usage in voucher.usages:
+            inv = self.db.query(Invoice).filter(Invoice.id == usage.invoice_id).first()
+            usage_history.append({
+                "date": str(usage.used_date) if usage.used_date else "",
+                "reference": inv.invoice_no if inv else f"Invoice #{usage.invoice_id}",
+                "description": "Voucher redemption",
+                "amount": float(usage.amount_used or 0),
+            })
+            amount_used += float(usage.amount_used or 0)
+
+        remaining_balance = float(voucher.balance or 0)
+
+        # Calculate expiry date
+        expiry_date = None
+        if voucher.date and voucher.valid_period_in_months:
+            from dateutil.relativedelta import relativedelta
+            expiry_date = str(voucher.date + relativedelta(months=voucher.valid_period_in_months))
+
+        template = self.env.get_template("voucher.html")
+        return template.render(
+            company=company,
+            voucher={
+                "id": voucher.id,
+                "voucher_code": voucher.barcode_no,
+                "amount": float(voucher.amount or 0),
+                "amount_used": amount_used,
+                "remaining_balance": remaining_balance,
+                "status": voucher.status or "active",
+                "issue_date": str(voucher.date) if voucher.date else "",
+                "created_date": str(voucher.created_at) if voucher.created_at else "",
+                "expiry_date": expiry_date,
+                "branch_code": voucher.branch_code or "",
+                "customer_name": voucher.customer_name,
+                "voucher_type": "Gift",
+                "payment_method": voucher.payment_method,
+                "purchased_invoice_no": voucher.purchased_invoice_no,
+                "remarks": None,
+            },
+            branch=branch,
+            usage_history=usage_history,
+            options={
+                "show_header": show_header,
+                "show_signatures": show_signatures,
+                "custom_remarks": custom_remarks
+            },
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+    def generate_journal_entry_report(
+        self,
+        je_id: int,
+        show_header: bool = True,
+        show_signatures: bool = True,
+        custom_remarks: Optional[str] = None
+    ) -> str:
+        """Generate a printable journal entry report."""
+        je = self.db.query(JournalEntry).options(
+            joinedload(JournalEntry.lines).joinedload(JournalEntryLine.account)
+        ).filter(JournalEntry.id == je_id).first()
+
+        if not je:
+            raise HTTPException(status_code=404, detail=f"Journal Entry #{je_id} not found")
+
+        company = self._get_company_info()
+        branch = self._get_branch_info(je.branch_code or "MAIN")
+
+        # Build line items with account info
+        lines = []
+        for line in sorted(je.lines, key=lambda l: l.line_number):
+            account = line.account
+            lines.append({
+                "line_number": line.line_number,
+                "account_code": account.account_code if account else "",
+                "account_name": account.account_name if account else f"Account #{line.account_id}",
+                "description": line.description or "",
+                "debit_amount": float(line.debit_amount or 0),
+                "credit_amount": float(line.credit_amount or 0),
+            })
+
+        template = self.env.get_template("journal_entry.html")
+        return template.render(
+            company=company,
+            je={
+                "id": je.id,
+                "journal_entry_no": je.journal_entry_no,
+                "entry_date": str(je.entry_date) if je.entry_date else "",
+                "posting_date": str(je.posting_date) if je.posting_date else "",
+                "entry_type": (je.entry_type or "standard").replace("_", " ").title(),
+                "description": je.description or "",
+                "total_debit": float(je.total_debit or 0),
+                "total_credit": float(je.total_credit or 0),
+                "status": je.status or "draft",
+                "is_reversed": je.is_reversed or False,
+                "fiscal_year": je.fiscal_year,
+                "fiscal_period": je.fiscal_period,
+                "branch_code": je.branch_code or "",
+            },
+            lines=lines,
+            branch=branch,
             options={
                 "show_header": show_header,
                 "show_signatures": show_signatures,

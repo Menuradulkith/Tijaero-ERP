@@ -62,7 +62,7 @@ export default function LoginPage() {
     <Box
       sx={{
         display: "flex",
-        minHeight: "100vh",
+        minHeight: "100dvh",
         bgcolor: "background.default",
       }}
     >

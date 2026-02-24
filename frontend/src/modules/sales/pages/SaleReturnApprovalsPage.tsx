@@ -95,9 +95,9 @@ export default function SaleReturnApprovalsPage() {
     });
 
     // OPTIMIZED: Single API call for products and branches
-    const { data: refData } = useReferenceData(["products", "branches"]);
+    const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
     const products = refData?.products || [];
-    const branches = refData?.branches || [];
+    const branches = filteredBranches || [];
 
     // Create lookup maps
     const invoiceMap = useMemo(() => {

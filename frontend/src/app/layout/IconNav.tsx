@@ -91,7 +91,7 @@ export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNav
         left: 0,
         top: 0,
         width,
-        height: "100vh",
+        height: "100dvh",
         bgcolor: "primary.dark",
         display: "flex",
         flexDirection: "column",

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quotation - {{ quote.quote_no }}</title>
+    <title>Journal Entry - {{ je.journal_entry_no }}</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:'Segoe UI',Arial,sans-serif;font-size:10px;line-height:1.5;color:#212529;background:#fff}
@@ -23,22 +23,19 @@
         .info-box td{padding:2px 6px;font-size:9px;vertical-align:top}
         .info-box td.lbl{font-weight:600;color:#495057;width:38%;white-space:nowrap}
         .info-box td.val{color:#212529}
+        .badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:8px;font-weight:700;text-transform:uppercase}
+        .badge-posted{background:#e8f5e9;color:#2e7d32}.badge-draft{background:#fff3e0;color:#e65100}.badge-reversed{background:#ffebee;color:#c62828}
         .tbl{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:9px}
         .tbl thead th{background:#1a4480;color:#fff;padding:5px 6px;text-align:left;font-weight:600;border:1px solid #1a4480}
         .tbl thead th.r{text-align:right}.tbl thead th.c{text-align:center}
         .tbl tbody td{padding:4px 6px;border:1px solid #dee2e6;vertical-align:top}
         .tbl tbody td.r{text-align:right}.tbl tbody td.c{text-align:center}
-        .tbl tbody td .sub{color:#6c757d;font-size:8px}
         .tbl tbody tr:nth-child(even){background:#f8f9fa}
         .tbl tfoot td{padding:5px 6px;border:1px solid #1a4480;font-weight:700;background:#e9ecef}
         .tbl tfoot td.r{text-align:right}
-        .totals-row{display:flex;justify-content:flex-end;margin-bottom:8px}
-        .totals{width:220px}
-        .totals table{width:100%;border-collapse:collapse}
-        .totals td{padding:3px 8px;border:1px solid #dee2e6;font-size:9px}
-        .totals td.lbl{background:#f8f9fa;font-weight:600;color:#495057;width:55%}
-        .totals td.val{text-align:right;font-weight:600;color:#212529}
-        .totals tr.grand td{background:#1a4480;color:#fff;font-size:10px;border-color:#1a4480}
+        .balance-check{text-align:center;padding:6px;margin-bottom:8px;border-radius:3px;font-size:9px;font-weight:700}
+        .balance-ok{background:#e8f5e9;color:#2e7d32;border:1px solid #c8e6c9}
+        .balance-err{background:#ffebee;color:#c62828;border:1px solid #ffcdd2}
         .remarks{border:1px solid #dee2e6;border-radius:3px;padding:6px 8px;margin-bottom:8px;background:#f8f9fa}
         .remarks h4{font-size:9px;text-transform:uppercase;color:#495057;margin-bottom:3px}
         .remarks p{font-size:9px;color:#495057;line-height:1.4}
@@ -62,27 +59,30 @@
     </div>
     {% endif %}
 
-    <div class="doc-banner">Quotation</div>
+    <div class="doc-banner">Journal Entry</div>
 
     <div class="info-grid">
         <div class="info-box">
-            <div class="info-title">Customer Details</div>
+            <div class="info-title">Entry Details</div>
             <table>
-                <tr><td class="lbl">Customer</td><td class="val">{{ customer.customer_name | default('N/A') }}</td></tr>
-                <tr><td class="lbl">Address</td><td class="val">{{ customer.address | default('N/A') }}</td></tr>
-                <tr><td class="lbl">Contact</td><td class="val">{{ customer.mobile_number | default('N/A') }}</td></tr>
-                <tr><td class="lbl">Email</td><td class="val">{{ customer.email | default('N/A') }}</td></tr>
+                <tr><td class="lbl">Entry No.</td><td class="val"><strong>{{ je.journal_entry_no }}</strong></td></tr>
+                <tr><td class="lbl">Entry Date</td><td class="val">{{ je.entry_date }}</td></tr>
+                <tr><td class="lbl">Posting Date</td><td class="val">{{ je.posting_date | default(je.entry_date) }}</td></tr>
+                <tr><td class="lbl">Entry Type</td><td class="val">{{ je.entry_type | default('Standard') | title }}</td></tr>
             </table>
         </div>
         <div class="info-box">
-            <div class="info-title">Document Details</div>
+            <div class="info-title">Fiscal &amp; Status</div>
             <table>
-                <tr><td class="lbl">Quote No.</td><td class="val"><strong>{{ quote.quote_no }}</strong></td></tr>
-                <tr><td class="lbl">Date</td><td class="val">{{ quote.created_date }}</td></tr>
-                <tr><td class="lbl">Valid Until</td><td class="val">{{ quote.valid_until }}</td></tr>
-                <tr><td class="lbl">Status</td><td class="val">{{ quote.status | default('Draft') | upper }}</td></tr>
-                <tr><td class="lbl">Branch</td><td class="val">{{ branch.branch_name | default(quote.branch_code) }}</td></tr>
-                <tr><td class="lbl">Sales Rep</td><td class="val">{{ quote.sales_rep_name | default('-') }}</td></tr>
+                <tr><td class="lbl">Status</td><td class="val">
+                    {% if je.status == 'posted' %}<span class="badge badge-posted">POSTED</span>
+                    {% elif je.is_reversed %}<span class="badge badge-reversed">REVERSED</span>
+                    {% else %}<span class="badge badge-draft">{{ je.status | default('Draft') | upper }}</span>{% endif %}
+                </td></tr>
+                <tr><td class="lbl">Fiscal Year</td><td class="val">{{ je.fiscal_year | default('-') }}</td></tr>
+                <tr><td class="lbl">Fiscal Period</td><td class="val">{{ je.fiscal_period | default('-') }}</td></tr>
+                <tr><td class="lbl">Branch</td><td class="val">{{ branch.name | default('-') }}</td></tr>
+                {% if je.is_reversed %}<tr><td class="lbl">Reversed</td><td class="val" style="color:#c62828">Yes</td></tr>{% endif %}
             </table>
         </div>
     </div>
@@ -90,60 +90,56 @@
     <table class="tbl">
         <thead>
             <tr>
-                <th class="c" style="width:28px">No</th>
-                <th>Product / Description</th>
-                <th class="c" style="width:40px">Qty</th>
-                <th class="r" style="width:80px">Unit Price</th>
-                {% if options.show_discount %}<th class="r" style="width:65px">Discount</th>{% endif %}
-                <th class="c" style="width:55px">Warranty</th>
-                <th class="r" style="width:90px">Amount (LKR)</th>
+                <th class="c" style="width:28px">Line</th>
+                <th style="width:80px">Account Code</th>
+                <th>Account Name</th>
+                <th>Description</th>
+                <th class="r" style="width:100px">Debit (LKR)</th>
+                <th class="r" style="width:100px">Credit (LKR)</th>
             </tr>
         </thead>
         <tbody>
-            {% for item in items %}
+            {% for line in lines %}
             <tr>
-                <td class="c">{{ loop.index }}</td>
-                <td>{{ item.product_name | default('Product #' ~ item.product_id) }}{% if item.description %}<br><span class="sub">{{ item.description }}</span>{% endif %}</td>
-                <td class="c">{{ item.quantity }}</td>
-                <td class="r">{{ "%.2f" | format(item.selling_price) }}</td>
-                {% if options.show_discount %}<td class="r">{{ "%.2f" | format(item.discount_amount) }}</td>{% endif %}
-                <td class="c">{{ item.warrenty_month | default('-') }}</td>
-                <td class="r">{{ "%.2f" | format(item.total_amount) }}</td>
+                <td class="c">{{ line.line_number }}</td>
+                <td>{{ line.account_code }}</td>
+                <td>{{ line.account_name }}</td>
+                <td>{{ line.description | default('-') }}</td>
+                <td class="r">{% if line.debit_amount and line.debit_amount > 0 %}{{ "%.2f" | format(line.debit_amount) }}{% else %}-{% endif %}</td>
+                <td class="r">{% if line.credit_amount and line.credit_amount > 0 %}{{ "%.2f" | format(line.credit_amount) }}{% else %}-{% endif %}</td>
             </tr>
             {% endfor %}
         </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="4" style="text-align:right">Total</td>
+                <td class="r">{{ "%.2f" | format(je.total_debit) }}</td>
+                <td class="r">{{ "%.2f" | format(je.total_credit) }}</td>
+            </tr>
+        </tfoot>
     </table>
 
-    <div class="totals-row">
-        <div class="totals">
-            <table>
-                <tr><td class="lbl">Items</td><td class="val">{{ items | length }}</td></tr>
-                <tr><td class="lbl">Sub Total</td><td class="val">{{ "%.2f" | format(totals.subtotal) }}</td></tr>
-                {% if options.show_discount and totals.discount > 0 %}<tr><td class="lbl">Discount</td><td class="val">-{{ "%.2f" | format(totals.discount) }}</td></tr>{% endif %}
-                <tr class="grand"><td class="lbl">Grand Total (LKR)</td><td class="val">{{ "%.2f" | format(totals.total_amount) }}</td></tr>
-            </table>
-        </div>
-    </div>
+    {% if je.total_debit == je.total_credit %}
+    <div class="balance-check balance-ok">&#10003; Debits and Credits are balanced (LKR {{ "%.2f" | format(je.total_debit) }})</div>
+    {% else %}
+    <div class="balance-check balance-err">&#10007; OUT OF BALANCE &mdash; Difference: LKR {{ "%.2f" | format((je.total_debit - je.total_credit) | abs) }}</div>
+    {% endif %}
 
-    {% if quote.remarks or quote.customer_notes or options.custom_remarks %}
-    <div class="remarks">
-        {% if quote.remarks %}<h4>Internal Remarks</h4><p>{{ quote.remarks }}</p>{% endif %}
-        {% if quote.customer_notes %}<h4>Customer Notes</h4><p>{{ quote.customer_notes }}</p>{% endif %}
-        {% if options.custom_remarks %}<h4>Additional Remarks</h4><p>{{ options.custom_remarks }}</p>{% endif %}
-    </div>
+    {% if je.description %}
+    <div class="remarks"><h4>Description</h4><p>{{ je.description }}</p></div>
     {% endif %}
 
     {% if options.show_signatures %}
     <div class="sigs">
         <div class="sig"><div class="line"></div><div class="role">Prepared By</div></div>
-        <div class="sig"><div class="line"></div><div class="role">Checking Officer</div></div>
-        <div class="sig"><div class="line"></div><div class="role">Customer Acceptance</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Reviewed By</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Approved By</div></div>
     </div>
     {% endif %}
 
     <div class="footer">
-        <span>{{ company.name | default('TIJAERO') }} ERP &mdash; {% if quote.is_estimate %}ESTIMATE{% else %}OFFICIAL QUOTATION{% endif %}</span>
-        <span>Generated: {{ generated_at }} | Ref: {{ quote.quote_no }}</span>
+        <span>{{ company.name | default('TIJAERO') }} ERP &mdash; JOURNAL ENTRY</span>
+        <span>Generated: {{ generated_at }} | Ref: {{ je.journal_entry_no }}</span>
     </div>
 </div>
 <script>window.onload=function(){if(new URLSearchParams(location.search).get('auto_print')==='true')setTimeout(()=>window.print(),500)};</script>

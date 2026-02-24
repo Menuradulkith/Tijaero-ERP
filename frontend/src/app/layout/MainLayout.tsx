@@ -26,7 +26,7 @@ export default function MainLayout() {
   const effectiveDrawerWidth = isMobile || !sidebarCollapsed ? DRAWER_WIDTH : 0;
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh", width: "100%" }}>
+    <Box sx={{ display: "flex", minHeight: "100dvh", width: "100%" }}>
       {/* Icon navigation rail on far left */}
       <IconNav
         width={ICON_NAV_WIDTH}
@@ -56,11 +56,14 @@ export default function MainLayout() {
           flexGrow: 1,
           p: { xs: 1, sm: 1, md: 1.5, lg: 2 },
           width: "100%",
-          ml: { xs: `${ICON_NAV_WIDTH}px`, md: `${ICON_NAV_WIDTH + effectiveDrawerWidth}px` },
-          mt: "56px",
+          ml: {
+            xs: "var(--icon-nav-width)",
+            md: `calc(var(--icon-nav-width) + ${effectiveDrawerWidth}px)`,
+          },
+          mt: "var(--header-height)",
           bgcolor: "background.default",
-          height: "calc(100vh - 56px)",
-          overflow: "hidden",
+          height: "calc(100dvh - var(--header-height))",
+          overflow: "auto",
           display: "flex",
           flexDirection: "column",
         }}

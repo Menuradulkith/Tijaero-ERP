@@ -47,6 +47,9 @@ import {
   EmptyState,
   TFilterPanel,
   TBranchFilter,
+  TPrintButton,
+  TPrintPreviewDialog,
+  canPrintDocument,
   useMasterDetailState,
   SortOption,
   modernTableStyles,
@@ -57,6 +60,7 @@ import {
   showSuccessToast,
   showErrorToast,
 } from "@/components/tijaero";
+
 
 import { transferNotesApi, transferNoteItemsApi, transferWorkflowApi } from "@/modules/warehouse/api";
 import { locationsApi } from "@/modules/common/api";
@@ -118,6 +122,7 @@ export default function ItemTransferNotesPage() {
   const queryClient = useQueryClient();
   const [lineItems, setLineItems] = useState<ITNLineItem[]>([]);
   const [formStep, setFormStep] = useState(0);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
   
   // Barcode scanning state (Purchase Returns pattern)
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -185,8 +190,8 @@ export default function ItemTransferNotesPage() {
   const locations = locationsData || [];
 
   // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   const handleNewITN = useCallback(() => {
     handleNewITNBase();
@@ -569,6 +574,17 @@ export default function ItemTransferNotesPage() {
         onEdit={handleStartEdit}
         canUpdate={selectedITN ? getITNStatus(selectedITN) === "pending" : false}
         canDelete={selectedITN ? getITNStatus(selectedITN) === "pending" : false}
+        endActions={
+          selectedITN && !isCreating && !isEditing ? (
+            <TPrintButton
+              documentType="item-transfer-note"
+              documentId={selectedITN.id}
+              disabled={!canPrintDocument(getITNStatus(selectedITN), [])}
+              disabledReason="Cannot print this transfer note"
+              onClick={() => setPrintDialogOpen(true)}
+            />
+          ) : undefined
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -977,6 +993,17 @@ export default function ItemTransferNotesPage() {
         onRefresh={() => refetch()}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      {/* Print Preview Dialog */}
+      {selectedITN && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => setPrintDialogOpen(false)}
+          documentType="item-transfer-note"
+          documentId={selectedITN.id}
+          title={`Print ITN: ${selectedITN.item_transfer_note}`}
+        />
+      )}
     </>
   );
 }

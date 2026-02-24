@@ -31,13 +31,14 @@ export type TPrintDocumentType =
   | "purchase-order"
   | "grn"
   | "purchase-return"
-  | "sales-order"
   | "invoice"
-  | "delivery-note"
   | "quotation"
   | "credit-note"
-  | "debit-note"
-  | "payroll";
+  | "journal-entry"
+  | "payroll"
+  | "expense"
+  | "item-transfer-note"
+  | "voucher";
 
 export interface TPrintButtonProps {
   /** Document type for generating report URL */

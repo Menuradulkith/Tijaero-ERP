@@ -236,6 +236,7 @@ class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase):
 
 class ExpenseListFilter(BaseModel):
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # user-scoped branch list
     status: Optional[str] = None
     expense_category: Optional[str] = None
     payment_status: Optional[str] = None
@@ -247,6 +248,7 @@ class ExpenseListFilter(BaseModel):
 
 class PaymentListFilter(BaseModel):
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # user-scoped branch list
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     verified: Optional[bool] = None
@@ -293,6 +295,7 @@ class CashbookEntry(BaseModel):
 class CashbookFilter(BaseModel):
     """Filter criteria for cashbook query"""
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # user-scoped branch list
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     entry_type: Optional[str] = None  # Filter by specific entry type
@@ -433,6 +436,7 @@ class PettyCashReconcileResponse(BaseModel):
 
 class PettyCashListFilter(BaseModel):
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # user-scoped branch list
     status: Optional[str] = None  # active, closed
     date_from: Optional[date] = None
     date_to: Optional[date] = None

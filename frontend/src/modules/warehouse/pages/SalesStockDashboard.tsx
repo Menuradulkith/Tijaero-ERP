@@ -304,7 +304,7 @@ export default function SalesStockDashboard() {
   const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(false);
 
   // OPTIMIZED: Fetch all reference data in a single API call
-  const { data: refData, isLoading: isLoadingRefData } = useReferenceData(
+  const { data: refData, isLoading: isLoadingRefData, filteredBranches } = useReferenceData(
     REFERENCE_DATA_PRESETS.DASHBOARD,
     { productsLimit: 1000 }
   );
@@ -323,7 +323,7 @@ export default function SalesStockDashboard() {
   });
 
   // Extract data from aggregated reference data response
-  const branches = refData?.branches || [];
+  const branches = filteredBranches || [];
   const brands = (refData?.brands || []) as Brand[];
   const categories = (refData?.categories || []) as Category[];
   const locations = refData?.locations || [];

@@ -243,7 +243,7 @@ export default function GoodReceivedNotesPage() {
   });
 
   // OPTIMIZED: Fetch locations and branches in a single call
-  const { data: refData } = useReferenceData(["locations", "branches"]);
+  const { data: refData, filteredBranches } = useReferenceData(["locations", "branches"]);
 
   // Load suppliers for filter
   useEffect(() => {
@@ -268,8 +268,8 @@ export default function GoodReceivedNotesPage() {
 
   // Get all branches from reference data
   const branchesData = useMemo(() => {
-    return { items: refData?.branches || [] };
-  }, [refData?.branches]);
+    return { items: filteredBranches || [] };
+  }, [filteredBranches]);
 
   const handleNewGRN = useCallback(() => {
     handleNewGRNBase();
@@ -1315,6 +1315,7 @@ export default function GoodReceivedNotesPage() {
             <TPrintButton
               documentType="grn"
               documentId={selectedGRN.id}
+              tooltip="Print GRN"
               onClick={() => handlePrint(selectedGRN.id)}
             />
           ) : undefined
@@ -2001,12 +2002,18 @@ export default function GoodReceivedNotesPage() {
       <ConfirmDialog {...confirmDialog.dialogProps} />
 
       {/* Print Preview Dialog */}
-      <TPrintPreviewDialog
-        open={printDialogOpen}
-        onClose={() => setPrintDialogOpen(false)}
-        documentType="grn"
-        documentId={selectedGrnIdForPrint || 0}
-      />
+      {selectedGrnIdForPrint && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => {
+            setPrintDialogOpen(false);
+            setSelectedGrnIdForPrint(null);
+          }}
+          documentType="grn"
+          documentId={selectedGrnIdForPrint}
+          title={`Print GRN: ${selectedGRN?.good_received_no || ''}`}
+        />
+      )}
 
       {/* Credit Limit Override Dialog */}
       <Dialog

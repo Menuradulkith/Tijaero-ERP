@@ -1,609 +1,185 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Credit Note - {{ credit_note.sale_return_no }}</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
-            line-height: 1.4;
-            color: #333;
-            background: #fff;
-            padding: 15px;
-        }
-
-        .document {
-            max-width: 800px;
-            margin: 0 auto;
-            background: #fff;
-            padding: 20px;
-            border: 1px solid #ddd;
-        }
-
-        /* Header */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #c41e3a;
-        }
-
-        .company-info {
-            flex: 1;
-        }
-
-        .company-info .logo {
-            width: 50px;
-            height: 50px;
-            background: #c41e3a;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            font-weight: bold;
-            font-size: 18px;
-            float: left;
-            margin-right: 10px;
-        }
-
-        .company-info h1 {
-            font-size: 20px;
-            color: #c41e3a;
-            font-weight: bold;
-            margin-bottom: 2px;
-        }
-
-        .company-info h1 span {
-            font-style: italic;
-            font-weight: normal;
-        }
-
-        .company-info p {
-            color: #666;
-            font-size: 10px;
-            line-height: 1.3;
-        }
-
-        /* Document Info Grid */
-        .doc-info {
-            width: 280px;
-        }
-
-        .doc-info table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 10px;
-        }
-
-        .doc-info td {
-            border: 1px solid #c41e3a;
-            padding: 3px 6px;
-        }
-
-        .doc-info td.label {
-            background: #c41e3a;
-            color: #fff;
-            font-weight: bold;
-            width: 45%;
-        }
-
-        .doc-info td.value {
-            background: #fff;
-        }
-
-        /* Credit Note Title */
-        .credit-note-title {
-            text-align: center;
-            font-size: 22px;
-            font-weight: bold;
-            color: #c41e3a;
-            margin: 15px 0;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-
-        /* Customer Section */
-        .customer-section {
-            margin-bottom: 15px;
-            background: #f9f9f9;
-            padding: 10px;
-            border-radius: 3px;
-        }
-
-        .customer-section table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .customer-section td {
-            padding: 3px 5px;
-            font-size: 10px;
-        }
-
-        .customer-section td.label {
-            font-weight: bold;
-            color: #c41e3a;
-            width: 120px;
-        }
-
-        /* Return Info Section */
-        .return-info {
-            margin-bottom: 15px;
-            padding: 10px;
-            background: #fff3cd;
-            border-left: 4px solid #ffc107;
-        }
-
-        .return-info h3 {
-            font-size: 12px;
-            color: #856404;
-            margin-bottom: 5px;
-        }
-
-        .return-info p {
-            font-size: 10px;
-            color: #856404;
-        }
-
-        /* Items Table */
-        .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-            font-size: 10px;
-        }
-
-        .items-table thead {
-            background: #c41e3a;
-            color: #fff;
-        }
-
-        .items-table th {
-            padding: 6px;
-            text-align: left;
-            font-weight: bold;
-        }
-
-        .items-table td {
-            padding: 5px 6px;
-            border-bottom: 1px solid #eee;
-        }
-
-        .items-table tbody tr:hover {
-            background: #f5f5f5;
-        }
-
-        .items-table .amount {
-            text-align: right;
-        }
-
-        .items-table .description {
-            color: #555;
-        }
-
-        .items-table tfoot {
-            background: #f9f9f9;
-        }
-
-        .items-table tfoot td {
-            border-top: 2px solid #c41e3a;
-            padding: 6px;
-            font-weight: bold;
-        }
-
-        /* Totals Section */
-        .totals-section {
-            display: flex;
-            justify-content: flex-end;
-            margin-bottom: 15px;
-        }
-
-        .totals-box {
-            width: 300px;
-        }
-
-        .totals-box table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11px;
-        }
-
-        .totals-box td {
-            padding: 5px 10px;
-            border: 1px solid #ddd;
-        }
-
-        .totals-box td.label {
-            background: #f5f5f5;
-            font-weight: bold;
-            width: 60%;
-        }
-
-        .totals-box td.value {
-            text-align: right;
-            background: #fff;
-        }
-
-        .totals-box tr.total {
-            background: #c41e3a;
-            color: #fff;
-            font-size: 13px;
-            font-weight: bold;
-        }
-
-        .totals-box tr.total td {
-            border-color: #c41e3a;
-        }
-
-        /* Refund Method Section */
-        .refund-method {
-            margin-bottom: 15px;
-            padding: 10px;
-            background: #d1ecf1;
-            border-left: 4px solid #17a2b8;
-        }
-
-        .refund-method h3 {
-            font-size: 12px;
-            color: #0c5460;
-            margin-bottom: 5px;
-        }
-
-        .refund-method p {
-            font-size: 10px;
-            color: #0c5460;
-        }
-
-        /* Remarks */
-        .remarks-section {
-            margin-bottom: 15px;
-        }
-
-        .remarks-section h3 {
-            font-size: 11px;
-            font-weight: bold;
-            text-transform: uppercase;
-            color: #c41e3a;
-            margin-bottom: 5px;
-        }
-
-        .remarks-section p {
-            font-size: 10px;
-            color: #666;
-            line-height: 1.5;
-        }
-
-        /* Signatures */
-        .signatures {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 30px;
-            padding-top: 10px;
-        }
-
-        .signature-box {
-            text-align: center;
-            width: 30%;
-        }
-
-        .signature-box .line {
-            border-top: 1px solid #333;
-            margin-bottom: 5px;
-            min-height: 40px;
-        }
-
-        .signature-box .title {
-            font-size: 10px;
-            font-weight: bold;
-        }
-
-        /* Terms Section */
-        .terms-section {
-            margin-top: 20px;
-            padding: 10px;
-            background: #f9f9f9;
-            border-radius: 3px;
-        }
-
-        .terms-section h3 {
-            font-size: 11px;
-            font-weight: bold;
-            color: #c41e3a;
-            margin-bottom: 5px;
-        }
-
-        .terms-section ul {
-            margin-left: 15px;
-            font-size: 9px;
-            color: #666;
-        }
-
-        .terms-section li {
-            margin-bottom: 3px;
-        }
-
-        /* Print Info */
-        .print-info {
-            margin-top: 20px;
-            padding-top: 10px;
-            border-top: 1px dashed #ccc;
-            font-size: 9px;
-            color: #999;
-            text-align: center;
-        }
-
-        /* Status Badge */
-        .status-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 3px;
-            font-size: 10px;
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-
-        .status-badge.processed {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .status-badge.approved {
-            background: #cce5ff;
-            color: #004085;
-        }
-
-        .status-badge.pending {
-            background: #fff3cd;
-            color: #856404;
-        }
-
-        @media print {
-            body {
-                padding: 0;
-            }
-
-            .document {
-                border: none;
-                padding: 10px;
-            }
-        }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',Arial,sans-serif;font-size:10px;line-height:1.5;color:#212529;background:#fff}
+        .page{max-width:210mm;margin:0 auto;padding:12mm 15mm}
+        .header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:8px;border-bottom:3px solid #1a4480;margin-bottom:4px}
+        .company{flex:1}
+        .company .logo{width:44px;height:44px;background:#1a4480;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px;vertical-align:middle;margin-right:8px}
+        .company .name{display:inline-block;vertical-align:middle}
+        .company .name h1{font-size:17px;color:#1a4480;line-height:1.2}
+        .company .name h1 small{font-size:11px;font-weight:400;color:#6c757d}
+        .company .addr{font-size:9px;color:#6c757d;margin-top:2px;line-height:1.3}
+        .doc-banner{background:#1a4480;color:#fff;text-align:center;padding:6px 0;font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+        .info-grid{display:flex;gap:8px;margin-bottom:8px}
+        .info-box{flex:1;border:1px solid #dee2e6;border-radius:3px;overflow:hidden}
+        .info-box .info-title{background:#e9ecef;padding:3px 6px;font-size:9px;font-weight:700;text-transform:uppercase;color:#495057;border-bottom:1px solid #dee2e6}
+        .info-box table{width:100%;border-collapse:collapse}
+        .info-box td{padding:2px 6px;font-size:9px;vertical-align:top}
+        .info-box td.lbl{font-weight:600;color:#495057;width:38%;white-space:nowrap}
+        .info-box td.val{color:#212529}
+        .badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:8px;font-weight:700;text-transform:uppercase}
+        .badge-approved{background:#e8f5e9;color:#2e7d32}.badge-pending{background:#fff3e0;color:#e65100}.badge-rejected{background:#ffebee;color:#c62828}
+        .tbl{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:9px}
+        .tbl thead th{background:#1a4480;color:#fff;padding:5px 6px;text-align:left;font-weight:600;border:1px solid #1a4480}
+        .tbl thead th.r{text-align:right}.tbl thead th.c{text-align:center}
+        .tbl tbody td{padding:4px 6px;border:1px solid #dee2e6;vertical-align:top}
+        .tbl tbody td.r{text-align:right}.tbl tbody td.c{text-align:center}
+        .tbl tbody td .sub{color:#6c757d;font-size:8px}
+        .tbl tbody tr:nth-child(even){background:#f8f9fa}
+        .totals-row{display:flex;justify-content:flex-end;margin-bottom:8px}
+        .totals{width:230px}
+        .totals table{width:100%;border-collapse:collapse}
+        .totals td{padding:3px 8px;border:1px solid #dee2e6;font-size:9px}
+        .totals td.lbl{background:#f8f9fa;font-weight:600;color:#495057;width:55%}
+        .totals td.val{text-align:right;font-weight:600;color:#212529}
+        .totals tr.grand td{background:#1a4480;color:#fff;font-size:10px;border-color:#1a4480}
+        .refund-box{border:1px solid #dee2e6;border-radius:3px;overflow:hidden;margin-bottom:8px}
+        .refund-box .info-title{background:#e9ecef;padding:3px 6px;font-size:9px;font-weight:700;text-transform:uppercase;color:#495057;border-bottom:1px solid #dee2e6}
+        .refund-box table{width:100%;border-collapse:collapse}
+        .refund-box td{padding:2px 6px;font-size:9px}
+        .refund-box td.lbl{font-weight:600;color:#495057;width:38%}
+        .terms{border:1px solid #dee2e6;border-radius:3px;padding:6px 8px;margin-bottom:8px;background:#f8f9fa}
+        .terms h4{font-size:9px;text-transform:uppercase;color:#495057;margin-bottom:3px}
+        .terms ol{font-size:8px;color:#6c757d;margin-left:12px;line-height:1.6}
+        .remarks{border:1px solid #dee2e6;border-radius:3px;padding:6px 8px;margin-bottom:8px;background:#f8f9fa}
+        .remarks h4{font-size:9px;text-transform:uppercase;color:#495057;margin-bottom:3px}
+        .remarks p{font-size:9px;color:#495057;line-height:1.4}
+        .sigs{display:flex;justify-content:space-between;margin-top:25px;gap:15px}
+        .sig{text-align:center;flex:1}
+        .sig .line{border-top:1px solid #6c757d;margin-top:35px;margin-bottom:4px}
+        .sig .role{font-size:9px;font-weight:600;color:#495057}
+        .footer{margin-top:12px;padding-top:6px;border-top:1px solid #dee2e6;display:flex;justify-content:space-between;font-size:8px;color:#adb5bd}
+        @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:8mm 10mm;max-width:100%}}
     </style>
 </head>
-
 <body>
-    <div class="document">
-        <!-- Header -->
-        {% if options.show_header %}
-        <div class="header">
-            <div class="company-info">
-                <div class="logo">T</div>
-                <h1>{{ company.name | default('TIJAERO') }} <span>Solutions</span></h1>
-                <p>
-                    {{ company.address | default('Ground Floor, Unity Plaza') }}<br>
-                    Tel: {{ company.phone | default('011-2345678') }}<br>
-                    E-mail: {{ company.email | default('info@tijaero.lk') }}
-                </p>
-            </div>
-            <div class="doc-info">
-                <table>
-                    <tr>
-                        <td class="label">Credit Note No.</td>
-                        <td class="value">{{ credit_note.sale_return_no }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Date</td>
-                        <td class="value">{{ credit_note.added_date }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Status</td>
-                        <td class="value">
-                            <span class="status-badge {{ credit_note.status }}">{{ credit_note.status | upper }}</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="label">Invoice Ref</td>
-                        <td class="value">{{ invoice.invoice_no }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Branch</td>
-                        <td class="value">{{ branch.branch_name | default(credit_note.branch_code) }}</td>
-                    </tr>
-                    {% if credit_note.processed_by_name %}
-                    <tr>
-                        <td class="label">Processed By</td>
-                        <td class="value">{{ credit_note.processed_by_name }}</td>
-                    </tr>
-                    {% endif %}
-                </table>
-            </div>
-        </div>
-        {% endif %}
-
-        <div class="credit-note-title">CREDIT NOTE</div>
-
-        <!-- Customer Info -->
-        <div class="customer-section">
-            <table>
-                <tr>
-                    <td class="label">Customer Name</td>
-                    <td>{{ customer.customer_name | default('N/A') }}</td>
-                    <td class="label">Customer ID</td>
-                    <td>{{ customer.customer_code | default(customer.id) }}</td>
-                </tr>
-                <tr>
-                    <td class="label">Address</td>
-                    <td colspan="3">{{ customer.address | default('N/A') }}</td>
-                </tr>
-                <tr>
-                    <td class="label">Contact</td>
-                    <td>{{ customer.mobile_number | default('N/A') }}</td>
-                    <td class="label">Email</td>
-                    <td>{{ customer.email | default('N/A') }}</td>
-                </tr>
-            </table>
-        </div>
-
-        <!-- Return Information -->
-        {% if credit_note.return_reason %}
-        <div class="return-info">
-            <h3>Return Reason</h3>
-            <p>{{ credit_note.return_reason | upper }}</p>
-            {% if credit_note.remark %}
-            <p><strong>Additional Notes:</strong> {{ credit_note.remark }}</p>
-            {% endif %}
-        </div>
-        {% endif %}
-
-        <!-- Items Table -->
-        <table class="items-table">
-            <thead>
-                <tr>
-                    <th style="width: 30px;">NO</th>
-                    <th>Product / Description</th>
-                    <th style="width: 80px;">Barcode</th>
-                    <th style="width: 50px;">Qty</th>
-                    <th style="width: 90px;">Sold Price</th>
-                    <th style="width: 90px;">Return Price</th>
-                    <th style="width: 80px;">Condition</th>
-                    <th style="width: 100px;">Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in items %}
-                <tr>
-                    <td>{{ loop.index }}</td>
-                    <td class="description">
-                        {{ item.product_name | default('Product #' ~ item.product_id) }}
-                        {% if item.restockable %}
-                        <br><small style="color: #28a745;">✓ Restockable</small>
-                        {% else %}
-                        <br><small style="color: #dc3545;">✗ Not Restockable</small>
-                        {% endif %}
-                    </td>
-                    <td><small>{{ item.barcode | default('-') }}</small></td>
-                    <td>{{ item.quantity }}</td>
-                    <td class="amount">{{ "%.2f" | format(item.sold_price) }}</td>
-                    <td class="amount">{{ "%.2f" | format(item.return_price) }}</td>
-                    <td>{{ item.condition | capitalize }}</td>
-                    <td class="amount">{{ "%.2f" | format(item.total_amount) }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        <!-- Totals -->
-        <div class="totals-section">
-            <div class="totals-box">
-                <table>
-                    <tr>
-                        <td class="label">Items Count</td>
-                        <td class="value">{{ items | length }}</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Sub Total</td>
-                        <td class="value">Rs. {{ "%.2f" | format(totals.subtotal) }}</td>
-                    </tr>
-                    {% if totals.tax_refund > 0 %}
-                    <tr>
-                        <td class="label">Tax Refund</td>
-                        <td class="value">Rs. {{ "%.2f" | format(totals.tax_refund) }}</td>
-                    </tr>
-                    {% endif %}
-                    <tr class="total">
-                        <td>TOTAL CREDIT AMOUNT</td>
-                        <td class="value">Rs. {{ "%.2f" | format(totals.total_refund) }}</td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-
-        <!-- Refund Method -->
-        <div class="refund-method">
-            <h3>Refund Method</h3>
-            <p>
-                <strong>Payment Method:</strong> {{ credit_note.payment_method | upper | replace('_', ' ') }}
-                {% if credit_note.payment_method == 'credit_note' %}
-                <br>This amount will be credited to customer account and can be used for future purchases.
-                {% elif credit_note.payment_method == 'cash' %}
-                <br>Cash refund to be processed.
-                {% elif credit_note.payment_method == 'bank_transfer' %}
-                <br>Amount will be transferred to customer's bank account.
-                {% if credit_note.refund_reference %}
-                <br><strong>Reference:</strong> {{ credit_note.refund_reference }}
-                {% endif %}
-                {% endif %}
-            </p>
-            {% if credit_note.refund_date %}
-            <p><strong>Refund Date:</strong> {{ credit_note.refund_date }}</p>
-            {% endif %}
-        </div>
-
-        <!-- Additional Remarks -->
-        {% if options.custom_remarks %}
-        <div class="remarks-section">
-            <h3>Additional Remarks</h3>
-            <p>{{ options.custom_remarks }}</p>
-        </div>
-        {% endif %}
-
-        <!-- Terms & Conditions -->
-        <div class="terms-section">
-            <h3>Terms & Conditions for Credit Note</h3>
-            <ul>
-                <li>This credit note is valid for {{ company.credit_note_validity_days | default('365') }} days from the issue date.</li>
-                <li>Credit amount can be used for future purchases at any branch.</li>
-                <li>This credit note cannot be exchanged for cash.</li>
-                <li>Original credit note must be presented for redemption.</li>
-                <li>Credit notes are non-transferable.</li>
-                <li>Company reserves the right to verify returned items before processing refund.</li>
-            </ul>
-        </div>
-
-        <!-- Signatures -->
-        {% if options.show_signatures %}
-        <div class="signatures">
-            <div class="signature-box">
-                <div class="line"></div>
-                <div class="title">Processed By</div>
-            </div>
-            <div class="signature-box">
-                <div class="line"></div>
-                <div class="title">Approved By</div>
-            </div>
-            <div class="signature-box">
-                <div class="line"></div>
-                <div class="title">Customer Signature</div>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Print Info -->
-        <div class="print-info">
-            Generated on {{ generated_at }} | Credit Note ID: {{ credit_note.id }} | OFFICIAL CREDIT NOTE
+<div class="page">
+    {% if options.show_header %}
+    <div class="header">
+        <div class="company">
+            <span class="logo">T</span>
+            <div class="name"><h1>{{ company.name | default('TIJAERO') }}<br><small>{{ company.tagline | default('Solutions') }}</small></h1></div>
+            <div class="addr">{{ company.address | default('Ground Floor, Unity Plaza') }}<br>Tel: {{ company.phone | default('011-2345678') }} &nbsp;|&nbsp; {{ company.email | default('info@tijaero.lk') }}</div>
         </div>
     </div>
-    <script>
-        window.onload = function () {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('auto_print') === 'true') {
-                setTimeout(() => {
-                    window.print();
-                }, 500);
-            }
-        }
-    </script>
-</body>
+    {% endif %}
 
+    <div class="doc-banner">Credit Note</div>
+
+    <div class="info-grid">
+        <div class="info-box">
+            <div class="info-title">Customer Details</div>
+            <table>
+                <tr><td class="lbl">Customer</td><td class="val">{{ customer.customer_name | default('N/A') }}</td></tr>
+                <tr><td class="lbl">Code</td><td class="val">{{ customer.customer_code | default('-') }}</td></tr>
+                <tr><td class="lbl">Address</td><td class="val">{{ customer.address | default('N/A') }}</td></tr>
+                <tr><td class="lbl">Contact</td><td class="val">{{ customer.mobile_number | default('N/A') }}</td></tr>
+                <tr><td class="lbl">Email</td><td class="val">{{ customer.email | default('N/A') }}</td></tr>
+            </table>
+        </div>
+        <div class="info-box">
+            <div class="info-title">Credit Note Details</div>
+            <table>
+                <tr><td class="lbl">CN No.</td><td class="val"><strong>{{ credit_note.sale_return_no }}</strong></td></tr>
+                <tr><td class="lbl">Date</td><td class="val">{{ credit_note.added_date }}</td></tr>
+                <tr><td class="lbl">Status</td><td class="val">
+                    {% if credit_note.status == 'approved' %}<span class="badge badge-approved">{{ credit_note.status | upper }}</span>
+                    {% elif credit_note.status == 'pending' %}<span class="badge badge-pending">{{ credit_note.status | upper }}</span>
+                    {% else %}<span class="badge">{{ credit_note.status | default('Draft') | upper }}</span>{% endif %}
+                </td></tr>
+                <tr><td class="lbl">Branch</td><td class="val">{{ branch.branch_name | default(credit_note.branch_code) }}</td></tr>
+                <tr><td class="lbl">Invoice Ref.</td><td class="val">{{ invoice.invoice_no | default('-') }}</td></tr>
+                <tr><td class="lbl">Return Reason</td><td class="val">{{ credit_note.return_reason | default('-') }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th class="c" style="width:28px">No</th>
+                <th>Product</th>
+                <th class="c" style="width:90px">Barcode</th>
+                <th class="c" style="width:35px">Qty</th>
+                <th class="r" style="width:70px">Sold Price</th>
+                <th class="r" style="width:70px">Return Price</th>
+                <th class="c" style="width:55px">Condition</th>
+                <th class="c" style="width:35px">Restock</th>
+                <th class="r" style="width:80px">Amount (LKR)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td class="c">{{ loop.index }}</td>
+                <td>{{ item.product_name | default('Product #' ~ item.product_id) }}</td>
+                <td class="c" style="font-family:'Consolas','Courier New',monospace;font-size:8px">{{ item.barcode | default('-') }}</td>
+                <td class="c">{{ item.quantity }}</td>
+                <td class="r">{{ "%.2f" | format(item.sold_price) }}</td>
+                <td class="r">{{ "%.2f" | format(item.return_price) }}</td>
+                <td class="c">{{ item.condition | default('-') | title }}</td>
+                <td class="c">{{ 'Yes' if item.restockable else 'No' }}</td>
+                <td class="r">{{ "%.2f" | format(item.total_amount) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals-row">
+        <div class="totals">
+            <table>
+                <tr><td class="lbl">Sub Total</td><td class="val">{{ "%.2f" | format(totals.subtotal) }}</td></tr>
+                {% if totals.tax_refund and totals.tax_refund > 0 %}<tr><td class="lbl">Tax Refund</td><td class="val">{{ "%.2f" | format(totals.tax_refund) }}</td></tr>{% endif %}
+                <tr class="grand"><td class="lbl">Total Refund (LKR)</td><td class="val">{{ "%.2f" | format(totals.total_refund) }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    {% if credit_note.payment_method or credit_note.refund_reference %}
+    <div class="refund-box">
+        <div class="info-title">Refund Information</div>
+        <table>
+            <tr><td class="lbl">Payment Method</td><td>{{ credit_note.payment_method | default('-') }}</td></tr>
+            <tr><td class="lbl">Refund Reference</td><td>{{ credit_note.refund_reference | default('-') }}</td></tr>
+            <tr><td class="lbl">Refund Date</td><td>{{ credit_note.refund_date | default('-') }}</td></tr>
+            <tr><td class="lbl">Processed By</td><td>{{ credit_note.processed_by_name | default('-') }}</td></tr>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if credit_note.remark %}
+    <div class="remarks"><h4>Remarks</h4><p>{{ credit_note.remark }}</p></div>
+    {% endif %}
+
+    <div class="terms">
+        <h4>Terms &amp; Conditions</h4>
+        <ol>
+            <li>This credit note is valid for {{ company.credit_note_validity_days | default(30) }} days from the date of issue.</li>
+            <li>Original sales invoice must be presented for verification.</li>
+            <li>Credit notes are non-transferable and non-redeemable for cash.</li>
+            <li>Management reserves the right to reject returns not meeting the return policy.</li>
+        </ol>
+    </div>
+
+    {% if options.show_signatures %}
+    <div class="sigs">
+        <div class="sig"><div class="line"></div><div class="role">Processed By</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Approved By</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Customer Acknowledgement</div></div>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        <span>{{ company.name | default('TIJAERO') }} ERP &mdash; CREDIT NOTE</span>
+        <span>Generated: {{ generated_at }} | Ref: {{ credit_note.sale_return_no }}</span>
+    </div>
+</div>
+<script>window.onload=function(){if(new URLSearchParams(location.search).get('auto_print')==='true')setTimeout(()=>window.print(),500)};</script>
+</body>
 </html>

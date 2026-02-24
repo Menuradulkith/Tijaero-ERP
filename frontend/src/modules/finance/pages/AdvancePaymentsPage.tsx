@@ -133,8 +133,8 @@ export default function AdvancePaymentsPage() {
   const [supplierForm, setSupplierForm] = useState<Partial<SupplierAdvancePaymentCreate>>(SUPPLIER_INITIAL_FORM);
 
   // Reference data
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches: Branch[] = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches: Branch[] = filteredBranches || [];
 
   // Fetch customers
   const { data: customers = [] } = useQuery({

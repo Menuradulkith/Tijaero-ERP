@@ -257,8 +257,8 @@ export default function FinanceDashboard() {
   const [branchCode, setBranchCode] = useState<string | null>(null);
 
   // Fetch reference data for branches
-  const { data: refData } = useReferenceData(['branches']);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(['branches']);
+  const branches = filteredBranches || [];
 
   // Get current month range
   const today = new Date();

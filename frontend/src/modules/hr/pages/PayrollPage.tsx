@@ -8,6 +8,7 @@ import {
   TFormField,
   TIconButton,
   TPageHeader,
+  TPrintButton,
   TPrintPreviewDialog,
   useTConfirmDialog
 } from "@/components/tijaero";
@@ -17,7 +18,6 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
-  Print as PrintIcon,
 } from "@mui/icons-material";
 import { Box, Paper } from "@mui/material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
@@ -191,14 +191,13 @@ export default function PayrollPage() {
       <TPageHeader
         title="Employee Payroll"
         actions={
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <TButton
-              startIcon={<PrintIcon />}
-              variant="outlined"
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+            <TPrintButton
+              documentType="payroll"
+              documentId={0}
+              tooltip="Print Payroll Report"
               onClick={() => setPrintDialogOpen(true)}
-            >
-              Print Report
-            </TButton>
+            />
             <TButton startIcon={<AddIcon />} onClick={handleAdd}>
               New Payroll
             </TButton>

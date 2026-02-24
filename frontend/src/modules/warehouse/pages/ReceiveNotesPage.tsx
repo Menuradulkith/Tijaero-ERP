@@ -97,8 +97,8 @@ export default function ReceiveNotesPage() {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Reference data
-  const { data: refData } = useReferenceData(["branches"]);
-  const branches = refData?.branches || [];
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // State
   const [selectedIRN, setSelectedIRN] = useState<ItemReceiveNote | null>(null);

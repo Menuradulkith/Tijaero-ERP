@@ -291,9 +291,9 @@ export default function PurchaseOrdersPage() {
   });
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
-  const { data: refData } = useReferenceData(["products", "branches"]);
+  const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
-  const branches = refData?.branches || [];
+  const branches = filteredBranches || [];
 
   // Check daily PO limit for a branch
   const checkDailyLimit = useCallback(
@@ -1436,12 +1436,18 @@ export default function PurchaseOrdersPage() {
       <ConfirmDialog {...confirmDialog.dialogProps} />
 
       {/* Print Preview Dialog */}
-      <TPrintPreviewDialog
-        open={printDialogOpen}
-        onClose={() => setPrintDialogOpen(false)}
-        documentType="purchase-order"
-        documentId={selectedPoIdForPrint || 0}
-      />
+      {selectedPoIdForPrint && (
+        <TPrintPreviewDialog
+          open={printDialogOpen}
+          onClose={() => {
+            setPrintDialogOpen(false);
+            setSelectedPoIdForPrint(null);
+          }}
+          documentType="purchase-order"
+          documentId={selectedPoIdForPrint}
+          title={`Print Purchase Order: ${selectedOrder?.purchasing_order_no || ''}`}
+        />
+      )}
     </>
   );
 }

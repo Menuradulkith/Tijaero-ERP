@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense - {{ expense.expenses_no }}</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',Arial,sans-serif;font-size:10px;line-height:1.5;color:#212529;background:#fff}
+        .page{max-width:210mm;margin:0 auto;padding:12mm 15mm}
+        .header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:8px;border-bottom:3px solid #1a4480;margin-bottom:4px}
+        .company{flex:1}
+        .company .logo{width:44px;height:44px;background:#1a4480;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px;vertical-align:middle;margin-right:8px}
+        .company .name{display:inline-block;vertical-align:middle}
+        .company .name h1{font-size:17px;color:#1a4480;line-height:1.2}
+        .company .name h1 small{font-size:11px;font-weight:400;color:#6c757d}
+        .company .addr{font-size:9px;color:#6c757d;margin-top:2px;line-height:1.3}
+        .doc-banner{background:#1a4480;color:#fff;text-align:center;padding:6px 0;font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+        .info-grid{display:flex;gap:8px;margin-bottom:8px}
+        .info-box{flex:1;border:1px solid #dee2e6;border-radius:3px;overflow:hidden}
+        .info-box .info-title{background:#e9ecef;padding:3px 6px;font-size:9px;font-weight:700;text-transform:uppercase;color:#495057;border-bottom:1px solid #dee2e6}
+        .info-box table{width:100%;border-collapse:collapse}
+        .info-box td{padding:2px 6px;font-size:9px;vertical-align:top}
+        .info-box td.lbl{font-weight:600;color:#495057;width:38%;white-space:nowrap}
+        .info-box td.val{color:#212529}
+        .amount-card{text-align:center;padding:12px 20px;border:2px solid #1a4480;border-radius:6px;margin-bottom:8px;background:#f8f9fa}
+        .amount-card .label{font-size:9px;color:#495057;text-transform:uppercase;font-weight:600;margin-bottom:2px}
+        .amount-card .value{font-size:22px;font-weight:700;color:#1a4480}
+        .remarks{border:1px solid #dee2e6;border-radius:3px;padding:6px 8px;margin-bottom:8px;background:#f8f9fa}
+        .remarks h4{font-size:9px;text-transform:uppercase;color:#495057;margin-bottom:3px}
+        .remarks p{font-size:9px;color:#495057;line-height:1.4}
+        .sigs{display:flex;justify-content:space-between;margin-top:25px;gap:15px}
+        .sig{text-align:center;flex:1}
+        .sig .line{border-top:1px solid #6c757d;margin-top:35px;margin-bottom:4px}
+        .sig .role{font-size:9px;font-weight:600;color:#495057}
+        .footer{margin-top:12px;padding-top:6px;border-top:1px solid #dee2e6;display:flex;justify-content:space-between;font-size:8px;color:#adb5bd}
+        @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:8mm 10mm;max-width:100%}}
+    </style>
+</head>
+<body>
+<div class="page">
+    {% if options.show_header %}
+    <div class="header">
+        <div class="company">
+            <span class="logo">T</span>
+            <div class="name"><h1>{{ company.name | default('TIJAERO') }}<br><small>{{ company.tagline | default('Solutions') }}</small></h1></div>
+            <div class="addr">{{ company.address | default('Ground Floor, Unity Plaza') }}<br>Tel: {{ company.phone | default('011-2345678') }} &nbsp;|&nbsp; {{ company.email | default('info@tijaero.lk') }}</div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="doc-banner">Expense Voucher</div>
+
+    <div class="info-grid">
+        <div class="info-box">
+            <div class="info-title">Expense Details</div>
+            <table>
+                <tr><td class="lbl">Expense No.</td><td class="val"><strong>{{ expense.expenses_no }}</strong></td></tr>
+                <tr><td class="lbl">Expense Date</td><td class="val">{{ expense.expense_date }}</td></tr>
+                <tr><td class="lbl">Created Date</td><td class="val">{{ expense.created_date }}</td></tr>
+                <tr><td class="lbl">Status</td><td class="val">{{ expense.status | default('Pending') | upper }}</td></tr>
+                <tr><td class="lbl">Branch</td><td class="val">{{ branch.branch_name | default(expense.branch_code) }}</td></tr>
+                <tr><td class="lbl">Category</td><td class="val">{{ expense.expense_category | default('-') }}</td></tr>
+                <tr><td class="lbl">Type</td><td class="val">{{ expense.expense_type | default('-') }}</td></tr>
+                <tr><td class="lbl">Account Code</td><td class="val">{{ expense.account_code | default('-') }}</td></tr>
+            </table>
+        </div>
+        <div class="info-box">
+            <div class="info-title">Payment & Vendor</div>
+            <table>
+                <tr><td class="lbl">Vendor</td><td class="val">{{ expense.vendor_name | default('-') }}</td></tr>
+                <tr><td class="lbl">Expense Method</td><td class="val">{{ expense.expenses_method | default('-') }}</td></tr>
+                <tr><td class="lbl">Receipt No.</td><td class="val">{{ expense.receipt_number | default('-') }}</td></tr>
+                <tr><td class="lbl">Bill Reference</td><td class="val">{{ expense.bill_reference | default('-') }}</td></tr>
+                <tr><td class="lbl">Payment Status</td><td class="val">{{ expense.payment_status | default('-') | upper }}</td></tr>
+                <tr><td class="lbl">Payment Method</td><td class="val">{{ expense.payment_method | default('-') }}</td></tr>
+                <tr><td class="lbl">Payment Date</td><td class="val">{{ expense.payment_date | default('-') }}</td></tr>
+                <tr><td class="lbl">Payment Ref.</td><td class="val">{{ expense.payment_reference | default('-') }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="amount-card">
+        <div class="label">Expense Amount</div>
+        <div class="value">LKR {{ "%.2f" | format(expense.expense_amount) }}</div>
+    </div>
+
+    {% if expense.description %}
+    <div class="remarks"><h4>Description</h4><p>{{ expense.description }}</p></div>
+    {% endif %}
+
+    {% if expense.remarks %}
+    <div class="remarks"><h4>Remarks</h4><p>{{ expense.remarks }}</p></div>
+    {% endif %}
+
+    {% if expense.approved_date %}
+    <div class="remarks"><h4>Approval</h4><p>Approved on: {{ expense.approved_date }}</p></div>
+    {% endif %}
+
+    {% if options.show_signatures %}
+    <div class="sigs">
+        <div class="sig"><div class="line"></div><div class="role">Requested By</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Verified By</div></div>
+        <div class="sig"><div class="line"></div><div class="role">Approved By</div></div>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        <span>{{ company.name | default('TIJAERO') }} ERP &mdash; EXPENSE VOUCHER</span>
+        <span>Generated: {{ generated_at }} | Ref: {{ expense.expenses_no }}</span>
+    </div>
+</div>
+<script>window.onload=function(){if(new URLSearchParams(location.search).get('auto_print')==='true')setTimeout(()=>window.print(),500)};</script>
+</body>
+</html>

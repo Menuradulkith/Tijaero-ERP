@@ -13,8 +13,6 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import DeleteIcon from "@mui/icons-material/Delete";
-import PrintIcon from "@mui/icons-material/Print";
-import ReceiptIcon from "@mui/icons-material/Receipt";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
     Alert,
@@ -54,9 +52,11 @@ import {
     showSuccessToast,
     SortOption,
     TConfirmDialog,
+    TPrintButton,
     TPrintPreviewDialog,
     TStatusChip,
     TSteps,
+    canPrintDocument,
     getStatusProps,
     handleApiError,
     modernTableStyles,
@@ -289,8 +289,8 @@ export default function SaleReturnsPage() {
     });
 
     // Use aggregated endpoint for branches/products
-    const { data: refData } = useReferenceData(["branches", "products"]);
-    const branches = refData?.branches || [];
+    const { data: refData, filteredBranches } = useReferenceData(["branches", "products"]);
+    const branches = filteredBranches || [];
     const products = refData?.products || [];
 
     const getProductName = useCallback((productId?: number) => {
@@ -640,26 +640,22 @@ export default function SaleReturnsPage() {
                         );
                     }
                 }}
+                endActions={
+                    selectedReturn && !isCreating && !isEditing ? (
+                        <TPrintButton
+                            documentType="credit-note"
+                            documentId={selectedReturn.id}
+                            disabled={!canPrintDocument(selectedReturn.status, ["pending", "approved"])}
+                            disabledReason="Can only print processed returns"
+                            tooltip="Print Credit Note"
+                            onClick={() => {
+                                setSelectedReturnForPrint(selectedReturn);
+                                setPrintDialogOpen(true);
+                            }}
+                        />
+                    ) : undefined
+                }
             />
-
-            {/* Credit Note Print Button - Show for processed returns */}
-            {selectedReturn && selectedReturn.status === 'processed' && !isCreating && !isEditing && (
-                <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-                    <Button
-                        variant="contained"
-                        color="primary"
-                        startIcon={<PrintIcon />}
-                        onClick={() => {
-                            setSelectedReturnForPrint(selectedReturn);
-                            setPrintDialogOpen(true);
-                        }}
-                        fullWidth
-                    >
-                        <ReceiptIcon sx={{ mr: 1 }} />
-                        View & Print Credit Note
-                    </Button>
-                </Box>
-            )}
 
             <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
                 {!selectedReturn && !isCreating ? (

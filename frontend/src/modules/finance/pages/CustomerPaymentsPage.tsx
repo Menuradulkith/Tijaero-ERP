@@ -4,7 +4,6 @@
  * Following standard ERP patterns, this unified page handles:
  * - Credit settlements (receive payment against credit invoices)
  * - Payment history tracking
- * - Customer advance payment management
  *
  * Workflow:
  * 1. Select customer → View all outstanding credit invoices
@@ -51,12 +50,10 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
-import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import SearchIcon from "@mui/icons-material/Search";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import PrintIcon from "@mui/icons-material/Print";
 import FilterListIcon from "@mui/icons-material/FilterList";
-import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import {
@@ -64,12 +61,6 @@ import {
   showErrorToast,
   showSuccessToast,
   TStatCard,
-  TEmptyState,
-  TButton,
-  TInfoCard,
-  TTable,
-  TPageHeader,
-  TLoading,
   TFilterPanel,
 } from "@/components/tijaero";
 import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
@@ -86,8 +77,7 @@ import { customersApi, CustomerCreditSummary } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
 import { salesApi } from "@/modules/sales/api";
 import { Invoice } from "@/modules/sales/types";
-import { advancePaymentsApi } from "@/modules/finance/api";
-import { CustomerAdvancePayment, CustomerAdvancePaymentCreate } from "@/modules/finance/types";
+
 import { branchApi } from "@/modules/branches/api";
 import apiClient from "@/api/client";
 
@@ -140,7 +130,7 @@ interface PaymentLine {
 const STEPS = ["Select Invoices", "Payment Details", "Review & Post"];
 
 // View mode
-type ViewMode = "overview" | "documents" | "payment" | "review" | "history" | "advances";
+type ViewMode = "overview" | "documents" | "payment" | "review" | "history";
 
 export default function CustomerPaymentsPage() {
   // Data state
@@ -191,16 +181,7 @@ export default function CustomerPaymentsPage() {
   const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Advance payments state
-  const [advancePayments, setAdvancePayments] = useState<CustomerAdvancePayment[]>([]);
-  const [loadingAdvances, setLoadingAdvances] = useState(false);
-  const [showAdvanceForm, setShowAdvanceForm] = useState(false);
-  const [advanceFormData, setAdvanceFormData] = useState<Partial<CustomerAdvancePaymentCreate>>({
-    payment_method: "Cash",
-    cheque_date: new Date().toISOString().split("T")[0],
-    payment_amount: 0,
-  });
-  const [savingAdvance, setSavingAdvance] = useState(false);
+
 
   const confirmDialog = useConfirmDialog();
 
@@ -310,19 +291,7 @@ export default function CustomerPaymentsPage() {
     }
   }, []);
 
-  // Load advance payments for selected customer
-  const loadAdvancePayments = useCallback(async (customerId: number) => {
-    try {
-      setLoadingAdvances(true);
-      const advances = await advancePaymentsApi.getCustomerAdvances(customerId);
-      setAdvancePayments(advances || []);
-    } catch (err) {
-      console.error("Failed to load advance payments:", err);
-      setAdvancePayments([]);
-    } finally {
-      setLoadingAdvances(false);
-    }
-  }, []);
+
 
   // Transform invoices to outstanding documents
   const outstandingInvoices = useMemo((): OutstandingInvoice[] => {
@@ -436,8 +405,7 @@ export default function CustomerPaymentsPage() {
     // Load data
     loadCreditStatus(customer.id);
     loadCustomerInvoices(customer.id);
-    loadAdvancePayments(customer.id);
-  }, [loadCreditStatus, loadCustomerInvoices, loadAdvancePayments]);
+  }, [loadCreditStatus, loadCustomerInvoices]);
 
   // Auto-select first customer
   useEffect(() => {
@@ -679,7 +647,6 @@ export default function CustomerPaymentsPage() {
         setActiveStep(1);
         break;
       case "history":
-      case "advances":
         setViewMode("overview");
         break;
     }
@@ -700,46 +667,7 @@ export default function CustomerPaymentsPage() {
     return customer.max_credit_limit > 0 ? (used / customer.max_credit_limit) * 100 : 0;
   };
 
-  // Create advance payment
-  const handleCreateAdvance = async () => {
-    if (!selectedCustomer) return;
-    if (!advanceFormData.payment_amount || advanceFormData.payment_amount <= 0) {
-      showErrorToast("Please enter a valid advance amount");
-      return;
-    }
-    if (!advanceFormData.branch_code) {
-      showErrorToast("Please select a branch");
-      return;
-    }
 
-    try {
-      setSavingAdvance(true);
-      const data: CustomerAdvancePaymentCreate = {
-        advance_payments_no: `CA-${Date.now()}`,
-        payment_method: advanceFormData.payment_method || "Cash",
-        branch_code: advanceFormData.branch_code,
-        payment_amount: advanceFormData.payment_amount,
-        remarks: advanceFormData.remarks,
-        customer_id: selectedCustomer.id,
-        cheque_date: advanceFormData.cheque_date || new Date().toISOString().split("T")[0],
-      };
-
-      await advancePaymentsApi.create(data);
-      showSuccessToast(`Advance payment received from ${selectedCustomer.customer_name}`);
-      setShowAdvanceForm(false);
-      setAdvanceFormData({
-        payment_method: "Cash",
-        cheque_date: new Date().toISOString().split("T")[0],
-        payment_amount: 0,
-      });
-      loadAdvancePayments(selectedCustomer.id);
-      loadCreditStatus(selectedCustomer.id);
-    } catch (err: unknown) {
-      showErrorToast(handleApiError(err, "Failed to create advance payment"));
-    } finally {
-      setSavingAdvance(false);
-    }
-  };
 
   // ==================== MASTER PANEL ====================
   const masterPanel = (
@@ -1117,17 +1045,6 @@ export default function CustomerPaymentsPage() {
             Outstanding Credit Invoices
           </Typography>
           <Box sx={{ display: "flex", gap: 1 }}>
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<AccountBalanceWalletIcon />}
-              onClick={() => {
-                setViewMode("advances");
-                loadAdvancePayments(selectedCustomer!.id);
-              }}
-            >
-              Advances
-            </Button>
             <Button
               variant="outlined"
               color="info"
@@ -1947,198 +1864,6 @@ export default function CustomerPaymentsPage() {
     </Box>
   );
 
-  // ==================== RENDER: ADVANCES ====================
-  const renderAdvances = () => (
-    <Box sx={{ p: 2 }}>
-      <TPageHeader
-        title="Advance Payments"
-        subtitle={`${selectedCustomer?.customer_name} - Manage customer prepayments`}
-        icon={<AccountBalanceWalletIcon />}
-        actions={
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <TButton variant="primary" startIcon={<AddCircleOutlineIcon />} onClick={() => setShowAdvanceForm(true)} disabled={showAdvanceForm}>
-              New Advance
-            </TButton>
-            <TButton variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setViewMode("overview")}>
-              Back
-            </TButton>
-          </Box>
-        }
-      />
-
-      {/* Summary */}
-      {advancePayments.length > 0 && (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={4}>
-            <TStatCard
-              title="Total Advances"
-              value={formatCurrency(advancePayments.reduce((sum, a) => sum + a.payment_amount, 0))}
-              subtitle={`${advancePayments.length} payment${advancePayments.length !== 1 ? "s" : ""}`}
-              icon={<AccountBalanceWalletIcon />}
-              color="primary"
-            />
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <TStatCard
-              title="Active"
-              value={String(advancePayments.filter((a) => a.active).length)}
-              subtitle="Active advances"
-              icon={<CheckCircleIcon />}
-              color="success"
-            />
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <TStatCard
-              title="Total Amount"
-              value={formatCurrency(advancePayments.filter((a) => a.active).reduce((sum, a) => sum + a.payment_amount, 0))}
-              subtitle="Active advance balance"
-              icon={<AccountBalanceIcon />}
-              color="info"
-            />
-          </Grid>
-        </Grid>
-      )}
-
-      {/* New Advance Form */}
-      {showAdvanceForm && (
-        <Box sx={{ mb: 3 }}>
-          <TInfoCard
-            title={`New Advance Payment - ${selectedCustomer?.customer_name || ""}`}
-            icon={<AddCircleOutlineIcon />}
-            variant="outlined"
-            footerActions={
-              <Box sx={{ display: "flex", gap: 1.5 }}>
-                <TButton
-                  variant="primary"
-                  onClick={handleCreateAdvance}
-                  disabled={savingAdvance || !advanceFormData.payment_amount || !advanceFormData.branch_code}
-                  loading={savingAdvance}
-                  startIcon={<CheckCircleIcon />}
-                >
-                  {savingAdvance ? "Creating..." : "Create Advance"}
-                </TButton>
-                <TButton
-                  variant="outlined"
-                  onClick={() => {
-                    setShowAdvanceForm(false);
-                    setAdvanceFormData({
-                      payment_method: "Cash",
-                      cheque_date: new Date().toISOString().split("T")[0],
-                      payment_amount: 0,
-                    });
-                  }}
-                >
-                  Cancel
-                </TButton>
-              </Box>
-            }
-          >
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Amount *"
-                  type="number"
-                  value={advanceFormData.payment_amount || ""}
-                  onChange={(e) => setAdvanceFormData((prev) => ({ ...prev, payment_amount: Number(e.target.value) }))}
-                  InputProps={{ startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment> }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  select
-                  size="small"
-                  label="Payment Method *"
-                  value={advanceFormData.payment_method || "Cash"}
-                  onChange={(e) => setAdvanceFormData((prev) => ({ ...prev, payment_method: e.target.value }))}
-                >
-                  {PAYMENT_METHODS.map((m) => (
-                    <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  select
-                  size="small"
-                  label="Branch *"
-                  value={advanceFormData.branch_code || ""}
-                  onChange={(e) => setAdvanceFormData((prev) => ({ ...prev, branch_code: e.target.value }))}
-                >
-                  {branches.map((b) => (
-                    <MenuItem key={b.branch_code} value={b.branch_code}>{b.branch_name}</MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Remarks"
-                  value={advanceFormData.remarks || ""}
-                  onChange={(e) => setAdvanceFormData((prev) => ({ ...prev, remarks: e.target.value }))}
-                />
-              </Grid>
-            </Grid>
-          </TInfoCard>
-        </Box>
-      )}
-
-      {/* Advances List */}
-      {loadingAdvances ? (
-        <TLoading message="Loading advances..." />
-      ) : advancePayments.length === 0 ? (
-        <TEmptyState
-          icon={<AccountBalanceWalletIcon sx={{ fontSize: 48 }} />}
-          title="No Advance Payments"
-          message="No advance payments have been recorded for this customer."
-        />
-      ) : (
-        <TTable
-          columns={[
-            { field: "advance_no", header: "Advance No." },
-            { field: "date", header: "Date" },
-            { field: "method", header: "Payment Method" },
-            { field: "amount", header: "Amount", align: "right" as const },
-            { field: "branch", header: "Branch" },
-            { field: "status", header: "Status" },
-            { field: "remarks", header: "Remarks" },
-          ]}
-          data={advancePayments.map((adv) => ({
-            id: adv.id,
-            advance_no: (
-              <Typography variant="body2" fontWeight="500" color="primary.main">
-                {adv.advance_payments_no}
-              </Typography>
-            ),
-            date: new Date(adv.created_date).toLocaleDateString(),
-            method: adv.payment_method,
-            amount: (
-              <Typography variant="body2" fontWeight="700" color="success.main">
-                {formatCurrency(adv.payment_amount)}
-              </Typography>
-            ),
-            branch: adv.branch_code,
-            status: (
-              <Chip
-                label={adv.active ? "Active" : "Inactive"}
-                size="small"
-                color={adv.active ? "success" : "default"}
-                variant="outlined"
-              />
-            ),
-            remarks: adv.remarks || "-",
-          }))}
-          hover
-          size="medium"
-        />
-      )}
-    </Box>
-  );
-
   // ==================== DETAIL PANEL ====================
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -2148,25 +1873,20 @@ export default function CustomerPaymentsPage() {
           { label: "Customer Payments", href: "/finance/customer-payments" },
           ...(selectedCustomer ? [{ label: selectedCustomer.customer_name }] : []),
           ...(viewMode === "history" ? [{ label: "Payment History" }]
-            : viewMode === "advances" ? [{ label: "Advance Payments" }]
-              : viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
+            : viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
         ]}
         title={
           viewMode === "history"
             ? "Payment History"
-            : viewMode === "advances"
-              ? "Advance Payments"
-              : viewMode === "review"
-                ? "Review Payment"
-                : viewMode === "payment" || viewMode === "documents"
-                  ? "Receive Payment"
-                  : selectedCustomer?.customer_name || "Select a Customer"
+            : viewMode === "review"
+              ? "Review Payment"
+              : viewMode === "payment" || viewMode === "documents"
+                ? "Receive Payment"
+                : selectedCustomer?.customer_name || "Select a Customer"
         }
         titleIcon={
           viewMode === "history" ? (
             <AssessmentIcon color="info" />
-          ) : viewMode === "advances" ? (
-            <AccountBalanceWalletIcon color="secondary" />
           ) : viewMode === "review" ? (
             <CheckCircleIcon color="success" />
           ) : viewMode === "payment" || viewMode === "documents" ? (
@@ -2180,23 +1900,21 @@ export default function CustomerPaymentsPage() {
         chips={
           viewMode === "history"
             ? [{ label: `${paymentHistory.length} Payment${paymentHistory.length !== 1 ? "s" : ""}`, color: "info" as const }]
-            : viewMode === "advances"
-              ? [{ label: `${advancePayments.length} Advance${advancePayments.length !== 1 ? "s" : ""}`, color: "secondary" as const }]
-              : selectedCustomer && viewMode === "overview"
-                ? [
-                  { label: `${outstandingInvoices.length} Open Invoices`, variant: "outlined" as const },
-                  ...(totalOutstanding > 0
-                    ? [{ label: formatCurrency(totalOutstanding) + " Outstanding", color: "warning" as const }]
-                    : []),
-                ]
-                : viewMode !== "overview"
-                  ? [{ label: formatCurrency(totalPaymentAmount), color: "primary" as const }]
-                  : []
+            : selectedCustomer && viewMode === "overview"
+              ? [
+                { label: `${outstandingInvoices.length} Open Invoices`, variant: "outlined" as const },
+                ...(totalOutstanding > 0
+                  ? [{ label: formatCurrency(totalOutstanding) + " Outstanding", color: "warning" as const }]
+                  : []),
+              ]
+              : viewMode !== "overview"
+                ? [{ label: formatCurrency(totalPaymentAmount), color: "primary" as const }]
+                : []
         }
       />
 
       {/* Stepper */}
-      {viewMode !== "overview" && viewMode !== "history" && viewMode !== "advances" && (
+      {viewMode !== "overview" && viewMode !== "history" && (
         <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: "divider" }}>
           <Stepper activeStep={activeStep} alternativeLabel>
             {STEPS.map((label, index) => (
@@ -2215,8 +1933,6 @@ export default function CustomerPaymentsPage() {
           </Box>
         ) : viewMode === "history" ? (
           renderHistory()
-        ) : viewMode === "advances" ? (
-          renderAdvances()
         ) : viewMode === "overview" ? (
           renderOverview()
         ) : viewMode === "documents" ? (

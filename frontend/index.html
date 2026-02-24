@@ -6,6 +6,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
     <title>TijaeroERP</title>
     <style>
+      /* ── Layout tokens ─────────────────────────────────────── */
+      :root {
+        /* Sidebar / icon-rail widths */
+        --sidebar-width: 220px;
+        --icon-nav-width: 48px;
+        /* Header / toolbar height — keep in sync with MUI Toolbar minHeight */
+        --header-height: 56px;
+      }
+      @media (max-width: 600px) {
+        :root {
+          --header-height: 48px;
+        }
+      }
+
+      /* ── Responsive root font-size ──────────────────────────
+         At 1920 px-wide viewport (100 % on Full-HD) the base is 16 px.
+         The clamp scales it down gracefully when the CSS viewport
+         shrinks (high DPI / Windows 125 %–150 % scaling) and caps it
+         so text never gets too large on ultra-wide monitors.
+      ─────────────────────────────────────────────────────── */
+      html {
+        font-size: clamp(13px, 0.45vw + 11.5px, 16px);
+      }
+
+      /* ── Reset ──────────────────────────────────────────── */
       * {
         margin: 0;
         padding: 0;

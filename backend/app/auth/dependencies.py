@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
@@ -7,6 +7,25 @@ from app.auth.models import User
 from app.core.security import decode_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+
+def _resolve_token(request: Request, token: Optional[str] = None) -> str:
+    """Extract the bearer token from either the Authorization header or a
+    `token` query parameter.  The query-parameter path is used by print-
+    preview iframes which cannot send custom HTTP headers."""
+    # 1. Explicit token param (from iframe URL)
+    if token:
+        return token
+    # 2. Standard Authorization header
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:]
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     payload = decode_token(token)
@@ -29,6 +48,32 @@ def get_current_active_user(current_user: User = Depends(get_current_user)) -> U
     if not current_user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
     return current_user
+
+
+def get_current_user_flexible(
+    request: Request,
+    token: Optional[str] = Query(None, description="JWT token (for iframe/print preview)"),
+    db: Session = Depends(get_db),
+) -> User:
+    """Authenticate via Authorization header OR ?token= query parameter.
+    Used by document report endpoints that are loaded in iframes."""
+    resolved = _resolve_token(request, token)
+    payload = decode_token(resolved)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    try:
+        user_id = int(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    user = db.query(User).options(joinedload(User.branches)).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+    return user
 
 
 def get_user_branch_codes(user: User) -> List[str]:
