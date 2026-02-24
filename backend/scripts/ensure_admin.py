@@ -25,7 +25,7 @@ def ensure_admin_user():
     try:
         # Check if any superuser exists
         stmt = select(User).where(User.is_superuser == True)
-        existing_admin = db.execute(stmt).scalar_one_or_none()
+        existing_admin = db.execute(stmt).scalars().first()
         
         if existing_admin:
             print(f"✅ Admin user already exists: {existing_admin.username} ({existing_admin.email})")
@@ -33,7 +33,7 @@ def ensure_admin_user():
         
         # Check if 'admin' username exists
         stmt = select(User).where(User.username == "admin")
-        existing_user = db.execute(stmt).scalar_one_or_none()
+        existing_user = db.execute(stmt).scalars().first()
         
         if existing_user:
             print(f"⚠️  User 'admin' exists but is not a superuser. Promoting to superuser...")
@@ -50,7 +50,7 @@ def ensure_admin_user():
         admin_user = User(
             email="admin@example.com",
             username="admin",
-            hashed_password=get_password_hash("admin123"),
+            hashed_password=get_password_hash("TjrAdmin@123"),
             is_superuser=True,
             is_active=True,
             first_name="Admin",
@@ -58,7 +58,7 @@ def ensure_admin_user():
             gender="Other",
             is_staff=True,
             date_joined=date.today(),
-            birthdate=date(1990, 1, 1),
+            birthdate=date(1990, 12, 9),
             employee_id="ADMIN001",
             verify=True,
             blocked=False,
@@ -69,7 +69,7 @@ def ensure_admin_user():
         
         print("✅ Admin user created successfully!")
         print("   Username: admin")
-        print("   Password: admin123")
+        print("   Password: TjrAdmin@123")
         print("   Email: admin@example.com")
         print("")
         print("⚠️  IMPORTANT: Change the default password after first login!")
