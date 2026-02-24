@@ -46,8 +46,8 @@ read -rp "Is this correct? [Y/n]: " confirm
 # ── 1. Install packages ────────────────────────────────────────────────────────
 info "Installing OpenVPN and EasyRSA..."
 apt-get update -qq
-# DEBIAN_FRONTEND stops iptables-persistent from prompting during install
-DEBIAN_FRONTEND=noninteractive apt-get install -y openvpn easy-rsa ufw curl iptables-persistent
+# iptables-persistent conflicts with ufw on Ubuntu 24.04 – ufw handles its own persistence
+DEBIAN_FRONTEND=noninteractive apt-get install -y openvpn easy-rsa ufw curl
 
 # ── 2. Initialize PKI with EasyRSA 3 ──────────────────────────────────────────
 info "Setting up PKI with EasyRSA..."
