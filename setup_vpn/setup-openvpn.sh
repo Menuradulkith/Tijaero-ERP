@@ -165,15 +165,11 @@ ufw allow OpenSSH
 ufw allow "${VPN_PORT}/${VPN_PROTO}"
 
 # Allow all ERP service ports ONLY from the VPN tunnel interface
-ufw allow in on "${VPN_DEV}" to any port 80   proto tcp comment "ERP frontend via VPN"
+ufw allow in on "${VPN_DEV}" to any port 80   proto tcp comment "ERP via VPN"
 ufw allow in on "${VPN_DEV}" to any port 443  proto tcp comment "ERP HTTPS via VPN"
-ufw allow in on "${VPN_DEV}" to any port 8080 proto tcp comment "Adminer via VPN"
-ufw allow in on "${VPN_DEV}" to any port 5050 proto tcp comment "pgAdmin via VPN"
 
-# Explicitly deny those ports from the public internet
+# Explicitly deny port 80 from the public internet (nginx only serves via VPN)
 ufw deny in on "${NIC}" to any port 80   proto tcp
-ufw deny in on "${NIC}" to any port 8080 proto tcp
-ufw deny in on "${NIC}" to any port 5050 proto tcp
 
 # NAT masquerade for VPN traffic (prepend to /etc/ufw/before.rules)
 if ! grep -q "OPENVPN_NAT" /etc/ufw/before.rules; then

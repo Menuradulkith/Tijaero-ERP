@@ -4,8 +4,9 @@ services:
     restart: always
     ports: []   # nginx proxies /api/ – no direct host port needed
     environment:
-      # Override CORS for production
-      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
+      # Frontend and backend share the same origin (10.8.0.1:80) via nginx,
+      # so CORS is same-origin. Still set it explicitly for correctness.
+      BACKEND_CORS_ORIGINS: '["http://${VPN_GATEWAY_IP:-10.8.0.1}"]'
     command: >
       sh -c "
         echo 'Checking for migrations...' &&
@@ -32,7 +33,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL}
+        # Browser calls go: browser → VPN → 10.8.0.1 (nginx) → /api/ → backend
+        # Must point to nginx, NOT the backend container port directly.
+        # VPN_GATEWAY_IP is exported by docker-server-up.sh from vpn.env.
+        VITE_API_URL: http://${VPN_GATEWAY_IP:-10.8.0.1}/api/v1
 
   # Database - Server Settings
   postgres:
@@ -46,20 +50,19 @@ services:
   # pgAdmin - Server Settings
   pgadmin:
     restart: always
-    ports: []   # nginx proxies :5050 – no direct host port needed
+    ports: []   # nginx proxies at /pgadmin/ on port 80 – no direct host port needed
+    environment:
+      PGADMIN_CONFIG_APPLICATION_ROOT: "'/pgadmin'"
 
   # ── Nginx Reverse Proxy – accessible only via OpenVPN ───────────────────────
-  # Binds to 0.0.0.0 so Docker doesn't depend on tun0 being up at compose start.
-  # Security is enforced by UFW: ports 80/8080/5050 are allowed only from tun0
-  # (see setup_vpn/setup-openvpn.sh) so they remain unreachable from the internet.
+  # Single port 80 serves everything. Adminer at /adminer/, pgAdmin at /pgadmin/.
+  # Security enforced by UFW: port 80 is allowed only from tun0 (VPN interface).
   nginx:
     image: nginx:1.27-alpine
     container_name: erp_nginx
     restart: always
     ports:
       - "0.0.0.0:80:80"
-      - "0.0.0.0:8080:8080"
-      - "0.0.0.0:5050:5050"
     volumes:
       - ./setup_vpn/nginx/erp-vpn.conf:/etc/nginx/conf.d/erp-vpn.conf:ro
     networks:

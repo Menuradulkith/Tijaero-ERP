@@ -10,16 +10,17 @@ Internet
    │
    │  UDP 1194 (OpenVPN only)
    ▼
-┌──────────────────────────────────────────┐
-│  VPS                                     │
-│                                          │
-│  tun0  ──  10.8.0.1  (VPN interface)    │
-│                │                         │
-│         Nginx  :80  ──► frontend  :80   │
-│                │    ──► backend   :8000  │
-│                :8080 ──► adminer  :8080  │
-│                :5050 ──► pgadmin  :80   │
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  VPS                                         │
+│                                              │
+│  tun0  ──  10.8.0.1  (VPN interface)        │
+│                │                             │
+│         Nginx  :80                           │
+│                ├─ /         ──► frontend :80 │
+│                ├─ /api/     ──► backend  :8000│
+│                ├─ /adminer/ ──► adminer  :8080│
+│                └─ /pgadmin/ ──► pgadmin  :80 │
+└──────────────────────────────────────────────┘
          ▲
          │  OpenVPN tunnel
          │
@@ -93,7 +94,7 @@ docker compose \
   up -d --build
 ```
 
-Nginx will listen on `10.8.0.1:80`, `10.8.0.1:8080`, `10.8.0.1:5050`.
+Nginx will listen on `10.8.0.1:80` only. Adminer and pgAdmin are served as subpaths.
 
 ### Step 4 – Create a client config
 
@@ -116,8 +117,8 @@ Import `alice.ovpn` into any OpenVPN client and connect.
 |---|---|
 | **ERP App** | http://10.8.0.1 |
 | **API docs** | http://10.8.0.1/docs |
-| **Adminer** | http://10.8.0.1:8080 |
-| **pgAdmin** | http://10.8.0.1:5050 |
+| **Adminer** | http://10.8.0.1/adminer/ |
+| **pgAdmin** | http://10.8.0.1/pgadmin/ |
 
 ---
 
