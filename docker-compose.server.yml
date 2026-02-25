@@ -60,7 +60,7 @@ services:
     ports:
       - "0.0.0.0:80:80"
     volumes:
-      - ./nginx/erp-vpn.conf:/etc/nginx/conf.d/erp-vpn.conf:ro
+      - ./nginx/erp-vpn.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - erp_network
     depends_on:
