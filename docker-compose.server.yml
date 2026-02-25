@@ -2,6 +2,7 @@ services:
   # Backend API - Server Overrides
   backend:
     restart: always
+    ports: []   # nginx proxies /api/ – no direct host port needed
     environment:
       # Override CORS for production
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
@@ -23,9 +24,10 @@ services:
     volumes: []
     # Remove volume mount for production (optional - for security)
 
-  # Frontend - Server Overrides  
+  # Frontend - Server Overrides
   frontend:
     restart: always
+    ports: []   # nginx proxies / – no direct host port needed
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -39,10 +41,12 @@ services:
   # Adminer - Server Settings
   adminer:
     restart: always
+    ports: []   # nginx proxies :8080 – no direct host port needed
 
   # pgAdmin - Server Settings
   pgadmin:
     restart: always
+    ports: []   # nginx proxies :5050 – no direct host port needed
 
   # ── Nginx Reverse Proxy – accessible only via OpenVPN ───────────────────────
   # Binds to 0.0.0.0 so Docker doesn't depend on tun0 being up at compose start.
