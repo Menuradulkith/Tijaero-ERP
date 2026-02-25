@@ -91,7 +91,7 @@ def seed_branches_users():
             admin_user = User(
                 email=admin_email,
                 username=admin_username,
-                hashed_password=get_password_hash("admin123"),
+                hashed_password=get_password_hash("TjrAdmin@123"),
                 first_name="Super",
                 last_name="Admin",
                 gender="Other",

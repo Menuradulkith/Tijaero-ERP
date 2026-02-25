@@ -2,11 +2,10 @@ services:
   # Backend API - Server Overrides
   backend:
     restart: always
-    ports: []   # nginx proxies /api/ – no direct host port needed
     environment:
       # Frontend and backend share the same origin (10.8.0.1:80) via nginx,
       # so CORS is same-origin. Still set it explicitly for correctness.
-      BACKEND_CORS_ORIGINS: '["http://${VPN_GATEWAY_IP:-10.8.0.1}"]'
+      BACKEND_CORS_ORIGINS: '["http://${VPN_GATEWAY_IP:-10.8.0.1}:8000", "http://${VPN_GATEWAY_IP:-10.8.0.1}:3000"]'
     command: >
       sh -c "
         echo 'Checking for migrations...' &&
@@ -28,7 +27,6 @@ services:
   # Frontend - Server Overrides
   frontend:
     restart: always
-    ports: []   # nginx proxies / – no direct host port needed
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -45,12 +43,10 @@ services:
   # Adminer - Server Settings
   adminer:
     restart: always
-    ports: []   # nginx proxies :8080 – no direct host port needed
 
   # pgAdmin - Server Settings
   pgadmin:
     restart: always
-    ports: []   # nginx proxies at /pgadmin/ on port 80 – no direct host port needed
     environment:
       PGADMIN_CONFIG_APPLICATION_ROOT: "'/pgadmin'"
 
