@@ -44,20 +44,18 @@ services:
   pgadmin:
     restart: always
 
-  # ── Nginx Reverse Proxy – accessible only via OpenVPN (10.8.0.1) ────────────
-  # Consolidates frontend (:80), backend (:8000), adminer (:8080), pgadmin (:5050)
-  # behind a single entry point. Bind only to the VPN interface (10.8.0.1)
-  # so the services are NOT reachable from the public internet.
+  # ── Nginx Reverse Proxy – accessible only via OpenVPN ───────────────────────
+  # Binds to 0.0.0.0 so Docker doesn't depend on tun0 being up at compose start.
+  # Security is enforced by UFW: ports 80/8080/5050 are allowed only from tun0
+  # (see setup_vpn/setup-openvpn.sh) so they remain unreachable from the internet.
   nginx:
     image: nginx:1.27-alpine
     container_name: erp_nginx
     restart: always
-    # Bind to VPN interface only (set to 0.0.0.0 + UFW rules if tun0 isn't ready
-    # before docker compose starts, which is the common case on first boot)
     ports:
-      - "${VPN_GATEWAY_IP:-10.8.0.1}:80:80"
-      - "${VPN_GATEWAY_IP:-10.8.0.1}:8080:8080"
-      - "${VPN_GATEWAY_IP:-10.8.0.1}:5050:5050"
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:8080:8080"
+      - "0.0.0.0:5050:5050"
     volumes:
       - ./setup_vpn/nginx/erp-vpn.conf:/etc/nginx/conf.d/erp-vpn.conf:ro
     networks:
