@@ -23,6 +23,7 @@ services:
     # Remove --reload for production
     volumes: []
     # Remove volume mount for production (optional - for security)
+    ports: []
 
   # Frontend - Server Overrides
   frontend:
@@ -35,7 +36,7 @@ services:
         # Must point to nginx, NOT the backend container port directly.
         # GATEWAY_IP is exported by docker-server-up.sh from vpn.env.
         VITE_API_URL: http://${GATEWAY_IP:-10.8.0.1}/api/v1
-
+    ports: []
   # Database - Server Settings
   postgres:
     restart: always
@@ -43,12 +44,14 @@ services:
   # Adminer - Server Settings
   adminer:
     restart: always
+    ports: []
 
   # pgAdmin - Server Settings
   pgadmin:
     restart: always
     environment:
       PGADMIN_CONFIG_APPLICATION_ROOT: "'/pgadmin'"
+    ports: []
 
   # ── Nginx Reverse Proxy – accessible only via OpenVPN ───────────────────────
   # Single port 80 serves everything. Adminer at /adminer/, pgAdmin at /pgadmin/.
