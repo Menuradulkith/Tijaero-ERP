@@ -5,7 +5,7 @@ services:
     environment:
       # Frontend and backend share the same origin (10.8.0.1:80) via nginx,
       # so CORS is same-origin. Still set it explicitly for correctness.
-      BACKEND_CORS_ORIGINS: '["http://${VPN_GATEWAY_IP:-10.8.0.1}:8000", "http://${VPN_GATEWAY_IP:-10.8.0.1}:3000"]'
+      BACKEND_CORS_ORIGINS: '["http://${GATEWAY_IP:-10.8.0.1}:8000", "http://${GATEWAY_IP:-10.8.0.1}:3000"]'
     command: >
       sh -c "
         echo 'Checking for migrations...' &&
@@ -33,8 +33,8 @@ services:
       args:
         # Browser calls go: browser → VPN → 10.8.0.1 (nginx) → /api/ → backend
         # Must point to nginx, NOT the backend container port directly.
-        # VPN_GATEWAY_IP is exported by docker-server-up.sh from vpn.env.
-        VITE_API_URL: http://${VPN_GATEWAY_IP:-10.8.0.1}/api/v1
+        # GATEWAY_IP is exported by docker-server-up.sh from vpn.env.
+        VITE_API_URL: http://${GATEWAY_IP:-10.8.0.1}/api/v1
 
   # Database - Server Settings
   postgres:
@@ -60,7 +60,7 @@ services:
     ports:
       - "0.0.0.0:80:80"
     volumes:
-      - ./setup_vpn/nginx/erp-vpn.conf:/etc/nginx/conf.d/erp-vpn.conf:ro
+      - ./nginx/erp-vpn.conf:/etc/nginx/conf.d/erp-vpn.conf:ro
     networks:
       - erp_network
     depends_on:
