@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { Box, useMediaQuery, useTheme } from "@mui/material";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import IconNav from "./IconNav";
+import { useFormGuardStore } from "@/state/formGuardStore";
 
 const DRAWER_WIDTH = 220;
 const ICON_NAV_WIDTH = 48;
@@ -13,6 +14,18 @@ export default function MainLayout() {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const isDirty = useFormGuardStore((s) => s.isDirty);
+
+  // Warn on browser close/refresh when form has unsaved changes
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);

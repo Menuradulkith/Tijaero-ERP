@@ -180,6 +180,8 @@ export default function ItemTransferNotesPage() {
       cancelText: "Keep Editing",
       confirmColor: "warning",
     }),
+    extraDirty: lineItems.length > 0,
+    onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
 
   // Fetch locations

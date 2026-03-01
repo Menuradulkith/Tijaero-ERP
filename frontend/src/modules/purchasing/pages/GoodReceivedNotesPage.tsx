@@ -240,6 +240,8 @@ export default function GoodReceivedNotesPage() {
       cancelText: "Keep Editing",
       confirmColor: "warning",
     }),
+    extraDirty: lineItems.length > 0,
+    onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
 
   // OPTIMIZED: Fetch locations and branches in a single call
@@ -667,8 +669,6 @@ export default function GoodReceivedNotesPage() {
         branch_code: selectedPO.branch_code,
         good_received_date: selectedPO.good_received_note_date?.split("T")[0] || new Date().toISOString().split("T")[0],
         good_received_locations_id: selectedLocationId,
-        // Auto-fill supplier invoice number from PO's purchasing_invoice_no
-        supplier_invoice_no: selectedPO.purchasing_invoice_no || "",
       });
 
       // Load PO items when PO is selected

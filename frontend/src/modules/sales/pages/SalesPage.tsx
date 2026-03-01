@@ -240,6 +240,8 @@ export default function SalesPage() {
   const state = useMasterDetailState<Invoice, Partial<InvoiceCreate>>({
     initialFormData: emptyInvoiceForm,
     initialSortField: "created_date",
+    extraDirty: lineItems.length > 0,
+    onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
 
   // Queries

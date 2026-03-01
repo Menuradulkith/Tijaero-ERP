@@ -75,6 +75,7 @@ const emptyProductForm: ProductCreate = {
   cost_price: undefined,
   category_id: 0,
   items_brand_id: 0,
+  image_url: "",
 };
 
 const emptyCategoryForm: CategoryCreate = {
@@ -419,6 +420,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       cost_price: product.cost_price,
       category_id: product.category_id,
       items_brand_id: product.items_brand_id,
+      image_url: product.image_url || "",
     });
     productState.setIsEditing(false);
     productState.setIsCreating(false);
@@ -885,6 +887,21 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   rows={2}
                   sx={{ gridColumn: { sm: "1 / -1" } }}
                 />
+              </FormSection>
+
+              <FormSection title="Product Image">
+                <Box sx={{ gridColumn: { sm: "1 / -1" } }}>
+                  <TextField
+                    label="Image URL"
+                    size="small"
+                    fullWidth
+                    value={productState.formData.image_url ?? ""}
+                    onChange={(e) => productState.setFormData({ ...productState.formData, image_url: e.target.value })}
+                    disabled={!productState.isEditing && !productState.isCreating}
+                    placeholder="https://example.com/product-image.jpg"
+                    helperText="Paste a direct link to the product image (optional)"
+                  />
+                </Box>
               </FormSection>
 
               <FormSection title="Classification">

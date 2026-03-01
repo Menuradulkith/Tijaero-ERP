@@ -89,7 +89,7 @@ class PurchasingOrder(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     purchasing_order_no = Column(String(200), nullable=False)
-    purchasing_invoice_no = Column(String(200), nullable=False)
+    purchasing_invoice_no = Column(String(200), nullable=True)
     branch_code = Column(String(200), nullable=False, index=True)
     payment_method = Column(String(30), nullable=False)
     purchasing_order_date = Column(Date, nullable=False)

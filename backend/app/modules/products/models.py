@@ -45,6 +45,7 @@ class Product(Base, TimestampMixin):
     category_id = Column(Integer, ForeignKey("category.id"), nullable=False, index=True)
     items_brand_id = Column(Integer, ForeignKey("items_brand.id"), nullable=False, index=True)
     added_date = Column(TIMESTAMP, nullable=False)
+    image_url = Column(Text, nullable=True)
     
     category = relationship("Category", back_populates="products")
     brand = relationship("ItemsBrand", back_populates="products")

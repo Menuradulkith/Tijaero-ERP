@@ -17,7 +17,9 @@ import {
     Typography,
 } from "@mui/material";
 import { useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useFormGuardStore } from "@/state/formGuardStore";
+import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 
 interface IconNavProps {
   width: number;
@@ -34,9 +36,10 @@ const allPages = [
   { text: "Sales Returns", path: "/sales/returns", keywords: ["refunds"] },
   { text: "Suppliers", path: "/purchasing/suppliers", keywords: ["vendors"] },
   { text: "Purchase Orders", path: "/purchasing/orders", keywords: ["PO", "buy"] },
-  { text: "PO Approvals", path: "/purchasing/approvals", keywords: ["approve", "authorize", "pending"] },
+  { text: "PO Approvals", path: "/purchasing/approvals/po-approvals", keywords: ["approve", "authorize", "pending", "purchase order"] },
   { text: "Good Received Notes", path: "/purchasing/grn", keywords: ["GRN", "receive"] },
   { text: "Purchase Returns", path: "/purchasing/returns", keywords: ["return goods"] },
+  { text: "Purchase Return Approvals", path: "/purchasing/approvals/return-approvals", keywords: ["approve return", "return approval"] },
   { text: "Supplier Payments", path: "/purchasing/payments", keywords: ["cash", "bank", "cheque", "pay supplier", "credits", "settlements", "credit settlement"] },
   { text: "Payment Approvals", path: "/purchasing/payment-approvals", keywords: ["verify", "approve payment", "payment verification"] },
   { text: "Products", path: "/inventory", keywords: ["items", "stock"] },
@@ -54,9 +57,30 @@ const allPages = [
 
 export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNavProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isDirty = useFormGuardStore((s) => s.isDirty);
+  const executeDiscard = useFormGuardStore((s) => s.executeDiscard);
+  const discardDialog = useConfirmDialog();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchButtonRef = useRef<HTMLButtonElement>(null);
+
+  const guardedNavigate = async (path: string) => {
+    if (location.pathname === path) return;
+    if (isDirty) {
+      const confirmed = await discardDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        type: "warning",
+        confirmColor: "warning",
+      });
+      if (!confirmed) return;
+      executeDiscard();
+    }
+    navigate(path);
+  };
 
   const filteredPages = useMemo(() => {
     if (!searchQuery.trim()) return allPages;
@@ -70,7 +94,7 @@ export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNav
   }, [searchQuery]);
 
   const handleSearchSelect = (path: string) => {
-    navigate(path);
+    guardedNavigate(path);
     setSearchOpen(false);
     setSearchQuery("");
   };
@@ -103,7 +127,7 @@ export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNav
       {/* Home button */}
       <Tooltip title="Home" placement="right">
         <IconButton
-          onClick={() => navigate("/dashboard")}
+          onClick={() => guardedNavigate("/dashboard")}
           sx={{
             color: "white",
             "&:hover": { bgcolor: "primary.main" },
@@ -206,6 +230,7 @@ export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNav
           </Paper>
         </ClickAwayListener>
       </Popper>
+      <TConfirmDialog {...discardDialog.dialogProps} />
     </Box>
   );
 }

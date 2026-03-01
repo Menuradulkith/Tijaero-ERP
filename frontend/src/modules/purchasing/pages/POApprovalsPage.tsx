@@ -489,7 +489,7 @@ export default function POApprovalsPage() {
             {/* Order Information */}
             <FormSection title="Order Information" columns={3}>
               <TextField label="PO Number" size="small" value={selectedOrder.purchasing_order_no} disabled />
-              <TextField label="Invoice Number" size="small" value={selectedOrder.purchasing_invoice_no} disabled />
+              <TextField label="Invoice Number" size="small" value={selectedOrder.purchasing_invoice_no || "-"} disabled />
               <TextField
                 label="Order Date"
                 size="small"

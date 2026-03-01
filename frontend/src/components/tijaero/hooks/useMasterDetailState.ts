@@ -11,6 +11,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { BaseEntity, UseMasterDetailStateOptions, UseMasterDetailStateReturn } from "../types";
+import { useFormGuardStore } from "@/state/formGuardStore";
 
 export function useMasterDetailState<T extends BaseEntity, TCreate>(
   options: UseMasterDetailStateOptions<T, TCreate>
@@ -22,6 +23,8 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     defaultSortField,
     initialSortField,
     confirmUnsavedChanges,
+    extraDirty = false,
+    onDiscard,
   } = options;
 
   // Use initialSortField if provided, otherwise defaultSortField, fallback to "name"
@@ -58,6 +61,33 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
 
   // Check if there are unsaved changes
   const hasChanges = JSON.stringify(formData) !== JSON.stringify(originalFormData);
+
+  // Sync dirty state to global form guard store
+  const setDirty = useFormGuardStore((s) => s.setDirty);
+  const setDiscardFn = useFormGuardStore((s) => s.setDiscardFn);
+  useEffect(() => {
+    // Mark as dirty when creating (even before changes) or when editing with actual changes
+    const dirty = isCreating || ((isEditing) && (hasChanges || extraDirty));
+    setDirty(dirty);
+    return () => setDirty(false); // Clean up on unmount
+  }, [hasChanges, isEditing, isCreating, extraDirty, setDirty]);
+
+  // Register a discard callback so navigation guards can cancel the form
+  useEffect(() => {
+    if (isEditing || isCreating) {
+      setDiscardFn(() => {
+        setIsCreating(false);
+        setIsEditing(false);
+        setFormData(initialFormData);
+        setOriginalFormData(initialFormData);
+        setSelectedItem(null);
+        if (onDiscard) onDiscard();
+      });
+    } else {
+      setDiscardFn(null);
+    }
+    return () => setDiscardFn(null);
+  }, [isEditing, isCreating, initialFormData, onDiscard, setDiscardFn]);
 
   // Persist favorites to localStorage
   useEffect(() => {

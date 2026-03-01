@@ -204,6 +204,8 @@ export default function SaleReturnsPage() {
             cancelText: "Keep Editing",
             confirmColor: "warning",
         }),
+        extraDirty: lineItems.length > 0,
+        onDiscard: () => { setLineItems([]); setFormStep(0); },
     });
 
     const handleNewReturn = useCallback(() => {

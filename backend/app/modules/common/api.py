@@ -63,7 +63,8 @@ def get_reference_data(
                 "active": p.active,
                 "description": p.description,
                 "model": p.model,
-                "website_price": p.website_price
+                "website_price": p.website_price,
+                "image_url": p.image_url
             } for p in products
         ]
     

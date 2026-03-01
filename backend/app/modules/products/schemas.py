@@ -60,6 +60,7 @@ class ProductBase(BaseModel):
     cost_price: float = Field(..., ge=0)
     category_id: int
     items_brand_id: int
+    image_url: Optional[str] = None
 
 class ProductCreate(ProductBase):
     pass
@@ -76,6 +77,7 @@ class ProductUpdate(BaseModel):
     cost_price: Optional[float] = Field(None, ge=0)
     category_id: Optional[int] = None
     items_brand_id: Optional[int] = None
+    image_url: Optional[str] = None
 
 class Product(ProductBase):
     id: int

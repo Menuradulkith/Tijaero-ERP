@@ -59,6 +59,7 @@ export interface Product {
   cost_price: number;
   category_id: number;
   items_brand_id: number;
+  image_url?: string;
   created_date: string;
   added_date: string;
   created_at: string;
@@ -91,6 +92,7 @@ export interface ProductCreate {
   cost_price?: number;
   category_id: number;
   items_brand_id: number;
+  image_url?: string;
 }
 
 export interface ProductUpdate {
@@ -105,6 +107,7 @@ export interface ProductUpdate {
   cost_price?: number;
   category_id?: number;
   items_brand_id?: number;
+  image_url?: string;
 }
 
 // Product with related details

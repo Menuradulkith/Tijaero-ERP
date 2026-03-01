@@ -170,6 +170,7 @@ export default function ExpensesPage() {
         cancelText: "Keep Editing",
         confirmColor: "warning",
       }),
+    onDiscard: () => { setFormStep(0); },
   });
 
   const handleStartEdit = useCallback(() => {
