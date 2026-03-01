@@ -187,6 +187,73 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
             </Typography>
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Grid container spacing={2}>
+                {/* Product image — full width at top */}
+                <Grid item xs={12}>
+                  <Box
+                    sx={{
+                      width: "100%",
+                      height: 180,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 1,
+                      overflow: "hidden",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: "action.hover",
+                    }}
+                  >
+                    {product.image_url ? (
+                      <Box
+                        component="img"
+                        src={product.image_url}
+                        alt={product.name}
+                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                          e.currentTarget.style.display = "none";
+                          const fallback = document.getElementById(`img-fallback-${stock.id}`);
+                          if (fallback) fallback.style.display = "flex";
+                        }}
+                        sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                      />
+                    ) : null}
+                    <Box
+                      id={`img-fallback-${stock.id}`}
+                      sx={{
+                        display: product.image_url ? "none" : "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 0.5,
+                        color: "text.disabled",
+                      }}
+                    >
+                      <Typography variant="caption">No image</Typography>
+                    </Box>
+                  </Box>
+                </Grid>
+                {/* Image URL */}
+                <Grid item xs={12}>
+                  <Typography variant="caption" color="text.secondary">Image URL</Typography>
+                  {product.image_url ? (
+                    <Typography
+                      variant="body2"
+                      component="a"
+                      href={product.image_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{
+                        display: "block",
+                        color: "primary.main",
+                        wordBreak: "break-all",
+                        textDecoration: "none",
+                        "&:hover": { textDecoration: "underline" },
+                      }}
+                    >
+                      {product.image_url}
+                    </Typography>
+                  ) : (
+                    <Typography variant="body2" color="text.disabled">Not set</Typography>
+                  )}
+                </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">Product Name</Typography>
                   <Typography variant="body2" fontWeight={500}>{product.name}</Typography>
@@ -766,7 +833,22 @@ export default function SalesStockDashboard() {
                       }}
                     >
                       <TableCell sx={{ fontFamily: "monospace", fontSize: "0.85rem" }}>{stock.barcode}</TableCell>
-                      <TableCell sx={{ fontWeight: 500 }}>{stock.product_name || product?.name || "Unknown"}</TableCell>
+                      <TableCell sx={{ fontWeight: 500 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          {product?.image_url && (
+                            <Box
+                              component="img"
+                              src={product.image_url}
+                              alt={product.name}
+                              onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                                e.currentTarget.style.display = "none";
+                              }}
+                              sx={{ width: 32, height: 32, objectFit: "contain", borderRadius: 0.5, border: "1px solid", borderColor: "divider", flexShrink: 0 }}
+                            />
+                          )}
+                          {stock.product_name || product?.name || "Unknown"}
+                        </Box>
+                      </TableCell>
                       <TableCell>{stock.item_code || product?.item_code || "-"}</TableCell>
                       <TableCell>{brandName || getProductBrandName(product) || "-"}</TableCell>
                       <TableCell>{stock.branch_code}</TableCell>

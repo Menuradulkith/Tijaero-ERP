@@ -6,6 +6,7 @@ import CustomersPage from "@/modules/sales/pages/CustomersPage";
 import QuotationsPage from "@/modules/sales/pages/QuotationsPage";
 import SaleReturnsPage from "@/modules/sales/pages/SaleReturnsPage";
 import SaleReturnApprovalsPage from "@/modules/sales/pages/SaleReturnApprovalsPage";
+import SalesApprovalsPage from "@/modules/sales/pages/SalesApprovalsPage";
 import SalesDashboard from "@/modules/sales/pages/SalesDashboard";
 import SalesOrderApprovalsPage from "@/modules/sales/pages/SalesOrderApprovalsPage";
 import SalesPage from "@/modules/sales/pages/SalesPage";
@@ -21,16 +22,21 @@ export default function SalesRoutes() {
       <Route path="quotations" element={<QuotationsPage />} />
       <Route path="proforma" element={<QuotationsPage />} />
       <Route path="returns" element={<SaleReturnsPage />} />
-      <Route path="return-approvals" element={<SaleReturnApprovalsPage />} />
       <Route path="track" element={<SalesTrackPage />} />
       <Route path="dashboard" element={<SalesDashboard />} />
       <Route path="customers" element={<CustomersPage />} />
-      <Route path="approvals" element={<SalesOrderApprovalsPage />} />
       <Route path="coupons" element={<CouponsPage />} />
       <Route path="vouchers" element={<VouchersPage />} />
       <Route path="agent-commissions" element={<AgentCommissionsPage />} />
-      <Route path="commission-approvals" element={<CommissionApprovalsPage />} />
       <Route path="settings/*" element={<SalesSettingsPage />} />
+      {/* Approvals - parent hub and sub-routes */}
+      <Route path="approvals" element={<SalesApprovalsPage />} />
+      <Route path="approvals/so-approvals" element={<SalesOrderApprovalsPage />} />
+      <Route path="approvals/return-approvals" element={<SaleReturnApprovalsPage />} />
+      <Route path="approvals/commission-approvals" element={<CommissionApprovalsPage />} />
+      {/* Legacy routes for backward compatibility */}
+      <Route path="return-approvals" element={<SaleReturnApprovalsPage />} />
+      <Route path="commission-approvals" element={<CommissionApprovalsPage />} />
     </Routes>
   );
 }

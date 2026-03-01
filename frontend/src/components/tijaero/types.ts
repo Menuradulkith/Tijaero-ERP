@@ -293,6 +293,10 @@ export interface UseMasterDetailStateOptions<T extends BaseEntity, TCreate> {
   initialSortField?: string;
   /** Optional async function to confirm discarding unsaved changes (replaces window.confirm) */
   confirmUnsavedChanges?: () => Promise<boolean>;
+  /** Additional dirty flag for external state (e.g. line items stored outside formData) */
+  extraDirty?: boolean;
+  /** Callback invoked when the navigation guard discards changes (use to reset line items, form steps, etc.) */
+  onDiscard?: () => void;
 }
 
 export interface UseMasterDetailStateReturn<T extends BaseEntity, TCreate> {

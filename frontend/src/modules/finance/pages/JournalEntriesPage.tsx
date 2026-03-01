@@ -189,6 +189,8 @@ export default function JournalEntriesPage() {
         cancelText: "Keep Editing",
         confirmColor: "warning",
       }),
+    extraDirty: lineItems.length > 0,
+    onDiscard: () => { setLineItems([]); },
   });
 
   const handleNew = useCallback(() => {

@@ -95,7 +95,6 @@ interface PurchaseOrderFormData extends PurchasingOrderCreate {
 
 const INITIAL_FORM_DATA: PurchaseOrderFormData = {
   purchasing_order_no: "",
-  purchasing_invoice_no: "",
   branch_code: "",
   payment_method: "Cash",
   purchasing_order_date: new Date().toISOString().split("T")[0],
@@ -114,7 +113,6 @@ interface OrderLineItem extends PurchasingOrderItemCreate {
 
 const resetFormFromOrder = (order: PurchasingOrder | PurchasingOrderWithItems): PurchaseOrderFormData => ({
   purchasing_order_no: order.purchasing_order_no,
-  purchasing_invoice_no: order.purchasing_invoice_no,
   branch_code: order.branch_code,
   payment_method: order.payment_method,
   purchasing_order_date: order.purchasing_order_date?.split("T")[0] || "",
@@ -225,6 +223,8 @@ export default function PurchaseOrdersPage() {
       cancelText: "Keep Editing",
       confirmColor: "warning",
     }),
+    extraDirty: lineItems.length > 0,
+    onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
 
   const handleStartEdit = useCallback(() => {
@@ -620,7 +620,6 @@ export default function PurchaseOrdersPage() {
 
       // Send full update data
       const updateData: any = {
-        purchasing_invoice_no: formData.purchasing_invoice_no,
         branch_code: formData.branch_code,
         payment_method: formData.payment_method,
         purchasing_order_date: formData.purchasing_order_date || null,
@@ -684,9 +683,6 @@ export default function PurchaseOrdersPage() {
         if (!formData.purchasing_order_no) return 'Order number is required';
         if (formData.purchasing_order_no.length < 3) return 'Order number must be at least 3 characters';
         break;
-      case 'purchasing_invoice_no':
-        if (!formData.purchasing_invoice_no) return 'Invoice number is required';
-        break;
       case 'branch_code':
         if (!formData.branch_code) return 'Branch is required';
         break;
@@ -721,7 +717,6 @@ export default function PurchaseOrdersPage() {
   const isStep1Valid = formData.first_suppliers_id > 0 &&
     formData.second_suppliers_id > 0 &&
     formData.purchasing_order_no &&
-    formData.purchasing_invoice_no &&
     formData.branch_code;
 
   // Full form validation (both steps)
@@ -900,17 +895,6 @@ export default function PurchaseOrdersPage() {
                     required
                     error={hasError('purchasing_order_no')}
                     helperText={getFieldError('purchasing_order_no')}
-                  />
-                  <TextField
-                    label="Invoice Number"
-                    size="small"
-                    value={formData.purchasing_invoice_no}
-                    onChange={(e) => setFormData({ ...formData, purchasing_invoice_no: e.target.value })}
-                    onBlur={() => handleBlur('purchasing_invoice_no')}
-                    disabled={!isEditing && !isCreating}
-                    required
-                    error={hasError('purchasing_invoice_no')}
-                    helperText={getFieldError('purchasing_invoice_no')}
                   />
                   {/* Searchable Branch Dropdown */}
                   <Autocomplete

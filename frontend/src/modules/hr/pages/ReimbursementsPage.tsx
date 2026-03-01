@@ -174,6 +174,8 @@ export default function ReimbursementsPage() {
         cancelText: "Keep Editing",
         confirmColor: "warning",
       }),
+    extraDirty: lineItems.length > 0,
+    onDiscard: () => { setLineItems([]); },
   });
 
   // Data query

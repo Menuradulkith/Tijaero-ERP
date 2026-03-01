@@ -168,6 +168,8 @@ export default function QuotationsPage() {
         confirmColor: "error",
       });
     },
+    extraDirty: lineItems.length > 0,
+    onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
 
   // Data fetching

@@ -21,6 +21,8 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useFormGuardStore } from "@/state/formGuardStore";
+import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -42,7 +44,21 @@ export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: H
     setAnchorEl(null);
   };
 
-  const handleLogout = () => {
+  const { isDirty, executeDiscard } = useFormGuardStore();
+  const discardDialog = useConfirmDialog();
+
+  const handleLogout = async () => {
+    if (isDirty) {
+      const confirmed = await discardDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Are you sure you want to logout? All changes will be lost.",
+        confirmText: "Discard & Logout",
+        cancelText: "Cancel",
+        danger: true,
+      });
+      if (!confirmed) return;
+      executeDiscard();
+    }
     logout();
     navigate("/login");
   };
@@ -148,6 +164,7 @@ export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: H
           </MenuItem>
         </Menu>
       </Toolbar>
+      <TConfirmDialog {...discardDialog.dialogProps} />
     </AppBar>
   );
 }

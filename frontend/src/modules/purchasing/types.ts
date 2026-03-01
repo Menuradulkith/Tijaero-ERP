@@ -111,7 +111,7 @@ export interface PurchasingOrderItemCreate {
 export interface PurchasingOrder {
   id: number;
   purchasing_order_no: string;
-  purchasing_invoice_no: string;
+  purchasing_invoice_no?: string;
   branch_code: string;
   payment_method: string;
   purchasing_order_date: string;
@@ -134,7 +134,7 @@ export interface PurchasingOrderWithItems extends PurchasingOrder {
 
 export interface PurchasingOrderCreate {
   purchasing_order_no: string;
-  purchasing_invoice_no: string;
+  purchasing_invoice_no?: string;
   branch_code: string;
   payment_method: string;
   purchasing_order_date: string;

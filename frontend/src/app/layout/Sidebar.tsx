@@ -3,7 +3,6 @@ import { useAuthStore } from "@/state/authStore";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import BalanceIcon from "@mui/icons-material/Balance";
@@ -36,8 +35,11 @@ import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
+import ExpandLess from "@mui/icons-material/ExpandLess";
+import ExpandMore from "@mui/icons-material/ExpandMore";
 import {
   Box,
+  Collapse,
   Divider,
   Drawer,
   List,
@@ -50,6 +52,8 @@ import {
 } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useFormGuardStore } from "@/state/formGuardStore";
+import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 
 interface SidebarProps {
   drawerWidth: number;
@@ -87,13 +91,20 @@ const menuItems: MenuItem[] = [
       { text: "Customers", icon: <PeopleIcon />, path: "/sales/customers" },
       { text: "Quotations", icon: <ReceiptLongIcon />, path: "/sales/quotations" },
       { text: "Sales Orders", icon: <PointOfSaleIcon />, path: "/sales/orders" },
-      { text: "SO Approvals", icon: <FactCheckIcon />, path: "/sales/approvals" },
+      { 
+        text: "Approvals", 
+        icon: <FactCheckIcon />, 
+        path: "/sales/approvals",
+        subItems: [
+          { text: "SO Approvals", icon: <FactCheckIcon />, path: "/sales/approvals/so-approvals" },
+          { text: "Return Approvals", icon: <FactCheckIcon />, path: "/sales/approvals/return-approvals" },
+          { text: "Commission Approvals", icon: <FactCheckIcon />, path: "/sales/approvals/commission-approvals" },
+        ],
+      },
       { text: "Sales Returns", icon: <AssignmentReturnIcon />, path: "/sales/returns" },
-      { text: "Return Approvals", icon: <FactCheckIcon />, path: "/sales/return-approvals" },
       { text: "Coupons", icon: <LocalOfferIcon />, path: "/sales/coupons" },
       { text: "Gift Vouchers", icon: <ReceiptIcon />, path: "/sales/vouchers" },
       { text: "Agent Commissions", icon: <MonetizationOnIcon />, path: "/sales/agent-commissions" },
-      { text: "Commission Approvals", icon: <FactCheckIcon />, path: "/sales/commission-approvals" },
       { text: "Settings", icon: <SettingsIcon />, path: "/sales/settings" },
     ],
   },
@@ -106,10 +117,17 @@ const menuItems: MenuItem[] = [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/purchasing" },
       { text: "Suppliers", icon: <StoreIcon />, path: "/purchasing/suppliers" },
       { text: "Purchase Orders", icon: <ReceiptLongIcon />, path: "/purchasing/orders" },
-      { text: "PO Approvals", icon: <FactCheckIcon />, path: "/purchasing/approvals" },
+      { 
+        text: "Approvals", 
+        icon: <FactCheckIcon />, 
+        path: "/purchasing/approvals",
+        subItems: [
+          { text: "PO Approvals", icon: <FactCheckIcon />, path: "/purchasing/approvals/po-approvals" },
+          { text: "Return Approvals", icon: <FactCheckIcon />, path: "/purchasing/approvals/return-approvals" },
+        ],
+      },
       { text: "Good Received Notes", icon: <LocalShippingOutlinedIcon />, path: "/purchasing/grn" },
       { text: "Purchase Returns", icon: <AssignmentReturnIcon />, path: "/purchasing/returns" },
-      { text: "Return Approvals", icon: <FactCheckIcon />, path: "/purchasing/return-approvals" },
     ],
   },
   {
@@ -256,101 +274,97 @@ export default function Sidebar({
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
 
-  // Track which parent menu is expanded (showing sub-items)
-  const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
-  // Track which sub-menu is expanded (for nested sub-items)
-  const [expandedSubMenu, setExpandedSubMenu] = useState<string | null>(null);
+  // Track which menus are expanded (showing sub-items inline)
+  const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set());
 
   // Auto-expand menu based on current path
   useEffect(() => {
-    const currentParent = menuItems.find(
-      (item) => item.subItems && location.pathname.startsWith(item.path)
-    );
-    if (currentParent) {
-      setExpandedMenu(currentParent.text);
-      // Check for nested sub-menu expansion.
-      // Match either by the sub-menu's own path OR by any of its children's
-      // paths — this handles groups like "Accounting" whose children
-      // (/finance/journal-entries, etc.) don't share the parent path prefix
-      // (/finance/chart-of-accounts).
-      const nestedParent = currentParent.subItems?.find(
-        (sub) =>
-          sub.subItems &&
-          (location.pathname.startsWith(sub.path) ||
-            sub.subItems.some((child) =>
-              location.pathname.startsWith(child.path)
-            ))
-      );
-      if (nestedParent) {
-        setExpandedSubMenu(nestedParent.text);
+    const newExpanded = new Set<string>();
+    for (const item of menuItems) {
+      if (item.subItems) {
+        const isInPath = location.pathname.startsWith(item.path) ||
+          item.subItems.some((sub) =>
+            location.pathname.startsWith(sub.path) ||
+            sub.subItems?.some((child) => location.pathname.startsWith(child.path))
+          );
+        if (isInPath) {
+          newExpanded.add(item.text);
+          // Also expand nested sub-menus
+          for (const sub of item.subItems) {
+            if (sub.subItems) {
+              const isNestedActive = location.pathname.startsWith(sub.path) ||
+                sub.subItems.some((child) => location.pathname.startsWith(child.path));
+              if (isNestedActive) {
+                newExpanded.add(sub.text);
+              }
+            }
+          }
+        }
       }
     }
+    setExpandedMenus(newExpanded);
   }, [location.pathname]);
 
-  const handleNavigation = (path: string) => {
+  const isDirty = useFormGuardStore((s) => s.isDirty);
+  const executeDiscard = useFormGuardStore((s) => s.executeDiscard);
+  const discardDialog = useConfirmDialog();
+
+  const handleNavigation = async (path: string) => {
+    // Skip guard if navigating to the same page
+    if (location.pathname === path) return;
+
+    if (isDirty) {
+      const confirmed = await discardDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        type: "warning",
+        confirmColor: "warning",
+      });
+      if (!confirmed) return;
+      executeDiscard();
+    }
+
     navigate(path);
     if (isMobile) {
       onDrawerToggle();
     }
   };
 
+  const toggleMenu = (menuText: string) => {
+    setExpandedMenus((prev) => {
+      const next = new Set(prev);
+      if (next.has(menuText)) {
+        next.delete(menuText);
+      } else {
+        next.add(menuText);
+      }
+      return next;
+    });
+  };
+
   const handleMenuClick = (item: MenuItem) => {
     if (item.subItems && item.subItems.length > 0) {
-      // If has sub-items, expand the sub-menu
-      setExpandedMenu(item.text);
-      setExpandedSubMenu(null);
+      toggleMenu(item.text);
     } else {
-      // Navigate directly
       handleNavigation(item.path);
     }
   };
 
   const handleSubMenuClick = (subItem: SubMenuItem) => {
     if (subItem.subItems && subItem.subItems.length > 0) {
-      // If has nested sub-items, expand the nested sub-menu
-      setExpandedSubMenu(subItem.text);
+      toggleMenu(subItem.text);
     } else {
-      // Navigate directly
       handleNavigation(subItem.path);
-    }
-  };
-
-  const handleBackClick = () => {
-    if (expandedSubMenu) {
-      setExpandedSubMenu(null);
-    } else {
-      setExpandedMenu(null);
     }
   };
 
   // Filter menu items based on user permissions
   const visibleMenuItems = menuItems.filter((item) => {
-    if (!item.permission) return true; // No permission required (e.g., Dashboard)
-    return hasPermission(
-      user,
-      item.permission.resource,
-      item.permission.action
-    );
+    if (!item.permission) return true;
+    return hasPermission(user, item.permission.resource, item.permission.action);
   });
-
-  // Get current expanded menu's sub-items
-  const expandedMenuItem = expandedMenu
-    ? visibleMenuItems.find((item) => item.text === expandedMenu)
-    : null;
-
-  // Get current expanded sub-menu's nested sub-items
-  const expandedSubMenuItem = expandedSubMenu && expandedMenuItem?.subItems
-    ? expandedMenuItem.subItems.find((item) => item.text === expandedSubMenu)
-    : null;
-
-  // Determine current back title and items to show
-  const currentBackTitle = expandedSubMenu 
-    ? expandedSubMenuItem?.text 
-    : expandedMenuItem?.text;
-  
-  const currentItems = expandedSubMenu && expandedSubMenuItem?.subItems
-    ? expandedSubMenuItem.subItems
-    : expandedMenuItem?.subItems;
 
   const drawer = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -364,127 +378,151 @@ export default function Sidebar({
       </Toolbar>
       <Divider />
       <Box sx={{ flexGrow: 1, overflow: "auto" }}>
-        {/* Show sub-menu if expanded, otherwise show main menu */}
-        {expandedMenuItem && currentItems ? (
-          <List>
-            {/* Back button / Header */}
-            <ListItem disablePadding>
-              <ListItemButton
-                onClick={handleBackClick}
-                sx={{
-                  py: 0.75,
-                  bgcolor: "grey.100",
-                  "&:hover": {
-                    bgcolor: "grey.200",
-                  },
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 32 }}>
-                  <ArrowBackIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText
-                  primary={currentBackTitle}
-                  primaryTypographyProps={{
-                    fontWeight: 600,
-                    fontSize: "0.875rem",
-                  }}
-                />
-              </ListItemButton>
-            </ListItem>
-            <Divider />
-            {/* Sub-items */}
-            {currentItems.map((subItem) => {
-              const basePath = expandedSubMenu ? expandedSubMenuItem?.path : expandedMenuItem.path;
-              const isModuleRoot = subItem.path === basePath;
-              const isActive = isModuleRoot
-                ? location.pathname === subItem.path
-                : location.pathname.startsWith(subItem.path);
-              const hasNestedSubItems = subItem.subItems && subItem.subItems.length > 0;
+        <List disablePadding>
+          {visibleMenuItems.map((item) => {
+            const isActive = location.pathname === item.path || 
+              (!item.subItems && location.pathname.startsWith(item.path));
+            const hasSubItems = item.subItems && item.subItems.length > 0;
+            const isExpanded = expandedMenus.has(item.text);
+            const isParentActive = item.subItems?.some(
+              (sub) => location.pathname.startsWith(sub.path) ||
+                sub.subItems?.some((child) => location.pathname.startsWith(child.path))
+            );
 
-              return (
-                <ListItem key={subItem.path} disablePadding>
-                  <ListItemButton
-                    onClick={() => handleSubMenuClick(subItem)}
-                    selected={isActive}
-                    sx={{
-                      py: 0.75,
-                      pl: 2,
-                      "&.Mui-selected": {
-                        bgcolor: "primary.light",
-                        color: "white",
-                        "&:hover": {
-                          bgcolor: "primary.main",
-                        },
-                        "& .MuiListItemIcon-root": {
-                          color: "white",
-                        },
-                      },
-                    }}
-                  >
-                    <ListItemIcon
-                      sx={{
-                        color: isActive ? "white" : "inherit",
-                        minWidth: 32,
-                      }}
-                    >
-                      {subItem.icon}
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={subItem.text}
-                      primaryTypographyProps={{ fontSize: "0.875rem" }}
-                    />
-                    {hasNestedSubItems && (
-                      <Typography variant="body2" color="text.secondary" sx={{ color: isActive ? "white" : "inherit" }}>
-                        ›
-                      </Typography>
-                    )}
-                  </ListItemButton>
-                </ListItem>
-              );
-            })}
-          </List>
-        ) : (
-          <List>
-            {visibleMenuItems.map((item) => {
-              const isActive = location.pathname.startsWith(item.path);
-              const hasSubItems = item.subItems && item.subItems.length > 0;
-              return (
-                <ListItem key={item.text} disablePadding>
+            return (
+              <Box key={item.text}>
+                <ListItem disablePadding>
                   <ListItemButton
                     onClick={() => handleMenuClick(item)}
-                    selected={isActive}
+                    selected={isActive || (isParentActive && !isExpanded)}
                     sx={{
                       py: 0.75,
                       "&.Mui-selected": {
                         bgcolor: "primary.light",
                         color: "white",
-                        "&:hover": {
-                          bgcolor: "primary.main",
-                        },
-                        "& .MuiListItemIcon-root": {
-                          color: "white",
-                        },
+                        "&:hover": { bgcolor: "primary.main" },
+                        "& .MuiListItemIcon-root": { color: "white" },
                       },
                     }}
                   >
-                    <ListItemIcon sx={{ color: isActive ? "white" : "inherit", minWidth: 32 }}>
+                    <ListItemIcon sx={{ color: isActive || (isParentActive && !isExpanded) ? "white" : "inherit", minWidth: 32 }}>
                       {item.icon}
                     </ListItemIcon>
                     <ListItemText
                       primary={item.text}
-                      primaryTypographyProps={{ fontSize: "0.875rem" }}
+                      primaryTypographyProps={{ fontSize: "0.85rem" }}
                     />
                     {hasSubItems && (
-                      <Typography variant="body2" color="text.secondary" sx={{ color: isActive ? "white" : "inherit" }}>
-                        ›
-                      </Typography>
+                      isExpanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />
                     )}
                   </ListItemButton>
                 </ListItem>
-              );
-            })}
-          </List>
-        )}
+
+                {/* Inline sub-items */}
+                {hasSubItems && (
+                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                    <List disablePadding>
+                      {item.subItems!.map((subItem) => {
+                        const isSubActive = subItem.subItems
+                          ? false
+                          : location.pathname.startsWith(subItem.path) &&
+                            (subItem.path === item.path
+                              ? location.pathname === subItem.path
+                              : true);
+                        const hasNestedSubItems = subItem.subItems && subItem.subItems.length > 0;
+                        const isNestedExpanded = expandedMenus.has(subItem.text);
+                        const isNestedParentActive = subItem.subItems?.some(
+                          (child) => location.pathname.startsWith(child.path)
+                        );
+
+                        return (
+                          <Box key={subItem.path}>
+                            <ListItem disablePadding>
+                              <ListItemButton
+                                onClick={() => handleSubMenuClick(subItem)}
+                                selected={isSubActive || (isNestedParentActive && !isNestedExpanded)}
+                                sx={{
+                                  py: 0.5,
+                                  pl: 4,
+                                  "&.Mui-selected": {
+                                    bgcolor: "primary.light",
+                                    color: "white",
+                                    "&:hover": { bgcolor: "primary.main" },
+                                    "& .MuiListItemIcon-root": { color: "white" },
+                                  },
+                                }}
+                              >
+                                <ListItemIcon
+                                  sx={{
+                                    color: isSubActive || (isNestedParentActive && !isNestedExpanded) ? "white" : "text.secondary",
+                                    minWidth: 28,
+                                    "& .MuiSvgIcon-root": { fontSize: "1.1rem" },
+                                  }}
+                                >
+                                  {subItem.icon}
+                                </ListItemIcon>
+                                <ListItemText
+                                  primary={subItem.text}
+                                  primaryTypographyProps={{ fontSize: "0.8rem" }}
+                                />
+                                {hasNestedSubItems && (
+                                  isNestedExpanded ? <ExpandLess sx={{ fontSize: "1rem" }} /> : <ExpandMore sx={{ fontSize: "1rem" }} />
+                                )}
+                              </ListItemButton>
+                            </ListItem>
+
+                            {/* Nested sub-items (3rd level) */}
+                            {hasNestedSubItems && (
+                              <Collapse in={isNestedExpanded} timeout="auto" unmountOnExit>
+                                <List disablePadding>
+                                  {subItem.subItems!.map((nestedItem) => {
+                                    const isNestedActive = location.pathname.startsWith(nestedItem.path);
+                                    return (
+                                      <ListItem key={nestedItem.path} disablePadding>
+                                        <ListItemButton
+                                          onClick={() => handleNavigation(nestedItem.path)}
+                                          selected={isNestedActive}
+                                          sx={{
+                                            py: 0.4,
+                                            pl: 6,
+                                            "&.Mui-selected": {
+                                              bgcolor: "primary.light",
+                                              color: "white",
+                                              "&:hover": { bgcolor: "primary.main" },
+                                              "& .MuiListItemIcon-root": { color: "white" },
+                                            },
+                                          }}
+                                        >
+                                          <ListItemIcon
+                                            sx={{
+                                              color: isNestedActive ? "white" : "text.secondary",
+                                              minWidth: 24,
+                                              "& .MuiSvgIcon-root": { fontSize: "0.95rem" },
+                                            }}
+                                          >
+                                            {nestedItem.icon}
+                                          </ListItemIcon>
+                                          <ListItemText
+                                            primary={nestedItem.text}
+                                            primaryTypographyProps={{ fontSize: "0.78rem" }}
+                                          />
+                                        </ListItemButton>
+                                      </ListItem>
+                                    );
+                                  })}
+                                </List>
+                              </Collapse>
+                            )}
+                          </Box>
+                        );
+                      })}
+                    </List>
+                  </Collapse>
+                )}
+              </Box>
+            );
+          })}
+        </List>
       </Box>
       <Divider />
       <List>
@@ -555,6 +593,7 @@ export default function Sidebar({
           {drawer}
         </Drawer>
       )}
+      <TConfirmDialog {...discardDialog.dialogProps} />
     </Box>
   );
 }

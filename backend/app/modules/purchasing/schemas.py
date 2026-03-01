@@ -90,7 +90,7 @@ class PurchasingOrderItem(PurchasingOrderItemBase):
 
 class PurchasingOrderBase(BaseModel):
     purchasing_order_no: str
-    purchasing_invoice_no: str
+    purchasing_invoice_no: Optional[str] = None
     branch_code: str
     payment_method: str
     purchasing_order_date: date
