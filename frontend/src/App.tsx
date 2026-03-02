@@ -122,6 +122,7 @@ function App() {
               <GroupsPage />
             </Suspense>
           } />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>
     </Box>

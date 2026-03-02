@@ -213,7 +213,7 @@ export default function JournalEntriesPage() {
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
-  const { data: entriesData, isLoading, refetch } = useQuery({
+  const { data: entriesData, isLoading } = useQuery({
     queryKey: ["journal-entries", filterStatus, filterType],
     queryFn: () =>
       journalEntriesApi.getAll({
@@ -889,7 +889,11 @@ export default function JournalEntriesPage() {
       <MasterDetailLayout
         title="Journal Entries"
         icon={<ReceiptLongIcon color="primary" />}
-        onRefresh={refetch}
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
+          queryClient.invalidateQueries({ queryKey: ["chart-of-accounts-all"] });
+          queryClient.invalidateQueries({ queryKey: ["journal-entry-detail"] });
+        }}
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}

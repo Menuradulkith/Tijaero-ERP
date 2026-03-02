@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import HRDashboard from "./pages/HRDashboard";
 import PayrollPage from "./pages/PayrollPage";
 import PayrollProcessingPage from "./pages/PayrollProcessingPage";
@@ -25,6 +25,7 @@ export default function HRRoutes() {
       <Route path="reimbursement-approvals" element={<ReimbursementApprovalsPage />} />
       <Route path="deductions" element={<DeductionsPage />} />
       <Route path="assets" element={<EmployeeAssetsPage />} />
+      <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );
 }

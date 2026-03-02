@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import FinanceDashboard from "./pages/FinanceDashboard";
 import BankDepositsPage from "./pages/BankDepositsPage";
 import CardPaymentsPage from "./pages/CardPaymentsPage";
@@ -66,6 +66,7 @@ export default function FinanceRoutes() {
       <Route path="general-ledger" element={<GeneralLedgerPage />} />
       <Route path="accounting-periods" element={<AccountingPeriodsPage />} />
       <Route path="cash-flow" element={<CashFlowStatementsPage />} />
+      <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );
 }

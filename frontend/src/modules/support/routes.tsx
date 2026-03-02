@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import SupportDashboard from "./pages/SupportDashboard";
 import SupportTicketsPage from "./pages/SupportTicketsPage";
 import JobItemsPage from "./pages/JobItemsPage";
@@ -13,6 +13,7 @@ export default function SupportRoutes() {
       <Route path="job-items" element={<JobItemsPage />} />
       <Route path="call-logs" element={<CallLogsPage />} />
       <Route path="warranty-claims" element={<WarrantyClaimsPage />} />
+      <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );
 }

@@ -245,7 +245,7 @@ export default function SalesPage() {
   });
 
   // Queries
-  const { data: invoices, isLoading, refetch } = useQuery({
+  const { data: invoices, isLoading } = useQuery({
     queryKey: ["sales"],
     queryFn: () => salesApi.getAll(),
   });
@@ -3136,7 +3136,11 @@ export default function SalesPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Sales Orders" onRefresh={refetch}>
+      <MasterDetailLayout title="Sales Orders" onRefresh={() => {
+        queryClient.invalidateQueries({ queryKey: ["sales"] });
+        queryClient.invalidateQueries({ queryKey: ["customers"] });
+        queryClient.invalidateQueries({ queryKey: ["payment-cards-active"] });
+      }}>
         <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
           {/* Master List */}
           <SearchableList

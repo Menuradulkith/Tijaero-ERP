@@ -176,6 +176,32 @@ export interface SalesStockCreate {
   status?: string;
 }
 
+// Extra context for a tracking event
+export interface StockTrackingEventExtra {
+  po_no?: string | null;
+  location?: string | null;
+  branch?: string | null;
+  selling_price?: number | null;
+  return_price?: number | null;
+  condition?: string | null;
+  restocked?: boolean | null;
+  from_location?: string | null;
+  to_location?: string | null;
+  received?: boolean | null;
+  status?: string | null;
+}
+
+// Stock Tracking Event — one entry in the item's lifecycle timeline
+export interface StockTrackingEvent {
+  date: string | null;
+  action: string;          // Received, Sold, Customer Return, Returned to Supplier, Transferred, Marked Damaged
+  details: string;         // Human-readable description
+  reference_type: string | null;  // GRN, Invoice, SaleReturn, PurchaseReturn, ITN
+  reference_no: string | null;
+  extra: StockTrackingEventExtra;
+  color: string;           // Timeline dot colour
+}
+
 // Company Assets Types - Real table for company-owned items
 export interface CompanyAsset {
   id: number;

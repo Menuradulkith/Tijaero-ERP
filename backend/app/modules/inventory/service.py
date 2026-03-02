@@ -187,6 +187,196 @@ class SalesStockService:
             self.db.refresh(item)
         return item
 
+    def get_tracking(self, stock_id: int) -> List[dict]:
+        """Build a chronological tracking timeline for a sales stock item by querying related tables."""
+        from app.modules.purchasing.models import (
+            GoodReceivedNote, PurchasingOrder, PurchasingReturn, PurchasingReturnItems
+        )
+        from app.modules.sales.models import (
+            Invoice, InvoiceItems, SaleReturn, SaleReturnItems
+        )
+        from app.modules.warehouse.models import (
+            ItemTransferNote, ItemTransferNoteItems
+        )
+        from app.modules.common.models import Locations
+
+        item = self.db.query(models.SalesStock).filter(
+            models.SalesStock.id == stock_id
+        ).options(
+            joinedload(models.SalesStock.good_received_note),
+            joinedload(models.SalesStock.purchase_return),
+        ).first()
+
+        if not item:
+            return []
+
+        events: List[dict] = []
+
+        # 1. Received via GRN
+        if item.good_received_note:
+            grn = item.good_received_note
+            # Get PO number
+            po_no = None
+            if grn.purchasingorders_id:
+                po = self.db.query(PurchasingOrder).filter(
+                    PurchasingOrder.id == grn.purchasingorders_id
+                ).first()
+                po_no = po.purchasing_order_no if po else None
+            # Get location name
+            loc_name = None
+            loc_id = item.location_id or grn.good_received_locations_id
+            if loc_id:
+                loc = self.db.query(Locations).filter(Locations.id == loc_id).first()
+                loc_name = loc.name if loc else None
+
+            events.append({
+                "date": item.added_date.isoformat() if item.added_date else None,
+                "action": "Received",
+                "details": f"Received via GRN #{grn.good_received_no}",
+                "reference_type": "GRN",
+                "reference_no": grn.good_received_no,
+                "extra": {
+                    "po_no": po_no,
+                    "location": loc_name,
+                    "branch": item.branch_code,
+                },
+                "color": "#2196F3",
+            })
+
+        # 2. Sold via invoice
+        sold_invoice_items = self.db.query(InvoiceItems).filter(
+            InvoiceItems.sales_stock_id == stock_id
+        ).all()
+        # Also match by barcode if sales_stock_id is not set
+        if not sold_invoice_items:
+            sold_invoice_items = self.db.query(InvoiceItems).filter(
+                InvoiceItems.barcode == item.barcode
+            ).all()
+
+        for inv_item in sold_invoice_items:
+            invoice = self.db.query(Invoice).filter(Invoice.id == inv_item.invoice_id).first()
+            if invoice:
+                events.append({
+                    "date": invoice.created_date_time.isoformat() if invoice.created_date_time else (
+                        invoice.created_date.isoformat() if invoice.created_date else None
+                    ),
+                    "action": "Sold",
+                    "details": f"Sold via Invoice #{invoice.invoice_no}",
+                    "reference_type": "Invoice",
+                    "reference_no": invoice.invoice_no,
+                    "extra": {
+                        "selling_price": float(inv_item.selling_price) if inv_item.selling_price else None,
+                        "branch": invoice.branch_code,
+                    },
+                    "color": "#4CAF50",
+                })
+
+        # 3. Sale return
+        return_items = self.db.query(SaleReturnItems).filter(
+            SaleReturnItems.sales_stock_id == stock_id
+        ).all()
+        if not return_items:
+            return_items = self.db.query(SaleReturnItems).filter(
+                SaleReturnItems.barcode == item.barcode
+            ).all()
+
+        for ret_item in return_items:
+            sale_return = self.db.query(SaleReturn).filter(
+                SaleReturn.id == ret_item.sale_return_id
+            ).first()
+            if sale_return:
+                events.append({
+                    "date": ret_item.added_date.isoformat() if ret_item.added_date else None,
+                    "action": "Customer Return",
+                    "details": f"Returned via Sale Return #{sale_return.sale_return_no}",
+                    "reference_type": "SaleReturn",
+                    "reference_no": sale_return.sale_return_no,
+                    "extra": {
+                        "return_price": float(ret_item.return_price) if ret_item.return_price else None,
+                        "condition": ret_item.condition,
+                        "restocked": ret_item.restocked,
+                        "status": sale_return.status,
+                    },
+                    "color": "#FF9800",
+                })
+
+        # 4. Purchase return (returned to supplier)
+        pr_items = self.db.query(PurchasingReturnItems).filter(
+            PurchasingReturnItems.sales_stock_id == stock_id
+        ).all()
+        if not pr_items:
+            pr_items = self.db.query(PurchasingReturnItems).filter(
+                PurchasingReturnItems.barcode == item.barcode
+            ).all()
+
+        for pr_item in pr_items:
+            pr = self.db.query(PurchasingReturn).filter(
+                PurchasingReturn.id == pr_item.purchasingreturn_id
+            ).first()
+            if pr:
+                events.append({
+                    "date": pr_item.added_date.isoformat() if pr_item.added_date else None,
+                    "action": "Returned to Supplier",
+                    "details": f"Purchase Return #{pr.purchasing_return_no}",
+                    "reference_type": "PurchaseReturn",
+                    "reference_no": pr.purchasing_return_no,
+                    "extra": {
+                        "return_price": float(pr_item.return_price) if pr_item.return_price else None,
+                        "status": pr.status,
+                    },
+                    "color": "#F44336",
+                })
+
+        # 5. Transfers (ITN)
+        itn_items = self.db.query(ItemTransferNoteItems).filter(
+            ItemTransferNoteItems.barcode == item.barcode
+        ).all()
+
+        for itn_item in itn_items:
+            itn = self.db.query(ItemTransferNote).filter(
+                ItemTransferNote.id == itn_item.itemtransfernote_id
+            ).first()
+            if itn:
+                from_loc = self.db.query(Locations).filter(Locations.id == itn.from_location_id).first()
+                to_loc = self.db.query(Locations).filter(Locations.id == itn.to_location_id).first()
+                events.append({
+                    "date": itn_item.created_date.isoformat() if itn_item.created_date else None,
+                    "action": "Transferred",
+                    "details": f"Transfer Note #{itn.item_transfer_note}",
+                    "reference_type": "ITN",
+                    "reference_no": itn.item_transfer_note,
+                    "extra": {
+                        "from_location": from_loc.name if from_loc else None,
+                        "to_location": to_loc.name if to_loc else None,
+                        "received": itn_item.item_recieved,
+                        "status": itn.status,
+                    },
+                    "color": "#9C27B0",
+                })
+
+        # 6. If marked as damaged (from current status)
+        if item.status == "damaged":
+            events.append({
+                "date": None,
+                "action": "Marked Damaged",
+                "details": "Item marked as damaged",
+                "reference_type": None,
+                "reference_no": None,
+                "extra": {},
+                "color": "#F44336",
+            })
+
+        # Sort by date chronologically
+        def sort_key(e):
+            d = e.get("date")
+            if d is None:
+                return ""
+            return d
+
+        events.sort(key=sort_key)
+
+        return events
+
 
 class CompanyAssetService:
     """Service for Company Assets - Real table for company-owned items"""

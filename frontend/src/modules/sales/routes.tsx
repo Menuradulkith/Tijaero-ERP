@@ -12,7 +12,7 @@ import SalesOrderApprovalsPage from "@/modules/sales/pages/SalesOrderApprovalsPa
 import SalesPage from "@/modules/sales/pages/SalesPage";
 import SalesSettingsPage from "@/modules/sales/pages/SalesSettingsPage";
 import SalesTrackPage from "@/modules/sales/pages/SalesTrackPage";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
 export default function SalesRoutes() {
   return (
@@ -37,6 +37,7 @@ export default function SalesRoutes() {
       {/* Legacy routes for backward compatibility */}
       <Route path="return-approvals" element={<SaleReturnApprovalsPage />} />
       <Route path="commission-approvals" element={<CommissionApprovalsPage />} />
+      <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );
 }

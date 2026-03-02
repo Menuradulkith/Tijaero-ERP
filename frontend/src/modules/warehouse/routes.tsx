@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import SalesStockDashboard from "./pages/SalesStockDashboard";
 import SalesTrackPage from "./pages/SalesTrackPage";
 import StockTransferNotesPage from "./pages/StockTransferNotesPage";
@@ -15,6 +15,7 @@ export default function WarehouseRoutes() {
       <Route path="item-transfer-notes" element={<ItemTransferNotesPage />} />
       <Route path="itn-approvals" element={<ItemTransferNoteApprovalsPage />} />
       <Route path="receive-notes" element={<ReceiveNotesPage />} />
+      <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );
 }

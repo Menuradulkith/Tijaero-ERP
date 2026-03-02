@@ -26,6 +26,7 @@ export default function PurchasingRoutes() {
       <Route path="settlements" element={<Navigate to="/finance/supplier-payments" replace />} />
       <Route path="payments" element={<Navigate to="/finance/supplier-payments" replace />} />
       <Route path="payment-approvals" element={<Navigate to="/finance/payment-approvals" replace />} />
+      <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );
 }

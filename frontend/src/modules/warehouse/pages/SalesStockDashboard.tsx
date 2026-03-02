@@ -43,7 +43,7 @@ import {
 } from "@mui/icons-material";
 import { salesStockApi } from "@/modules/inventory/api";
 import { useReferenceData, REFERENCE_DATA_PRESETS, LocationRef } from "@/hooks";
-import { SalesStock, Product, Brand, Category } from "@/modules/inventory/types";
+import { SalesStock, Product, Brand, Category, StockTrackingEvent } from "@/modules/inventory/types";
 import { format, parseISO } from "date-fns";
 
 // Summary Card Component
@@ -128,39 +128,13 @@ interface StockDetailsPanelProps {
 }
 
 const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, onClose }: StockDetailsPanelProps) => {
-  // Mock timeline data - in production, this would come from an API
-  const timeline = stock ? [
-    { 
-      date: stock.added_date, 
-      action: "Received", 
-      details: `Added via GRN #${stock.good_received_note_id || "N/A"}`,
-      color: "#2196F3"
-    },
-    ...(stock.status === "sold" ? [{
-      date: new Date().toISOString(),
-      action: "Sold",
-      details: "Sold to customer",
-      color: "#4CAF50"
-    }] : []),
-    ...(stock.status === "reserved" ? [{
-      date: new Date().toISOString(),
-      action: "Reserved",
-      details: "Reserved for customer",
-      color: "#FF9800"
-    }] : []),
-    ...(stock.status === "transferred" ? [{
-      date: new Date().toISOString(),
-      action: "Transferred",
-      details: "Transferred to another branch",
-      color: "#9C27B0"
-    }] : []),
-    ...(stock.status === "damaged" ? [{
-      date: new Date().toISOString(),
-      action: "Marked Damaged",
-      details: "Item marked as damaged",
-      color: "#F44336"
-    }] : []),
-  ] : [];
+  // Fetch real tracking data from API when panel is open
+  const { data: trackingEvents, isLoading: trackingLoading } = useQuery<StockTrackingEvent[]>({
+    queryKey: ["stock-tracking", stock?.id],
+    queryFn: () => salesStockApi.getTracking(stock!.id),
+    enabled: isOpen && !!stock,
+    staleTime: 30_000, // 30s — refetch if panel reopened after a while
+  });
 
   return (
     <Drawer
@@ -297,7 +271,7 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">GRN No</Typography>
-                  <Typography variant="body2" fontWeight={500}>{stock.good_received_note_id || "N/A"}</Typography>
+                  <Typography variant="body2" fontWeight={500}>{stock.grn_no || stock.good_received_note_id || "N/A"}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">Warranty</Typography>
@@ -315,32 +289,80 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
             </Paper>
           </Box>
 
-          {/* Movement Timeline */}
+          {/* Tracking Timeline */}
           <Box>
             <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-              Movement Timeline
+              Tracking Timeline
             </Typography>
             <Paper variant="outlined" sx={{ p: 2 }}>
-              {timeline.map((item, index) => (
-                <Box key={index} sx={{ display: "flex", gap: 2, mb: index < timeline.length - 1 ? 2 : 0 }}>
-                  <Box
-                    sx={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: "50%",
-                      bgcolor: item.color,
-                      mt: 0.8,
-                    }}
-                  />
-                  <Box sx={{ flex: 1 }}>
-                    <Typography variant="body2" fontWeight={500}>{item.action}</Typography>
-                    <Typography variant="caption" color="text.secondary">{item.details}</Typography>
-                    <Typography variant="caption" display="block" color="text.secondary">
-                      {format(parseISO(item.date), "dd MMM yyyy HH:mm")}
-                    </Typography>
-                  </Box>
+              {trackingLoading ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+                  <CircularProgress size={24} />
                 </Box>
-              ))}
+              ) : !trackingEvents || trackingEvents.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", py: 1 }}>
+                  No tracking events found
+                </Typography>
+              ) : (
+                trackingEvents.map((evt, index) => (
+                  <Box key={index} sx={{ display: "flex", gap: 2, mb: index < trackingEvents.length - 1 ? 2 : 0 }}>
+                    {/* Timeline connector */}
+                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", pt: 0.5 }}>
+                      <Box
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          bgcolor: evt.color,
+                          flexShrink: 0,
+                        }}
+                      />
+                      {index < trackingEvents.length - 1 && (
+                        <Box sx={{ width: 2, flex: 1, bgcolor: "divider", mt: 0.5 }} />
+                      )}
+                    </Box>
+                    {/* Event content */}
+                    <Box sx={{ flex: 1, pb: index < trackingEvents.length - 1 ? 1 : 0 }}>
+                      <Typography variant="body2" fontWeight={600}>{evt.action}</Typography>
+                      <Typography variant="caption" color="text.secondary">{evt.details}</Typography>
+                      {evt.date && (
+                        <Typography variant="caption" display="block" color="text.secondary">
+                          {format(parseISO(evt.date), "dd MMM yyyy HH:mm")}
+                        </Typography>
+                      )}
+                      {/* Extra details */}
+                      {evt.extra && Object.keys(evt.extra).length > 0 && (
+                        <Box sx={{ mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                          {evt.extra.po_no && (
+                            <Chip label={`PO: ${evt.extra.po_no}`} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                          )}
+                          {evt.extra.location && (
+                            <Chip label={`Location: ${evt.extra.location}`} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                          )}
+                          {evt.extra.branch && (
+                            <Chip label={`Branch: ${evt.extra.branch}`} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                          )}
+                          {evt.extra.selling_price != null && (
+                            <Chip label={`Rs. ${Number(evt.extra.selling_price).toFixed(2)}`} size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                          )}
+                          {evt.extra.return_price != null && (
+                            <Chip label={`Return: Rs. ${Number(evt.extra.return_price).toFixed(2)}`} size="small" color="warning" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                          )}
+                          {evt.extra.condition && (
+                            <Chip label={`Condition: ${evt.extra.condition}`} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                          )}
+                          {evt.extra.from_location && evt.extra.to_location && (
+                            <Chip label={`${evt.extra.from_location} → ${evt.extra.to_location}`} size="small" color="secondary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                          )}
+                          {evt.extra.status && (
+                            <Chip label={String(evt.extra.status)} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                          )}
+                        </Box>
+                      )}
+                    </Box>
+                  </Box>
+                ))
+              )}
             </Paper>
           </Box>
         </Box>
