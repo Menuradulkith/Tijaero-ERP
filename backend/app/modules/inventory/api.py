@@ -105,6 +105,21 @@ def update_sales_stock_status(
     return item
 
 
+@router.get("/sales-stock/{id}/tracking")
+def get_sales_stock_tracking(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get full tracking timeline for a sales stock item.
+    
+    Aggregates events from GRN, invoices, sale returns, purchase returns,
+    and item transfer notes into a chronological timeline.
+    """
+    sales_stock_service = service.SalesStockService(db)
+    return sales_stock_service.get_tracking(id)
+
+
 # Company Assets Endpoints - Real table for company-owned items
 @router.post("/company-assets", response_model=schemas.CompanyAsset, status_code=status.HTTP_201_CREATED)
 def create_company_asset(
