@@ -339,7 +339,7 @@ export default function ItemTransferNotesPage() {
     loadITNItems(itn.id);
   }, [handleSelectITN, loadITNItems]);
 
-  const { data: transferNotes, isLoading, refetch } = useQuery({
+  const { data: transferNotes, isLoading } = useQuery({
     queryKey: ["transfer-notes"],
     queryFn: () => transferNotesApi.getAll(),
   });
@@ -992,7 +992,10 @@ export default function ItemTransferNotesPage() {
         title="Item Transfer Notes"
         masterPanel={masterPanel}
         detailPanel={detailPanel}
-        onRefresh={() => refetch()}
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
+          queryClient.invalidateQueries({ queryKey: ["locations"] });
+        }}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

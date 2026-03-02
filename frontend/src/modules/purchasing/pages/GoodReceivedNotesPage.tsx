@@ -1992,7 +1992,10 @@ export default function GoodReceivedNotesPage() {
     <>
       <MasterDetailLayout
         title="Good Received Notes"
-        onRefresh={refetch}
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
+          queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+        }}
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}

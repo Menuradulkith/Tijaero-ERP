@@ -1106,6 +1106,10 @@ export default function QuotationsPage() {
 
       <MasterDetailLayout
         title=""
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
+          queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
+        }}
         masterPanel={
           <SearchableList
             searchValue={searchQuery}

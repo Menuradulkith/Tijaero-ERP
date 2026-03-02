@@ -728,6 +728,10 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                       </Typography>
                     )}
                   </Box>
+                  {/* Creation date — always visible */}
+                  <Typography component="span" variant="caption" sx={{ opacity: 0.55, fontSize: "0.68rem" }}>
+                    Added: {new Date(product.added_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                  </Typography>
                   {/* Additional fields when selected */}
                   {isSelected && (
                     <>
@@ -847,6 +851,15 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   helperText={productTouched.item_code && !productState.formData.item_code ? "Item code is required" : ""}
                   inputProps={{ style: { textTransform: "uppercase" } }}
                 />
+                {productState.selectedItem && !productState.isCreating && (
+                  <TextField
+                    label="Created On"
+                    size="small"
+                    value={new Date(productState.selectedItem.added_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                    disabled
+                    InputProps={{ readOnly: true }}
+                  />
+                )}
                 <TextField
                   label="Product Name"
                   size="small"

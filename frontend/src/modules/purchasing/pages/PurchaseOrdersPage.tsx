@@ -279,7 +279,7 @@ export default function PurchaseOrdersPage() {
     }
   }, [handleSelectOrder]);
 
-  const { data: orders, isLoading, refetch } = useQuery({
+  const { data: orders, isLoading } = useQuery({
     queryKey: ["purchaseOrders"],
     queryFn: () => purchaseOrdersApi.getAll(),
   });
@@ -1334,7 +1334,10 @@ export default function PurchaseOrdersPage() {
     <>
       <MasterDetailLayout
         title="Purchase Orders"
-        onRefresh={refetch}
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+          queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+        }}
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}

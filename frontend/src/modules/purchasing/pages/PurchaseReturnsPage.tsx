@@ -274,7 +274,7 @@ export default function PurchaseReturnsPage() {
     }
   }, [handleSelectReturn]);
 
-  const { data: returns, isLoading, refetch } = useQuery({
+  const { data: returns, isLoading } = useQuery({
     queryKey: ["purchaseReturns"],
     queryFn: () => purchaseReturnsApi.getAll(),
   });
@@ -1123,7 +1123,11 @@ export default function PurchaseReturnsPage() {
     <>
       <MasterDetailLayout
         title="Purchase Returns"
-        onRefresh={refetch}
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["purchaseReturns"] });
+          queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
+          queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+        }}
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}

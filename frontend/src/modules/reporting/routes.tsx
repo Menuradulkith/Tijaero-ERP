@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import ReportingDashboard from "./pages/ReportingDashboard";
 import SalesReportPage from "./pages/SalesReportPage";
 import FinanceReportPage from "./pages/FinanceReportPage";
@@ -17,6 +17,7 @@ export default function ReportingRoutes() {
       <Route path="hr" element={<HRReportPage />} />
       <Route path="warehouse" element={<WarehouseReportPage />} />
       <Route path="support" element={<SupportReportPage />} />
+      <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );
 }

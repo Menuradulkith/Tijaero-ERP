@@ -280,7 +280,7 @@ export default function SaleReturnsPage() {
         }
     }, [handleSelectReturn]);
 
-    const { data: returns, isLoading, refetch } = useQuery({
+    const { data: returns, isLoading } = useQuery({
         queryKey: ["sale-returns"],
         queryFn: () => saleReturnsApi.getAll(),
     });
@@ -1075,7 +1075,10 @@ export default function SaleReturnsPage() {
         <>
             <MasterDetailLayout
                 title="Sale Returns"
-                onRefresh={refetch}
+                onRefresh={() => {
+                  queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
+                  queryClient.invalidateQueries({ queryKey: ["sales"] });
+                }}
                 isLoading={isLoading}
                 masterPanel={masterPanel}
                 detailPanel={detailPanel}

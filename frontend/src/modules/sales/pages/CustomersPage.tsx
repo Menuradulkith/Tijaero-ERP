@@ -148,7 +148,7 @@ export default function CustomersPage() {
   });
 
   // Data fetching
-  const { data: customers, isLoading, refetch } = useQuery({
+  const { data: customers, isLoading } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
   });
@@ -651,7 +651,10 @@ export default function CustomersPage() {
     <>
       <MasterDetailLayout
         title="Customers"
-        onRefresh={refetch}
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["customers"] });
+          queryClient.invalidateQueries({ queryKey: ["branches"] });
+        }}
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
