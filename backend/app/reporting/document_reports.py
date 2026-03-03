@@ -1,6 +1,7 @@
 from typing import Optional, Literal
 from datetime import datetime
 from pathlib import Path
+import base64
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
@@ -34,25 +35,40 @@ class DocumentReportService:
             autoescape=True
         )
     
+    def _get_logo_data_uri(self) -> str:
+        """Read logo.svg from templates dir and return as a base64 data URI."""
+        try:
+            logo_path = Path(__file__).parent / "templates" / "logo.svg"
+            svg_bytes = logo_path.read_bytes()
+            b64 = base64.b64encode(svg_bytes).decode("utf-8")
+            return f"data:image/svg+xml;base64,{b64}"
+        except Exception:
+            return ""
+
     def _get_company_info(self) -> dict:
+        logo = self._get_logo_data_uri()
         try:
             settings = self.db.query(Settings).first()
             if settings:
                 return {
-                    "name": settings.company_name or "Tijaero ERP",
-                    "address": settings.company_address or "",
-                    "phone": settings.company_telephone_number or "",
-                    "fax": settings.company_fax_number or "",
-                    "email": settings.company_email or ""
+                    "name": settings.company_name or "UNITY SYSTEMS",
+                    "tagline": "Solutions",
+                    "logo": logo,
+                    "address": settings.company_address or "Ground Floor, Unity Plaza, Galle Road, Colombo 04.",
+                    "phone": settings.company_telephone_number or "0112081667",
+                    "fax": settings.company_fax_number or "0112081667",
+                    "email": settings.company_email or "info@unitysystems.lk"
                 }
         except Exception:
             self.db.rollback()
         return {
-            "name": "Tijaero ERP",
-            "address": "",
-            "phone": "",
-            "fax": "",
-            "email": ""
+            "name": "UNITY SYSTEMS",
+            "tagline": "Solutions",
+            "logo": logo,
+            "address": "Ground Floor, Unity Plaza, Galle Road, Colombo 04.",
+            "phone": "0112081667",
+            "fax": "0112081667",
+            "email": "info@unitysystems.lk"
         }
     
     def _get_branch_info(self, branch_code: str) -> dict:
