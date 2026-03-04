@@ -8,6 +8,7 @@
 
 import { Box, Grid, Paper, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   FactCheck as ApprovalIcon,
   ReceiptLong as POIcon,
@@ -17,6 +18,7 @@ import {
 
 // Tijaero Components
 import { TPageHeader, TStatCard } from "@/components/tijaero";
+import { purchaseOrdersApi, purchaseReturnsApi } from "@/modules/purchasing/api";
 
 interface ApprovalCard {
   title: string;
@@ -45,6 +47,36 @@ const approvalTypes: ApprovalCard[] = [
 
 export default function PurchasingApprovalsPage() {
   const navigate = useNavigate();
+
+  // Live pending PO count
+  const { data: pendingPOs } = useQuery({
+    queryKey: ["purchasing-approvals", "pending-pos"],
+    queryFn: () => purchaseOrdersApi.getAll({ status: "pending_approval" }),
+    refetchInterval: 30_000,
+  });
+
+  // Live pending return count
+  const { data: pendingReturns } = useQuery({
+    queryKey: ["purchasing-approvals", "pending-returns"],
+    queryFn: () => purchaseReturnsApi.getAll({ status_filter: "pending_approval" }),
+    refetchInterval: 30_000,
+  });
+
+  // Live approved today counts
+  const { data: approvedPOs } = useQuery({
+    queryKey: ["purchasing-approvals", "approved-pos-today"],
+    queryFn: () => purchaseOrdersApi.getAll({
+      status: "approved",
+      date_from: new Date().toISOString().split("T")[0],
+      date_to: new Date().toISOString().split("T")[0],
+    }),
+    refetchInterval: 30_000,
+  });
+
+  const pendingPOCount = pendingPOs?.length ?? 0;
+  const pendingReturnCount = pendingReturns?.length ?? 0;
+  const totalPending = pendingPOCount + pendingReturnCount;
+  const approvedTodayCount = approvedPOs?.length ?? 0;
 
   return (
     <Box>
@@ -106,16 +138,16 @@ export default function PurchasingApprovalsPage() {
       <Grid container spacing={2}>
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
-            title="PO Approvals"
-            value="View Pending"
+            title="Pending POs"
+            value={pendingPOCount}
             icon={<POIcon />}
             color="primary"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
-            title="Return Approvals"
-            value="View Pending"
+            title="Pending Returns"
+            value={pendingReturnCount}
             icon={<ReturnIcon />}
             color="warning"
           />
@@ -123,15 +155,15 @@ export default function PurchasingApprovalsPage() {
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Approved Today"
-            value="—"
+            value={approvedTodayCount}
             icon={<CheckIcon />}
             color="success"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
-            title="Pending Review"
-            value="—"
+            title="Total Pending"
+            value={totalPending}
             icon={<ApprovalIcon />}
             color="info"
           />

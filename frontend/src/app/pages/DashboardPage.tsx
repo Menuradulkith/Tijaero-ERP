@@ -1,5 +1,6 @@
 import ErrorDisplay from "@/components/ErrorDisplay";
 import {
+  fmtLKR,
   TEmptyState,
   TIconButton,
   TLoading,
@@ -11,7 +12,6 @@ import {
 import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import { calculatePercentageChange } from "@/utils/calculations";
 import {
-  formatCurrency,
   formatRelativeTime,
 } from "@/utils/formatters";
 import {
@@ -306,7 +306,7 @@ export default function DashboardPage() {
                     <RechartsTooltip
                       formatter={(value: any, name: string | undefined) => {
                         if (name === "sales") {
-                          return [formatCurrency(Number(value)), "Sales"];
+                          return [`Rs. ${fmtLKR(Number(value))}`, "Sales"];
                         }
                         return [value, "Orders"];
                       }}
@@ -353,7 +353,7 @@ export default function DashboardPage() {
                   >
                     <Typography variant="body2">Today's Sales</Typography>
                     <Typography variant="body2" fontWeight={600}>
-                      {formatCurrency(metrics?.total_sales_today || 0)}
+                      Rs. {fmtLKR(metrics?.total_sales_today || 0)}
                     </Typography>
                   </Box>
                   <LinearProgress

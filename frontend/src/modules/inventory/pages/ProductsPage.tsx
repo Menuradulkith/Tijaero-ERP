@@ -28,6 +28,7 @@ import {
   SelectableListItem,
   DetailPanelHeader,
   ActionToolbar,
+  fmtLKR,
   FormSection,
   EmptyState,
   useMasterDetailState,
@@ -746,7 +747,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                       {product.selling_price && (
                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <Typography component="span" variant="caption" fontWeight={600} sx={{ color: "inherit" }}>
-                            Rs. {product.selling_price.toFixed(2)}
+                            Rs. {fmtLKR(product.selling_price)}
                           </Typography>
                           <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                             (Selling Price)
@@ -1008,7 +1009,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                     </Typography>
                     {currentMinPrice ? (
                       <Chip
-                        label={`Rs. ${currentMinPrice.minimum_price.toFixed(2)}`}
+                        label={`Rs. ${fmtLKR(currentMinPrice.minimum_price)}`}
                         color="primary"
                         size="small"
                       />

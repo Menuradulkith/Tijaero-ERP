@@ -29,7 +29,6 @@ import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
-import toast from "react-hot-toast";
 
 // Import tijaero components
 import {
@@ -39,6 +38,7 @@ import {
   DetailPanelHeader,
   FormSection,
   EmptyState,
+  fmtLKR,
   TFilterPanel,
   TBranchFilter,
   TStatusFilter,
@@ -48,8 +48,10 @@ import {
   showSuccessToast,
   showErrorToast,
   modernTableStyles,
+  TConfirmDialog,
+  useTConfirmDialog,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+// ConfirmDialog now uses TConfirmDialog from tijaero
 
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import { approvalsApi } from "@/modules/common/api";
@@ -73,7 +75,8 @@ export default function POApprovalsPage() {
   const [selectedOrder, setSelectedOrder] = useState<PurchasingOrderWithItems | null>(null);
 
   // Confirm dialog for after-hours warning
-  const confirmDialog = useConfirmDialog();
+  const confirmDialog = useTConfirmDialog();
+  const creditWarningDialog = useTConfirmDialog();
 
   // Filter states
   const [filterStatus, setFilterStatus] = useState<string | null>("pending_approval");
@@ -220,63 +223,19 @@ export default function POApprovalsPage() {
           const supplier = supplierMap.get(selectedOrder.first_suppliers_id);
           const supplierName = supplier?.company_name || supplier?.full_name || 'Unknown';
 
-          const confirmed = await new Promise<boolean>((resolve) => {
-            toast((t) => (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ fontWeight: 'bold', color: '#f59e0b' }}>⚠️ Credit Limit Warning</div>
-                <div style={{ fontSize: '14px' }}>
-                  Supplier: {supplierName}<br />
-                  Credit Limit: Rs. {creditCheck.credit_check.max_credit_limit.toLocaleString()}<br />
-                  Current Outstanding: Rs. {creditCheck.credit_check.current_outstanding.toLocaleString()}<br />
-                  Available Credit: Rs. {creditCheck.credit_check.available_credit.toLocaleString()}<br />
-                  This Order: Rs. {creditCheck.credit_check.po_value.toLocaleString()}<br />
-                  <strong>Exceeds by: Rs. {creditCheck.credit_check.excess_amount.toLocaleString()}</strong>
-                </div>
-                <div style={{ fontSize: '13px', color: '#666' }}>
-                  {creditCheck.message}
-                </div>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                  <button
-                    onClick={() => { toast.dismiss(t.id); resolve(true); }}
-                    style={{
-                      flex: 1,
-                      padding: '8px 16px',
-                      backgroundColor: '#f59e0b',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontWeight: 500
-                    }}
-                  >
-                    Approve Anyway
-                  </button>
-                  <button
-                    onClick={() => { toast.dismiss(t.id); resolve(false); }}
-                    style={{
-                      flex: 1,
-                      padding: '8px 16px',
-                      backgroundColor: '#6b7280',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontWeight: 500
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ), { duration: Infinity });
+          const confirmed = await creditWarningDialog.confirm({
+            title: "⚠️ Credit Limit Warning",
+            message: `Supplier: ${supplierName}\nCredit Limit: Rs. ${fmtLKR(creditCheck.credit_check.max_credit_limit)}\nCurrent Outstanding: Rs. ${fmtLKR(creditCheck.credit_check.current_outstanding)}\nAvailable Credit: Rs. ${fmtLKR(creditCheck.credit_check.available_credit)}\nThis Order: Rs. ${fmtLKR(creditCheck.credit_check.po_value)}\nExceeds by: Rs. ${fmtLKR(creditCheck.credit_check.excess_amount)}\n\n${creditCheck.message}`,
+            confirmText: "Approve Anyway",
+            cancelText: "Cancel",
+            confirmColor: "warning",
           });
 
           if (!confirmed) {
             return; // User cancelled
           }
         }
-      } catch (error) {
-        console.error("Credit check failed:", error);
+      } catch {
         showErrorToast("Failed to check credit limit. Please try again.");
         return;
       }
@@ -395,8 +354,8 @@ export default function POApprovalsPage() {
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
                         Rs. {isSelected && selectedOrder?.items
-                          ? selectedOrder.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0).toLocaleString()
-                          : (order.total_amount?.toLocaleString() || "0")}
+                          ? fmtLKR(selectedOrder.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0))
+                          : fmtLKR(order.total_amount || 0)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Amount)
@@ -532,7 +491,7 @@ export default function POApprovalsPage() {
                         }}>
                           <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                           <TableCell align="right">{item.quantity}</TableCell>
-                          <TableCell align="right">{item.unit_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                          <TableCell align="right">{fmtLKR(item.unit_price)}</TableCell>
                           <TableCell>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                               <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -545,7 +504,7 @@ export default function POApprovalsPage() {
                               </Tooltip>
                             </Box>
                           </TableCell>
-                          <TableCell align="right">{(item.quantity * item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                          <TableCell align="right">{fmtLKR(item.quantity * item.unit_price)}</TableCell>
                         </TableRow>
                       );
                     })}
@@ -554,7 +513,7 @@ export default function POApprovalsPage() {
                         <strong>Total Amount:</strong>
                       </TableCell>
                       <TableCell align="right">
-                        <strong>{(selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                        <strong>{fmtLKR(selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0) || 0)}</strong>
                       </TableCell>
                     </TableRow>
                   </TableBody>
@@ -676,8 +635,9 @@ export default function POApprovalsPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Confirm Dialog for after-hours warning */}
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      {/* Confirm Dialogs */}
+      <TConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...creditWarningDialog.dialogProps} confirmColor="warning" />
     </>
   );
 }

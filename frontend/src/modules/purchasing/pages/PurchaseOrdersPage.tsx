@@ -3,7 +3,7 @@
  * Refactored to use common tijaero components for better code reuse
  */
 
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+// Confirm dialog now uses TConfirmDialog from tijaero
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -37,13 +37,12 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import toast from "react-hot-toast";
-
 // Import tijaero components
 import {
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
+  fmtLKR,
   FormSection,
   handleApiError,
   MasterDetailLayout,
@@ -52,6 +51,7 @@ import {
   SelectableListItem,
   SortOption,
   TBranchFilter,
+  TConfirmDialog,
   TFilterPanel,
   TPrintButton,
   TPrintPreviewDialog,
@@ -62,7 +62,9 @@ import {
   modernTableStyles,
   showErrorToast,
   showSuccessToast,
-  useMasterDetailState
+  showWarningToast,
+  useMasterDetailState,
+  useTConfirmDialog,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -137,7 +139,8 @@ export default function PurchaseOrdersPage() {
   const [formStep, setFormStep] = useState(0);
 
   // Confirm dialog for unsaved changes and delete actions
-  const confirmDialog = useConfirmDialog();
+  const confirmDialog = useTConfirmDialog();
+  const creditWarningDialog = useTConfirmDialog();
 
   // Validation state - track which fields have been touched/blurred
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -301,8 +304,7 @@ export default function PurchaseOrdersPage() {
       try {
         const limitInfo = await purchaseOrdersApi.getDailyLimit(branchCode);
         return limitInfo;
-      } catch (error) {
-        console.error("Failed to check daily PO limit:", error);
+      } catch {
         return null;
       }
     },
@@ -375,16 +377,11 @@ export default function PurchaseOrdersPage() {
 
   // Check credit limit when supplier or amount changes
   const checkCreditLimit = useCallback(async (supplierId: number, amount: number, paymentMethod: string) => {
-    console.log("🔍 checkCreditLimit called:", { supplierId, amount, paymentMethod });
-
     if (paymentMethod?.toLowerCase() === "credit" && supplierId > 0 && amount > 0) {
       try {
-        console.log("📞 Making credit check API call...");
         const creditCheck = await purchaseOrdersApi.checkCredit(supplierId, amount);
-        console.log("✅ Credit check response:", creditCheck);
 
         if (creditCheck.requires_approval) {
-          console.log("⚠️ Credit limit exceeded - showing warning");
           setCreditWarning({
             show: true,
             message: creditCheck.credit_check.message,
@@ -392,19 +389,12 @@ export default function PurchaseOrdersPage() {
             requiresApproval: true,
           });
         } else {
-          console.log("✅ Credit check passed");
           setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
         }
-      } catch (error) {
-        console.error("❌ Credit check failed:", error);
+      } catch {
         setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
       }
     } else {
-      console.log("⏭️ Skipping credit check:", {
-        isCredit: paymentMethod?.toLowerCase() === "credit",
-        hasSupplier: supplierId > 0,
-        hasAmount: amount > 0
-      });
       setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
     }
   }, []);
@@ -416,13 +406,6 @@ export default function PurchaseOrdersPage() {
 
   // Check credit limit when supplier, payment method, or total amount changes
   useEffect(() => {
-    console.log("🎯 Credit check useEffect triggered:", {
-      isCreating,
-      supplierId: formData.first_suppliers_id,
-      paymentMethod: formData.payment_method,
-      totalAmount
-    });
-
     if (isCreating && formData.first_suppliers_id && formData.payment_method) {
       checkCreditLimit(formData.first_suppliers_id, totalAmount, formData.payment_method);
     }
@@ -525,93 +508,36 @@ export default function PurchaseOrdersPage() {
 
     // Check credit limit if payment method is Credit
     const isCreditPayment = formData.payment_method?.toLowerCase() === "credit";
-    console.log("=== PO Save Debug ===");
-    console.log("Payment Method:", formData.payment_method, "| Is Credit:", isCreditPayment);
-    console.log("Supplier ID:", formData.first_suppliers_id);
-    console.log("Line Items:", lineItems.length);
 
     if (isCreditPayment && formData.first_suppliers_id) {
       const totalAmount = lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
-      console.log("Total Amount:", totalAmount);
 
       try {
-        console.log("Calling checkCredit API...");
         const creditCheck = await purchaseOrdersApi.checkCredit(formData.first_suppliers_id, totalAmount);
-        console.log("Credit Check Response:", creditCheck);
 
         // Show warning modal if requires approval
         if (creditCheck.requires_approval) {
-          console.log("Showing credit warning modal...");
-          // Get supplier name from suppliers data
           const supplier = suppliers?.find(s => s.id === formData.first_suppliers_id);
           const supplierName = supplier?.company_name || supplier?.full_name || 'Unknown';
 
-          const confirmed = await new Promise<boolean>((resolve) => {
-            toast((t) => (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ fontWeight: 'bold', color: '#f59e0b' }}>⚠️ Credit Limit Warning</div>
-                <div style={{ fontSize: '14px' }}>
-                  Supplier: {supplierName}<br />
-                  Credit Limit: Rs. {creditCheck.credit_check.max_credit_limit.toLocaleString()}<br />
-                  Current Outstanding: Rs. {creditCheck.credit_check.current_outstanding.toLocaleString()}<br />
-                  Available Credit: Rs. {creditCheck.credit_check.available_credit.toLocaleString()}<br />
-                  This Order: Rs. {creditCheck.credit_check.po_value.toLocaleString()}<br />
-                  <strong style={{ color: '#dc2626' }}>Exceeds by: Rs. {creditCheck.credit_check.excess_amount.toLocaleString()}</strong>
-                </div>
-                <div style={{ fontSize: '13px', color: '#666' }}>
-                  {creditCheck.message}
-                </div>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                  <button
-                    onClick={() => { toast.dismiss(t.id); resolve(true); }}
-                    style={{
-                      flex: 1,
-                      padding: '8px 16px',
-                      backgroundColor: '#f59e0b',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontWeight: 500
-                    }}
-                  >
-                    Continue Anyway
-                  </button>
-                  <button
-                    onClick={() => { toast.dismiss(t.id); resolve(false); }}
-                    style={{
-                      flex: 1,
-                      padding: '8px 16px',
-                      backgroundColor: '#6b7280',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontWeight: 500
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ), { duration: Infinity });
+          const confirmed = await creditWarningDialog.confirm({
+            title: "⚠️ Credit Limit Warning",
+            message: `Supplier: ${supplierName}\nCredit Limit: Rs. ${fmtLKR(creditCheck.credit_check.max_credit_limit)}\nCurrent Outstanding: Rs. ${fmtLKR(creditCheck.credit_check.current_outstanding)}\nAvailable Credit: Rs. ${fmtLKR(creditCheck.credit_check.available_credit)}\nThis Order: Rs. ${fmtLKR(creditCheck.credit_check.po_value)}\nExceeds by: Rs. ${fmtLKR(creditCheck.credit_check.excess_amount)}\n\n${creditCheck.message}`,
+            confirmText: "Continue Anyway",
+            cancelText: "Cancel",
+            confirmColor: "warning",
           });
 
-          console.log("User confirmed:", confirmed);
           if (!confirmed) {
             return; // User cancelled
           }
-        } else {
-          console.log("Credit check passed - no approval required");
         }
-      } catch (error) {
-        console.error("Credit check failed:", error);
+      } catch {
         showErrorToast("Failed to check credit limit. Please try again.");
         return; // Stop save if credit check fails
       }
     }
 
-    console.log("Proceeding with save...");
     if (isCreating) {
       createMutation.mutate(dataToSave);
     } else if (selectedOrder) {
@@ -640,7 +566,7 @@ export default function PurchaseOrdersPage() {
       // Reset to pending_approval if was approved
       if (wasApproved) {
         updateData.status = "pending_approval";
-        toast("Order was previously approved. It will need re-approval after this edit.", { icon: "⚠️" });
+        showWarningToast("Order was previously approved. It will need re-approval after this edit.");
       }
 
       updateMutation.mutate({
@@ -918,10 +844,7 @@ export default function PurchaseOrdersPage() {
                           setIsDailyLimitExceeded(false);
                           if (limitInfo && limitInfo.can_create && limitInfo.remaining <= 2) {
                             // Warn if only 1-2 POs remaining
-                            toast(`Warning: Only ${limitInfo.remaining} PO(s) remaining for today in this branch`, {
-                              icon: '⚠️',
-                              duration: 5000
-                            });
+                            showWarningToast(`Only ${limitInfo.remaining} PO(s) remaining for today in this branch`);
                           }
                         }
                       }
@@ -1053,7 +976,6 @@ export default function PurchaseOrdersPage() {
                 </FormSection>
 
                 {/* Credit Limit Warning */}
-                {console.log("🎨 Rendering - creditWarning state:", creditWarning, "isCreating:", isCreating)}
                 {isCreating && creditWarning.show && (
                   <Alert
                     severity="error"
@@ -1254,7 +1176,7 @@ export default function PurchaseOrdersPage() {
                                     inputProps={{ min: 0, step: 0.01 }}
                                   />
                                 ) : (
-                                  Number(item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                  fmtLKR(Number(item.unit_price))
                                 )}
                               </TableCell>
                               <TableCell>
@@ -1297,7 +1219,7 @@ export default function PurchaseOrdersPage() {
                                 </Box>
                               </TableCell>
                               <TableCell align="right">
-                                {(item.quantity * item.unit_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {fmtLKR(item.quantity * item.unit_price)}
                               </TableCell>
                               {(isEditing || isCreating) && (
                                 <TableCell>
@@ -1314,7 +1236,7 @@ export default function PurchaseOrdersPage() {
                             <Typography fontWeight="bold">Total:</Typography>
                           </TableCell>
                           <TableCell align="right">
-                            <Typography fontWeight="bold">{calculateTotal().toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                            <Typography fontWeight="bold">{fmtLKR(calculateTotal())}</Typography>
                           </TableCell>
                           {(isEditing || isCreating) && <TableCell />}
                         </TableRow>
@@ -1419,8 +1341,9 @@ export default function PurchaseOrdersPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Confirm Dialog */}
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      {/* Confirm Dialogs */}
+      <TConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...creditWarningDialog.dialogProps} confirmColor="warning" />
 
       {/* Print Preview Dialog */}
       {selectedPoIdForPrint && (
