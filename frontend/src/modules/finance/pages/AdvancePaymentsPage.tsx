@@ -47,6 +47,7 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
+  TDetailSkeleton,
   TBranchFilter,
   TFilterPanel,
   TSupplierFilter,
@@ -684,6 +685,8 @@ export default function AdvancePaymentsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
           <EmptyState message={`Select a ${advanceType} advance payment from the list or create a new one`} />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : advanceType === "customer" ? (
           /* ======= CUSTOMER FORM ======= */
           <>

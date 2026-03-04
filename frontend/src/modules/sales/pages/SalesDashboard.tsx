@@ -1,7 +1,7 @@
 import {
   TCurrency,
-  TLoading,
   TPageHeader,
+  TPageSkeleton,
   TStatCard,
   TStatusChip,
 } from "@/components/tijaero";
@@ -72,7 +72,7 @@ export default function SalesDashboard() {
   }, [stats]);
 
   if (isLoading || !stats) {
-    return <TLoading message="Loading sales data..." />;
+    return <TPageSkeleton variant="dashboard" />;
   }
 
   // Format payment breakdown for display

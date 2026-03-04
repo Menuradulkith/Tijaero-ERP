@@ -27,6 +27,7 @@ import {
     showErrorToast,
     showSuccessToast,
     SortOption,
+    TDetailSkeleton,
     TConfirmDialog,
     useMasterDetailState,
     useTConfirmDialog,
@@ -369,6 +370,8 @@ export default function CustomersPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedCustomer && !isCreating ? (
           <EmptyState message="Select a customer from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={6} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {/* Basic Information */}

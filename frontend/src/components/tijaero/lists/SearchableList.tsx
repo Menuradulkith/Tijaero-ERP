@@ -20,7 +20,7 @@ import {
   MenuItem,
   List,
   Typography,
-  CircularProgress,
+  Skeleton,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -157,15 +157,16 @@ export function SearchableList<T extends BaseEntity>({
       {/* List */}
       <List sx={{ flex: 1, overflow: "auto", py: 0 }}>
         {isLoading ? (
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              p: 4,
-            }}
-          >
-            <CircularProgress size={24} />
+          <Box sx={{ p: 1 }}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1.5, p: 1.5 }}>
+                <Skeleton variant="circular" width={32} height={32} animation="wave" />
+                <Box sx={{ flex: 1 }}>
+                  <Skeleton variant="text" width="70%" animation="wave" />
+                  <Skeleton variant="text" width="40%" height={14} animation="wave" />
+                </Box>
+              </Box>
+            ))}
           </Box>
         ) : isEmpty && !children ? (
           <Box

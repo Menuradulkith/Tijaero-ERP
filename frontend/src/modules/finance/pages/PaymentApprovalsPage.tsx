@@ -43,6 +43,7 @@ import {
   TBranchFilter,
   TStatusFilter,
   SortOption,
+  TDetailSkeleton,
   showSuccessToast,
   showErrorToast,
   modernTableStyles,
@@ -535,6 +536,8 @@ export default function PaymentApprovalsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedPayment ? (
           <EmptyState message="Select a payment from the list to review" />
+        ) : isLoading ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
         ) : (
           <>
             {/* Payment Information */}

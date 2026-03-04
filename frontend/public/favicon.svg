@@ -1,14 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <!-- Background circle -->
-  <circle cx="32" cy="32" r="30" fill="#6B5B95"/>
-  
-  <!-- T letter stylized -->
-  <path d="M18 18h28v6H36v22h-8V24H18v-6z" fill="white"/>
-  
-  <!-- Bottom accent bar -->
-  <rect x="22" y="44" width="20" height="4" rx="2" fill="#E8D5B7"/>
-  
-  <!-- Decorative dots representing ERP modules -->
-  <circle cx="48" cy="32" r="3" fill="#E8D5B7"/>
-  <circle cx="48" cy="42" r="3" fill="#E8D5B7"/>
+<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <rect width="120" height="120" rx="20" fill="#111111"/>
+  <path d="M 35,30 V 75 C 35,100 65,100 65,75 V 50 C 65,30 95,30 95,50 C 95,65 75,65 75,75 C 75,95 95,95 105,85" 
+        fill="none" stroke="#12a83f" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
 </svg>

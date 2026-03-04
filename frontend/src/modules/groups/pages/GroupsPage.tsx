@@ -10,7 +10,6 @@ import {
     Card,
     CardContent,
     Checkbox,
-    CircularProgress,
     TextField,
     Typography,
 } from "@mui/material";
@@ -26,6 +25,8 @@ import {
     SearchableList,
     SelectableListItem,
     SortOption,
+    TDetailSkeleton,
+    TPageSkeleton,
     useMasterDetailState,
     handleApiError,
     showErrorToast,
@@ -223,11 +224,7 @@ export default function GroupsPage() {
   }, [setFormData]);
 
   if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
-      </Box>
-    );
+    return <TPageSkeleton variant="detail" />;
   }
 
   const isFormValid = !!formData.name;
@@ -296,6 +293,8 @@ export default function GroupsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         {!selectedGroup && !isCreating ? (
           <EmptyState message="Select a role from the list or create a new one" />
+        ) : loading && !isCreating ? (
+          <TDetailSkeleton sections={1} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {error && (

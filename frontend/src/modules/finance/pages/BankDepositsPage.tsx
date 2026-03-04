@@ -26,6 +26,7 @@ import {
   EmptyState,
   useMasterDetailState,
   SortOption,
+  TDetailSkeleton,
   TBranchFilter,
   TFilterPanel,
   TStatusFilter,
@@ -231,6 +232,8 @@ export default function BankDepositsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
           <EmptyState message="Select a bank deposit from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             <FormSection title="Deposit Information" columns={3}>

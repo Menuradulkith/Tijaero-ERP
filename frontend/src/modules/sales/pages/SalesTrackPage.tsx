@@ -54,6 +54,7 @@ import {
   SearchableList,
   SelectableListItem,
   SortOption,
+  TDetailSkeleton,
   TInfoCard,
   TStatCard,
   TStatusChip,
@@ -455,6 +456,8 @@ export default function SalesTrackPage() {
           <EmptyState
             message="Select an invoice from the list to view its full tracking details"
           />
+        ) : historyLoading ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
         ) : (
           <Stack spacing={2.5}>
             {/* ── Summary Stat Cards ─────────────────────────── */}

@@ -7,6 +7,7 @@ import {
   Chip,
   Divider,
   Button,
+  LinearProgress,
   TextField,
   MenuItem,
   Dialog,
@@ -406,7 +407,7 @@ export default function PayrollProcessingPage() {
           Payroll Batches
         </Typography>
         {isLoading ? (
-          <Typography>Loading...</Typography>
+          <LinearProgress sx={{ my: 2 }} />
         ) : !batches?.length ? (
           <Alert severity="info">
             No payroll batches found. Click "Run Payroll" to generate payroll records for all employees.

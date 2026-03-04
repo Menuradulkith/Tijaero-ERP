@@ -46,7 +46,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { TPageHeader, TCurrency, TLoading, TBranchFilter } from '@/components/tijaero';
+import { TPageHeader, TCurrency, TPageSkeleton, TBranchFilter } from '@/components/tijaero';
 import { cashbookApi, bankDepositsApi, expensesApi } from '../api';
 import { CashbookEntry } from '../types';
 import { useReferenceData } from '@/hooks';
@@ -446,7 +446,7 @@ export default function FinanceDashboard() {
   const isLoading = cashbookLoading || depositsLoading || expensesLoading;
 
   if (isLoading) {
-    return <TLoading message="Loading Finance Dashboard..." />;
+    return <TPageSkeleton variant="dashboard" />;
   }
 
   return (

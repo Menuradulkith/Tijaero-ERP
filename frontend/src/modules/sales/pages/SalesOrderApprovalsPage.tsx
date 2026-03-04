@@ -40,6 +40,7 @@ import {
     SearchableList,
     SelectableListItem,
     SortOption,
+    TDetailSkeleton,
     TConfirmDialog,
     TStatusChip,
     getStatusProps,
@@ -393,6 +394,8 @@ export default function SalesOrderApprovalsPage() {
             <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
                 {!selectedOrder ? (
                     <EmptyState message="Select a sales order from the list to review" />
+                ) : isLoading ? (
+                    <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
                 ) : (
                     <>
                         {/* Order Information */}

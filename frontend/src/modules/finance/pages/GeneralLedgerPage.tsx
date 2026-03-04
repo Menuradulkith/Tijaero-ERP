@@ -16,6 +16,7 @@ import {
   CardContent,
   Chip,
   Paper,
+  Skeleton,
   Tab,
   Table,
   TableBody,
@@ -42,6 +43,7 @@ import {
   TFilterPanel,
   TSearchableSelect,
   type SortOption,
+  TDetailSkeleton,
   modernTableStyles,
 } from "@/components/tijaero";
 
@@ -296,6 +298,8 @@ export default function GeneralLedgerPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedAccount && detailTab === 0 ? (
           <EmptyState message="Select an account from the list to view ledger entries" />
+        ) : accountsLoading && detailTab === 0 ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={3} showHeader={false} showToolbar={false} showTable />
         ) : detailTab === 0 ? (
           <>
             {/* Ledger Filters */}
@@ -370,9 +374,13 @@ export default function GeneralLedgerPage() {
                   </TableHead>
                   <TableBody>
                     {glLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={7} align="center">Loading...</TableCell>
-                      </TableRow>
+                      Array.from({ length: 4 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 7 }).map((_, j) => (
+                            <TableCell key={j}><Skeleton animation="wave" /></TableCell>
+                          ))}
+                        </TableRow>
+                      ))
                     ) : glEntries.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} align="center">
@@ -495,9 +503,13 @@ export default function GeneralLedgerPage() {
                   </TableHead>
                   <TableBody>
                     {tbLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={6} align="center">Loading...</TableCell>
-                      </TableRow>
+                      Array.from({ length: 4 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 6 }).map((_, j) => (
+                            <TableCell key={j}><Skeleton animation="wave" /></TableCell>
+                          ))}
+                        </TableRow>
+                      ))
                     ) : trialBalance?.accounts?.length ? (
                       <>
                         {trialBalance.accounts.map((acc) => (

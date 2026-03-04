@@ -16,7 +16,6 @@ import {
   TableRow,
   TableCell,
   Chip,
-  CircularProgress,
   Switch,
   FormControlLabel,
   MenuItem,
@@ -42,7 +41,9 @@ import {
   FormSection,
   handleApiError,
   EmptyState,
+  TDetailSkeleton,
   TFilterPanel,
+  TLoadingSkeleton,
   TStatusChip,
   TAlert,
   modernTableStyles,
@@ -453,8 +454,8 @@ export default function ReceiveNotesPage() {
       }
     >
       {isLoadingIRNs ? (
-        <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
-          <CircularProgress size={24} />
+        <Box sx={{ p: 1.5 }}>
+          <TLoadingSkeleton type="list" count={5} animation="wave" />
         </Box>
       ) : irnError ? (
         <TAlert severity="error" sx={{ m: 1 }}>
@@ -496,8 +497,8 @@ export default function ReceiveNotesPage() {
               />
             </Box>
             {isLoadingITNs ? (
-              <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
-                <CircularProgress size={24} />
+              <Box sx={{ p: 1.5 }}>
+                <TLoadingSkeleton type="list" count={3} animation="wave" />
               </Box>
             ) : (availableITNs || []).length === 0 ? (
               <TAlert severity="info">
@@ -852,7 +853,7 @@ export default function ReceiveNotesPage() {
   };
 
   // Fetch related transfer note when IRN is selected
-  const { data: relatedTransferNote } = useQuery({
+  const { data: relatedTransferNote, isLoading: isDetailLoading } = useQuery({
     queryKey: ["transferNoteDetail", selectedIRN?.item_transfer_note_id],
     queryFn: async () => {
       if (!selectedIRN) return null;
@@ -1083,6 +1084,8 @@ export default function ReceiveNotesPage() {
             message="Select a receive note from the list or create a new one"
             icon="inbox"
           />
+        ) : isDetailLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
         ) : (
           <>
             {isCreating && (

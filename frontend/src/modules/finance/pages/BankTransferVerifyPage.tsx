@@ -38,6 +38,7 @@ import {
   handleApiError,
   EmptyState,
   SortOption,
+  TDetailSkeleton,
   TConfirmDialog,
   showSuccessToast,
   showErrorToast,
@@ -408,6 +409,8 @@ export default function BankTransferVerifyPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedTransfer ? (
           <EmptyState message="Select a bank transfer from the list to review and verify" />
+        ) : isLoading ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {/* Bank Transfer Details */}

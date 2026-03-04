@@ -50,6 +50,7 @@ import {
   showSuccessToast,
   SortOption,
   TCurrency,
+  TDetailSkeleton,
   TSearchableSelect,
   TStatCard,
   TStatusChip,
@@ -179,7 +180,7 @@ export default function CommissionPaymentsPage() {
   const branches = branchesData?.items || [];
 
   // Fetch payment details when a payment is selected
-  const { data: paymentDetails } = useQuery({
+  const { data: paymentDetails, isLoading: isDetailLoading } = useQuery({
     queryKey: ["commission-payment-detail", selectedPayment?.id],
     queryFn: () => selectedPayment ? commissionPaymentsApi.getById(selectedPayment.id) : Promise.resolve(null),
     enabled: !!selectedPayment && !isCreating && !isEditing,
@@ -510,6 +511,8 @@ export default function CommissionPaymentsPage() {
             </Grid>
             <EmptyState message="Select a payment from the list or create a new one" />
           </>
+        ) : isDetailLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
         ) : isCreating ? (
           <>
             {/* Payment Details */}

@@ -42,6 +42,7 @@ import {
   SelectableListItem,
   SortOption,
   TConfirmDialog,
+  TDetailSkeleton,
   TStatusChip,
   modernTableStyles,
   showErrorToast,
@@ -123,7 +124,7 @@ export default function CommissionPaymentApprovalsPage() {
   }, [allCustomers]);
 
   // Fetch payment details when selected
-  const { data: paymentDetails } = useQuery({
+  const { data: paymentDetails, isLoading: isDetailLoading } = useQuery({
     queryKey: ["commission-payment-detail", selectedPayment?.id],
     queryFn: () =>
       selectedPayment
@@ -483,6 +484,8 @@ export default function CommissionPaymentApprovalsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedPayment ? (
           <EmptyState message="Select a payment from the list to review" />
+        ) : isDetailLoading ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={6} showHeader={false} showToolbar={false} showTable />
         ) : (
           <>
             {/* Payment Information */}

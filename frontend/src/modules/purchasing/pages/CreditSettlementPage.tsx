@@ -44,6 +44,8 @@ import {
   EmptyState,
   handleApiError,
   SortOption,
+  TDetailSkeleton,
+  TLoadingSkeleton,
   showErrorToast,
   showSuccessToast,
   PURCHASING_PAYMENT_METHOD,
@@ -610,8 +612,8 @@ export default function CreditSettlementPage() {
         <Divider sx={{ my: 1 }} />
 
         {loadingCredit ? (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-            <CircularProgress />
+          <Box sx={{ py: 2 }}>
+            <TLoadingSkeleton type="table" count={4} columns={5} animation="wave" />
           </Box>
         ) : payablePOs.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
@@ -964,6 +966,10 @@ export default function CreditSettlementPage() {
         {!selectedSupplier ? (
           <Box sx={{ p: 2 }}>
             <EmptyState message="Select a supplier from the list to view credit details and make payments" />
+          </Box>
+        ) : loading ? (
+          <Box sx={{ p: 1.5 }}>
+            <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
           </Box>
         ) : viewMode === "supplier" ? (
           renderSupplierView()

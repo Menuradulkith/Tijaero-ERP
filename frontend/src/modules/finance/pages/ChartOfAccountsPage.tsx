@@ -39,6 +39,7 @@ import {
   TFilterPanel,
   TSearchableSelect,
   type SortOption,
+  TDetailSkeleton,
   useMasterDetailState,
 } from "@/components/tijaero";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
@@ -475,6 +476,8 @@ export default function ChartOfAccountsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedAccount && !isCreating ? (
           <EmptyState message="Select an account from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {/* Account Information */}
