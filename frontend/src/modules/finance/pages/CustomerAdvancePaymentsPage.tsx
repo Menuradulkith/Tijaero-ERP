@@ -34,6 +34,7 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
+  TDetailSkeleton,
   TBranchFilter,
   TFilterPanel,
   GENERIC_PAYMENT_METHOD,
@@ -400,6 +401,8 @@ export default function CustomerAdvancePaymentsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
           <EmptyState message="Select a customer advance payment from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             <FormSection title="Payment Information" columns={3}>

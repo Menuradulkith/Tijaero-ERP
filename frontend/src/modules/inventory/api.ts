@@ -13,6 +13,7 @@ import {
   MinimumPriceCreate,
   SalesStock,
   SalesStockCreate,
+  StockTrackingEvent,
   CompanyAsset,
   CompanyAssetCreate,
 } from "./types";
@@ -204,6 +205,13 @@ export const salesStockApi = {
       `/inventory/sales-stock/${id}/status`,
       null,
       { params: { status } }
+    );
+    return response.data;
+  },
+
+  getTracking: async (id: number) => {
+    const response = await apiClient.get<StockTrackingEvent[]>(
+      `/inventory/sales-stock/${id}/tracking`
     );
     return response.data;
   },

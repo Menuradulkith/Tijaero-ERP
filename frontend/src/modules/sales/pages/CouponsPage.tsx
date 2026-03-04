@@ -44,6 +44,7 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
+  TDetailSkeleton,
   TConfirmDialog,
   TSearchableSelect,
   useMasterDetailState,
@@ -451,6 +452,8 @@ export default function CouponsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedCoupon && !isCreating ? (
           <EmptyState message="Select a coupon from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {/* Coupon Code with Barcode Scanner */}

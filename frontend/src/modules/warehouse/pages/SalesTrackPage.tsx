@@ -54,6 +54,7 @@ import {
   SearchableList,
   SelectableListItem,
   SortOption,
+  TDetailSkeleton,
   TInfoCard,
   TStatCard,
   TStatusChip,
@@ -158,7 +159,7 @@ export default function SalesTrackPage() {
   }, [products]);
 
   // Fetch payment history for selected order
-  const { data: paymentHistory = [] } = useQuery({
+  const { data: paymentHistory = [], isLoading: isDetailLoading } = useQuery({
     queryKey: ["payment-history", selectedOrder?.id],
     queryFn: () => salesApi.getPaymentHistory(selectedOrder!.id),
     enabled: !!selectedOrder,
@@ -368,6 +369,8 @@ export default function SalesTrackPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         {!selectedOrder ? (
           <EmptyState message="Select an invoice from the list to view tracking details" icon={<TimelineIcon />} />
+        ) : isDetailLoading ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
         ) : (
           <Stack spacing={3}>
             {/* Summary Cards */}

@@ -41,6 +41,7 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
+  TDetailSkeleton,
   TConfirmDialog,
   TPrintButton,
   TPrintPreviewDialog,
@@ -480,6 +481,8 @@ export default function VouchersPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedVoucher && !isCreating ? (
           <EmptyState message="Select a voucher from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {/* Voucher Code with Barcode Scanner */}

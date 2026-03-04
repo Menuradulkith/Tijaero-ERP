@@ -1,9 +1,10 @@
-import { Box, CircularProgress, Typography } from "@mui/material";
+import { Box } from "@mui/material";
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "./app/layout/MainLayout";
 import ProtectedRoute from "./auth/components/ProtectedRoute";
 import LoginPage from "./auth/pages/LoginPage";
+import { TPageSkeleton } from "./components/tijaero";
 
 // Lazy load route modules for better initial load performance
 const DashboardPage = lazy(() => import("./app/pages/DashboardPage"));
@@ -21,23 +22,7 @@ const GroupsPage = lazy(() => import("./modules/groups/pages/GroupsPage"));
 
 // Loading fallback component
 function RouteLoadingFallback() {
-  return (
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "50vh",
-        gap: 2,
-      }}
-    >
-      <CircularProgress size={40} />
-      <Typography variant="body2" color="text.secondary">
-        Loading module...
-      </Typography>
-    </Box>
-  );
+  return <TPageSkeleton />;
 }
 
 function App() {

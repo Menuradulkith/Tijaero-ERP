@@ -29,6 +29,7 @@ import {
     MenuItem,
     Paper,
     Select,
+    Skeleton,
     Stack,
     Switch,
     Tab,
@@ -750,7 +751,7 @@ export default function SalesPaymentPage() {
                                         Name
                                     </Typography>
                                     <Typography variant="body1" fontWeight={600}>
-                                        {customer?.customer_name || "Loading..."}
+                                        {customer?.customer_name || <Skeleton animation="wave" width={120} />}
                                     </Typography>
                                 </Box>
                                 <Box>

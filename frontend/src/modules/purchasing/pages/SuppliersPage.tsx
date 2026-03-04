@@ -29,6 +29,7 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
+  TDetailSkeleton,
   TITLE_CHOICES,
   GENDER_CHOICES,
   CIVIL_CHOICES,
@@ -441,6 +442,8 @@ export default function SuppliersPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedSupplier && !isCreating ? (
           <EmptyState message="Select a supplier from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={6} showHeader={false} showToolbar={false} />
         ) : (
           <>
             <FormSection title="Personal Information" columns={3}>

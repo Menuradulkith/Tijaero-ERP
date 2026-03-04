@@ -37,6 +37,7 @@ import {
   SearchableList,
   SelectableListItem,
   SortOption,
+  TDetailSkeleton,
   TConfirmDialog,
   TSearchableSelect,
   TStatusChip,
@@ -460,6 +461,8 @@ export default function CommissionApprovalsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedCommission ? (
           <EmptyState message="Select a commission from the list to review" />
+        ) : isLoading ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
         ) : (
           <>
             {/* Agent & Customer Information */}

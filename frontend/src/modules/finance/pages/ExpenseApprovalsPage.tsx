@@ -41,6 +41,7 @@ import {
   type SortOption,
   TBranchFilter,
   TConfirmDialog,
+  TDetailSkeleton,
   TFilterPanel,
   TSearchableSelect,
   TStatusChip,
@@ -101,7 +102,7 @@ export default function ExpenseApprovalsPage() {
   const expenses = expensesData?.items || [];
 
   // Fetch selected expense detail
-  const { data: expenseDetail } = useQuery({
+  const { data: expenseDetail, isLoading: isDetailLoading } = useQuery({
     queryKey: ["expense-approval-detail", selectedExpense?.id],
     queryFn: () =>
       selectedExpense
@@ -367,6 +368,8 @@ export default function ExpenseApprovalsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!detail ? (
           <EmptyState message="Select an expense from the list to review" />
+        ) : isDetailLoading ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {/* Rejection Warning */}

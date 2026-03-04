@@ -72,11 +72,11 @@ export {
 // FEEDBACK COMPONENTS - User feedback and notifications
 // =============================================================================
 export {
-  TAlert, TConfirmDialog, TEmptyState, TLoading,
-  TLoadingSkeleton, TPrintPreviewDialog, TRemarkDialog, showErrorToast,
+  TAlert, TConfirmDialog, TDetailSkeleton, TEmptyState, TLoading,
+  TLoadingSkeleton, TPageSkeleton, TPrintPreviewDialog, TRemarkDialog, showErrorToast,
   showInfoToast, showSuccessToast, showToast, showWarningToast, useTConfirmDialog as useConfirmDialog, useRemarkDialog, useTConfirmDialog, type TAlertProps, type TConfirmDialogProps,
-  type TEmptyStateProps, type TLoadingProps,
-  type TLoadingSkeletonProps, type TPrintPreviewDialogProps, type TRemarkDialogProps,
+  type TDetailSkeletonProps, type TEmptyStateProps, type TLoadingProps,
+  type TLoadingSkeletonProps, type TPageSkeletonProps, type TPageSkeletonVariant, type TPrintPreviewDialogProps, type TRemarkDialogProps,
   type UseRemarkDialogOptions,
   type UseRemarkDialogReturn
 } from './feedback-extended';

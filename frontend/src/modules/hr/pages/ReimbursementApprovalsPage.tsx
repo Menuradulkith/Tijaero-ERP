@@ -50,6 +50,7 @@ import {
   TStatusChip,
   showErrorToast,
   showSuccessToast,
+  TDetailSkeleton,
 } from "@/components/tijaero";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -103,7 +104,7 @@ export default function ReimbursementApprovalsPage() {
   });
 
   // Fetch selected detail
-  const { data: reimbursementDetail } = useQuery({
+  const { data: reimbursementDetail, isLoading: isDetailLoading } = useQuery({
     queryKey: ["reimbursement-approval-detail", selectedReimbursement?.id],
     queryFn: () =>
       selectedReimbursement
@@ -310,7 +311,9 @@ export default function ReimbursementApprovalsPage() {
 
   const detail = reimbursementDetail || selectedReimbursement;
 
-  const detailPanel = detail ? (
+  const detailPanel = isDetailLoading && selectedReimbursement ? (
+    <TDetailSkeleton sections={3} fieldsPerSection={4} showTable />
+  ) : detail ? (
     <Box sx={{ p: 2 }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
         <Box>

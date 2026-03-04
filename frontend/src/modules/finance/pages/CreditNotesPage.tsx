@@ -29,6 +29,7 @@ import {
   TPrintPreviewDialog,
   useMasterDetailState,
   SortOption,
+  TDetailSkeleton,
   TFilterPanel,
 } from "@/components/tijaero";
 
@@ -270,6 +271,8 @@ export default function CreditNotesPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
           <EmptyState message="Select a credit note from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             <FormSection title="Credit Note Information" columns={2}>

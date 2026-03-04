@@ -9,7 +9,6 @@ import {
     Box,
     Checkbox,
     Chip,
-    CircularProgress,
     FormControlLabel,
     Switch,
     TextField,
@@ -27,6 +26,8 @@ import {
     SearchableList,
     SelectableListItem,
     SortOption,
+    TDetailSkeleton,
+    TPageSkeleton,
     useMasterDetailState,
     GENDER_CHOICES,
     TConfirmDialog,
@@ -430,11 +431,7 @@ export default function UsersPage() {
   }, [selectedUser, setSelectedUser, confirmDialog]);
 
   if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
-      </Box>
-    );
+    return <TPageSkeleton variant="detail" />;
   }
 
   const isFormValid = formData.username && formData.email && formData.first_name && formData.last_name &&
@@ -601,6 +598,8 @@ export default function UsersPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         {!selectedUser && !isCreating ? (
           <EmptyState message="Select a user from the list or create a new one" />
+        ) : loading && !isCreating ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {error && (

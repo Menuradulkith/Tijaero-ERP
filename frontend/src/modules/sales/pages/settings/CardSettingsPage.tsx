@@ -35,7 +35,7 @@ import {
   TConfirmDialog,
   useTConfirmDialog,
   TFormDialog,
-  TLoading,
+  TPageSkeleton,
   TEmptyState,
   showSuccessToast,
   showErrorToast,
@@ -249,7 +249,7 @@ export default function CardSettingsPage() {
   );
 
   if (isLoading) {
-    return <TLoading message="Loading payment cards..." />;
+    return <TPageSkeleton variant="list" />;
   }
 
   return (

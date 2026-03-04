@@ -48,6 +48,7 @@ import {
     SearchableList,
     SelectableListItem,
     SortOption,
+    TDetailSkeleton,
     useMasterDetailState,
     TConfirmDialog,
     useConfirmDialog,
@@ -565,6 +566,8 @@ export default function BranchesPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         {!selectedBranch && !isCreating ? (
           <EmptyState message="Select a branch from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <FormSection title="Branch Information" columns={2}>
             <TextField

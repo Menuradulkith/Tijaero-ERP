@@ -44,6 +44,7 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
+  TDetailSkeleton,
   TConfirmDialog,
   TCurrency,
   TSearchableSelect,
@@ -619,6 +620,8 @@ export default function AgentCommissionsPage() {
             )}
             <EmptyState message="Select a commission from the list or create a new one" />
           </>
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
         ) : (
           <>
             {/* Agent & Customer Selection */}

@@ -47,6 +47,7 @@ import {
     getStatusProps,
     handleApiError,
     SortOption,
+    TDetailSkeleton,
     TPrintPreviewDialog,
     showSuccessToast,
     showErrorToast,
@@ -423,6 +424,8 @@ export default function SaleReturnApprovalsPage() {
             <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
                 {!selectedReturn ? (
                     <EmptyState message="Select a sale return from the list to review" />
+                ) : isLoading ? (
+                    <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
                 ) : (
                     <>
                         {/* Return Information */}

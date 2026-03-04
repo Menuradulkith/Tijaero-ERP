@@ -24,7 +24,6 @@ import {
   IconButton,
   Tooltip,
   Chip,
-  CircularProgress,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
@@ -44,6 +43,7 @@ import {
   TStatusFilter,
   getStatusProps,
   SortOption,
+  TDetailSkeleton,
   showSuccessToast,
   showErrorToast,
   modernTableStyles,
@@ -415,9 +415,7 @@ export default function ItemTransferNoteApprovalsPage() {
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {loadingItems ? (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-            <CircularProgress />
-          </Box>
+          <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} showTable />
         ) : !selectedITN ? (
           <EmptyState message="Select a transfer note from the list to review" />
         ) : (

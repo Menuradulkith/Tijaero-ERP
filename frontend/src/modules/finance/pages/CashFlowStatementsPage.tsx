@@ -43,6 +43,7 @@ import {
   showErrorToast,
   showSuccessToast,
   TCurrency,
+  TDetailSkeleton,
   TFilterPanel,
   TSearchableSelect,
   type SortOption,
@@ -114,7 +115,7 @@ export default function CashFlowStatementsPage() {
       }),
   });
 
-  const { data: statementDetail } = useQuery({
+  const { data: statementDetail, isLoading: isDetailLoading } = useQuery({
     queryKey: ["cash-flow-statement-detail", selectedStatement?.id],
     queryFn: () =>
       selectedStatement
@@ -424,6 +425,8 @@ export default function CashFlowStatementsPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!detail ? (
           <EmptyState message="Select a cash flow statement from the list or generate a new one" />
+        ) : isDetailLoading ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={3} showHeader={false} showToolbar={false} showTable />
         ) : (
           <>
             {/* Summary Cards */}

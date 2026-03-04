@@ -46,6 +46,7 @@ import {
   TStatusChip,
   showErrorToast,
   showSuccessToast,
+  TDetailSkeleton,
 } from "@/components/tijaero";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -103,7 +104,7 @@ export default function PayrollApprovalsPage() {
   });
 
   // Fetch selected detail
-  const { data: batchDetail } = useQuery({
+  const { data: batchDetail, isLoading: isDetailLoading } = useQuery({
     queryKey: ["payroll-approval-detail", selectedBatch?.id],
     queryFn: () =>
       selectedBatch
@@ -263,7 +264,9 @@ export default function PayrollApprovalsPage() {
 
   const detail = batchDetail || selectedBatch;
 
-  const detailPanel = detail ? (
+  const detailPanel = isDetailLoading && selectedBatch ? (
+    <TDetailSkeleton sections={3} fieldsPerSection={4} showTable />
+  ) : detail ? (
     <Box sx={{ p: 2 }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
         <Box>
