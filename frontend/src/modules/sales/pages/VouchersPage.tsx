@@ -67,6 +67,7 @@ const SORT_OPTIONS: SortOption[] = [
 const STATUS_OPTIONS = [
   { value: "", label: "All Statuses" },
   { value: "active", label: "Active" },
+  { value: "expiring_soon", label: "Expiring Soon" },
   { value: "fully_claimed", label: "Fully Claimed" },
   { value: "expired", label: "Expired" },
 ];
@@ -106,6 +107,8 @@ const getVoucherStatus = (voucher: CustomerGiftVoucher): string => {
   if (voucher.status === "fully_claimed") return "fully_claimed";
   if (expiryDate < today) return "expired";
   if (voucher.balance <= 0) return "fully_claimed";
+  const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (daysUntilExpiry <= 30 && daysUntilExpiry > 0) return "expiring_soon";
   return "active";
 };
 
@@ -316,6 +319,8 @@ export default function VouchersPage() {
     switch (status) {
       case "active":
         return "success";
+      case "expiring_soon":
+        return "warning";
       case "fully_claimed":
         return "default";
       case "expired":
@@ -414,7 +419,7 @@ export default function VouchersPage() {
                     {/* Status Chip - shown below all fields when selected */}
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
                       <Chip
-                        label={status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
+                        label={status === "expiring_soon" ? "Expiring Soon" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
                         size="small"
                         color={getStatusColor(status)}
                         sx={{ height: 18, fontSize: "0.65rem" }}

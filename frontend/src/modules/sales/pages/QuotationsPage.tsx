@@ -9,6 +9,7 @@ import {
   DetailPanelHeader,
   EmptyState,
   FormSection,
+  handleApiError,
   MasterDetailLayout,
   modernTableStyles,
   SearchableList,
@@ -163,8 +164,8 @@ export default function QuotationsPage() {
     confirmUnsavedChanges: async () => {
       return await confirmDialog.confirm({
         title: "Unsaved Changes",
-        message: "You have unsaved changes. Are you sure you want to Continue them?",
-        confirmText: "Confirm",
+        message: "You have unsaved changes. Are you sure you want to discard them?",
+        confirmText: "Discard",
         confirmColor: "error",
       });
     },
@@ -279,7 +280,7 @@ export default function QuotationsPage() {
       showSuccessToast(`${QUOTE_TYPE_LABELS[newQuote.quote_type]} created successfully`);
     },
     onError: (error: Error) => {
-      showErrorToast(`Failed to create: ${error.message}`);
+      showErrorToast(handleApiError(error, "Failed to create quote"));
     },
   });
 
@@ -294,7 +295,7 @@ export default function QuotationsPage() {
       showSuccessToast("Quote updated successfully");
     },
     onError: (error: Error) => {
-      showErrorToast(`Failed to update: ${error.message}`);
+      showErrorToast(handleApiError(error, "Failed to update quote"));
     },
   });
 
@@ -306,7 +307,7 @@ export default function QuotationsPage() {
       baseHandleCancel(filteredQuotes);
     },
     onError: (error: Error) => {
-      showErrorToast(`Failed to delete: ${error.message}`);
+      showErrorToast(handleApiError(error, "Failed to delete quote"));
     },
   });
 
@@ -323,8 +324,8 @@ export default function QuotationsPage() {
     if ((isEditing || isCreating) && hasChanges) {
       const confirmed = await confirmDialog.confirm({
         title: "Unsaved Changes",
-        message: "You have unsaved changes. Are you sure you want to Continue them?",
-        confirmText: "Confirm",
+        message: "You have unsaved changes. Are you sure you want to discard them?",
+        confirmText: "Discard",
         confirmColor: "error",
       });
       if (!confirmed) return;
@@ -464,7 +465,6 @@ export default function QuotationsPage() {
     // For product selection, fetch minimum price from MinimumPrice table
     if (field === "product_id" && value) {
       const product = products?.find((p) => p.id === value);
-      console.log("Selected product:", product);
       if (product) {
         // First update with product selected
         setLineItems(prev => {
@@ -475,11 +475,8 @@ export default function QuotationsPage() {
 
         try {
           // Fetch the current minimum price from the MinimumPrice table
-          console.log("Fetching minimum price for product ID:", product.id);
           const minPriceData = await minimumPriceApi.getCurrent(product.id);
-          console.log("Minimum price data received:", minPriceData);
           const minSellingPrice = minPriceData?.minimum_price || 0;
-          console.log("Using minimum selling price:", minSellingPrice);
 
           // Update with the fetched minimum price
           setLineItems(prev => {
@@ -577,9 +574,17 @@ export default function QuotationsPage() {
       onToggleFavorite={(e) => toggleFavorite(quote.id, e)}
       endAction={
         !isSelected ? (
-          <Typography variant="body2" fontWeight="medium">
-            <TCurrency value={quote.total_amount} />
-          </Typography>
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
+            <Typography variant="body2" fontWeight="medium">
+              <TCurrency value={quote.total_amount} />
+            </Typography>
+            {quote.valid_until && (() => {
+              const daysLeft = Math.ceil((new Date(quote.valid_until).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+              return daysLeft <= 7 && daysLeft >= 0 ? (
+                <Chip label={daysLeft === 0 ? "Expires Today" : `${daysLeft}d left`} size="small" color="warning" sx={{ height: 16, fontSize: "0.6rem" }} />
+              ) : null;
+            })()}
+          </Box>
         ) : undefined
       }
     />

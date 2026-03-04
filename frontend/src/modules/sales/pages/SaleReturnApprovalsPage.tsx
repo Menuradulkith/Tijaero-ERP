@@ -47,11 +47,13 @@ import {
     getStatusProps,
     handleApiError,
     SortOption,
+    TConfirmDialog,
     TDetailSkeleton,
     TPrintPreviewDialog,
     showSuccessToast,
     showErrorToast,
     modernTableStyles,
+    useTConfirmDialog,
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
@@ -78,6 +80,10 @@ export default function SaleReturnApprovalsPage() {
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
     const [rejectReason, setRejectReason] = useState("");
     const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
+
+    // Confirm dialogs
+    const approveConfirm = useTConfirmDialog();
+    const processConfirm = useTConfirmDialog();
 
     // Print Dialog State
     const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -210,7 +216,11 @@ export default function SaleReturnApprovalsPage() {
 
     const handleApprove = () => {
         if (selectedReturn) {
-            approveMutation.mutate(selectedReturn.id);
+            approveConfirm.open(
+                "Approve Sale Return",
+                `Are you sure you want to approve return ${selectedReturn.sale_return_no || `SR-${selectedReturn.id}`}? This action cannot be undone.`,
+                () => approveMutation.mutate(selectedReturn.id)
+            );
         }
     };
 
@@ -222,7 +232,11 @@ export default function SaleReturnApprovalsPage() {
 
     const handleProcess = () => {
         if (selectedReturn) {
-            processMutation.mutate(selectedReturn.id);
+            processConfirm.open(
+                "Process Sale Return",
+                `Are you sure you want to process return ${selectedReturn.sale_return_no || `SR-${selectedReturn.id}`}? This will restock returned items and cannot be reversed.`,
+                () => processMutation.mutate(selectedReturn.id)
+            );
         }
     };
 
@@ -302,7 +316,7 @@ export default function SaleReturnApprovalsPage() {
                                         </Box>
                                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <Typography component="span" variant="caption">
-                                                Rs. {(ret.total_refund || 0).toLocaleString()}
+                                                Rs. {fmtLKR(ret.total_refund || 0)}
                                             </Typography>
                                             <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                                                 (Amount)
@@ -639,6 +653,8 @@ export default function SaleReturnApprovalsPage() {
                     title={`Print Credit Note: ${selectedReturnForPrint.sale_return_no}`}
                 />
             )}
+            <TConfirmDialog {...approveConfirm.dialogProps} />
+            <TConfirmDialog {...processConfirm.dialogProps} />
         </>
     );
 }

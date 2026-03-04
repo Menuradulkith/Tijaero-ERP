@@ -155,7 +155,7 @@ export default function CardSettingsPage() {
       {
         field: "card_name",
         header: "Card Name",
-        width: 250,
+        width: 200,
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, height: "100%" }}>
             <CardIcon color="primary" fontSize="small" />
@@ -166,7 +166,7 @@ export default function CardSettingsPage() {
       {
         field: "card_type",
         header: "Type",
-        width: 150,
+        width: 120,
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
@@ -183,7 +183,7 @@ export default function CardSettingsPage() {
       {
         field: "service_charge_percent",
         header: "Service Charge",
-        width: 180,
+        width: 140,
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
@@ -198,12 +198,12 @@ export default function CardSettingsPage() {
         field: "description",
         header: "Description",
         flex: 1,
-        minWidth: 250,
+        minWidth: 120,
       },
       {
         field: "active",
         header: "Status",
-        width: 130,
+        width: 100,
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
@@ -219,7 +219,7 @@ export default function CardSettingsPage() {
       {
         field: "actions",
         header: "Actions",
-        width: 130,
+        width: 100,
         sortable: false,
         align: "center",
         headerAlign: "center",
@@ -253,13 +253,14 @@ export default function CardSettingsPage() {
   }
 
   return (
-    <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
+    <Box sx={{ p: 2, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <TPageHeader
         title="Payment Cards"
         subtitle="Manage credit and debit cards with service charges"
         icon={<CardIcon />}
+        compact
         actions={
-          <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+          <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
             <FormControlLabel
               control={
                 <Switch
@@ -268,7 +269,7 @@ export default function CardSettingsPage() {
                   size="small"
                 />
               }
-              label="Show inactive"
+              label={<Typography variant="body2">Show inactive</Typography>}
             />
             <TButton
               variant="primary"
@@ -282,14 +283,14 @@ export default function CardSettingsPage() {
       />
 
       {cards && cards.length > 0 ? (
-        <Box sx={{ mt: 3 }}>
+        <Box sx={{ flex: 1, minHeight: 0 }}>
           <TDataGrid
             rows={cards}
             columns={columns}
             pageSizeOptions={[10, 25, 50]}
             pageSize={10}
             autoHeight
-            density="comfortable"
+            density="standard"
           />
         </Box>
       ) : (

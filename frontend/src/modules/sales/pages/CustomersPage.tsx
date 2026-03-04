@@ -22,6 +22,7 @@ import {
   EmptyState,
   FormSection,
   GENDER_CHOICES,
+  handleApiError,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -29,6 +30,7 @@ import {
   showSuccessToast,
   SortOption,
   TConfirmDialog,
+  TDetailSkeleton,
   TITLE_CHOICES,
   TStatusFilter,
   useMasterDetailState,
@@ -219,7 +221,7 @@ export default function CustomersPage() {
       setIsEditing(false);
       setTimeout(() => handleSelectCustomer(newCustomer), 0);
     },
-    onError: () => showErrorToast("Failed to create customer"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create customer")),
   });
 
   const updateMutation = useMutation({
@@ -230,7 +232,7 @@ export default function CustomersPage() {
       showSuccessToast("Customer updated successfully");
       setIsEditing(false);
     },
-    onError: () => showErrorToast("Failed to update customer"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update customer")),
   });
 
   const deleteMutation = useMutation({
@@ -240,7 +242,7 @@ export default function CustomersPage() {
       showSuccessToast("Customer deleted successfully");
       baseHandleCancel(filteredCustomers);
     },
-    onError: () => showErrorToast("Failed to delete customer"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to delete customer")),
   });
 
   const confirmDialog = useTConfirmDialog();
@@ -430,6 +432,8 @@ export default function CustomersPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedCustomer && !isCreating ? (
           <EmptyState message="Select a customer from the list or create a new one" />
+        ) : isSaving || isLoading ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {/* Basic Information */}

@@ -33,10 +33,21 @@ def get_available_products(
 def get_sales_statistics(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
-    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+    branch_code: Optional[str] = Query(None, description="Filter statistics by a specific branch")
 ):
     """Get sales statistics for dashboard."""
-    return service.sales_service.get_sales_statistics(db, user_branches)
+    # If a specific branch is requested, filter to that single branch
+    # (still constrained by the user's permitted branches)
+    if branch_code:
+        if user_branches and branch_code not in user_branches:
+            # User has no access to the requested branch — return empty stats
+            effective_branches = ["__none__"]
+        else:
+            effective_branches = [branch_code]
+    else:
+        effective_branches = user_branches
+    return service.sales_service.get_sales_statistics(db, effective_branches)
 
 
 # Optimized paginated list with server-side filtering

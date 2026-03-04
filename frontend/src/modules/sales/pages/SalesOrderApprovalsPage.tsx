@@ -51,12 +51,10 @@ import {
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
-import { branchApi } from "@/modules/branches/api";
 import { customersApi } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
-import { productsApi } from "@/modules/inventory/api";
-import { Product } from "@/modules/inventory/types";
 import { salesApi } from "@/modules/sales/api";
+import { useReferenceData, ProductRef } from "@/hooks";
 import { Invoice, InvoiceWithItems } from "@/modules/sales/types";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -105,20 +103,10 @@ export default function SalesOrderApprovalsPage() {
         queryFn: () => customersApi.getAll(),
     });
 
-    // Fetch products
-    const { data: productsResult } = useQuery({
-        queryKey: ["products"],
-        queryFn: () => productsApi.getAll(1, 1000),
-    });
-    // Handle both array and paginated response just in case, but strictly type it if possible
-    const products = (productsResult as any)?.items || (Array.isArray(productsResult) ? productsResult : []) || [];
-
-    // Fetch branches
-    const { data: branchesData } = useQuery({
-        queryKey: ["branches"],
-        queryFn: () => branchApi.getAll(1, 100),
-    });
-    const branches = branchesData?.items || [];
+    // OPTIMIZED: Single API call for products and branches
+    const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
+    const products = refData?.products || [];
+    const branches = filteredBranches || [];
 
     // Create lookup maps
     const customerMap = useMemo(() => {
@@ -128,8 +116,8 @@ export default function SalesOrderApprovalsPage() {
     }, [customers]);
 
     const productMap = useMemo(() => {
-        const map = new Map<number, Product>();
-        products.forEach((p: Product) => map.set(p.id, p));
+        const map = new Map<number, ProductRef>();
+        products.forEach((p: ProductRef) => map.set(p.id, p));
         return map;
     }, [products]);
 
@@ -314,7 +302,7 @@ export default function SalesOrderApprovalsPage() {
                                         </Box>
                                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <Typography component="span" variant="caption">
-                                                Rs. {((order as any).total_amount || 0).toLocaleString()}
+                                                Rs. {fmtLKR((order as any).total_amount || 0)}
                                             </Typography>
                                             <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                                                 (Amount)

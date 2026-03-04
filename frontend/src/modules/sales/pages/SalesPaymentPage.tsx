@@ -42,6 +42,7 @@ import {
     TextField,
     Typography,
     alpha,
+    CircularProgress,
 } from "@mui/material";
 import {
     AttachMoney as MoneyIcon,
@@ -58,6 +59,7 @@ import {
     LocalAtm as CashIcon,
     Payment as PaymentIcon,
     Info as InfoIcon,
+    ArrowBack as ArrowBackIcon,
 } from "@mui/icons-material";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
@@ -66,7 +68,7 @@ import { format } from "date-fns";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
 import { useReferenceData } from "@/hooks";
-import { fmtLKR, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { fmtLKR, handleApiError, showErrorToast, showSuccessToast, TPageSkeleton, TConfirmDialog, useTConfirmDialog } from "@/components/tijaero";
 
 // Payment method types
 type PaymentMethodType = "cash" | "card_visa" | "card_mastercard" | "card_amex" | "cheque" | "bank_transfer" | "credit";
@@ -107,6 +109,7 @@ export default function SalesPaymentPage() {
     ]);
     const [showReceiptPreview, setShowReceiptPreview] = useState(false);
     const [enableSplitPayment, setEnableSplitPayment] = useState(false);
+    const paymentConfirmDialog = useTConfirmDialog();
 
     // Fetch invoice details
     const { data: invoice, isLoading: loadingInvoice } = useQuery({
@@ -133,9 +136,11 @@ export default function SalesPaymentPage() {
     const { data: refData } = useReferenceData(["products", "branches"]);
     const products = refData?.products || [];
 
-    // Calculate totals
+    // Calculate totals — prefer grand_total from backend (includes discounts, tax, coupons)
     const invoiceTotal = useMemo(() => {
-        if (!invoice?.items) return 0;
+        if (!invoice) return 0;
+        if ((invoice as any).grand_total != null) return Number((invoice as any).grand_total);
+        if (!invoice.items) return 0;
         return invoice.items.reduce((sum: number, item: any) => {
             return sum + (item.quantity * item.selling_price);
         }, 0);
@@ -215,7 +220,17 @@ export default function SalesPaymentPage() {
             }
         }
 
-        processPaymentMutation.mutate();
+        // Warn on overpayment
+        if (remainingAmount < -0.01) {
+            showErrorToast(`Overpayment detected: Rs. ${fmtLKR(Math.abs(remainingAmount))} excess. Please adjust payment amounts.`);
+            return;
+        }
+
+        paymentConfirmDialog.open(
+            "Confirm Payment",
+            `Are you sure you want to process payment of Rs. ${fmtLKR(invoiceTotal)} for invoice ${invoice?.invoice_no}? This action cannot be reversed.`,
+            () => processPaymentMutation.mutate()
+        );
     };
 
     // Auto-distribute remaining amount
@@ -230,16 +245,29 @@ export default function SalesPaymentPage() {
 
     if (loadingInvoice) {
         return (
-            <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100dvh" }}>
-                <Typography>Loading payment details...</Typography>
+            <Box sx={{ p: 3 }}>
+                <TPageSkeleton variant="detail" />
             </Box>
         );
     }
 
     if (!invoice) {
         return (
-            <Box sx={{ p: 3 }}>
-                <Typography>Invoice not found</Typography>
+            <Box sx={{ p: 3, textAlign: "center" }}>
+                <WarningIcon sx={{ fontSize: 60, color: "text.disabled", mb: 2 }} />
+                <Typography variant="h6" color="text.secondary" gutterBottom>
+                    Invoice not found
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    The invoice you are looking for does not exist or has been removed.
+                </Typography>
+                <Button
+                    variant="outlined"
+                    startIcon={<ArrowBackIcon />}
+                    onClick={() => navigate(-1)}
+                >
+                    Go Back
+                </Button>
             </Box>
         );
     }
@@ -368,7 +396,7 @@ export default function SalesPaymentPage() {
 
                                         return (
                                             <Card
-                                                key={index}
+                                                key={`${entry.method}-${index}`}
                                                 variant="outlined"
                                                 sx={{
                                                     borderRadius: 2,
@@ -413,7 +441,7 @@ export default function SalesPaymentPage() {
                                                                 label="Amount"
                                                                 type="number"
                                                                 value={entry.amount || ""}
-                                                                onChange={(e) => updatePaymentEntry(index, "amount", parseFloat(e.target.value) || 0)}
+                                                                onChange={(e) => updatePaymentEntry(index, "amount", Math.max(0, parseFloat(e.target.value) || 0))}
                                                                 InputProps={{
                                                                     startAdornment: (
                                                                         <InputAdornment position="start">
@@ -612,7 +640,7 @@ export default function SalesPaymentPage() {
                                         size="large"
                                         onClick={handleProcessPayment}
                                         disabled={!isPaymentComplete || processPaymentMutation.isPending}
-                                        startIcon={<SaveIcon />}
+                                        startIcon={processPaymentMutation.isPending ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
                                         sx={{
                                             py: 1.5,
                                             fontSize: "1.1rem",
@@ -901,6 +929,7 @@ export default function SalesPaymentPage() {
                     </Button>
                 </DialogActions>
             </Dialog>
+            <TConfirmDialog {...paymentConfirmDialog.dialogProps} />
         </Box>
     );
 }

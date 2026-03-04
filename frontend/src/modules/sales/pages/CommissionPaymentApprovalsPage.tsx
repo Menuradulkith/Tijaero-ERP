@@ -377,7 +377,7 @@ export default function CommissionPaymentApprovalsPage() {
                       }}
                     >
                       <Typography component="span" variant="caption">
-                        Rs. {Number(payment.payment_amount).toLocaleString()}
+                        Rs. {fmtLKR(Number(payment.payment_amount))}
                       </Typography>
                       <Typography
                         component="span"

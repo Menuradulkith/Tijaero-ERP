@@ -69,8 +69,10 @@ export const salesApi = {
   },
 
   // Get sales statistics
-  getStatistics: async () => {
-    const response = await apiClient.get<SalesStats>("/sales/statistics");
+  getStatistics: async (branchCode?: string) => {
+    const response = await apiClient.get<SalesStats>("/sales/statistics", {
+      params: branchCode ? { branch_code: branchCode } : undefined,
+    });
     return response.data;
   },
 

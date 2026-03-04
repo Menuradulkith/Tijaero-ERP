@@ -1,4 +1,5 @@
 import {
+  fmtLKR,
   TCurrency,
   TPageHeader,
   TPageSkeleton,
@@ -13,8 +14,10 @@ import {
   AssignmentReturn as ReturnIcon,
 } from "@mui/icons-material";
 import {
+  Alert,
   Autocomplete,
   Box,
+  Button,
   Card,
   CardContent,
   Chip,
@@ -22,7 +25,7 @@ import {
   Grid,
   LinearProgress,
   List,
-  ListItem,
+  ListItemButton,
   ListItemText,
   Paper,
   TextField,
@@ -31,6 +34,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { salesApi } from "../api";
 
 /**
@@ -44,12 +48,13 @@ import { salesApi } from "../api";
  */
 export default function SalesDashboard() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   // OPTIMIZED: Use statistics endpoint - single API call with SQL aggregations
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, isError, refetch } = useQuery({
     queryKey: ["sales-statistics", filterBranch],
-    queryFn: () => salesApi.getStatistics(),
-    staleTime: 30000, // Cache for 30 seconds
+    queryFn: () => salesApi.getStatistics(filterBranch || undefined),
+    // No staleTime here — branch filter changes must always re-fetch immediately
   });
 
   // Branch list for filter dropdown
@@ -70,6 +75,25 @@ export default function SalesDashboard() {
     
     return { revenue: revenueTrend, orders: ordersTrend };
   }, [stats]);
+
+  if (isError) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <TPageHeader title="Sales Dashboard" subtitle="Overview of sales performance and statistics" />
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => refetch()}>
+              Retry
+            </Button>
+          }
+          sx={{ mt: 2 }}
+        >
+          Failed to load dashboard statistics. Please try again.
+        </Alert>
+      </Box>
+    );
+  }
 
   if (isLoading || !stats) {
     return <TPageSkeleton variant="dashboard" />;
@@ -109,8 +133,8 @@ export default function SalesDashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Total Revenue"
-            value={`Rs. ${stats.total_revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            subtitle={`This month: Rs. ${stats.current_month_revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            value={`Rs. ${fmtLKR(stats.total_revenue)}`}
+            subtitle={`This month: Rs. ${fmtLKR(stats.current_month_revenue)}`}
             icon={<MoneyIcon />}
             color="success"
             trend={trends.revenue}
@@ -163,7 +187,7 @@ export default function SalesDashboard() {
                       {method.replace(/_/g, ' ')}
                     </Typography>
                     <Typography variant="body2" fontWeight={500}>
-                      Rs. {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({percentage.toFixed(1)}%)
+                      Rs. {fmtLKR(amount)} ({percentage.toFixed(1)}%)
                     </Typography>
                   </Box>
                   <LinearProgress
@@ -184,9 +208,15 @@ export default function SalesDashboard() {
               Recent Orders
             </Typography>
             <Divider sx={{ mb: 1 }} />
+            {stats.recent_invoices.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 3 }}>
+                <ReceiptIcon sx={{ fontSize: 40, color: "text.disabled", mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">No recent orders</Typography>
+              </Box>
+            ) : (
             <List dense>
               {stats.recent_invoices.map((invoice) => (
-                <ListItem key={invoice.id} divider>
+                <ListItemButton key={invoice.id} divider onClick={() => navigate(`/sales?invoice=${invoice.id}`)} sx={{ borderRadius: 1 }}>
                   <ListItemText
                     primary={invoice.invoice_no}
                     secondary={format(new Date(invoice.created_date), "MMM dd, yyyy")}
@@ -201,9 +231,10 @@ export default function SalesDashboard() {
                       size="small"
                     />
                   </Box>
-                </ListItem>
+                </ListItemButton>
               ))}
             </List>
+            )}
           </Paper>
         </Grid>
 
@@ -214,26 +245,33 @@ export default function SalesDashboard() {
               Top Orders by Value
             </Typography>
             <Divider sx={{ mb: 2 }} />
+            {stats.top_invoices.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 3 }}>
+                <ReceiptIcon sx={{ fontSize: 40, color: "text.disabled", mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">No orders yet</Typography>
+              </Box>
+            ) : (
             <Grid container spacing={2}>
               {stats.top_invoices.map((invoice, index) => (
-                <Grid item xs={12} sm={6} md={2.4} key={invoice.id}>
-                  <Card variant="outlined">
+                <Grid item xs={12} sm={6} md={2} key={invoice.id}>
+                  <Card variant="outlined" sx={{ cursor: "pointer" }} onClick={() => navigate(`/sales?invoice=${invoice.id}`)}>
                     <CardContent sx={{ textAlign: "center" }}>
                       <Chip label={`#${index + 1}`} size="small" color="primary" sx={{ mb: 1 }} />
                       <Typography variant="subtitle2" noWrap>
                         {invoice.invoice_no}
                       </Typography>
                       <Typography variant="h6" color="success.main" fontWeight={700}>
-                        Rs. {invoice.total.toFixed(2)}
+                        Rs. {fmtLKR(invoice.total)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {format(new Date(invoice.created_date), "MMM dd")}
+                        {format(new Date(invoice.created_date), "MMM dd, yyyy")}
                       </Typography>
                     </CardContent>
                   </Card>
                 </Grid>
               ))}
             </Grid>
+            )}
           </Paper>
         </Grid>
       </Grid>
