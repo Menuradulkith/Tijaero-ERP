@@ -14,6 +14,7 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import {
   ActionToolbar,
@@ -642,6 +643,20 @@ export default function CustomersPage() {
                 />
               )}
             </FormSection>
+
+            {/* Record Information (view mode only) */}
+            {selectedCustomer && !isCreating && !isEditing && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedCustomer.created_at) || "-"}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedCustomer.updated_at) || "-"}</Typography>
+                </Box>
+              </FormSection>
+            )}
           </>
         )}
       </Box>

@@ -32,6 +32,7 @@ import {
   Verified as VerifyIcon,
   Payment as PaymentIcon,
 } from "@mui/icons-material";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 // Tijaero components
 import {
@@ -931,6 +932,18 @@ export default function ReimbursementsPage() {
             <Typography variant="body2">{selectedItem.remark}</Typography>
           </FormSection>
         )}
+
+        {/* Record Information */}
+        <FormSection title="Record Information" columns={2}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Created</Typography>
+            <Typography variant="body2">{formatDateTimeReadable(selectedItem.created_at) || "-"}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+            <Typography variant="body2">{formatDateTimeReadable(selectedItem.updated_at) || "-"}</Typography>
+          </Box>
+        </FormSection>
       </Box>
     );
   };

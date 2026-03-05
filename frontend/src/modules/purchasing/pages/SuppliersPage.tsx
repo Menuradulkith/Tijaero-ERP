@@ -3,6 +3,7 @@
  */
 
 import { useMemo, useCallback, useEffect, useState } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -725,6 +726,16 @@ export default function SuppliersPage() {
                 sx={{ gridColumn: "span 3" }}
               />
             </FormSection>
+
+            {/* Record Information (view mode only) */}
+            {selectedSupplier && !isEditing && !isCreating && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Date Joined</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedSupplier.date_joined) || "-"}</Typography>
+                </Box>
+              </FormSection>
+            )}
           </>
         )}
       </Box>

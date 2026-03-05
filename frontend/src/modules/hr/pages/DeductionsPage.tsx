@@ -1,26 +1,27 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Paper,
-  Typography,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  IconButton,
-} from "@mui/material";
+import { Box, Paper } from "@mui/material";
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm, Controller } from "react-hook-form";
-import { fmtLKR, handleApiError, showErrorToast, showSuccessToast, TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
+import { useForm } from "react-hook-form";
+import {
+  fmtLKR,
+  handleApiError,
+  showErrorToast,
+  showSuccessToast,
+  TButton,
+  TConfirmDialog,
+  TFormDialog,
+  TFormField,
+  TIconButton,
+  TPageHeader,
+  useTConfirmDialog,
+} from "@/components/tijaero";
+import { formatDateTime } from "@/utils/formatters";
 import { salaryDeductionsApi } from "@/modules/hr/api";
 import { SalaryDeductionCreate } from "@/modules/hr/types";
 
@@ -28,7 +29,7 @@ export default function DeductionsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const deleteDialog = useConfirmDialog();
+  const { dialogProps, confirm } = useTConfirmDialog();
 
   const { data: deductions, isLoading } = useQuery({
     queryKey: ["salary-deductions"],
@@ -49,8 +50,7 @@ export default function DeductionsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["salary-deductions"] });
       showSuccessToast("Salary deduction created successfully");
-      setOpenDialog(false);
-      reset();
+      handleClose();
     },
     onError: (error: unknown) => {
       showErrorToast(handleApiError(error, "Failed to create salary deduction"));
@@ -63,9 +63,7 @@ export default function DeductionsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["salary-deductions"] });
       showSuccessToast("Salary deduction updated successfully");
-      setOpenDialog(false);
-      setEditingId(null);
-      reset();
+      handleClose();
     },
     onError: (error: unknown) => {
       showErrorToast(handleApiError(error, "Failed to update salary deduction"));
@@ -83,6 +81,18 @@ export default function DeductionsPage() {
     },
   });
 
+  const handleDelete = async (id: number) => {
+    const confirmed = await confirm({
+      title: "Delete Deduction",
+      message: "Are you sure you want to delete this deduction?",
+      confirmText: "Delete",
+      danger: true,
+    });
+    if (confirmed) {
+      deleteMutation.mutate(id);
+    }
+  };
+
   const columns: GridColDef[] = [
     { field: "id", headerName: "ID", width: 70 },
     { field: "employee_id", headerName: "Employee ID", width: 130 },
@@ -95,15 +105,28 @@ export default function DeductionsPage() {
     },
     { field: "approval_id", headerName: "Approval ID", width: 110 },
     {
+      field: "created_date",
+      headerName: "Created",
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
+    },
+    {
+      field: "updated_at",
+      headerName: "Modified",
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
+    },
+    {
       field: "actions",
       headerName: "Actions",
       width: 120,
       sortable: false,
       renderCell: (params) => (
-        <Box>
-          <IconButton
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          <TIconButton
             size="small"
             color="primary"
+            tooltip="Edit"
             onClick={() => {
               setEditingId(params.row.id);
               reset(params.row);
@@ -111,20 +134,15 @@ export default function DeductionsPage() {
             }}
           >
             <EditIcon />
-          </IconButton>
-          <IconButton
+          </TIconButton>
+          <TIconButton
             size="small"
-            color="error"
-            onClick={() => {
-              deleteDialog.open(
-                "Delete Deduction",
-                "Are you sure you want to delete this deduction?",
-                () => deleteMutation.mutate(params.row.id)
-              );
-            }}
+            color="danger"
+            tooltip="Delete"
+            onClick={() => handleDelete(params.row.id)}
           >
             <DeleteIcon />
-          </IconButton>
+          </TIconButton>
         </Box>
       ),
     },
@@ -138,28 +156,28 @@ export default function DeductionsPage() {
     }
   };
 
+  const handleClose = () => {
+    setOpenDialog(false);
+    setEditingId(null);
+    reset();
+  };
+
+  const handleAdd = () => {
+    setEditingId(null);
+    reset({ employee_id: 0, reason: "", amount: 0 });
+    setOpenDialog(true);
+  };
+
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 3 }}>
-        <Typography variant="h4" fontWeight="bold">
-          Salary Deductions
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setEditingId(null);
-            reset({
-              employee_id: 0,
-              reason: "",
-              amount: 0,
-            });
-            setOpenDialog(true);
-          }}
-        >
-          New Deduction
-        </Button>
-      </Box>
+      <TPageHeader
+        title="Salary Deductions"
+        actions={
+          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+            New Deduction
+          </TButton>
+        }
+      />
 
       <Paper sx={{ height: 600 }}>
         <DataGrid
@@ -173,113 +191,52 @@ export default function DeductionsPage() {
         />
       </Paper>
 
-      <Dialog
+      <TFormDialog
         open={openDialog}
-        onClose={() => {
-          setOpenDialog(false);
-          setEditingId(null);
-        }}
+        onClose={handleClose}
+        title={editingId ? "Edit Salary Deduction" : "New Salary Deduction"}
+        onSubmit={handleSubmit(onSubmit)}
+        submitText={editingId ? "Update" : "Create"}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
         maxWidth="sm"
-        fullWidth
       >
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogTitle>
-            {editingId ? "Edit Salary Deduction" : "New Salary Deduction"}
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
-                <Controller
-                  name="employee_id"
-                  control={control}
-                  rules={{ required: "Employee ID is required", min: 1 }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Employee ID"
-                      type="number"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="reason"
-                  control={control}
-                  rules={{ required: "Reason is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Reason"
-                      fullWidth
-                      required
-                      multiline
-                      rows={3}
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="amount"
-                  control={control}
-                  rules={{ required: "Amount is required", min: 0.01 }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Deduction Amount"
-                      type="number"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                      inputProps={{ step: "0.01" }}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="approval_id"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Approval ID (Optional)"
-                      type="number"
-                      fullWidth
-                    />
-                  )}
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => {
-                setOpenDialog(false);
-                setEditingId(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {editingId ? "Update" : "Create"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
-      <TConfirmDialog {...deleteDialog.dialogProps} />
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <TFormField
+            name="employee_id"
+            control={control}
+            label="Employee ID"
+            fieldType="number"
+            required
+            rules={{ required: "Employee ID is required", min: { value: 1, message: "Must be at least 1" } }}
+          />
+          <TFormField
+            name="reason"
+            control={control}
+            label="Reason"
+            fieldType="textarea"
+            rows={3}
+            required
+            rules={{ required: "Reason is required" }}
+          />
+          <TFormField
+            name="amount"
+            control={control}
+            label="Deduction Amount"
+            fieldType="number"
+            required
+            step={0.01}
+            rules={{ required: "Amount is required", min: { value: 0.01, message: "Must be greater than 0" } }}
+          />
+          <TFormField
+            name="approval_id"
+            control={control}
+            label="Approval ID (Optional)"
+            fieldType="number"
+          />
+        </Box>
+      </TFormDialog>
+
+      <TConfirmDialog {...dialogProps} />
     </Box>
   );
 }

@@ -1,12 +1,24 @@
+/**
+ * HRDashboard - Overview dashboard for HR module
+ * Follows PurchasingDashboard / FinanceDashboard pattern with TPageHeader, TStatCard, Quick Actions.
+ */
+
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
-  Typography,
   Grid,
+  Typography,
+  List,
+  ListItemButton,
+  ListItemText,
+  ListItemIcon,
+  Skeleton,
+  Paper,
+  Divider,
   Card,
-  CardContent,
-  CardActionArea,
 } from "@mui/material";
-import { useNavigate } from "react-router-dom";
 import {
   AccountBalance as PayrollIcon,
   TrendingUp as PromotionIcon,
@@ -14,105 +26,379 @@ import {
   MoneyOff as DeductionIcon,
   Devices as AssetsIcon,
   Person as ProfileIcon,
+  Assessment as SummaryIcon,
+  CheckCircle as ApproveIcon,
 } from "@mui/icons-material";
 
-const hrModules = [
-  {
-    title: "Payroll",
-    description: "Manage employee payroll records",
-    icon: <PayrollIcon sx={{ fontSize: 48 }} />,
-    path: "/hr/payroll",
-    color: "#1976d2",
-  },
-  {
-    title: "Salary Profiles",
-    description: "Employee salary configurations",
-    icon: <ProfileIcon sx={{ fontSize: 48 }} />,
-    path: "/hr/salary-profiles",
-    color: "#2e7d32",
-  },
-  {
-    title: "Promotions",
-    description: "Track employee promotions",
-    icon: <PromotionIcon sx={{ fontSize: 48 }} />,
-    path: "/hr/promotions",
-    color: "#ed6c02",
-  },
-  {
-    title: "Reimbursements",
-    description: "Process expense reimbursements",
-    icon: <ReimbursementIcon sx={{ fontSize: 48 }} />,
-    path: "/hr/reimbursements",
-    color: "#9c27b0",
-  },
-  {
-    title: "Deductions",
-    description: "Manage salary deductions",
-    icon: <DeductionIcon sx={{ fontSize: 48 }} />,
-    path: "/hr/deductions",
-    color: "#d32f2f",
-  },
-  {
-    title: "Employee Assets",
-    description: "Track company asset assignments",
-    icon: <AssetsIcon sx={{ fontSize: 48 }} />,
-    path: "/hr/assets",
-    color: "#0288d1",
-  },
-];
+import { TPageHeader, TStatCard, TStatusChip, TChip } from "@/components/tijaero";
+import { payrollBatchApi, salaryProfilesApi, promotionsApi, reimbursementsApi, salaryDeductionsApi, employeeAssetsApi } from "@/modules/hr/api";
+import type { PayrollBatch, Reimbursement } from "@/modules/hr/types";
+
+// ─── Recent Item Component ──────────────────────────────────────────────────
+
+interface RecentItemProps {
+  primary: string;
+  secondary: string;
+  status?: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+}
+
+function RecentItem({ primary, secondary, status, icon, onClick }: RecentItemProps) {
+  return (
+    <ListItemButton onClick={onClick} sx={{ borderRadius: 1 }}>
+      <ListItemIcon sx={{ minWidth: 40 }}>{icon}</ListItemIcon>
+      <ListItemText
+        primary={primary}
+        secondary={secondary}
+        primaryTypographyProps={{ variant: "body2", fontWeight: 500 }}
+        secondaryTypographyProps={{ variant: "caption" }}
+      />
+      {status && (
+        <TStatusChip status={status} statusMap="payrollStatus" size="small" />
+      )}
+    </ListItemButton>
+  );
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
 
 export default function HRDashboard() {
   const navigate = useNavigate();
 
-  return (
-    <Box>
-      <Typography variant="h4" fontWeight="bold" gutterBottom>
-        Human Resources Management
-      </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-        Manage payroll, promotions, reimbursements, and employee records
-      </Typography>
+  // Data queries
+  const { data: batches, isLoading: batchesLoading } = useQuery({
+    queryKey: ["payroll-batches"],
+    queryFn: () => payrollBatchApi.getAll(),
+  });
 
+  const { data: profiles, isLoading: profilesLoading } = useQuery({
+    queryKey: ["salary-profiles-count"],
+    queryFn: () => salaryProfilesApi.getAll(),
+  });
+
+  const { data: promotions, isLoading: promotionsLoading } = useQuery({
+    queryKey: ["promotions-count"],
+    queryFn: () => promotionsApi.getAll(),
+  });
+
+  const { data: reimbursements, isLoading: reimbursementsLoading } = useQuery({
+    queryKey: ["reimbursements-count"],
+    queryFn: () => reimbursementsApi.getAll({ limit: 500 }),
+  });
+
+  const { data: deductions, isLoading: deductionsLoading } = useQuery({
+    queryKey: ["deductions-count"],
+    queryFn: () => salaryDeductionsApi.getAll(),
+  });
+
+  const { data: assets, isLoading: assetsLoading } = useQuery({
+    queryKey: ["assets-count"],
+    queryFn: () => employeeAssetsApi.getAll(),
+  });
+
+  // Stats
+  const stats = useMemo(() => {
+    const totalProfiles = profiles?.length || 0;
+    const pendingBatches = (batches || []).filter(
+      (b: PayrollBatch) => b.status === "pending_approval" || b.status === "draft"
+    ).length;
+    const pendingReimbursements = (reimbursements || []).filter(
+      (r: Reimbursement) => r.status === "pending" || r.status === "submitted"
+    ).length;
+    const totalDeductions = deductions?.length || 0;
+    const totalPromotions = promotions?.length || 0;
+    const activeAssets = (assets || []).filter((a: any) => !a.revoke_assignment).length;
+
+    return { totalProfiles, pendingBatches, pendingReimbursements, totalDeductions, totalPromotions, activeAssets };
+  }, [batches, profiles, reimbursements, deductions, promotions, assets]);
+
+  // Recent payroll batches
+  const recentBatches = useMemo(() => {
+    if (!batches?.length) return [];
+    return [...batches]
+      .sort((a, b) => new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime())
+      .slice(0, 5);
+  }, [batches]);
+
+  // Recent reimbursements
+  const recentReimbursements = useMemo(() => {
+    if (!reimbursements?.length) return [];
+    return [...reimbursements]
+      .sort((a: Reimbursement, b: Reimbursement) =>
+        new Date(b.claim_date || "").getTime() - new Date(a.claim_date || "").getTime()
+      )
+      .slice(0, 5);
+  }, [reimbursements]);
+
+  return (
+    <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
+      <TPageHeader
+        title="Human Resources"
+        subtitle="Manage payroll, promotions, reimbursements, and employee records"
+      />
+
+      {/* Stats Row */}
+      <Grid container spacing={3} mb={4}>
+        <Grid item xs={12} sm={6} md={4} lg={2}>
+          <TStatCard
+            title="Salary Profiles"
+            value={stats.totalProfiles}
+            icon={<ProfileIcon />}
+            color="primary"
+            onClick={() => navigate("/hr/salary-profiles")}
+            loading={profilesLoading}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={4} lg={2}>
+          <TStatCard
+            title="Pending Batches"
+            value={stats.pendingBatches}
+            icon={<PayrollIcon />}
+            color="warning"
+            onClick={() => navigate("/hr/payroll-processing")}
+            loading={batchesLoading}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={4} lg={2}>
+          <TStatCard
+            title="Pending Reimbursements"
+            value={stats.pendingReimbursements}
+            icon={<ReimbursementIcon />}
+            color="info"
+            onClick={() => navigate("/hr/reimbursements")}
+            loading={reimbursementsLoading}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={4} lg={2}>
+          <TStatCard
+            title="Deductions"
+            value={stats.totalDeductions}
+            icon={<DeductionIcon />}
+            color="error"
+            onClick={() => navigate("/hr/deductions")}
+            loading={deductionsLoading}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={4} lg={2}>
+          <TStatCard
+            title="Promotions"
+            value={stats.totalPromotions}
+            icon={<PromotionIcon />}
+            color="success"
+            onClick={() => navigate("/hr/promotions")}
+            loading={promotionsLoading}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={4} lg={2}>
+          <TStatCard
+            title="Active Assets"
+            value={stats.activeAssets}
+            icon={<AssetsIcon />}
+            color="primary"
+            onClick={() => navigate("/hr/assets")}
+            loading={assetsLoading}
+          />
+        </Grid>
+      </Grid>
+
+      {/* Recent Items Row */}
       <Grid container spacing={3}>
-        {hrModules.map((module) => (
-          <Grid item xs={12} sm={6} md={4} key={module.path}>
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 2, height: "100%" }}>
+            <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+              <Typography variant="h6" fontWeight="bold">
+                Recent Payroll Batches
+              </Typography>
+              <TChip
+                label={`${batches?.length || 0} total`}
+                size="small"
+                color="primary"
+                variant="outlined"
+              />
+            </Box>
+            <Divider sx={{ mb: 1 }} />
+            {batchesLoading ? (
+              <Box>
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} height={60} sx={{ my: 1 }} />
+                ))}
+              </Box>
+            ) : recentBatches.length === 0 ? (
+              <Box textAlign="center" py={4}>
+                <PayrollIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
+                <Typography color="text.secondary">No payroll batches yet</Typography>
+              </Box>
+            ) : (
+              <List disablePadding>
+                {recentBatches.map((batch) => (
+                  <RecentItem
+                    key={batch.id}
+                    primary={batch.batch_no || `Batch-${batch.id}`}
+                    secondary={`${batch.total_employees} employees • ${batch.payroll_month}/${batch.payroll_year}`}
+                    status={batch.status}
+                    icon={<PayrollIcon fontSize="small" color="action" />}
+                    onClick={() => navigate("/hr/payroll-processing")}
+                  />
+                ))}
+              </List>
+            )}
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 2, height: "100%" }}>
+            <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+              <Typography variant="h6" fontWeight="bold">
+                Recent Reimbursements
+              </Typography>
+              <TChip
+                label={`${reimbursements?.length || 0} total`}
+                size="small"
+                color="info"
+                variant="outlined"
+              />
+            </Box>
+            <Divider sx={{ mb: 1 }} />
+            {reimbursementsLoading ? (
+              <Box>
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} height={60} sx={{ my: 1 }} />
+                ))}
+              </Box>
+            ) : recentReimbursements.length === 0 ? (
+              <Box textAlign="center" py={4}>
+                <ReimbursementIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
+                <Typography color="text.secondary">No reimbursements yet</Typography>
+              </Box>
+            ) : (
+              <List disablePadding>
+                {recentReimbursements.map((r: Reimbursement) => (
+                  <RecentItem
+                    key={r.id}
+                    primary={r.reimbursement_no || `RMB-${r.id}`}
+                    secondary={`${r.employee_id} • ${r.claim_date ? new Date(r.claim_date).toLocaleDateString() : ""}`}
+                    status={r.status}
+                    icon={<ReimbursementIcon fontSize="small" color="action" />}
+                    onClick={() => navigate("/hr/reimbursements")}
+                  />
+                ))}
+              </List>
+            )}
+          </Paper>
+        </Grid>
+      </Grid>
+
+      {/* Quick Actions */}
+      <Box mt={4}>
+        <Typography variant="h6" fontWeight="bold" gutterBottom>
+          Quick Actions
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={6} sm={4} md={2}>
             <Card
               sx={{
-                height: "100%",
-                transition: "transform 0.2s, box-shadow 0.2s",
-                "&:hover": {
-                  transform: "translateY(-4px)",
-                  boxShadow: 4,
-                },
+                cursor: "pointer",
+                textAlign: "center",
+                p: 2,
+                transition: "all 0.2s",
+                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
               }}
+              onClick={() => navigate("/hr/payroll")}
             >
-              <CardActionArea
-                onClick={() => navigate(module.path)}
-                sx={{ height: "100%", p: 2 }}
-              >
-                <CardContent>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      mb: 2,
-                      color: module.color,
-                    }}
-                  >
-                    {module.icon}
-                  </Box>
-                  <Typography variant="h6" fontWeight="bold" gutterBottom>
-                    {module.title}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {module.description}
-                  </Typography>
-                </CardContent>
-              </CardActionArea>
+              <PayrollIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="body2" fontWeight="500">
+                Payroll Records
+              </Typography>
             </Card>
           </Grid>
-        ))}
-      </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Card
+              sx={{
+                cursor: "pointer",
+                textAlign: "center",
+                p: 2,
+                transition: "all 0.2s",
+                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+              }}
+              onClick={() => navigate("/hr/payroll-processing")}
+            >
+              <SummaryIcon color="warning" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="body2" fontWeight="500">
+                Run Payroll
+              </Typography>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Card
+              sx={{
+                cursor: "pointer",
+                textAlign: "center",
+                p: 2,
+                transition: "all 0.2s",
+                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+              }}
+              onClick={() => navigate("/hr/salary-profiles")}
+            >
+              <ProfileIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="body2" fontWeight="500">
+                Salary Profiles
+              </Typography>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Card
+              sx={{
+                cursor: "pointer",
+                textAlign: "center",
+                p: 2,
+                transition: "all 0.2s",
+                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+              }}
+              onClick={() => navigate("/hr/reimbursements")}
+            >
+              <ReimbursementIcon color="info" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="body2" fontWeight="500">
+                Reimbursements
+              </Typography>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Card
+              sx={{
+                cursor: "pointer",
+                textAlign: "center",
+                p: 2,
+                transition: "all 0.2s",
+                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+              }}
+              onClick={() => navigate("/hr/payroll-approvals")}
+            >
+              <ApproveIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="body2" fontWeight="500">
+                Approvals
+              </Typography>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Card
+              sx={{
+                cursor: "pointer",
+                textAlign: "center",
+                p: 2,
+                transition: "all 0.2s",
+                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+              }}
+              onClick={() => navigate("/hr/promotions")}
+            >
+              <PromotionIcon color="warning" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="body2" fontWeight="500">
+                Promotions
+              </Typography>
+            </Card>
+          </Grid>
+        </Grid>
+      </Box>
     </Box>
   );
 }

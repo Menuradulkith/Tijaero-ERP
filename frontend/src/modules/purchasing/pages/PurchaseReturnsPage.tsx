@@ -35,6 +35,7 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 // Import tijaero components
 import {
@@ -1117,6 +1118,16 @@ export default function PurchaseReturnsPage() {
               </>
             )}
           </>
+        )}
+
+        {/* Record Information (view mode only) */}
+        {selectedReturn && !isCreating && !isEditing && (
+          <FormSection title="Record Information" columns={2}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Created</Typography>
+              <Typography variant="body2">{formatDateTimeReadable(selectedReturn.added_date) || "-"}</Typography>
+            </Box>
+          </FormSection>
         )}
       </Box>
     </Box>

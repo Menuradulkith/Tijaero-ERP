@@ -44,6 +44,7 @@ import { TDataGridColumn } from "@/components/tijaero/data";
 import { paymentCardsApi } from "../../api";
 import { PaymentCard, PaymentCardCreate, PaymentCardUpdate } from "../../types";
 import { GridRenderCellParams } from "@mui/x-data-grid";
+import { formatDateTime } from "@/utils/formatters";
 
 const INITIAL_FORM_DATA: PaymentCardCreate = {
   card_name: "",
@@ -214,6 +215,22 @@ export default function CardSettingsPage() {
               color={params.row.active ? "success" : "default"}
             />
           </Box>
+        ),
+      },
+      {
+        field: "created_at",
+        header: "Created",
+        width: 160,
+        renderCell: (params: GridRenderCellParams<PaymentCard>) => (
+          <Typography variant="body2">{formatDateTime(params.row.created_at)}</Typography>
+        ),
+      },
+      {
+        field: "updated_at",
+        header: "Modified",
+        width: 160,
+        renderCell: (params: GridRenderCellParams<PaymentCard>) => (
+          <Typography variant="body2">{formatDateTime(params.row.updated_at)}</Typography>
         ),
       },
       {

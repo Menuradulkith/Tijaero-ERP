@@ -35,6 +35,7 @@ import {
     GENDER_CHOICES,
     CIVIL_CHOICES,
 } from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import { usePermission } from "@/auth/permissions";
 import { customersApi } from "../api";
@@ -570,6 +571,20 @@ export default function CustomersPage() {
                 />
               </Box>
             </FormSection>
+
+            {/* Record Information (view mode only) */}
+            {selectedCustomer && !isCreating && !isEditing && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedCustomer.created_at) || "-"}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedCustomer.updated_at) || "-"}</Typography>
+                </Box>
+              </FormSection>
+            )}
           </>
         )}
       </Box>

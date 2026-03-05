@@ -64,6 +64,7 @@ import {
     useMasterDetailState,
     useTConfirmDialog,
 } from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { useReferenceData } from "@/hooks";
@@ -782,6 +783,12 @@ export default function SaleReturnsPage() {
                                                 <Typography variant="caption" color="text.secondary">Created Date</Typography>
                                                 <Typography variant="body2" fontWeight={500}>
                                                     {format(new Date(selectedReturn.added_date), "MMM dd, yyyy")}
+                                                </Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    {formatDateTimeReadable(selectedReturn.updated_at) || "-"}
                                                 </Typography>
                                             </Box>
                                             <Box>

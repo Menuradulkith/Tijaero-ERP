@@ -44,6 +44,7 @@ import {
 import { productsApi, categoriesApi, brandsApi, minimumPriceApi } from "../api";
 import { Product, ProductCreate, Category, CategoryCreate, CategoryUpdate, Brand, BrandCreate, BrandUpdate } from "../types";
 import { usePermission } from "@/auth/permissions";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 // Sort options for each tab
 const productSortOptions: SortOption[] = [
@@ -1033,7 +1034,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                 )}
               </FormSection>
 
-              <FormSection title="Status" isLast>
+              <FormSection title="Status">
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 2, gridColumn: { sm: "1 / -1" } }}>
                   <Box sx={{ display: "flex", gap: 3 }}>
                     <FormControlLabel
@@ -1078,6 +1079,20 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   )}
                 </Box>
               </FormSection>
+
+              {/* Record Information (view mode only) */}
+              {productState.selectedItem && !productState.isCreating && !productState.isEditing && (
+                <FormSection title="Record Information" columns={2}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Created</Typography>
+                    <Typography variant="body2">{formatDateTimeReadable(productState.selectedItem.created_at) || "-"}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                    <Typography variant="body2">{formatDateTimeReadable(productState.selectedItem.updated_at) || "-"}</Typography>
+                  </Box>
+                </FormSection>
+              )}
             </>
           )}
         </Box>

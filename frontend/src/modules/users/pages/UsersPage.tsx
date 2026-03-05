@@ -15,6 +15,7 @@ import {
     Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 // Tijaero Components
 import {
@@ -809,6 +810,20 @@ export default function UsersPage() {
                       color="secondary"
                     />
                   ))}
+                </Box>
+              </FormSection>
+            )}
+
+            {/* Record Information (view mode only) */}
+            {selectedUser && !isEditing && !isCreating && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedUser.created_at) || "-"}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedUser.updated_at) || "-"}</Typography>
                 </Box>
               </FormSection>
             )}

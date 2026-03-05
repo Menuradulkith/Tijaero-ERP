@@ -49,6 +49,7 @@ import {
   useTConfirmDialog,
   modernTableStyles,
 } from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 
 import { usePermission } from "@/auth/permissions";
@@ -683,6 +684,16 @@ export default function VouchersPage() {
                   </Paper>
                 )}
               </Paper>
+            )}
+
+            {/* Record Information (view mode only) */}
+            {selectedVoucher && !isCreating && !isEditing && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedVoucher.created_at) || "-"}</Typography>
+                </Box>
+              </FormSection>
             )}
           </>
         )}

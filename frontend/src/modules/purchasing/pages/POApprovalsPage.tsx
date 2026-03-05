@@ -5,6 +5,7 @@
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -537,6 +538,14 @@ export default function POApprovalsPage() {
                     <MenuBookIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
+              </Box>
+            </FormSection>
+
+            {/* Record Information */}
+            <FormSection title="Record Information" columns={2}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Created</Typography>
+                <Typography variant="body2">{formatDateTimeReadable(selectedOrder.created_date || selectedOrder.added_date) || "-"}</Typography>
               </Box>
             </FormSection>
           </>

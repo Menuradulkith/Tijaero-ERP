@@ -51,6 +51,7 @@ import {
   useTConfirmDialog,
   modernTableStyles,
 } from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import { usePermission } from "@/auth/permissions";
 import { couponsApi } from "@/modules/customers/api";
@@ -714,6 +715,16 @@ export default function CouponsPage() {
                   </Paper>
                 )}
               </Paper>
+            )}
+
+            {/* Record Information (view mode only) */}
+            {selectedCoupon && !isCreating && !isEditing && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedCoupon.created_date) || "-"}</Typography>
+                </Box>
+              </FormSection>
             )}
           </>
         )}

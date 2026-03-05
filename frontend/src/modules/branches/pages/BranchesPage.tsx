@@ -56,6 +56,7 @@ import {
     showErrorToast,
     showSuccessToast,
 } from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import type { Branch, BranchCreate } from "@/api/types";
 import { Location, LocationCreate, locationsApi } from "@/modules/common/api";
@@ -673,6 +674,20 @@ export default function BranchesPage() {
               )}
             </Paper>
           </>
+        )}
+
+        {/* Record Information (view mode only) */}
+        {selectedBranch && !isCreating && !isEditing && (
+          <FormSection title="Record Information" columns={2}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Created</Typography>
+              <Typography variant="body2">{formatDateTimeReadable(selectedBranch.created_at) || "-"}</Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+              <Typography variant="body2">{formatDateTimeReadable(selectedBranch.updated_at) || "-"}</Typography>
+            </Box>
+          </FormSection>
         )}
       </Box>
     </Box>

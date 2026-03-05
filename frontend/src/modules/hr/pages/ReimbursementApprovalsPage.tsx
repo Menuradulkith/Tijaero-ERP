@@ -30,6 +30,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import {
   EmptyState,
@@ -452,6 +453,18 @@ export default function ReimbursementApprovalsPage() {
           <Typography variant="body2">{detail.rejection_reason}</Typography>
         </Alert>
       )}
+
+      {/* Record Information */}
+      <FormSection title="Record Information" columns={2}>
+        <Box>
+          <Typography variant="caption" color="text.secondary">Created</Typography>
+          <Typography variant="body2">{formatDateTimeReadable(detail.created_at) || "-"}</Typography>
+        </Box>
+        <Box>
+          <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+          <Typography variant="body2">{formatDateTimeReadable(detail.updated_at) || "-"}</Typography>
+        </Box>
+      </FormSection>
     </Box>
   ) : (
     <EmptyState message="Select a reimbursement from the list to view details" />

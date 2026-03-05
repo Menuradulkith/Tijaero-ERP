@@ -37,6 +37,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import {
   ActionToolbar,
@@ -876,6 +877,18 @@ export default function JournalEntriesPage() {
                   </TableBody>
                 </Table>
               </Paper>
+            </FormSection>
+
+            {/* Record Information */}
+            <FormSection title="Record Information" columns={2}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Created</Typography>
+                <Typography variant="body2">{formatDateTimeReadable(detail.created_at) || "-"}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                <Typography variant="body2">{formatDateTimeReadable(detail.updated_at) || "-"}</Typography>
+              </Box>
             </FormSection>
           </>
         ) : null}

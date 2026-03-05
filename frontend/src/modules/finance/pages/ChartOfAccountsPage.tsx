@@ -44,6 +44,7 @@ import {
   TConfirmDialog,
   useConfirmDialog,
 } from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import { chartOfAccountsApi } from "@/modules/finance/api";
 import type {
@@ -640,6 +641,20 @@ export default function ChartOfAccountsPage() {
                     </TableBody>
                   </Table>
                 </Paper>
+              </FormSection>
+            )}
+
+            {/* Record Information (view mode only) */}
+            {selectedAccount && !isCreating && !isEditing && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedAccount.created_at) || "-"}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedAccount.updated_at) || "-"}</Typography>
+                </Box>
               </FormSection>
             )}
           </>

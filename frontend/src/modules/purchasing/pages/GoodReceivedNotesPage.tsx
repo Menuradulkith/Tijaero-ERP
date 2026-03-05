@@ -97,6 +97,7 @@ import {
   PurchasingOrderWithItems, Supplier
 } from "@/modules/purchasing/types";
 // Currency formatting uses fmtLKR from tijaero
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "good_received_date", label: "Date" },
@@ -1980,6 +1981,16 @@ export default function GoodReceivedNotesPage() {
               </>
             )}
           </>
+        )}
+
+        {/* Record Information (view mode only) */}
+        {selectedGRN && !isCreating && !isEditing && (
+          <FormSection title="Record Information" columns={2}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Created</Typography>
+              <Typography variant="body2">{formatDateTimeReadable(selectedGRN.created_date || selectedGRN.added_date) || "-"}</Typography>
+            </Box>
+          </FormSection>
         )}
       </Box>
     </Box>
