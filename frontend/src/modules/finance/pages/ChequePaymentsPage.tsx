@@ -29,6 +29,7 @@ import {
   TBranchFilter,
   TFilterPanel,
   TDatePicker,
+  fmtLKR,
 } from "@/components/tijaero";
 
 import { chequePaymentsApi } from "@/modules/finance/api";
@@ -181,7 +182,7 @@ export default function ChequePaymentsPage() {
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      Rs. {Number(chq.amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                      Rs. {fmtLKR(Number(chq.amount || 0))}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Amount)</Typography>
                   </Box>
@@ -199,7 +200,7 @@ export default function ChequePaymentsPage() {
               )}
             </Box>
           }
-          secondaryText={!isSelected ? `${chq.from_party || "-"} - Rs. ${Number(chq.amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}` : undefined}
+          secondaryText={!isSelected ? `${chq.from_party || "-"} - Rs. ${fmtLKR(Number(chq.amount || 0))}` : undefined}
           isFavorite={favorites.includes(chq.id)}
           onToggleFavorite={(e) => toggleFavorite(chq.id, e)}
         />

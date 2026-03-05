@@ -32,7 +32,6 @@ import {
   Verified as VerifyIcon,
   Payment as PaymentIcon,
 } from "@mui/icons-material";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero components
 import {
@@ -58,6 +57,8 @@ import {
   modernTableStyles,
   showErrorToast,
   showSuccessToast,
+  TConfirmDialog,
+  useConfirmDialog,
   useMasterDetailState,
 } from "@/components/tijaero";
 
@@ -1486,7 +1487,7 @@ export default function ReimbursementsPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

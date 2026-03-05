@@ -19,7 +19,6 @@ import {
 import {
   AccountBalanceWallet as WalletIcon,
 } from "@mui/icons-material";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
   MasterDetailLayout,
@@ -38,6 +37,9 @@ import {
   TBranchFilter,
   TFilterPanel,
   GENERIC_PAYMENT_METHOD,
+  TConfirmDialog,
+  useConfirmDialog,
+  fmtLKR,
 } from "@/components/tijaero";
 
 import { advancePaymentsApi } from "@/modules/finance/api";
@@ -320,7 +322,7 @@ export default function CustomerAdvancePaymentsPage() {
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      Rs. {Number(adv.payment_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                      Rs. {fmtLKR(Number(adv.payment_amount || 0))}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                       (Amount)
@@ -349,7 +351,7 @@ export default function CustomerAdvancePaymentsPage() {
           }
           secondaryText={
             !isSelected
-              ? `${getCustomerName(adv.customer_id)} - Rs. ${Number(adv.payment_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`
+              ? `${getCustomerName(adv.customer_id)} - Rs. ${fmtLKR(Number(adv.payment_amount || 0))}`
               : undefined
           }
           isFavorite={favorites.includes(adv.id)}
@@ -563,7 +565,7 @@ export default function CustomerAdvancePaymentsPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

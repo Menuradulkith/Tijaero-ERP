@@ -42,6 +42,7 @@ import {
   AssignmentReturn as ReturnIcon,
 } from "@mui/icons-material";
 import { salesStockApi } from "@/modules/inventory/api";
+import { fmtLKR } from "@/components/tijaero";
 import { useReferenceData, REFERENCE_DATA_PRESETS, LocationRef } from "@/hooks";
 import { SalesStock, Product, Brand, Category, StockTrackingEvent } from "@/modules/inventory/types";
 import { format, parseISO } from "date-fns";
@@ -881,10 +882,10 @@ export default function SalesStockDashboard() {
                       <TableCell>{stock.grn_no || "-"}</TableCell>
                       <TableCell>{format(parseISO(stock.added_date), "dd MMM yyyy")}</TableCell>
                       <TableCell align="right">
-                        {stock.cost_price ? stock.cost_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
+                        {stock.cost_price ? fmtLKR(stock.cost_price) : "-"}
                       </TableCell>
                       <TableCell align="right">
-                        {stock.selling_price ? stock.selling_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
+                        {stock.selling_price ? fmtLKR(stock.selling_price) : "-"}
                       </TableCell>
                     </TableRow>
                   );

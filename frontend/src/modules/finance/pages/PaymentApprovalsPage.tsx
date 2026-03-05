@@ -47,13 +47,15 @@ import {
   showSuccessToast,
   showErrorToast,
   modernTableStyles,
+  TConfirmDialog,
+  useConfirmDialog,
+  fmtLKR,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { supplierPaymentsApi, suppliersApi, supplierCreditsSettleApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
 import { SupplierPayment, Supplier, SupplierCreditsSettle } from "@/modules/purchasing/types";
-import { formatCurrency, formatAmount } from "@/utils/formatters";
+
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_date", label: "Date" },
@@ -317,7 +319,7 @@ export default function PaymentApprovalsPage() {
     if (isLargePayment) {
       const confirmed = await confirmDialog.confirm({
         title: "Large Payment Verification",
-        message: `This is a large payment of ${formatCurrency(selectedPayment.payment_amount)}. Are you sure you want to verify this payment?`,
+        message: `This is a large payment of Rs. ${fmtLKR(selectedPayment.payment_amount)}. Are you sure you want to verify this payment?`,
         confirmText: "Verify Anyway",
         cancelText: "Cancel",
         confirmColor: "warning",
@@ -442,7 +444,7 @@ export default function PaymentApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        {formatCurrency(payment.payment_amount)}
+                        Rs. {fmtLKR(payment.payment_amount)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Amount)
@@ -468,7 +470,7 @@ export default function PaymentApprovalsPage() {
             }
             secondaryText={
               !isSelected
-                ? `${getSupplierName(payment.supplier_id)} - ${formatCurrency(payment.payment_amount)}`
+                ? `${getSupplierName(payment.supplier_id)} - Rs. ${fmtLKR(payment.payment_amount)}`
                 : undefined
             }
             statusChip={!isSelected ? statusProps : undefined}
@@ -588,7 +590,7 @@ export default function PaymentApprovalsPage() {
                   <TableBody>
                     <TableRow sx={modernTableStyles.bodyRow}>
                       <TableCell>Payment Amount</TableCell>
-                      <TableCell align="right">{formatAmount(selectedPayment.payment_amount)}</TableCell>
+                      <TableCell align="right">{fmtLKR(selectedPayment.payment_amount)}</TableCell>
                     </TableRow>
                     {selectedPayment.payment_type === "payment" && (selectedPayment as any).reference_number && (
                       <TableRow sx={{ ...modernTableStyles.bodyRow, bgcolor: "grey.25" }}>
@@ -619,7 +621,7 @@ export default function PaymentApprovalsPage() {
                         {(selectedPayment as any).transactions.map((txn: any, idx: number) => (
                           <TableRow key={idx} sx={{ ...modernTableStyles.bodyRow, bgcolor: idx % 2 === 0 ? "grey.25" : "transparent" }}>
                             <TableCell>GRN: {txn.grn_no} | PO: {txn.po_no}</TableCell>
-                            <TableCell align="right">{formatCurrency(txn.payment_amount)}</TableCell>
+                            <TableCell align="right">{fmtLKR(txn.payment_amount)}</TableCell>
                           </TableRow>
                         ))}
                       </>
@@ -629,7 +631,7 @@ export default function PaymentApprovalsPage() {
                         <strong>Total Amount:</strong>
                       </TableCell>
                       <TableCell align="right">
-                        <strong>{formatCurrency(selectedPayment.payment_amount)}</strong>
+                        <strong>{fmtLKR(selectedPayment.payment_amount)}</strong>
                       </TableCell>
                     </TableRow>
                   </TableBody>
@@ -762,7 +764,7 @@ export default function PaymentApprovalsPage() {
       />
 
       {/* Confirm Dialog for warnings */}
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

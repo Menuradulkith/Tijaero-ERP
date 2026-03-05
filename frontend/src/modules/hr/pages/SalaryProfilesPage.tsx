@@ -20,8 +20,7 @@ import {
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { fmtLKR, handleApiError, showErrorToast, showSuccessToast, TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { salaryProfilesApi } from "@/modules/hr/api";
 import { EmployeeSalaryProfileCreate } from "@/modules/hr/types";
 
@@ -95,21 +94,21 @@ export default function SalaryProfilesPage() {
       field: "basic_salary",
       headerName: "Basic Salary (Rs.)",
       width: 140,
-      valueFormatter: (value) => Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      valueFormatter: (value) => fmtLKR(Number(value)),
     },
     { field: "add_1_name", headerName: "Addition 1", width: 130 },
     {
       field: "add_1_value",
       headerName: "Add 1 Value (Rs.)",
       width: 130,
-      valueFormatter: (value) => (value ? Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"),
+      valueFormatter: (value) => (value ? fmtLKR(Number(value)) : "-"),
     },
     { field: "add_2_name", headerName: "Addition 2", width: 130 },
     {
       field: "add_2_value",
       headerName: "Add 2 Value (Rs.)",
       width: 130,
-      valueFormatter: (value) => (value ? Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"),
+      valueFormatter: (value) => (value ? fmtLKR(Number(value)) : "-"),
     },
     {
       field: "actions",
@@ -308,7 +307,7 @@ export default function SalaryProfilesPage() {
           </DialogActions>
         </form>
       </Dialog>
-      <ConfirmDialog {...deleteDialog.dialogProps} />
+      <TConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }

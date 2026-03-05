@@ -30,6 +30,7 @@ import {
   TBranchFilter,
   TFilterPanel,
   TStatusFilter,
+  fmtLKR,
 } from "@/components/tijaero";
 
 import { bankDepositsApi } from "@/modules/finance/api";
@@ -179,7 +180,7 @@ export default function BankDepositsPage() {
                 <>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      Rs. {Number(dep.deposits_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                      Rs. {fmtLKR(Number(dep.deposits_amount || 0))}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Amount)</Typography>
                   </Box>
@@ -200,7 +201,7 @@ export default function BankDepositsPage() {
               )}
             </Box>
           }
-          secondaryText={!isSelected ? `Rs. ${Number(dep.deposits_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })} - ${dep.branch_code || ""}` : undefined}
+          secondaryText={!isSelected ? `Rs. ${fmtLKR(Number(dep.deposits_amount || 0))} - ${dep.branch_code || ""}` : undefined}
           isFavorite={favorites.includes(dep.id)}
           onToggleFavorite={(e) => toggleFavorite(dep.id, e)}
           statusChip={!isSelected ? (dep.verified ? { label: "Verified", color: "success" } : { label: "Pending", color: "warning" }) : undefined}

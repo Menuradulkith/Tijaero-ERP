@@ -64,7 +64,7 @@ import {
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
 import { productsApi } from "@/modules/inventory/api";
@@ -249,13 +249,9 @@ export default function SalesTrackPage() {
     (productsResult as { items?: Product[] })?.items ||
     (Array.isArray(productsResult) ? productsResult : []);
 
-  // Branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-    staleTime: 300000,
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Using aggregated endpoint for branches
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // Payment history for selected order
   const { data: paymentHistory = [], isLoading: historyLoading } = useQuery({

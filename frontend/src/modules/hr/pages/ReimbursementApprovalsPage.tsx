@@ -50,9 +50,10 @@ import {
   TStatusChip,
   showErrorToast,
   showSuccessToast,
+  TConfirmDialog,
   TDetailSkeleton,
+  useConfirmDialog,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { useReferenceData } from "@/hooks";
 import { reimbursementsApi } from "@/modules/hr/api";
@@ -537,8 +538,8 @@ export default function ReimbursementApprovalsPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog {...approveDialog.dialogProps} />
-      <ConfirmDialog {...verifyDialog.dialogProps} />
+      <TConfirmDialog {...approveDialog.dialogProps} />
+      <TConfirmDialog {...verifyDialog.dialogProps} />
     </>
   );
 }

@@ -285,7 +285,6 @@ export default function SalesPage() {
         const data = await response.json();
         setAvailableCreditBalance(data.available_credit_balance || 0);
       } catch (error) {
-        console.error("Error fetching credit balance:", error);
         setAvailableCreditBalance(0);
       } finally {
         setIsLoadingCreditBalance(false);
@@ -837,7 +836,6 @@ export default function SalesPage() {
           }
         }
       } catch (error: unknown) {
-        console.error("Credit validation failed:", error);
         showErrorToast(handleApiError(error, "Failed to validate credit sale. Please try again."));
         return;
       }
@@ -1071,7 +1069,6 @@ export default function SalesPage() {
       barcodeInputRef.current?.focus();
       showSuccessToast(`Added: ${productName || "Product"}`);
     } catch (error) {
-      console.error("Barcode validation error:", error);
       setBarcodeError(handleApiError(error, "Barcode not found in available stock"));
     } finally {
       setIsValidatingBarcode(false);
@@ -1119,7 +1116,6 @@ export default function SalesPage() {
         setCouponValidation(null);
       }
     } catch (error) {
-      console.error("Coupon validation error:", error);
       setCouponError(handleApiError(error, "Failed to validate coupon"));
       setCouponValidation(null);
     } finally {
@@ -1175,7 +1171,6 @@ export default function SalesPage() {
         setVoucherError(response.message);
       }
     } catch (error) {
-      console.error("Voucher validation error:", error);
       setVoucherError(handleApiError(error, "Failed to validate voucher"));
     } finally {
       setIsValidatingVoucher(false);
@@ -1242,7 +1237,6 @@ export default function SalesPage() {
           showErrorToast(`Coupon no longer valid: ${response.message}`);
         }
       } catch (error: unknown) {
-        console.error("Coupon revalidation error:", error);
         setCouponValidation(null);
         setCouponError("Coupon validation failed");
       }

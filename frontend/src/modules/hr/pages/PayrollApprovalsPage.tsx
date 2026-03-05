@@ -46,9 +46,10 @@ import {
   TStatusChip,
   showErrorToast,
   showSuccessToast,
+  TConfirmDialog,
   TDetailSkeleton,
+  useConfirmDialog,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { useReferenceData } from "@/hooks";
 import { payrollBatchApi } from "@/modules/hr/api";
@@ -451,7 +452,7 @@ export default function PayrollApprovalsPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog {...approveDialog.dialogProps} />
+      <TConfirmDialog {...approveDialog.dialogProps} />
     </>
   );
 }

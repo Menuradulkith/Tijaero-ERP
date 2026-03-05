@@ -180,7 +180,6 @@ export default function CommissionPaymentApprovalsPage() {
       setSelectedPayment(null);
     },
     onError: (error: unknown) => {
-      console.error("Verify payment error:", error);
       showErrorToast(handleApiError(error, "Failed to verify payment"));
     },
   });
@@ -196,7 +195,6 @@ export default function CommissionPaymentApprovalsPage() {
       setSelectedPayment(null);
     },
     onError: (error: unknown) => {
-      console.error("Cancel payment error:", error);
       showErrorToast(handleApiError(error, "Failed to cancel payment"));
     },
   });

@@ -61,7 +61,7 @@ import {
 
 import { usePermission } from "@/auth/permissions";
 import { customersApi } from "@/modules/customers/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
 import { commissionsApi, commissionPaymentsApi } from "@/modules/sales/commission-api";
 import {
   CustomerAgentCommissionPayment,
@@ -173,11 +173,7 @@ export default function CommissionPaymentsPage() {
   );
 
   // Fetch branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
+  const { filteredBranches: branches = [] } = useReferenceData(["branches"]);
 
   // Fetch payment details when a payment is selected
   const { data: paymentDetails, isLoading: isDetailLoading } = useQuery({

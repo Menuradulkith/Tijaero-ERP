@@ -30,7 +30,6 @@ import {
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
-import { ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 import {
   Add as AddIcon,
   ArrowBack as ArrowBackIcon,
@@ -487,7 +486,6 @@ export default function QuotationsPage() {
             return updated;
           });
         } catch (error) {
-          console.error("Error fetching minimum price:", error);
           // If no minimum price set in the MinimumPrice table, set to 0
           setLineItems(prev => {
             const updated = [...prev];
@@ -1009,7 +1007,7 @@ export default function QuotationsPage() {
                             size="small"
                             sx={{ width: 100 }}
                             InputProps={{
-                              startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                              startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
                             }}
                             inputProps={{ min: item.min_price || 0 }}
                             error={item.selling_price < (item.min_price || 0)}
@@ -1040,7 +1038,7 @@ export default function QuotationsPage() {
                                 disabled
                                 InputProps={{
                                   readOnly: true,
-                                  startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                                  startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
                                 }}
                               />
                             </TableCell>

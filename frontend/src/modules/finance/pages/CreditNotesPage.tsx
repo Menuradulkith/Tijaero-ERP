@@ -31,6 +31,7 @@ import {
   SortOption,
   TDetailSkeleton,
   TFilterPanel,
+  fmtLKR,
 } from "@/components/tijaero";
 
 import { creditNotesApi } from "@/modules/finance/api";
@@ -198,7 +199,7 @@ export default function CreditNotesPage() {
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      Rs. {Number(note.amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                      Rs. {fmtLKR(Number(note.amount || 0))}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Amount)</Typography>
                   </Box>
@@ -218,7 +219,7 @@ export default function CreditNotesPage() {
               )}
             </Box>
           }
-          secondaryText={!isSelected ? `${getCustomerName(note.customer_id)} - Rs. ${Number(note.amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}` : undefined}
+          secondaryText={!isSelected ? `${getCustomerName(note.customer_id)} - Rs. ${fmtLKR(Number(note.amount || 0))}` : undefined}
           isFavorite={favorites.includes(note.id)}
           onToggleFavorite={(e) => toggleFavorite(note.id, e)}
         />

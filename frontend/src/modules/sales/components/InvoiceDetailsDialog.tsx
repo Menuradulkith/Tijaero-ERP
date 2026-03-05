@@ -1,5 +1,4 @@
 import { useReferenceData } from "@/hooks";
-import { formatAmount, formatCurrency } from "@/utils/formatters";
 import {
   Close as CloseIcon,
   Print as PrintIcon,
@@ -29,7 +28,7 @@ import { useQuery } from "@tanstack/react-query";
 import { salesApi } from "../api";
 import { Invoice } from "../types";
 // OPTIMIZED: Removed customersApi, productsApi imports - using aggregated endpoint
-import { modernTableStyles, TPrintPreviewDialog } from "@/components/tijaero";
+import { modernTableStyles, TPrintPreviewDialog, fmtLKR } from "@/components/tijaero";
 import { format } from "date-fns";
 import { useRef, useState } from "react";
 
@@ -204,10 +203,10 @@ export default function InvoiceDetailsDialog({
                       }}>
                         <TableCell>{getProductName(item.product_id)}</TableCell>
                         <TableCell align="center">{item.quantity}</TableCell>
-                        <TableCell align="right">{formatAmount(item.selling_price)}</TableCell>
+                        <TableCell align="right">{fmtLKR(item.selling_price)}</TableCell>
                         <TableCell align="center">{item.warrenty_month} mo</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 500 }}>
-                          {formatAmount(item.quantity * item.selling_price)}
+                          {fmtLKR(item.quantity * item.selling_price)}
                         </TableCell>
                       </TableRow>
                     ))
@@ -232,43 +231,43 @@ export default function InvoiceDetailsDialog({
                   {invoiceDetails.cash_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Cash</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.cash_amount)}</Typography>
+                      <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.cash_amount)}`}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.card_visa_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Visa Card</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.card_visa_amount)}</Typography>
+                      <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.card_visa_amount)}`}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.card_mastercard_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Mastercard</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.card_mastercard_amount)}</Typography>
+                      <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.card_mastercard_amount)}`}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.card_amex_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Amex</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.card_amex_amount)}</Typography>
+                      <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.card_amex_amount)}`}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.cheque_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Cheque</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.cheque_amount)}</Typography>
+                      <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.cheque_amount)}`}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.bank_transfer_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Bank Transfer</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.bank_transfer_amount)}</Typography>
+                      <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.bank_transfer_amount)}`}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.credit_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Credit</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.credit_amount)}</Typography>
+                      <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.credit_amount)}`}</Typography>
                     </Box>
                   )}
                 </Paper>
@@ -286,44 +285,44 @@ export default function InvoiceDetailsDialog({
                 >
                   <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                     <Typography variant="body2">Subtotal</Typography>
-                    <Typography variant="body2">{formatCurrency(invoiceDetails.subtotal || calculateSubtotal())}</Typography>
+                    <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.subtotal || calculateSubtotal())}`}</Typography>
                   </Box>
                   {invoiceDetails.cupon_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2" color="error.main">Coupon Discount</Typography>
-                      <Typography variant="body2" color="error.main">-{formatCurrency(invoiceDetails.cupon_amount)}</Typography>
+                      <Typography variant="body2" color="error.main">{`-Rs. ${fmtLKR(invoiceDetails.cupon_amount)}`}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.service_charge_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Service Charge ({(invoiceDetails.service_charge_rate * 100).toFixed(1)}%)</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.service_charge_amount)}</Typography>
+                      <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.service_charge_amount)}`}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.tax_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2">Tax ({invoiceDetails.tax_rate}%)</Typography>
-                      <Typography variant="body2">{formatCurrency(invoiceDetails.tax_amount)}</Typography>
+                      <Typography variant="body2">{`Rs. ${fmtLKR(invoiceDetails.tax_amount)}`}</Typography>
                     </Box>
                   )}
                   {invoiceDetails.discount_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2" color="error.main">Discount</Typography>
-                      <Typography variant="body2" color="error.main">-{formatCurrency(invoiceDetails.discount_amount)}</Typography>
+                      <Typography variant="body2" color="error.main">{`-Rs. ${fmtLKR(invoiceDetails.discount_amount)}`}</Typography>
                     </Box>
                   )}
                   <Divider sx={{ my: 1 }} />
                   <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                     <Typography variant="subtitle1" fontWeight={600}>Grand Total</Typography>
                     <Typography variant="subtitle1" fontWeight={600}>
-                      {formatCurrency(invoiceDetails.grand_total)}
+                      {`Rs. ${fmtLKR(invoiceDetails.grand_total)}`}
                     </Typography>
                   </Box>
                   {invoiceDetails.gift_voucher_amount > 0 && (
                     <>
                       <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                         <Typography variant="body2" color="info.main">Gift Voucher Payment</Typography>
-                        <Typography variant="body2" color="info.main">-{formatCurrency(invoiceDetails.gift_voucher_amount)}</Typography>
+                        <Typography variant="body2" color="info.main">{`-Rs. ${fmtLKR(invoiceDetails.gift_voucher_amount)}`}</Typography>
                       </Box>
                       <Divider sx={{ my: 1 }} />
                     </>
@@ -331,13 +330,13 @@ export default function InvoiceDetailsDialog({
                   {invoiceDetails.credit_note_amount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
                       <Typography variant="body2" color="error.main">Credit Note</Typography>
-                      <Typography variant="body2" color="error.main">-{formatCurrency(invoiceDetails.credit_note_amount)}</Typography>
+                      <Typography variant="body2" color="error.main">{`-Rs. ${fmtLKR(invoiceDetails.credit_note_amount)}`}</Typography>
                     </Box>
                   )}
                   <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                     <Typography variant="h6" fontWeight={700}>Amount Paid</Typography>
                     <Typography variant="h5" fontWeight={700} color="success.main">
-                      {formatCurrency(calculateTotal())}
+                      {`Rs. ${fmtLKR(calculateTotal())}`}
                     </Typography>
                   </Box>
                 </Paper>

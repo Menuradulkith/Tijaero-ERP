@@ -50,7 +50,6 @@ import {
   Groups as TeamIcon,
   Store as BranchIcon,
 } from "@mui/icons-material";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // Tijaero components
 import {
@@ -64,6 +63,8 @@ import {
   modernTableStyles,
   showErrorToast,
   showSuccessToast,
+  TConfirmDialog,
+  useConfirmDialog,
   type TFilterBranch,
 } from "@/components/tijaero";
 
@@ -861,7 +862,7 @@ export default function SalesCommissionsPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
 }

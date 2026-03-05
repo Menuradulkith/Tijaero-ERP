@@ -39,7 +39,7 @@ import {
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { usePermission } from "@/auth/permissions";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
 import { Customer, CustomerCreate } from "@/modules/customers/types";
 
@@ -155,12 +155,9 @@ export default function CustomersPage() {
     queryFn: () => customersApi.getAll(),
   });
 
-  // Fetch branches for filter
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Using aggregated endpoint for branches
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // Filter and sort
   const filteredCustomers = useMemo(() => {

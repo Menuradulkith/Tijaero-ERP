@@ -23,8 +23,7 @@ import {
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { handleApiError, showErrorToast, showSuccessToast, TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { employeeAssetsApi } from "@/modules/hr/api";
 import { EmployeeAssetCreate } from "@/modules/hr/types";
 
@@ -287,7 +286,7 @@ export default function EmployeeAssetsPage() {
           </DialogActions>
         </form>
       </Dialog>
-      <ConfirmDialog {...deleteDialog.dialogProps} />
+      <TConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }

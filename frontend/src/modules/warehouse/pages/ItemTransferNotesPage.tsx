@@ -45,6 +45,7 @@ import {
   ActionToolbar,
   FormSection,
   EmptyState,
+  fmtLKR,
   TFilterPanel,
   TBranchFilter,
   TPrintButton,
@@ -224,7 +225,6 @@ export default function ItemTransferNotesPage() {
         item_recieved: item.item_recieved,
       })));
     } catch (error) {
-      console.error("Failed to load ITN items:", error);
       setLineItems([]);
     }
   }, []);
@@ -310,7 +310,6 @@ export default function ItemTransferNotesPage() {
 
       showSuccessToast(`Added: ${validatedItem.product_name}`);
     } catch (error) {
-      console.error('Barcode validation error:', error);
       setValidationError(handleApiError(error, 'Invalid barcode or item not found'));
     } finally {
       setIsValidating(false);
@@ -872,7 +871,7 @@ export default function ItemTransferNotesPage() {
                             </TableCell>
                             <TableCell>{item.product_name || `Product #${item.product_id}`}</TableCell>
                             <TableCell>{item.branch_code || formData.branch_code || "-"}</TableCell>
-                            <TableCell align="right">{item.cost_price ? item.cost_price.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</TableCell>
+                            <TableCell align="right">{item.cost_price ? fmtLKR(item.cost_price) : '-'}</TableCell>
                             <TableCell align="center">
                               {item.item_recieved ? (
                                 <Chip label="Received" size="small" color="success" />
@@ -931,7 +930,7 @@ export default function ItemTransferNotesPage() {
                               </TableCell>
                               <TableCell>{validatedItem?.branch_code || item.branch_code || formData.branch_code || "-"}</TableCell>
                               <TableCell align="right">
-                                {item.cost_price || validatedItem?.cost_price ? (item.cost_price || validatedItem?.cost_price || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                                {item.cost_price || validatedItem?.cost_price ? fmtLKR(item.cost_price || validatedItem?.cost_price || 0) : '-'}
                               </TableCell>
                               <TableCell>
                                 <IconButton size="small" onClick={() => handleRemoveValidatedItem(item.barcode)} color="error">

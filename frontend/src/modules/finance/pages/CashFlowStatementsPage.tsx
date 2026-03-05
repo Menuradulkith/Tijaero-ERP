@@ -48,8 +48,9 @@ import {
   TSearchableSelect,
   type SortOption,
   modernTableStyles,
+  TConfirmDialog,
+  useConfirmDialog,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { cashFlowStatementsApi } from "@/modules/finance/api";
 import type {
@@ -595,7 +596,7 @@ export default function CashFlowStatementsPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

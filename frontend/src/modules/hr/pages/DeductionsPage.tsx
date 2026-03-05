@@ -20,8 +20,7 @@ import {
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { useForm, Controller } from "react-hook-form";
-import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { fmtLKR, handleApiError, showErrorToast, showSuccessToast, TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { salaryDeductionsApi } from "@/modules/hr/api";
 import { SalaryDeductionCreate } from "@/modules/hr/types";
 
@@ -92,7 +91,7 @@ export default function DeductionsPage() {
       field: "amount",
       headerName: "Amount (Rs.)",
       width: 130,
-      valueFormatter: (value) => Number(value).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      valueFormatter: (value) => fmtLKR(Number(value)),
     },
     { field: "approval_id", headerName: "Approval ID", width: 110 },
     {
@@ -280,7 +279,7 @@ export default function DeductionsPage() {
           </DialogActions>
         </form>
       </Dialog>
-      <ConfirmDialog {...deleteDialog.dialogProps} />
+      <TConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }

@@ -26,7 +26,7 @@ import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import MoneyOffIcon from "@mui/icons-material/MoneyOff";
 import SavingsIcon from "@mui/icons-material/Savings";
-import { TPageHeader, TCurrency, TBranchFilter, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { TPageHeader, TCurrency, TBranchFilter, showErrorToast, showSuccessToast, fmtLKR } from "@/components/tijaero";
 import { cashbookApi } from "@/modules/finance/api";
 import { CashbookEntryType, CashbookReport } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
@@ -593,9 +593,9 @@ function generatePrintHTML(report: CashbookReport, branchName: string, dateFrom:
       <td>${e.description}</td>
       <td>${e.party_name || "-"}</td>
       <td>${e.payment_method || "-"}</td>
-      <td style="text-align: right; color: green;">${e.money_in > 0 ? e.money_in.toFixed(2) : "-"}</td>
-      <td style="text-align: right; color: red;">${e.money_out > 0 ? e.money_out.toFixed(2) : "-"}</td>
-      <td style="text-align: right; font-weight: bold;">${e.running_balance.toFixed(2)}</td>
+      <td style="text-align: right; color: green;">${e.money_in > 0 ? fmtLKR(e.money_in) : "-"}</td>
+      <td style="text-align: right; color: red;">${e.money_out > 0 ? fmtLKR(e.money_out) : "-"}</td>
+      <td style="text-align: right; font-weight: bold;">${fmtLKR(e.running_balance)}</td>
     </tr>
   `).join("");
 
@@ -635,19 +635,19 @@ function generatePrintHTML(report: CashbookReport, branchName: string, dateFrom:
       <div class="summary">
         <div class="summary-item">
           <div class="summary-label">Opening Balance</div>
-          <div class="summary-value">${report.summary.opening_balance.toFixed(2)}</div>
+          <div class="summary-value">${fmtLKR(report.summary.opening_balance)}</div>
         </div>
         <div class="summary-item">
           <div class="summary-label">Total Money In</div>
-          <div class="summary-value money-in">+${report.summary.total_money_in.toFixed(2)}</div>
+          <div class="summary-value money-in">+${fmtLKR(report.summary.total_money_in)}</div>
         </div>
         <div class="summary-item">
           <div class="summary-label">Total Money Out</div>
-          <div class="summary-value money-out">-${report.summary.total_money_out.toFixed(2)}</div>
+          <div class="summary-value money-out">-${fmtLKR(report.summary.total_money_out)}</div>
         </div>
         <div class="summary-item">
           <div class="summary-label">Closing Balance</div>
-          <div class="summary-value">${report.summary.closing_balance.toFixed(2)}</div>
+          <div class="summary-value">${fmtLKR(report.summary.closing_balance)}</div>
         </div>
       </div>
 
@@ -671,7 +671,7 @@ function generatePrintHTML(report: CashbookReport, branchName: string, dateFrom:
       </table>
       
       <div class="footer">
-        Total Entries: ${report.entry_count} | Net Movement: ${report.summary.net_movement.toFixed(2)}
+        Total Entries: ${report.entry_count} | Net Movement: ${fmtLKR(report.summary.net_movement)}
       </div>
       
       <script>window.onload = function() { window.print(); }</script>

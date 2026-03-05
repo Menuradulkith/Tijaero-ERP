@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { fmtLKR } from "@/components/tijaero";
 import {
   Box,
   Typography,
@@ -164,7 +165,7 @@ export default function FinanceReportPage() {
                     <TableRow key={index}>
                       <TableCell>{expense.category}</TableCell>
                       <TableCell align="right">
-                        {expense.amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {fmtLKR(expense.amount)}
                       </TableCell>
                     </TableRow>
                   ))}

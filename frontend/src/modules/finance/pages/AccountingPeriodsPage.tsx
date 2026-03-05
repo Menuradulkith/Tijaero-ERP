@@ -43,8 +43,9 @@ import {
   TSearchableSelect,
   type SortOption,
   TDetailSkeleton,
+  TConfirmDialog,
+  useConfirmDialog,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { accountingPeriodsApi } from "@/modules/finance/api";
 import type { AccountingPeriod, PeriodStatus } from "@/modules/finance/types";
@@ -579,7 +580,7 @@ export default function AccountingPeriodsPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

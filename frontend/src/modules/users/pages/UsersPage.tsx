@@ -296,7 +296,6 @@ export default function UsersPage() {
   }, [setFormData, isCreating]);
 
   const handleSave = useCallback(async () => {
-    console.log("[UsersPage] handleSave called:", { isCreating, isEditing, selectedUser, formData });
     try {
       setError(null);
       setUsernameError(null);
@@ -369,29 +368,23 @@ export default function UsersPage() {
       };
       
       if (isCreating) {
-        console.log("[UsersPage] Creating new user:", cleanedData);
         await usersApi.createUser(cleanedData as UserCreate);
-        console.log("[UsersPage] Create success");
         showSuccessToast("User created successfully");
         markAsSaved();
         setIsCreating(false);
         setIsEditing(false);
         loadData();
       } else if (selectedUser) {
-        console.log("[UsersPage] Updating user:", selectedUser.id, cleanedData);
         await usersApi.updateUser(selectedUser.id, cleanedData as UserUpdate);
-        console.log("[UsersPage] Update success");
         showSuccessToast("User updated successfully");
         markAsSaved();
         setIsEditing(false);
         // Refresh with selected user ID to update the view
         loadData(selectedUser.id);
       } else {
-        console.warn("[UsersPage] handleSave called but no action taken");
         loadData();
       }
     } catch (err: unknown) {
-      console.error("[UsersPage] Save error:", err);
       const errorMsg = handleApiError(err, "Failed to save user");
       setError(errorMsg);
       showErrorToast(errorMsg);

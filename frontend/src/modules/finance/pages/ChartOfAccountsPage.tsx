@@ -41,8 +41,9 @@ import {
   type SortOption,
   TDetailSkeleton,
   useMasterDetailState,
+  TConfirmDialog,
+  useConfirmDialog,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { chartOfAccountsApi } from "@/modules/finance/api";
 import type {
@@ -659,7 +660,7 @@ export default function ChartOfAccountsPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

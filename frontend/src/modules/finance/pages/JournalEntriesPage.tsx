@@ -58,8 +58,9 @@ import {
   type SortOption,
   useMasterDetailState,
   modernTableStyles,
+  TConfirmDialog,
+  useConfirmDialog,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { journalEntriesApi, chartOfAccountsApi } from "@/modules/finance/api";
 import type {
@@ -938,7 +939,7 @@ export default function JournalEntriesPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
 
       {/* Print Preview Dialog */}
       {selectedJEForPrint && (

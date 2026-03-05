@@ -317,7 +317,6 @@ export default function AgentCommissionsPage() {
       showSuccessToast("Commission approved successfully");
     },
     onError: (error: unknown) => {
-      console.error("Approve commission error:", error);
       showErrorToast(handleApiError(error, "Failed to approve commission"));
     },
   });

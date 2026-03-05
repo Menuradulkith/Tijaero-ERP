@@ -21,12 +21,11 @@ import {
   Alert,
 } from "@mui/material";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
-import { formatCurrency } from "@/utils/formatters";
 import { saleReturnsApi, salesApi } from "../api";
 import { Invoice, SaleReturnCreate } from "../types";
 import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
-import { showSuccessToast, showErrorToast } from "@/components/tijaero";
+import { showSuccessToast, showErrorToast, fmtLKR } from "@/components/tijaero";
 import { format } from "date-fns";
 
 interface SaleReturnDialogProps {
@@ -366,7 +365,7 @@ export default function SaleReturnDialog({
 
           <Box sx={{ mt: 2, textAlign: "right" }}>
             <Typography variant="h6" color="error.main">
-              Total Refund: {formatCurrency(calculateTotal())}
+              Total Refund: {`Rs. ${fmtLKR(calculateTotal())}`}
             </Typography>
           </Box>
         </DialogContent>
