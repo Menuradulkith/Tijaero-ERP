@@ -46,7 +46,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { TPageHeader, TCurrency, TPageSkeleton, TBranchFilter } from '@/components/tijaero';
+import { TPageHeader, TCurrency, TPageSkeleton, TBranchFilter, fmtLKR } from '@/components/tijaero';
 import { cashbookApi, bankDepositsApi, expensesApi } from '../api';
 import { CashbookEntry } from '../types';
 import { useReferenceData } from '@/hooks';
@@ -511,7 +511,7 @@ export default function FinanceDashboard() {
           <StatCard
             title="Pending Deposits"
             value={summary.pendingDepositsCount}
-            subtitle={`Total: $${summary.pendingDepositsAmount.toLocaleString()}`}
+            subtitle={`Total: Rs. ${fmtLKR(summary.pendingDepositsAmount)}`}
             icon={<PendingIcon />}
             color="warning"
             onClick={() => navigate('/finance/bank-deposits')}
@@ -534,7 +534,7 @@ export default function FinanceDashboard() {
                   <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <RechartsTooltip
-                    formatter={(value) => value !== undefined ? `$${Number(value).toLocaleString()}` : ''}
+                    formatter={(value) => value !== undefined ? `Rs. ${fmtLKR(Number(value))}` : ''}
                   />
                   <Legend />
                   <Bar dataKey="in" name="Money In" fill={CHART_COLORS.moneyIn} />
@@ -580,7 +580,7 @@ export default function FinanceDashboard() {
                     ))}
                   </Pie>
                   <RechartsTooltip
-                    formatter={(value) => value !== undefined ? `$${Number(value).toLocaleString()}` : ''}
+                    formatter={(value) => value !== undefined ? `Rs. ${fmtLKR(Number(value))}` : ''}
                   />
                 </PieChart>
               </ResponsiveContainer>

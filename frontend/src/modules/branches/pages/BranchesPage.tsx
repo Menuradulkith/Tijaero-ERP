@@ -56,6 +56,7 @@ import {
     showErrorToast,
     showSuccessToast,
 } from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import type { Branch, BranchCreate } from "@/api/types";
 import { Location, LocationCreate, locationsApi } from "@/modules/common/api";
@@ -186,7 +187,6 @@ export default function BranchesPage() {
   const createMutation = useMutation({
     mutationFn: branchApi.create,
     onSuccess: async (newBranch) => {
-      console.log("[BranchesPage] Create success:", newBranch);
       
       // Create locations after branch is created
       if (branchLocations.length > 0) {
@@ -196,9 +196,7 @@ export default function BranchesPage() {
         
         try {
           await Promise.all(locationPromises);
-          console.log("[BranchesPage] Locations created successfully");
         } catch (error) {
-          console.error("[BranchesPage] Error creating locations:", error);
           showErrorToast("Branch created but some locations failed to save");
         }
       }
@@ -215,7 +213,6 @@ export default function BranchesPage() {
       setTimeout(() => handleSelectBranch(newBranch), 0);
     },
     onError: (error: unknown) => {
-      console.error("[BranchesPage] Create error:", error);
       showErrorToast(handleApiError(error, "Failed to create branch"));
     },
   });
@@ -224,14 +221,12 @@ export default function BranchesPage() {
     mutationFn: ({ id, data }: { id: number; data: BranchCreate }) =>
       branchApi.update(id, data),
     onSuccess: () => {
-      console.log("[BranchesPage] Update success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       showSuccessToast("Branch updated successfully");
       markAsSaved();
       setIsEditing(false);
     },
     onError: (error: unknown) => {
-      console.error("[BranchesPage] Update error:", error);
       showErrorToast(handleApiError(error, "Failed to update branch"));
     },
   });
@@ -239,14 +234,12 @@ export default function BranchesPage() {
   const deleteMutation = useMutation({
     mutationFn: branchApi.delete,
     onSuccess: (data) => {
-      console.log("[BranchesPage] Delete success");
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       // Use the success message from backend if available
       showSuccessToast(data?.message || "Branch deleted successfully");
       handleCancel(filteredBranches);
     },
     onError: (error: unknown) => {
-      console.error("[BranchesPage] Delete error:", error);
       showErrorToast(handleApiError(error, "Failed to delete branch"));
     },
   });
@@ -316,15 +309,10 @@ export default function BranchesPage() {
 
   // Handlers
   const handleSave = useCallback(() => {
-    console.log("[BranchesPage] handleSave called:", { isCreating, isEditing, selectedBranch, formData });
     if (isCreating) {
-      console.log("[BranchesPage] Creating new branch:", formData);
       createMutation.mutate(formData);
     } else if (selectedBranch) {
-      console.log("[BranchesPage] Updating branch:", selectedBranch.id, formData);
       updateMutation.mutate({ id: selectedBranch.id, data: formData });
-    } else {
-      console.warn("[BranchesPage] handleSave called but no action taken - isCreating:", isCreating, "selectedBranch:", selectedBranch);
     }
   }, [isCreating, isEditing, selectedBranch, formData, createMutation, updateMutation]);
 
@@ -686,6 +674,20 @@ export default function BranchesPage() {
               )}
             </Paper>
           </>
+        )}
+
+        {/* Record Information (view mode only) */}
+        {selectedBranch && !isCreating && !isEditing && (
+          <FormSection title="Record Information" columns={2}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Created</Typography>
+              <Typography variant="body2">{formatDateTimeReadable(selectedBranch.created_at) || "-"}</Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+              <Typography variant="body2">{formatDateTimeReadable(selectedBranch.updated_at) || "-"}</Typography>
+            </Box>
+          </FormSection>
         )}
       </Box>
     </Box>

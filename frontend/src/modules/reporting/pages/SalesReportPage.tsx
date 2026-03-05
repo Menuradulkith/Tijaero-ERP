@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { fmtLKR } from "@/components/tijaero";
 import {
   Box,
   Typography,
@@ -174,7 +175,7 @@ export default function SalesReportPage() {
                         {product.quantity_sold}
                       </TableCell>
                       <TableCell align="right">
-                        {product.revenue.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {fmtLKR(product.revenue)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -202,7 +203,7 @@ export default function SalesReportPage() {
                       <TableCell>{branch.branch_code}</TableCell>
                       <TableCell align="right">{branch.orders}</TableCell>
                       <TableCell align="right">
-                        {branch.revenue.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {fmtLKR(branch.revenue)}
                       </TableCell>
                     </TableRow>
                   ))}

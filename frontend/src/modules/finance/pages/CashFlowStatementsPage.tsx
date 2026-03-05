@@ -48,8 +48,10 @@ import {
   TSearchableSelect,
   type SortOption,
   modernTableStyles,
+  TConfirmDialog,
+  useConfirmDialog,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import { cashFlowStatementsApi } from "@/modules/finance/api";
 import type {
@@ -520,6 +522,20 @@ export default function CashFlowStatementsPage() {
                 netAmount={detail.net_cash_from_financing}
               />
             </FormSection>
+
+            {/* Record Information */}
+            {detail && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(detail.created_at) || "-"}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(detail.updated_at) || "-"}</Typography>
+                </Box>
+              </FormSection>
+            )}
           </>
         )}
       </Box>
@@ -595,7 +611,7 @@ export default function CashFlowStatementsPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

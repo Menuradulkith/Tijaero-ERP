@@ -71,9 +71,10 @@ import {
   handleApiError,
   showErrorToast,
   showSuccessToast,
+  TConfirmDialog,
+  useConfirmDialog,
+  fmtLKR,
 } from "@/components/tijaero";
-import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
   MasterDetailLayout,
@@ -94,7 +95,7 @@ import {
   supplierPaymentsApi,
   SupplierPaymentStatusData,
 } from "@/modules/purchasing/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
 import {
   Supplier,
   SupplierCreditsSettleCreate,
@@ -183,7 +184,7 @@ export default function SupplierPaymentsPage() {
   const [paymentTypeTab, setPaymentTypeTab] = useState<PaymentTypeTab>("all");
 
   // Branch filter
-  const [branches, setBranches] = useState<{ branch_code: string; branch_name: string }[]>([]);
+  const { filteredBranches: branches = [] } = useReferenceData(["branches"]);
   const [selectedBranch, setSelectedBranch] = useState<string>("all");
 
   // Document search filter
@@ -213,20 +214,10 @@ export default function SupplierPaymentsPage() {
 
   const confirmDialog = useConfirmDialog();
 
-  // Load suppliers and branches
+  // Load suppliers
   useEffect(() => {
     loadSuppliers();
-    loadBranches();
   }, []);
-
-  const loadBranches = async () => {
-    try {
-      const data = await branchApi.getAll(1, 100);
-      setBranches(data.items || []);
-    } catch (err) {
-      console.error("Failed to load branches:", err);
-    }
-  };
 
   const loadSuppliers = useCallback(async () => {
     try {
@@ -241,7 +232,6 @@ export default function SupplierPaymentsPage() {
           try {
             return await supplierCreditApi.getPaymentStatus(supplier.id);
           } catch (err) {
-            console.error(`Failed to load payment status for supplier ${supplier.id}:`, err);
             return null;
           }
         })
@@ -261,7 +251,6 @@ export default function SupplierPaymentsPage() {
       const status = await supplierCreditApi.getPaymentStatus(supplierId);
       setPaymentStatus(status);
     } catch (err) {
-      console.error("Failed to load payment status:", err);
       setPaymentStatus(null);
     } finally {
       setLoadingStatus(false);
@@ -302,7 +291,6 @@ export default function SupplierPaymentsPage() {
               status: fullSettlement.status,
             };
           } catch (err) {
-            console.error(`Failed to load details for settlement ${s.id}:`, err);
             return {
               type: "credit_settlement",
               id: s.id,
@@ -340,7 +328,6 @@ export default function SupplierPaymentsPage() {
       combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setPaymentHistory(combined);
     } catch (err) {
-      console.error("Failed to load payment history:", err);
       setPaymentHistory([]);
     } finally {
       setLoadingHistory(false);
@@ -667,7 +654,7 @@ export default function SupplierPaymentsPage() {
     const hasCreditPayments = paymentTypes.has("credit");
     const hasNonCreditPayments = paymentTypes.has("non_credit");
 
-    const confirmMessage = `Post payment of ${formatCurrency(totalPaymentAmount)} for ${selectedSupplier.full_name}?`;
+    const confirmMessage = `Post payment of Rs. ${fmtLKR(totalPaymentAmount)} for ${selectedSupplier.full_name}?`;
 
     const confirmed = await confirmDialog.confirm({
       title: "Post Payment",
@@ -839,7 +826,7 @@ export default function SupplierPaymentsPage() {
                       <>
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="caption">
-                            Credit: {(supplier.left_credit_amount ?? supplier.max_credit_limit).toLocaleString()} / {supplier.max_credit_limit.toLocaleString()}
+                            Credit: {fmtLKR(supplier.left_credit_amount ?? supplier.max_credit_limit)} / {fmtLKR(supplier.max_credit_limit)}
                           </Typography>
                         </Box>
                         <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
@@ -862,7 +849,7 @@ export default function SupplierPaymentsPage() {
                     )}
                     {outstanding > 0 && (
                       <Typography variant="caption" color="warning.main">
-                        Outstanding: {formatCurrency(outstanding)}
+                        Outstanding: Rs. {fmtLKR(outstanding)}
                       </Typography>
                     )}
                   </>
@@ -974,7 +961,6 @@ export default function SupplierPaymentsPage() {
       
       // Skip if amount is still NaN after parsing
       if (isNaN(amount)) {
-        console.warn("Invalid amount in payment history item:", item);
         amount = 0;
       }
       
@@ -1221,22 +1207,22 @@ export default function SupplierPaymentsPage() {
         <div class="summary-grid">
           <div class="summary-card primary">
             <div class="label">Total Payments</div>
-            <div class="value">${formatCurrency(historySummary.totalAmount)}</div>
+            <div class="value">Rs. ${fmtLKR(historySummary.totalAmount)}</div>
             <div class="count">${historySummary.totalCount} Transaction${historySummary.totalCount !== 1 ? 's' : ''}</div>
           </div>
           <div class="summary-card success">
             <div class="label">Verified</div>
-            <div class="value">${formatCurrency(historySummary.byStatus.verified.amount)}</div>
+            <div class="value">Rs. ${fmtLKR(historySummary.byStatus.verified.amount)}</div>
             <div class="count">${historySummary.byStatus.verified.count} Transaction${historySummary.byStatus.verified.count !== 1 ? 's' : ''}</div>
           </div>
           <div class="summary-card warning">
             <div class="label">Pending</div>
-            <div class="value">${formatCurrency(historySummary.byStatus.pending.amount)}</div>
+            <div class="value">Rs. ${fmtLKR(historySummary.byStatus.pending.amount)}</div>
             <div class="count">${historySummary.byStatus.pending.count} Transaction${historySummary.byStatus.pending.count !== 1 ? 's' : ''}</div>
           </div>
           <div class="summary-card info">
             <div class="label">Credit Settlements</div>
-            <div class="value">${formatCurrency(historySummary.creditSettlements.amount)}</div>
+            <div class="value">Rs. ${fmtLKR(historySummary.creditSettlements.amount)}</div>
             <div class="count">${historySummary.creditSettlements.count} Settlement${historySummary.creditSettlements.count !== 1 ? 's' : ''}</div>
           </div>
         </div>
@@ -1247,7 +1233,7 @@ export default function SupplierPaymentsPage() {
             ${Object.entries(historySummary.byMethod).map(([method, data]) => `
               <div class="breakdown-item">
                 <span>${method}</span>
-                <span><strong>${formatCurrency(data.amount)}</strong> (${data.count})</span>
+                <span><strong>Rs. ${fmtLKR(data.amount)}</strong> (${data.count})</span>
               </div>
             `).join('')}
           </div>
@@ -1256,7 +1242,7 @@ export default function SupplierPaymentsPage() {
             ${Object.entries(historySummary.byBranch).map(([branch, data]) => `
               <div class="breakdown-item">
                 <span>${branch}</span>
-                <span><strong>${formatCurrency(data.amount)}</strong> (${data.count})</span>
+                <span><strong>Rs. ${fmtLKR(data.amount)}</strong> (${data.count})</span>
               </div>
             `).join('')}
           </div>
@@ -1292,8 +1278,8 @@ export default function SupplierPaymentsPage() {
                   <td>${item.payment_method || '-'}</td>
                   <td>${item.reference_number || item.payment_method_number || '-'}</td>
                   <td class="text-right"><strong>${item.type === 'credit_settlement'
-        ? (item.total_amount > 0 ? formatAmount(item.total_amount) : '-')
-        : formatAmount(item.amount)}</strong></td>
+        ? (item.total_amount > 0 ? fmtLKR(item.total_amount) : '-')
+        : fmtLKR(item.amount)}</strong></td>
                   <td class="text-center">
                     <span class="status-badge status-${item.status || 'pending'}">
                       ${(item.status || 'pending').toUpperCase()}
@@ -1304,7 +1290,7 @@ export default function SupplierPaymentsPage() {
               `).join('')}
               <tr class="totals-row">
                 <td colspan="6" style="text-align: right;">TOTAL:</td>
-                <td class="text-right">${formatCurrency(historySummary.totalAmount)}</td>
+                <td class="text-right">Rs. ${fmtLKR(historySummary.totalAmount)}</td>
                 <td colspan="2"></td>
               </tr>
             </tbody>
@@ -1364,7 +1350,7 @@ export default function SupplierPaymentsPage() {
                 Total Payments
               </Typography>
               <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
-                {formatCurrency(historySummary.totalAmount)}
+                Rs. {fmtLKR(historySummary.totalAmount)}
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.8 }}>
                 {historySummary.totalCount} Transaction{historySummary.totalCount !== 1 ? 's' : ''}
@@ -1382,7 +1368,7 @@ export default function SupplierPaymentsPage() {
                 Verified
               </Typography>
               <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
-                {formatCurrency(historySummary.byStatus.verified.amount)}
+                Rs. {fmtLKR(historySummary.byStatus.verified.amount)}
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.8 }}>
                 {historySummary.byStatus.verified.count} Transaction{historySummary.byStatus.verified.count !== 1 ? 's' : ''}
@@ -1400,7 +1386,7 @@ export default function SupplierPaymentsPage() {
                 Pending
               </Typography>
               <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
-                {formatCurrency(historySummary.byStatus.pending.amount)}
+                Rs. {fmtLKR(historySummary.byStatus.pending.amount)}
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.8 }}>
                 {historySummary.byStatus.pending.count} Transaction{historySummary.byStatus.pending.count !== 1 ? 's' : ''}
@@ -1418,7 +1404,7 @@ export default function SupplierPaymentsPage() {
                 Credit Settlements
               </Typography>
               <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
-                {formatCurrency(historySummary.creditSettlements.amount)}
+                Rs. {fmtLKR(historySummary.creditSettlements.amount)}
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.8 }}>
                 {historySummary.creditSettlements.count} Settlement{historySummary.creditSettlements.count !== 1 ? 's' : ''}
@@ -1442,7 +1428,7 @@ export default function SupplierPaymentsPage() {
                 <Box key={method} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px dotted #eee' }}>
                   <Typography variant="body2">{method}</Typography>
                   <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body2" fontWeight="bold">{formatCurrency(data.amount)}</Typography>
+                    <Typography variant="body2" fontWeight="bold">Rs. {fmtLKR(data.amount)}</Typography>
                     <Typography variant="caption" color="text.secondary">{data.count} transaction{data.count !== 1 ? 's' : ''}</Typography>
                   </Box>
                 </Box>
@@ -1464,7 +1450,7 @@ export default function SupplierPaymentsPage() {
                 <Box key={branch} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px dotted #eee' }}>
                   <Typography variant="body2">{branch}</Typography>
                   <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body2" fontWeight="bold">{formatCurrency(data.amount)}</Typography>
+                    <Typography variant="body2" fontWeight="bold">Rs. {fmtLKR(data.amount)}</Typography>
                     <Typography variant="caption" color="text.secondary">{data.count} transaction{data.count !== 1 ? 's' : ''}</Typography>
                   </Box>
                 </Box>
@@ -1616,8 +1602,8 @@ export default function SupplierPaymentsPage() {
                     <TableCell align="right">
                       <Typography variant="body2" fontWeight="bold" color="primary.main">
                         {item.type === "credit_settlement"
-                          ? (item.total_amount > 0 ? formatAmount(item.total_amount) : "-")
-                          : formatAmount(item.amount)}
+                          ? (item.total_amount > 0 ? fmtLKR(item.total_amount) : "-")
+                          : fmtLKR(item.amount)}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -1665,7 +1651,7 @@ export default function SupplierPaymentsPage() {
               <Box>
                 <Typography variant="caption" color="text.secondary">Total Amount</Typography>
                 <Typography variant="h6" color="primary.main" fontWeight="bold">
-                  {formatCurrency(historySummary.totalAmount)}
+                  Rs. {fmtLKR(historySummary.totalAmount)}
                 </Typography>
               </Box>
             </Box>
@@ -1718,7 +1704,7 @@ export default function SupplierPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption" color="text.secondary">Credit Limit</Typography>
                     <Typography variant="h6">
-                      {formatCurrency(selectedSupplier?.max_credit_limit || 0)}
+                      Rs. {fmtLKR(selectedSupplier?.max_credit_limit || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -1728,7 +1714,7 @@ export default function SupplierPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption" color="text.secondary">Available</Typography>
                     <Typography variant="h6" color="success.main">
-                      {formatCurrency(paymentStatus?.left_credit_amount || 0)}
+                      Rs. {fmtLKR(paymentStatus?.left_credit_amount || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -1738,7 +1724,7 @@ export default function SupplierPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption">Credit Outstanding</Typography>
                     <Typography variant="h6" color="warning.dark">
-                      {formatCurrency(paymentStatus?.credit_outstanding || 0)}
+                      Rs. {fmtLKR(paymentStatus?.credit_outstanding || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -1776,7 +1762,7 @@ export default function SupplierPaymentsPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Total Outstanding</Typography>
                   <Typography variant="h6" color="warning.dark">
-                    {formatCurrency(totalOutstanding)}
+                    Rs. {fmtLKR(totalOutstanding)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1796,7 +1782,7 @@ export default function SupplierPaymentsPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Overdue Amount</Typography>
                   <Typography variant="h6" color={overdueDocuments.length > 0 ? "error.dark" : "text.secondary"}>
-                    {formatCurrency(overdueDocuments.reduce((sum, d) => sum + d.remaining_amount, 0))}
+                    Rs. {fmtLKR(overdueDocuments.reduce((sum, d) => sum + d.remaining_amount, 0))}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1925,16 +1911,16 @@ export default function SupplierPaymentsPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      {formatAmount(doc.total_amount)}
+                      {fmtLKR(doc.total_amount)}
                     </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2">
-                        {formatAmount(doc.paid_amount)}
+                        {fmtLKR(doc.paid_amount)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Typography color="warning.main" fontWeight="bold">
-                        {formatAmount(doc.remaining_amount)}
+                        {fmtLKR(doc.remaining_amount)}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -2104,12 +2090,12 @@ export default function SupplierPaymentsPage() {
                   </TableCell>
                   <TableCell align="right">
                     <Typography variant="body2" color="text.secondary">
-                      {formatCurrency(doc.remaining_amount)}
+                      Rs. {fmtLKR(doc.remaining_amount)}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
                     <Typography fontWeight="bold">
-                      {formatCurrency(doc.remaining_amount)}
+                      Rs. {fmtLKR(doc.remaining_amount)}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -2129,16 +2115,15 @@ export default function SupplierPaymentsPage() {
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Typography variant="subtitle1">
             {useFIFO
-              ? `FIFO Amount: Rs. ${fifoAmount.toLocaleString()}`
+              ? `FIFO Amount: Rs. ${fmtLKR(fifoAmount)}`
               : `Selected: ${selectedDocumentIds.size} documents`}
           </Typography>
           <Typography variant="h6" color="primary.main">
             {useFIFO
               ? `Will allocate to ${allocateFIFO(fifoAmount).length} document(s)`
-              : `Total: Rs. ${outstandingDocuments
+              : `Total: Rs. ${fmtLKR(outstandingDocuments
                 .filter((d) => selectedDocumentIds.has(d.id))
-                .reduce((sum, d) => sum + d.remaining_amount, 0)
-                .toLocaleString()}`}
+                .reduce((sum, d) => sum + d.remaining_amount, 0))}`}
           </Typography>
         </Box>
       </Paper>
@@ -2206,7 +2191,7 @@ export default function SupplierPaymentsPage() {
                       />
                     </TableCell>
                     <TableCell align="right">
-                      {formatAmount(line.document.remaining_amount)}
+                      {fmtLKR(line.document.remaining_amount)}
                     </TableCell>
                     <TableCell align="right">
                       <TextField
@@ -2215,7 +2200,7 @@ export default function SupplierPaymentsPage() {
                         value={line.allocated_amount}
                         onChange={(e) => handleLineAmountChange(line.id, Number(e.target.value))}
                         InputProps={{
-                          startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                          startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
                         }}
                         inputProps={{
                           min: 0,
@@ -2241,7 +2226,7 @@ export default function SupplierPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h6" fontWeight="bold" color="primary.main">
-                    {formatCurrency(totalPaymentAmount)}
+                    Rs. {fmtLKR(totalPaymentAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -2404,16 +2389,16 @@ export default function SupplierPaymentsPage() {
                       />
                     </TableCell>
                     <TableCell align="right">
-                      {formatAmount(line.document.remaining_amount)}
+                      {fmtLKR(line.document.remaining_amount)}
                     </TableCell>
                     <TableCell align="right">
                       <Typography color="primary.main" fontWeight="bold">
-                        {line.allocated_amount > 0 ? formatAmount(line.allocated_amount) : "-"}
+                        {line.allocated_amount > 0 ? fmtLKR(line.allocated_amount) : "-"}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Typography color={remainingAfter > 0 ? "warning.main" : "success.main"}>
-                        {formatAmount(remainingAfter)}
+                        {fmtLKR(remainingAfter)}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -2427,7 +2412,7 @@ export default function SupplierPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h5" fontWeight="bold" color="primary.main">
-                    {formatCurrency(totalPaymentAmount)}
+                    Rs. {fmtLKR(totalPaymentAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -2508,12 +2493,12 @@ export default function SupplierPaymentsPage() {
                 ? [
                   { label: `${outstandingDocuments.length} Open Docs`, variant: "outlined" as const },
                   ...(totalOutstanding > 0
-                    ? [{ label: formatCurrency(totalOutstanding) + " Outstanding", color: "warning" as const }]
+                    ? [{ label: `Rs. ${fmtLKR(totalOutstanding)} Outstanding`, color: "warning" as const }]
                     : []),
                 ]
                 : viewMode !== "overview"
                   ? [
-                    { label: formatCurrency(totalPaymentAmount), color: "primary" as const },
+                    { label: `Rs. ${fmtLKR(totalPaymentAmount)}`, color: "primary" as const },
                   ]
                   : []
         }
@@ -2578,7 +2563,7 @@ export default function SupplierPaymentsPage() {
         )}
       </Box>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
 

@@ -31,6 +31,7 @@ import {
     TableHead,
     TableRow,
     TextField,
+    Tooltip,
     Typography
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -63,6 +64,7 @@ import {
     useMasterDetailState,
     useTConfirmDialog,
 } from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { useReferenceData } from "@/hooks";
@@ -93,7 +95,11 @@ const RETURN_REASON_OPTIONS = [
 
 const FORM_STEPS = ["Return Information", "Return Items"];
 
-const generateReturnNo = () => `SR-${Date.now().toString(36).toUpperCase()}`;
+const generateReturnNo = () => {
+    const yr = new Date().getFullYear();
+    const seq = String(Math.floor(Date.now() / 1000)).slice(-5);
+    return `SR-${yr}-${seq}`;
+};
 
 const INITIAL_FORM_DATA: SaleReturnCreate = {
     sale_return_no: "",
@@ -780,6 +786,12 @@ export default function SaleReturnsPage() {
                                                 </Typography>
                                             </Box>
                                             <Box>
+                                                <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    {formatDateTimeReadable(selectedReturn.updated_at) || "-"}
+                                                </Typography>
+                                            </Box>
+                                            <Box>
                                                 <Typography variant="caption" color="text.secondary">Return Reason</Typography>
                                                 <Typography variant="body2" fontWeight={500}>
                                                     {RETURN_REASON_OPTIONS.find(r => r.value === selectedReturn.return_reason)?.label || selectedReturn.return_reason || "-"}
@@ -1025,7 +1037,7 @@ export default function SaleReturnsPage() {
                                                             )}
                                                         </TableCell>
                                                         <TableCell align="right">
-                                                            {`Rs. ${(Number(item.sold_price) || 0).toFixed(2)}`}
+                                                            {`Rs. ${fmtLKR(Number(item.sold_price) || 0)}`}
                                                         </TableCell>
                                                         <TableCell align="right">
                                                             {(isEditing || isCreating) ? (
@@ -1038,14 +1050,16 @@ export default function SaleReturnsPage() {
                                                                     inputProps={{ min: 0, step: 0.01 }}
                                                                 />
                                                             ) : (
-                                                                `Rs. ${(Number(item.return_price) || 0).toFixed(2)}`
+                                                                `Rs. ${fmtLKR(Number(item.return_price) || 0)}`
                                                             )}
                                                         </TableCell>
                                                         {(isEditing || isCreating) && (
                                                             <TableCell>
-                                                                <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
-                                                                    <DeleteIcon fontSize="small" />
-                                                                </IconButton>
+                                                                <Tooltip title="Remove item">
+                                                                    <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error" aria-label="Remove line item">
+                                                                        <DeleteIcon fontSize="small" />
+                                                                    </IconButton>
+                                                                </Tooltip>
                                                             </TableCell>
                                                         )}
                                                     </TableRow>
@@ -1056,13 +1070,47 @@ export default function SaleReturnsPage() {
                                                     <Typography fontWeight="bold">Total Return:</Typography>
                                                 </TableCell>
                                                 <TableCell align="right">
-                                                    <Typography fontWeight="bold">Rs. {(calculateTotal() || 0).toFixed(2)}</Typography>
+                                                    <Typography fontWeight="bold">Rs. {fmtLKR(calculateTotal() || 0)}</Typography>
                                                 </TableCell>
                                                 {(isEditing || isCreating) && <TableCell />}
                                             </TableRow>
                                         </TableBody>
                                     </Table>
                                 </Paper>
+                                {/* Sticky Live Total Bar */}
+                                {(isEditing || isCreating) && lineItems.length > 0 && (
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            position: "sticky",
+                                            bottom: 8,
+                                            mt: 2,
+                                            p: 1.5,
+                                            display: "flex",
+                                            justifyContent: "space-between",
+                                            alignItems: "center",
+                                            bgcolor: "background.paper",
+                                            borderColor: "primary.main",
+                                            borderWidth: 2,
+                                            zIndex: 10,
+                                        }}
+                                    >
+                                        <Box sx={{ display: "flex", gap: 3, alignItems: "center" }}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Items: <strong>{lineItems.length}</strong>
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Qty: <strong>{lineItems.reduce((s, i) => s + (Number(i.quantity) || 1), 0)}</strong>
+                                            </Typography>
+                                        </Box>
+                                        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                                            <Typography variant="body2" color="text.secondary">Total Return:</Typography>
+                                            <Typography variant="h6" fontWeight="bold" color="primary.main">
+                                                Rs. {fmtLKR(calculateTotal() || 0)}
+                                            </Typography>
+                                        </Box>
+                                    </Paper>
+                                )}
                             </>
                         )}
                     </>

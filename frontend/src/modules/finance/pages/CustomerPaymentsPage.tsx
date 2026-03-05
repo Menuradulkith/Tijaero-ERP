@@ -55,15 +55,16 @@ import AssessmentIcon from "@mui/icons-material/Assessment";
 import PrintIcon from "@mui/icons-material/Print";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import ReceiptIcon from "@mui/icons-material/Receipt";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import {
   handleApiError,
   showErrorToast,
   showSuccessToast,
   TStatCard,
   TFilterPanel,
+  TConfirmDialog,
+  useConfirmDialog,
+  fmtLKR,
 } from "@/components/tijaero";
-import { formatCurrency, formatAmount, ERP_CURRENCY_SYMBOL } from "@/utils/formatters";
 
 import {
   MasterDetailLayout,
@@ -78,7 +79,7 @@ import { Customer } from "@/modules/customers/types";
 import { salesApi } from "@/modules/sales/api";
 import { Invoice } from "@/modules/sales/types";
 
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
 import apiClient from "@/api/client";
 
 // Configuration
@@ -153,7 +154,7 @@ export default function CustomerPaymentsPage() {
   const [activeStep, setActiveStep] = useState(0);
 
   // Branch filter
-  const [branches, setBranches] = useState<{ branch_code: string; branch_name: string }[]>([]);
+  const { filteredBranches: branches = [] } = useReferenceData(["branches"]);
   const [selectedBranch, setSelectedBranch] = useState<string>("all");
 
   // Document search filter
@@ -185,20 +186,10 @@ export default function CustomerPaymentsPage() {
 
   const confirmDialog = useConfirmDialog();
 
-  // Load customers and branches
+  // Load customers
   useEffect(() => {
     loadCustomers();
-    loadBranches();
   }, []);
-
-  const loadBranches = async () => {
-    try {
-      const data = await branchApi.getAll(1, 100);
-      setBranches(data.items || []);
-    } catch (err) {
-      console.error("Failed to load branches:", err);
-    }
-  };
 
   const loadCustomers = useCallback(async () => {
     try {
@@ -221,7 +212,6 @@ export default function CustomerPaymentsPage() {
       const status = await customersApi.getCreditSummary(customerId);
       setCreditStatus(status);
     } catch (err) {
-      console.error("Failed to load credit status:", err);
       setCreditStatus(null);
     } finally {
       setLoadingStatus(false);
@@ -234,7 +224,6 @@ export default function CustomerPaymentsPage() {
       const invoices = await salesApi.getByCustomer(customerId);
       setCustomerInvoices(invoices || []);
     } catch (err) {
-      console.error("Failed to load customer invoices:", err);
       setCustomerInvoices([]);
     }
   }, []);
@@ -266,7 +255,6 @@ export default function CustomerPaymentsPage() {
               branch_code: s.branch_code,
             };
           } catch (err) {
-            console.error(`Failed to load settlement ${s.id}:`, err);
             return {
               type: "credit_settlement",
               id: s.id,
@@ -284,7 +272,6 @@ export default function CustomerPaymentsPage() {
       settlementsWithDetails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setPaymentHistory(settlementsWithDetails);
     } catch (err) {
-      console.error("Failed to load payment history:", err);
       setPaymentHistory([]);
     } finally {
       setLoadingHistory(false);
@@ -557,7 +544,7 @@ export default function CustomerPaymentsPage() {
 
     const confirmed = await confirmDialog.confirm({
       title: "Receive Payment",
-      message: `Receive payment of ${formatCurrency(totalPaymentAmount)} from ${selectedCustomer.customer_name}? This action cannot be undone.`,
+      message: `Receive payment of Rs. ${fmtLKR(totalPaymentAmount)} from ${selectedCustomer.customer_name}? This action cannot be undone.`,
       confirmText: "Confirm",
     });
 
@@ -598,7 +585,7 @@ export default function CustomerPaymentsPage() {
         await apiClient.post(`/sales/${line.invoice.id}/settle-payment`, payload);
       }
 
-      showSuccessToast(`Payment of ${formatCurrency(totalPaymentAmount)} received from ${selectedCustomer.customer_name}`);
+      showSuccessToast(`Payment of Rs. ${fmtLKR(totalPaymentAmount)} received from ${selectedCustomer.customer_name}`);
 
       // Refresh data and reset
       await loadCreditStatus(selectedCustomer.id);
@@ -717,7 +704,7 @@ export default function CustomerPaymentsPage() {
                       <>
                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <Typography variant="caption">
-                            Credit: {(customer.left_credit_amount ?? customer.max_credit_limit).toLocaleString()} / {customer.max_credit_limit.toLocaleString()}
+                            Credit: {fmtLKR(customer.left_credit_amount ?? customer.max_credit_limit)} / {fmtLKR(customer.max_credit_limit)}
                           </Typography>
                           <Typography variant="caption" color="text.disabled">(Credit)</Typography>
                         </Box>
@@ -742,7 +729,7 @@ export default function CustomerPaymentsPage() {
                     {outstanding > 0 && (
                       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <Typography variant="caption" color="warning.main">
-                          Outstanding: {formatCurrency(outstanding)}
+                          Outstanding: Rs. {fmtLKR(outstanding)}
                         </Typography>
                         <Typography variant="caption" color="text.disabled">(Outstanding)</Typography>
                       </Box>
@@ -869,7 +856,7 @@ export default function CustomerPaymentsPage() {
         <div class="summary-grid">
           <div class="summary-card primary">
             <div class="label">Total Payments</div>
-            <div class="value">${formatCurrency(historySummary.totalAmount)}</div>
+            <div class="value">Rs. ${fmtLKR(historySummary.totalAmount)}</div>
           </div>
           <div class="summary-card success">
             <div class="label">Transactions</div>
@@ -877,21 +864,21 @@ export default function CustomerPaymentsPage() {
           </div>
           <div class="summary-card info">
             <div class="label">Outstanding</div>
-            <div class="value">${formatCurrency(creditStatus?.outstanding_credit || 0)}</div>
+            <div class="value">Rs. ${fmtLKR(creditStatus?.outstanding_credit || 0)}</div>
           </div>
         </div>
         <table>
-          <thead><tr><th>Date</th><th>Settlement No.</th><th>Invoice(s)</th><th>Payment Method</th><th class="text-right">Amount (${ERP_CURRENCY_SYMBOL})</th><th>Branch</th></tr></thead>
+          <thead><tr><th>Date</th><th>Settlement No.</th><th>Invoice(s)</th><th>Payment Method</th><th class="text-right">Amount (Rs.)</th><th>Branch</th></tr></thead>
           <tbody>
             ${filteredPaymentHistory.map((item) => `<tr>
               <td>${new Date(item.date).toLocaleDateString()}</td>
               <td>${item.settle_no || "-"}</td>
               <td>${item.invoice_ref || "-"}</td>
               <td>${item.payment_method || "-"}</td>
-              <td class="text-right"><strong>${formatAmount(item.total_amount)}</strong></td>
+              <td class="text-right"><strong>${fmtLKR(item.total_amount)}</strong></td>
               <td>${item.branch_code || "-"}</td>
             </tr>`).join("")}
-            <tr class="totals-row"><td colspan="4" style="text-align:right;">TOTAL:</td><td class="text-right">${formatCurrency(historySummary.totalAmount)}</td><td></td></tr>
+            <tr class="totals-row"><td colspan="4" style="text-align:right;">TOTAL:</td><td class="text-right">Rs. ${fmtLKR(historySummary.totalAmount)}</td><td></td></tr>
           </tbody>
         </table>
         <div class="footer"><p>Generated on ${new Date().toLocaleString()} | Tijaero ERP System</p></div>
@@ -950,7 +937,7 @@ export default function CustomerPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption" color="text.secondary">Credit Limit</Typography>
                     <Typography variant="h6">
-                      {formatCurrency(selectedCustomer?.max_credit_limit || 0)}
+                      Rs. {fmtLKR(selectedCustomer?.max_credit_limit || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -960,7 +947,7 @@ export default function CustomerPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption" color="text.secondary">Available</Typography>
                     <Typography variant="h6" color="success.main">
-                      {formatCurrency(creditStatus?.available_credit || 0)}
+                      Rs. {fmtLKR(creditStatus?.available_credit || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -970,7 +957,7 @@ export default function CustomerPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption">Outstanding</Typography>
                     <Typography variant="h6" color="warning.dark">
-                      {formatCurrency(creditStatus?.outstanding_credit || 0)}
+                      Rs. {fmtLKR(creditStatus?.outstanding_credit || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -1008,7 +995,7 @@ export default function CustomerPaymentsPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Total Outstanding</Typography>
                   <Typography variant="h6" color="warning.dark">
-                    {formatCurrency(totalOutstanding)}
+                    Rs. {fmtLKR(totalOutstanding)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1028,7 +1015,7 @@ export default function CustomerPaymentsPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Overdue Amount</Typography>
                   <Typography variant="h6" color={overdueInvoices.length > 0 ? "error.dark" : "text.secondary"}>
-                    {formatCurrency(overdueInvoices.reduce((sum, d) => sum + d.balance_due, 0))}
+                    Rs. {fmtLKR(overdueInvoices.reduce((sum, d) => sum + d.balance_due, 0))}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1141,11 +1128,11 @@ export default function CustomerPaymentsPage() {
                         )}
                       </Box>
                     </TableCell>
-                    <TableCell align="right">{formatAmount(inv.total_amount)}</TableCell>
-                    <TableCell align="right">{formatAmount(inv.paid_amount)}</TableCell>
+                    <TableCell align="right">{fmtLKR(inv.total_amount)}</TableCell>
+                    <TableCell align="right">{fmtLKR(inv.paid_amount)}</TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold" color="warning.main">
-                        {formatAmount(inv.balance_due)}
+                        {fmtLKR(inv.balance_due)}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -1204,7 +1191,7 @@ export default function CustomerPaymentsPage() {
               value={fifoAmount || ""}
               onChange={(e) => setFifoAmount(Number(e.target.value))}
               InputProps={{
-                startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
               }}
               sx={{ width: 250 }}
             />
@@ -1265,10 +1252,10 @@ export default function CustomerPaymentsPage() {
                       )}
                     </Box>
                   </TableCell>
-                  <TableCell align="right">{formatAmount(inv.credit_amount)}</TableCell>
-                  <TableCell align="right">{formatAmount(inv.paid_amount)}</TableCell>
+                  <TableCell align="right">{fmtLKR(inv.credit_amount)}</TableCell>
+                  <TableCell align="right">{fmtLKR(inv.paid_amount)}</TableCell>
                   <TableCell align="right">
-                    <Typography fontWeight="bold" color="warning.main">{formatAmount(inv.balance_due)}</Typography>
+                    <Typography fontWeight="bold" color="warning.main">{fmtLKR(inv.balance_due)}</Typography>
                   </TableCell>
                   <TableCell>
                     <Chip
@@ -1347,7 +1334,7 @@ export default function CustomerPaymentsPage() {
                       <Chip label="Overdue" size="small" color="error" sx={{ ml: 1, height: 18, fontSize: "0.6rem" }} />
                     )}
                   </TableCell>
-                  <TableCell align="right">{formatAmount(line.invoice.balance_due)}</TableCell>
+                  <TableCell align="right">{fmtLKR(line.invoice.balance_due)}</TableCell>
                   <TableCell align="right">
                     <TextField
                       size="small"
@@ -1355,7 +1342,7 @@ export default function CustomerPaymentsPage() {
                       value={line.allocated_amount || ""}
                       onChange={(e) => handleLineAmountChange(line.id, Number(e.target.value))}
                       InputProps={{
-                        startAdornment: <InputAdornment position="start">{ERP_CURRENCY_SYMBOL}</InputAdornment>,
+                        startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
                       }}
                       sx={{ width: 160 }}
                     />
@@ -1374,7 +1361,7 @@ export default function CustomerPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h6" color="primary.main" fontWeight="bold">
-                    {formatCurrency(totalPaymentAmount)}
+                    Rs. {fmtLKR(totalPaymentAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -1568,7 +1555,7 @@ export default function CustomerPaymentsPage() {
         <Grid item xs={12} sm={4}>
           <TStatCard
             title="Total Payment"
-            value={formatCurrency(totalPaymentAmount)}
+            value={`Rs. ${fmtLKR(totalPaymentAmount)}`}
             subtitle={`${paymentLines.length} invoice(s)`}
             icon={<AccountBalanceIcon />}
             color="success"
@@ -1601,15 +1588,15 @@ export default function CustomerPaymentsPage() {
                       <Typography variant="body2" fontWeight="medium">{line.invoice.invoice_no}</Typography>
                     </TableCell>
                     <TableCell>{new Date(line.invoice.due_date).toLocaleDateString()}</TableCell>
-                    <TableCell align="right">{formatAmount(line.invoice.balance_due)}</TableCell>
+                    <TableCell align="right">{fmtLKR(line.invoice.balance_due)}</TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold" color="primary.main">
-                        {formatAmount(line.allocated_amount)}
+                        {fmtLKR(line.allocated_amount)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Typography color={remaining > 0 ? "warning.main" : "success.main"}>
-                        {formatAmount(remaining)}
+                        {fmtLKR(remaining)}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -1621,7 +1608,7 @@ export default function CustomerPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h6" fontWeight="bold" color="primary.main">
-                    {formatCurrency(totalPaymentAmount)}
+                    Rs. {fmtLKR(totalPaymentAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -1687,7 +1674,7 @@ export default function CustomerPaymentsPage() {
           onClick={handlePostPayment}
           disabled={saving}
         >
-          {saving ? "Posting..." : `Post Payment - ${formatCurrency(totalPaymentAmount)}`}
+          {saving ? "Posting..." : `Post Payment - Rs. ${fmtLKR(totalPaymentAmount)}`}
         </Button>
       </Box>
     </Box>
@@ -1717,7 +1704,7 @@ export default function CustomerPaymentsPage() {
           <Card sx={{ background: "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)", color: "white" }}>
             <CardContent sx={{ textAlign: "center", py: 2 }}>
               <Typography variant="caption" sx={{ opacity: 0.9, textTransform: "uppercase" }}>Total Payments</Typography>
-              <Typography variant="h5" sx={{ fontWeight: "bold", mt: 0.5 }}>{formatCurrency(historySummary.totalAmount)}</Typography>
+              <Typography variant="h5" sx={{ fontWeight: "bold", mt: 0.5 }}>Rs. {fmtLKR(historySummary.totalAmount)}</Typography>
               <Typography variant="caption" sx={{ opacity: 0.8 }}>{historySummary.totalCount} Transaction{historySummary.totalCount !== 1 ? "s" : ""}</Typography>
             </CardContent>
           </Card>
@@ -1726,7 +1713,7 @@ export default function CustomerPaymentsPage() {
           <Card sx={{ background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)", color: "white" }}>
             <CardContent sx={{ textAlign: "center", py: 2 }}>
               <Typography variant="caption" sx={{ opacity: 0.9, textTransform: "uppercase" }}>Current Outstanding</Typography>
-              <Typography variant="h5" sx={{ fontWeight: "bold", mt: 0.5 }}>{formatCurrency(creditStatus?.outstanding_credit || 0)}</Typography>
+              <Typography variant="h5" sx={{ fontWeight: "bold", mt: 0.5 }}>Rs. {fmtLKR(creditStatus?.outstanding_credit || 0)}</Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -1734,7 +1721,7 @@ export default function CustomerPaymentsPage() {
           <Card sx={{ background: "linear-gradient(135deg, #ed6c02 0%, #e65100 100%)", color: "white" }}>
             <CardContent sx={{ textAlign: "center", py: 2 }}>
               <Typography variant="caption" sx={{ opacity: 0.9, textTransform: "uppercase" }}>Overdue</Typography>
-              <Typography variant="h5" sx={{ fontWeight: "bold", mt: 0.5 }}>{formatCurrency(creditStatus?.total_overdue_amount || 0)}</Typography>
+              <Typography variant="h5" sx={{ fontWeight: "bold", mt: 0.5 }}>Rs. {fmtLKR(creditStatus?.total_overdue_amount || 0)}</Typography>
               <Typography variant="caption" sx={{ opacity: 0.8 }}>{creditStatus?.overdue_count || 0} Invoice{(creditStatus?.overdue_count || 0) !== 1 ? "s" : ""}</Typography>
             </CardContent>
           </Card>
@@ -1754,7 +1741,7 @@ export default function CustomerPaymentsPage() {
                 <Box key={method} sx={{ display: "flex", justifyContent: "space-between", py: 0.5, borderBottom: "1px dotted #eee" }}>
                   <Typography variant="body2">{method}</Typography>
                   <Box sx={{ textAlign: "right" }}>
-                    <Typography variant="body2" fontWeight="bold">{formatCurrency(data.amount)}</Typography>
+                    <Typography variant="body2" fontWeight="bold">Rs. {fmtLKR(data.amount)}</Typography>
                     <Typography variant="caption" color="text.secondary">{data.count} txn{data.count !== 1 ? "s" : ""}</Typography>
                   </Box>
                 </Box>
@@ -1775,7 +1762,7 @@ export default function CustomerPaymentsPage() {
                 <Box key={branch} sx={{ display: "flex", justifyContent: "space-between", py: 0.5, borderBottom: "1px dotted #eee" }}>
                   <Typography variant="body2">{branch}</Typography>
                   <Box sx={{ textAlign: "right" }}>
-                    <Typography variant="body2" fontWeight="bold">{formatCurrency(data.amount)}</Typography>
+                    <Typography variant="body2" fontWeight="bold">Rs. {fmtLKR(data.amount)}</Typography>
                     <Typography variant="caption" color="text.secondary">{data.count} txn{data.count !== 1 ? "s" : ""}</Typography>
                   </Box>
                 </Box>
@@ -1827,7 +1814,7 @@ export default function CustomerPaymentsPage() {
                   <TableCell>Settlement No.</TableCell>
                   <TableCell>Invoice(s)</TableCell>
                   <TableCell>Payment Method</TableCell>
-                  <TableCell align="right">Amount ({ERP_CURRENCY_SYMBOL})</TableCell>
+                  <TableCell align="right">Amount (Rs.)</TableCell>
                   <TableCell>Branch</TableCell>
                 </TableRow>
               </TableHead>
@@ -1842,7 +1829,7 @@ export default function CustomerPaymentsPage() {
                     <TableCell>{item.payment_method || "-"}</TableCell>
                     <TableCell align="right">
                       <Typography variant="body2" fontWeight="bold" color="primary.main">
-                        {formatAmount(item.total_amount)}
+                        {fmtLKR(item.total_amount)}
                       </Typography>
                     </TableCell>
                     <TableCell>{item.branch_code}</TableCell>
@@ -1856,7 +1843,7 @@ export default function CustomerPaymentsPage() {
               {filteredPaymentHistory.length} record{filteredPaymentHistory.length !== 1 ? "s" : ""}
             </Typography>
             <Typography variant="h6" color="primary.main" fontWeight="bold">
-              Total: {formatCurrency(historySummary.totalAmount)}
+              Total: Rs. {fmtLKR(historySummary.totalAmount)}
             </Typography>
           </Box>
         </Paper>
@@ -1904,11 +1891,11 @@ export default function CustomerPaymentsPage() {
               ? [
                 { label: `${outstandingInvoices.length} Open Invoices`, variant: "outlined" as const },
                 ...(totalOutstanding > 0
-                  ? [{ label: formatCurrency(totalOutstanding) + " Outstanding", color: "warning" as const }]
+                  ? [{ label: `Rs. ${fmtLKR(totalOutstanding)} Outstanding`, color: "warning" as const }]
                   : []),
               ]
               : viewMode !== "overview"
-                ? [{ label: formatCurrency(totalPaymentAmount), color: "primary" as const }]
+                ? [{ label: `Rs. ${fmtLKR(totalPaymentAmount)}`, color: "primary" as const }]
                 : []
         }
       />
@@ -1955,7 +1942,7 @@ export default function CustomerPaymentsPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

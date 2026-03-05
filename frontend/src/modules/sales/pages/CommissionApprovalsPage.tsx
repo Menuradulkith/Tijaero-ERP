@@ -348,7 +348,7 @@ export default function CommissionApprovalsPage() {
                       }}
                     >
                       <Typography component="span" variant="caption">
-                        Rs. {Number(commission.commission_amount).toLocaleString()}
+                        Rs. {fmtLKR(Number(commission.commission_amount))}
                       </Typography>
                       <Typography
                         component="span"
@@ -395,6 +395,7 @@ export default function CommissionApprovalsPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Sales" },
+          { label: "Approvals", href: "/sales/approvals" },
           { label: "Commission Approvals", href: "/sales/commission-approvals" },
           ...(selectedCommission
             ? [{ label: selectedCommission.invoice_no || `Commission #${selectedCommission.id}` }]

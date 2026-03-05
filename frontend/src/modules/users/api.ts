@@ -39,6 +39,8 @@ export interface UserList {
   occupation: string;
   branches: BranchSimple[];
   groups: GroupSimple[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface GroupSimple {

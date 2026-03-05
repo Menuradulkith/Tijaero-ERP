@@ -53,6 +53,7 @@ import {
   TPrintPreviewDialog,
   TSearchableSelect,
   TStatusChip,
+  useConfirmDialog,
   useTConfirmDialog,
   useMasterDetailState,
 } from "@/components/tijaero";
@@ -61,7 +62,6 @@ import {
 import { useReferenceData } from "@/hooks";
 import { expensesApi } from "@/modules/finance/api";
 import type { Expense, ExpenseCreate, ExpensePaymentData } from "@/modules/finance/types";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -1164,7 +1164,7 @@ export default function ExpensesPage() {
       </Dialog>
 
       {/* Confirm Dialogs */}
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
       <TConfirmDialog {...submitDialog.dialogProps} />
       <TConfirmDialog {...approveDialog.dialogProps} />
       <TConfirmDialog {...deleteDialog.dialogProps} />

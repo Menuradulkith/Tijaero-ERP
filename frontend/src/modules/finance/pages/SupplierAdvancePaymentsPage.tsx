@@ -20,7 +20,6 @@ import {
   AccountBalanceWallet as WalletIcon,
   CheckCircle as CheckCircleIcon,
 } from "@mui/icons-material";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import {
   MasterDetailLayout,
@@ -40,6 +39,9 @@ import {
   TFilterPanel,
   TSupplierFilter,
   GENERIC_PAYMENT_METHOD,
+  TConfirmDialog,
+  useConfirmDialog,
+  fmtLKR,
 } from "@/components/tijaero";
 
 import { suppliersApi, supplierAdvancePaymentsApi } from "@/modules/purchasing/api";
@@ -365,7 +367,7 @@ export default function SupplierAdvancePaymentsPage() {
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      Rs. {Number(adv.original_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                      Rs. {fmtLKR(Number(adv.original_amount || 0))}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                       (Original)
@@ -373,7 +375,7 @@ export default function SupplierAdvancePaymentsPage() {
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption" sx={{ color: "success.main" }}>
-                      Rs. {Number(adv.remaining_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                      Rs. {fmtLKR(Number(adv.remaining_amount || 0))}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                       (Remaining)
@@ -402,7 +404,7 @@ export default function SupplierAdvancePaymentsPage() {
           }
           secondaryText={
             !isSelected
-              ? `${adv.supplier_name || getSupplierName(adv.supplier_id)} - Rs. ${Number(adv.original_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`
+              ? `${adv.supplier_name || getSupplierName(adv.supplier_id)} - Rs. ${fmtLKR(Number(adv.original_amount || 0))}`
               : undefined
           }
           isFavorite={favorites.includes(adv.id)}
@@ -582,14 +584,14 @@ export default function SupplierAdvancePaymentsPage() {
                 <TextField
                   label="Original Amount"
                   size="small"
-                  value={`Rs. ${Number(selectedItem.original_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                  value={`Rs. ${fmtLKR(Number(selectedItem.original_amount || 0))}`}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
                 <TextField
                   label="Applied Amount"
                   size="small"
-                  value={`Rs. ${Number(selectedItem.applied_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                  value={`Rs. ${fmtLKR(Number(selectedItem.applied_amount || 0))}`}
                   disabled
                   InputProps={{ readOnly: true }}
                   sx={{
@@ -601,7 +603,7 @@ export default function SupplierAdvancePaymentsPage() {
                 <TextField
                   label="Remaining Amount"
                   size="small"
-                  value={`Rs. ${Number(selectedItem.remaining_amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`}
+                  value={`Rs. ${fmtLKR(Number(selectedItem.remaining_amount || 0))}`}
                   disabled
                   InputProps={{ readOnly: true }}
                   sx={{
@@ -669,7 +671,7 @@ export default function SupplierAdvancePaymentsPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

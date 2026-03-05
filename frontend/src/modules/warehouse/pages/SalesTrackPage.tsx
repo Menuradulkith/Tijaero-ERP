@@ -64,7 +64,7 @@ import {
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
 import { productsApi } from "@/modules/inventory/api";
@@ -138,12 +138,9 @@ export default function SalesTrackPage() {
   });
   const products = (productsResult as any)?.items || (Array.isArray(productsResult) ? productsResult : []) || [];
 
-  // Fetch branches
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Using aggregated endpoint for branches
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // Create lookup maps
   const customerMap = useMemo(() => {

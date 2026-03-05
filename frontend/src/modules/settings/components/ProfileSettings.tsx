@@ -26,8 +26,7 @@ export default function ProfileSettings() {
     },
   });
 
-  const onSubmit = (data: ProfileFormData) => {
-    console.log("Profile data:", data);
+  const onSubmit = (_data: ProfileFormData) => {
     showSuccessToast("Profile updated successfully");
   };
 

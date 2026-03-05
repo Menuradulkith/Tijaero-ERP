@@ -30,6 +30,7 @@ import {
   TBranchFilter,
   TFilterPanel,
   CARD_TYPE,
+  fmtLKR,
 } from "@/components/tijaero";
 
 import { cardPaymentsApi } from "@/modules/finance/api";
@@ -176,7 +177,7 @@ export default function CardPaymentsPage() {
                 <>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      Rs. {Number(pmt.amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
+                      Rs. {fmtLKR(Number(pmt.amount || 0))}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Amount)</Typography>
                   </Box>
@@ -194,7 +195,7 @@ export default function CardPaymentsPage() {
               )}
             </Box>
           }
-          secondaryText={!isSelected ? `Rs. ${Number(pmt.amount || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })} - ${pmt.card_type || ""}` : undefined}
+          secondaryText={!isSelected ? `Rs. ${fmtLKR(Number(pmt.amount || 0))} - ${pmt.card_type || ""}` : undefined}
           isFavorite={favorites.includes(pmt.id)}
           onToggleFavorite={(e) => toggleFavorite(pmt.id, e)}
           statusChip={!isSelected ? { label: pmt.card_type || "N/A", color: getCardColor(pmt.card_type) as "primary" | "secondary" | "info" | "default" } : undefined}

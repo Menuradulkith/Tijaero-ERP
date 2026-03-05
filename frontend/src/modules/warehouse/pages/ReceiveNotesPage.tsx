@@ -143,7 +143,6 @@ export default function ReceiveNotesPage() {
         });
         return { items: Array.isArray(response) ? response : [], total: Array.isArray(response) ? response.length : 0 };
       } catch (err) {
-        console.error("Error fetching receive notes:", err);
         return { items: [], total: 0 };
       }
     },
@@ -171,7 +170,6 @@ export default function ReceiveNotesPage() {
             )
         );
       } catch (err) {
-        console.error("Error fetching transfer notes:", err);
         return [];
       }
     },

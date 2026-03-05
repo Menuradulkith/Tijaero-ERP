@@ -14,6 +14,7 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import {
   ActionToolbar,
@@ -22,6 +23,7 @@ import {
   EmptyState,
   FormSection,
   GENDER_CHOICES,
+  handleApiError,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -29,6 +31,7 @@ import {
   showSuccessToast,
   SortOption,
   TConfirmDialog,
+  TDetailSkeleton,
   TITLE_CHOICES,
   TStatusFilter,
   useMasterDetailState,
@@ -37,7 +40,7 @@ import {
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { usePermission } from "@/auth/permissions";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
 import { Customer, CustomerCreate } from "@/modules/customers/types";
 
@@ -153,12 +156,9 @@ export default function CustomersPage() {
     queryFn: () => customersApi.getAll(),
   });
 
-  // Fetch branches for filter
-  const { data: branchesData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
-  });
-  const branches = branchesData?.items || [];
+  // OPTIMIZED: Using aggregated endpoint for branches
+  const { filteredBranches } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
 
   // Filter and sort
   const filteredCustomers = useMemo(() => {
@@ -219,7 +219,7 @@ export default function CustomersPage() {
       setIsEditing(false);
       setTimeout(() => handleSelectCustomer(newCustomer), 0);
     },
-    onError: () => showErrorToast("Failed to create customer"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create customer")),
   });
 
   const updateMutation = useMutation({
@@ -230,7 +230,7 @@ export default function CustomersPage() {
       showSuccessToast("Customer updated successfully");
       setIsEditing(false);
     },
-    onError: () => showErrorToast("Failed to update customer"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update customer")),
   });
 
   const deleteMutation = useMutation({
@@ -240,7 +240,7 @@ export default function CustomersPage() {
       showSuccessToast("Customer deleted successfully");
       baseHandleCancel(filteredCustomers);
     },
-    onError: () => showErrorToast("Failed to delete customer"),
+    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to delete customer")),
   });
 
   const confirmDialog = useTConfirmDialog();
@@ -430,6 +430,8 @@ export default function CustomersPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedCustomer && !isCreating ? (
           <EmptyState message="Select a customer from the list or create a new one" />
+        ) : isSaving || isLoading ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
             {/* Basic Information */}
@@ -641,6 +643,20 @@ export default function CustomersPage() {
                 />
               )}
             </FormSection>
+
+            {/* Record Information (view mode only) */}
+            {selectedCustomer && !isCreating && !isEditing && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedCustomer.created_at) || "-"}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedCustomer.updated_at) || "-"}</Typography>
+                </Box>
+              </FormSection>
+            )}
           </>
         )}
       </Box>

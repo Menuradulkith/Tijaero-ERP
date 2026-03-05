@@ -8,7 +8,7 @@
  */
 
 import { usePermission } from "@/auth/permissions";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+// ConfirmDialog now uses TConfirmDialog from tijaero
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -66,6 +66,7 @@ import {
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
+  fmtLKR,
   FormSection,
   handleApiError,
   MasterDetailLayout,
@@ -76,10 +77,12 @@ import {
   showSuccessToast,
   SortOption,
   TBranchFilter,
+  TConfirmDialog,
   TFilterPanel,
   TPrintButton,
   TPrintPreviewDialog,
-  useMasterDetailState
+  useMasterDetailState,
+  useTConfirmDialog,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -93,7 +96,8 @@ import {
   PurchasingOrderItem,
   PurchasingOrderWithItems, Supplier
 } from "@/modules/purchasing/types";
-import { formatCurrency } from "@/utils/formatters";
+// Currency formatting uses fmtLKR from tijaero
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "good_received_date", label: "Date" },
@@ -195,7 +199,7 @@ export default function GoodReceivedNotesPage() {
   const canOverrideCredit = usePermission("purchasing", "credit_override");
 
   // Confirm dialog for unsaved changes and delete actions
-  const confirmDialog = useConfirmDialog();
+  const confirmDialog = useTConfirmDialog();
 
   // Validation state - track which fields have been touched/blurred
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -253,8 +257,8 @@ export default function GoodReceivedNotesPage() {
       try {
         const data = await suppliersApi.getAll();
         setSuppliers(data || []);
-      } catch (err) {
-        console.error("Failed to load suppliers:", err);
+      } catch {
+        // silently fail supplier load
       }
     };
     loadSuppliers();
@@ -296,8 +300,7 @@ export default function GoodReceivedNotesPage() {
         saveToSalesStock: item.saved_to_sales_stock || false,
         saveToCompanyAssets: item.saved_to_company_assets || false,
       })));
-    } catch (error) {
-      console.error("Failed to load GRN items:", error);
+    } catch {
       setLineItems([]);
     } finally {
       setLoadingItems(false);
@@ -430,7 +433,6 @@ export default function GoodReceivedNotesPage() {
 
       // Final validation: Check ALL barcodes one more time before saving (critical safety check)
       // Check against ALL three tables: good_received_items, sales_stock, company_assets
-      console.log("Performing final barcode validation for", itemsToSave.length, "items");
       const barcodeValidationPromises = itemsToSave.map(async (item) => {
         try {
           // Check good_received_items first
@@ -449,8 +451,7 @@ export default function GoodReceivedNotesPage() {
             return { barcode: item.barcode, error: "already exists in Company Assets" };
           }
           return null;
-        } catch (error) {
-          console.error(`Barcode validation error for ${item.barcode}:`, error);
+        } catch {
           // On API error, treat as potential duplicate (fail-safe)
           return { barcode: item.barcode, error: "validation failed - cannot verify" };
         }
@@ -543,8 +544,8 @@ export default function GoodReceivedNotesPage() {
         try {
           const refreshedGRNs = await goodReceivedNotesApi.getById(newGRN.id);
           handleSelectGRNWithItems(refreshedGRNs);
-        } catch (error) {
-          console.error("Failed to load new GRN details:", error);
+        } catch {
+          // silently fail loading new GRN details
         }
       }, 100);
     },
@@ -659,8 +660,8 @@ export default function GoodReceivedNotesPage() {
         if (branchLocations && branchLocations.length > 0) {
           selectedLocationId = branchLocations[0].id;
         }
-      } catch (error) {
-        console.error("Failed to fetch branch locations:", error);
+      } catch {
+        // silently fail branch locations fetch
       }
 
       setFormData({
@@ -697,8 +698,7 @@ export default function GoodReceivedNotesPage() {
                   receivedCountMap.set(grnItem.purchasing_order_items_id, count + 1);
                 }
               });
-            } catch (error) {
-              console.error("Failed to fetch received items:", error);
+            } catch {
               // Continue with all items if we can't fetch received items
             }
           }
@@ -735,8 +735,7 @@ export default function GoodReceivedNotesPage() {
 
           // Group items by product for display
           updateProductGroups(newLineItems, allProducts);
-        } catch (error) {
-          console.error("Failed to load PO items:", error);
+        } catch {
           showErrorToast("Failed to load purchase order items");
         } finally {
           setLoadingPOItems(false);
@@ -872,9 +871,8 @@ export default function GoodReceivedNotesPage() {
           ),
         }))
       );
-    } catch (error) {
+    } catch {
       // On error, mark the barcode with an error
-      console.error("Barcode check failed:", error);
       setLineItems(items =>
         items.map(item =>
           item._id === itemId
@@ -1643,7 +1641,7 @@ export default function GoodReceivedNotesPage() {
                                 {group.product_name}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                {formatCurrency(group.unit_price)} per unit • Qty: {group.total_quantity}
+                                Rs. {fmtLKR(group.unit_price)} per unit • Qty: {group.total_quantity}
                               </Typography>
                             </Box>
                           </Box>
@@ -1984,6 +1982,16 @@ export default function GoodReceivedNotesPage() {
             )}
           </>
         )}
+
+        {/* Record Information (view mode only) */}
+        {selectedGRN && !isCreating && !isEditing && (
+          <FormSection title="Record Information" columns={2}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Created</Typography>
+              <Typography variant="body2">{formatDateTimeReadable(selectedGRN.created_date || selectedGRN.added_date) || "-"}</Typography>
+            </Box>
+          </FormSection>
+        )}
       </Box>
     </Box>
   );
@@ -2002,7 +2010,7 @@ export default function GoodReceivedNotesPage() {
       />
 
       {/* Confirm Dialog */}
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
 
       {/* Print Preview Dialog */}
       {selectedGrnIdForPrint && (

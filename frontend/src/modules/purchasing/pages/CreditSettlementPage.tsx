@@ -34,7 +34,7 @@ import BusinessIcon from "@mui/icons-material/Business";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+// ConfirmDialog now uses TConfirmDialog from tijaero
 
 import {
   MasterDetailLayout,
@@ -42,12 +42,15 @@ import {
   SelectableListItem,
   DetailPanelHeader,
   EmptyState,
+  fmtLKR,
   handleApiError,
   SortOption,
+  TConfirmDialog,
   TDetailSkeleton,
   TLoadingSkeleton,
   showErrorToast,
   showSuccessToast,
+  useTConfirmDialog,
   PURCHASING_PAYMENT_METHOD,
 } from "@/components/tijaero";
 
@@ -57,7 +60,7 @@ import {
   supplierCreditApi,
   SupplierCreditStatus,
 } from "@/modules/purchasing/api";
-import { branchApi } from "@/modules/branches/api";
+import { useReferenceData, type BranchRef } from "@/hooks";
 import {
   Supplier,
   SupplierCreditsSettleCreate,
@@ -134,10 +137,10 @@ export default function CreditSettlementPage() {
   
   const [paymentForm, setPaymentForm] = useState<PaymentFormData>(INITIAL_PAYMENT_FORM);
 
-  const confirmDialog = useConfirmDialog();
+  const confirmDialog = useTConfirmDialog();
 
-  // Load branches
-  const [branches, setBranches] = useState<{ branch_code: string; branch_name: string }[]>([]);
+  // Load branches via useReferenceData
+  const { filteredBranches: branches = [] } = useReferenceData(["branches"]);
   
   // Filter state
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -145,20 +148,10 @@ export default function CreditSettlementPage() {
   // Load suppliers
   useEffect(() => {
     loadSuppliers();
-    loadBranches();
   }, []);
 
-  const loadBranches = async () => {
-    try {
-      const data = await branchApi.getAll(1, 100);
-      setBranches(data.items || []);
-    } catch (err) {
-      console.error("Failed to load branches:", err);
-    }
-  };
-
   const getBranchDisplay = (branchCode: string) => {
-    const branch = branches.find((b) => b.branch_code === branchCode);
+    const branch = branches.find((b: BranchRef) => b.branch_code === branchCode);
     return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
   };
 
@@ -181,8 +174,7 @@ export default function CreditSettlementPage() {
       setLoadingCredit(true);
       const status = await supplierCreditApi.getCreditStatus(supplierId);
       setSupplierCreditStatus(status);
-    } catch (err) {
-      console.error("Failed to load credit status:", err);
+    } catch {
       setSupplierCreditStatus(null);
     } finally {
       setLoadingCredit(false);
@@ -204,7 +196,7 @@ export default function CreditSettlementPage() {
           s.full_name.toLowerCase().includes(query) ||
           s.company_name?.toLowerCase().includes(query) ||
           // Search by branch name
-          branches.some(b => 
+          branches.some((b: BranchRef) => 
             b.branch_name.toLowerCase().includes(query) || 
             b.branch_code.toLowerCase().includes(query)
           )
@@ -299,7 +291,7 @@ export default function CreditSettlementPage() {
 
     const confirmed = await confirmDialog.confirm({
       title: "Confirm Payment",
-      message: `Record payment of ${paymentForm.payment_amount.toLocaleString()} for PO ${selectedPO.po_no}?`,
+      message: `Record payment of Rs. ${fmtLKR(paymentForm.payment_amount)} for PO ${selectedPO.po_no}?`,
       confirmText: "Submit Payment",
     });
 
@@ -393,7 +385,7 @@ export default function CreditSettlementPage() {
             size="small"
             options={branches}
             getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-            value={branches.find(b => b.branch_code === filterBranch) || null}
+            value={branches.find((b: BranchRef) => b.branch_code === filterBranch) || null}
             onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
             renderInput={(params) => (
               <TextField {...params} label="Filter by Branch" placeholder="All Branches" />
@@ -446,7 +438,7 @@ export default function CreditSettlementPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        {(supplier.left_credit_amount ?? supplier.max_credit_limit).toLocaleString()} / {supplier.max_credit_limit.toLocaleString()}
+                        {fmtLKR(supplier.left_credit_amount ?? supplier.max_credit_limit)} / {fmtLKR(supplier.max_credit_limit)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Credit)
@@ -483,7 +475,7 @@ export default function CreditSettlementPage() {
                   {supplier.company_name || "Individual"}
                 </Typography>
                 <Typography variant="caption" display="block">
-                  Credit: {(supplier.left_credit_amount ?? supplier.max_credit_limit).toLocaleString()} / {supplier.max_credit_limit.toLocaleString()}
+                  Credit: {fmtLKR(supplier.left_credit_amount ?? supplier.max_credit_limit)} / {fmtLKR(supplier.max_credit_limit)}
                 </Typography>
                 <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
                   <Box
@@ -548,7 +540,7 @@ export default function CreditSettlementPage() {
               <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                 <Typography variant="caption" color="text.secondary">Max Credit Limit</Typography>
                 <Typography variant="h6">
-                  {(selectedSupplier?.max_credit_limit || 0).toLocaleString()}
+                  {fmtLKR(selectedSupplier?.max_credit_limit || 0)}
                 </Typography>
               </CardContent>
             </Card>
@@ -558,7 +550,7 @@ export default function CreditSettlementPage() {
               <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                 <Typography variant="caption" color="text.secondary">Initial Credit</Typography>
                 <Typography variant="h6">
-                  {(selectedSupplier?.initial_credit_amount || selectedSupplier?.max_credit_limit || 0).toLocaleString()}
+                  {fmtLKR(selectedSupplier?.initial_credit_amount || selectedSupplier?.max_credit_limit || 0)}
                 </Typography>
               </CardContent>
             </Card>
@@ -568,7 +560,7 @@ export default function CreditSettlementPage() {
               <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                 <Typography variant="caption" color="text.secondary">Available Credit</Typography>
                 <Typography variant="h6" color="success.main">
-                  {(supplierCreditStatus?.left_credit_amount || selectedSupplier?.left_credit_amount || selectedSupplier?.max_credit_limit || 0).toLocaleString()}
+                  {fmtLKR(supplierCreditStatus?.left_credit_amount || selectedSupplier?.left_credit_amount || selectedSupplier?.max_credit_limit || 0)}
                 </Typography>
               </CardContent>
             </Card>
@@ -583,7 +575,7 @@ export default function CreditSettlementPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Outstanding Payable</Typography>
                   <Typography variant="h6" color="warning.dark">
-                    {(supplierCreditStatus.outstanding_payable || 0).toLocaleString()}
+                    {fmtLKR(supplierCreditStatus.outstanding_payable || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -593,7 +585,7 @@ export default function CreditSettlementPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Overdue Amount</Typography>
                   <Typography variant="h6" color={supplierCreditStatus.total_overdue_amount > 0 ? "error.dark" : "success.dark"}>
-                    {(supplierCreditStatus.total_overdue_amount || 0).toLocaleString()}
+                    {fmtLKR(supplierCreditStatus.total_overdue_amount || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -653,7 +645,7 @@ export default function CreditSettlementPage() {
                         Invoice: {po.invoice_no} • GRN: {po.grn_no}
                       </Typography>
                       <Typography variant="caption" display="block">
-                        Total: {po.total_amount.toLocaleString()} • Remaining: <strong>{po.remaining_amount.toLocaleString()}</strong>
+                        Total: {fmtLKR(po.total_amount)} • Remaining: <strong>{fmtLKR(po.remaining_amount)}</strong>
                       </Typography>
                       <Typography variant="caption" display="block" color="text.secondary">
                         Due Date: {po.due_date}
@@ -744,7 +736,7 @@ export default function CreditSettlementPage() {
             <Card variant="outlined">
               <CardContent sx={{ textAlign: "center", py: 1 }}>
                 <Typography variant="caption">Total Amount</Typography>
-                <Typography variant="h6">{(selectedPO?.total_amount || 0).toLocaleString()}</Typography>
+                <Typography variant="h6">{fmtLKR(selectedPO?.total_amount || 0)}</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -752,7 +744,7 @@ export default function CreditSettlementPage() {
             <Card variant="outlined" sx={{ bgcolor: "success.light" }}>
               <CardContent sx={{ textAlign: "center", py: 1 }}>
                 <Typography variant="caption">Already Paid</Typography>
-                <Typography variant="h6" color="success.dark">{(selectedPO?.settled_amount || 0).toLocaleString()}</Typography>
+                <Typography variant="h6" color="success.dark">{fmtLKR(selectedPO?.settled_amount || 0)}</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -760,7 +752,7 @@ export default function CreditSettlementPage() {
             <Card variant="outlined" sx={{ bgcolor: "error.light" }}>
               <CardContent sx={{ textAlign: "center", py: 1 }}>
                 <Typography variant="caption">Remaining</Typography>
-                <Typography variant="h6" color="error.dark">{(selectedPO?.remaining_amount || 0).toLocaleString()}</Typography>
+                <Typography variant="h6" color="error.dark">{fmtLKR(selectedPO?.remaining_amount || 0)}</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -861,8 +853,8 @@ export default function CreditSettlementPage() {
               error={paymentForm.payment_amount > (selectedPO?.remaining_amount || 0)}
               helperText={
                 paymentForm.payment_amount > (selectedPO?.remaining_amount || 0)
-                  ? `Cannot exceed ${(selectedPO?.remaining_amount || 0).toLocaleString()}`
-                  : `Maximum: ${(selectedPO?.remaining_amount || 0).toLocaleString()}`
+                  ? `Cannot exceed Rs. ${fmtLKR(selectedPO?.remaining_amount || 0)}`
+                  : `Maximum: Rs. ${fmtLKR(selectedPO?.remaining_amount || 0)}`
               }
               InputProps={{
                 inputProps: { min: 0, max: selectedPO?.remaining_amount || 0, step: 0.01 },
@@ -950,7 +942,7 @@ export default function CreditSettlementPage() {
           selectedSupplier && viewMode === "supplier"
             ? [
                 { label: `${selectedSupplier.credit_days} Credit Days`, variant: "outlined" as const },
-                { label: `Limit: ${selectedSupplier.max_credit_limit.toLocaleString()}`, variant: "outlined" as const },
+                { label: `Limit: ${fmtLKR(selectedSupplier.max_credit_limit)}`, variant: "outlined" as const },
               ]
             : selectedPO
             ? [
@@ -978,7 +970,7 @@ export default function CreditSettlementPage() {
         )}
       </Box>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
 

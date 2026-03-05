@@ -2,7 +2,6 @@
  * GroupsPage - Refactored to use Tijaero-style reusable components
  */
 
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 import SecurityIcon from "@mui/icons-material/Security";
 import {
     Alert,
@@ -31,6 +30,8 @@ import {
     handleApiError,
     showErrorToast,
     showSuccessToast,
+    TConfirmDialog,
+    useConfirmDialog,
 } from "@/components/tijaero";
 
 import {
@@ -376,7 +377,7 @@ export default function GroupsPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

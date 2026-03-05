@@ -285,7 +285,6 @@ export default function SalesPage() {
         const data = await response.json();
         setAvailableCreditBalance(data.available_credit_balance || 0);
       } catch (error) {
-        console.error("Error fetching credit balance:", error);
         setAvailableCreditBalance(0);
       } finally {
         setIsLoadingCreditBalance(false);
@@ -573,8 +572,11 @@ export default function SalesPage() {
       credit_note_id: 0,
       credit_note_amount: 0,
     });
+    const now = new Date();
+    const yr = now.getFullYear();
+    const seq = String(Math.floor(Date.now() / 1000)).slice(-5);
     state.setFormData({
-      invoice_no: `INV-${Date.now()}`,
+      invoice_no: `INV-${yr}-${seq}`,
       branch_code: "MAIN",
       customer_id: customers?.[0]?.id || 0,
       customer_agent_id: undefined,
@@ -757,20 +759,20 @@ export default function SalesPage() {
           if (validation.credit_check) {
             detailLines.push({
               label: "Credit Limit",
-              value: `Rs. ${Number(validation.credit_check.max_credit_limit || 0).toLocaleString()}`,
+              value: `Rs. ${fmtLKR(Number(validation.credit_check.max_credit_limit || 0))}`,
             });
             detailLines.push({
               label: "Current Outstanding",
-              value: `Rs. ${Number(validation.credit_check.current_outstanding || 0).toLocaleString()}`,
+              value: `Rs. ${fmtLKR(Number(validation.credit_check.current_outstanding || 0))}`,
             });
             detailLines.push({
               label: "This Order",
-              value: `Rs. ${Number(validation.credit_check.new_credit_amount || 0).toLocaleString()}`,
+              value: `Rs. ${fmtLKR(Number(validation.credit_check.new_credit_amount || 0))}`,
             });
             if (validation.credit_check.will_exceed_limit) {
               detailLines.push({
                 label: "Exceeds by",
-                value: `Rs. ${Number(validation.credit_check.excess_amount || 0).toLocaleString()}`,
+                value: `Rs. ${fmtLKR(Number(validation.credit_check.excess_amount || 0))}`,
                 color: "error.main",
                 strong: true,
               });
@@ -804,11 +806,11 @@ export default function SalesPage() {
           if (validation.credit_check) {
             detailLines.push({
               label: "Credit Limit",
-              value: `Rs. ${Number(validation.credit_check.max_credit_limit || 0).toLocaleString()}`,
+              value: `Rs. ${fmtLKR(Number(validation.credit_check.max_credit_limit || 0))}`,
             });
             detailLines.push({
               label: "Available Credit",
-              value: `Rs. ${Number(validation.credit_check.available_credit || 0).toLocaleString()}`,
+              value: `Rs. ${fmtLKR(Number(validation.credit_check.available_credit || 0))}`,
             });
             if (validation.credit_check.overdue_count > 0) {
               detailLines.push({
@@ -834,7 +836,6 @@ export default function SalesPage() {
           }
         }
       } catch (error: unknown) {
-        console.error("Credit validation failed:", error);
         showErrorToast(handleApiError(error, "Failed to validate credit sale. Please try again."));
         return;
       }
@@ -1032,8 +1033,6 @@ export default function SalesPage() {
       const response = await apiClient.get(`/inventory/sales-stock/barcode/${barcode.trim()}`);
       const stockItem = response.data;
 
-      console.log("Stock Item Response:", stockItem); // Debug log
-
       if (stockItem.status !== "available") {
         setBarcodeError("This item is not available for sale");
         return;
@@ -1070,7 +1069,6 @@ export default function SalesPage() {
       barcodeInputRef.current?.focus();
       showSuccessToast(`Added: ${productName || "Product"}`);
     } catch (error) {
-      console.error("Barcode validation error:", error);
       setBarcodeError(handleApiError(error, "Barcode not found in available stock"));
     } finally {
       setIsValidatingBarcode(false);
@@ -1112,13 +1110,12 @@ export default function SalesPage() {
 
       if (response.valid) {
         setCouponValidation(response);
-        showSuccessToast(`Coupon applied! Discount: Rs. ${(response.calculated_discount || 0).toLocaleString()}`);
+        showSuccessToast(`Coupon applied! Discount: Rs. ${fmtLKR(response.calculated_discount || 0)}`);
       } else {
         setCouponError(response.message);
         setCouponValidation(null);
       }
     } catch (error) {
-      console.error("Coupon validation error:", error);
       setCouponError(handleApiError(error, "Failed to validate coupon"));
       setCouponValidation(null);
     } finally {
@@ -1168,13 +1165,12 @@ export default function SalesPage() {
             amountToRedeem: Number(response.redeemable_amount) || 0
           }]);
           setVoucherCode(""); // Clear input for next voucher
-          showSuccessToast(`Voucher added! Balance: Rs. ${(response.balance || 0).toLocaleString()}`);
+          showSuccessToast(`Voucher added! Balance: Rs. ${fmtLKR(response.balance || 0)}`);
         }
       } else {
         setVoucherError(response.message);
       }
     } catch (error) {
-      console.error("Voucher validation error:", error);
       setVoucherError(handleApiError(error, "Failed to validate voucher"));
     } finally {
       setIsValidatingVoucher(false);
@@ -1192,6 +1188,13 @@ export default function SalesPage() {
     setAppliedVouchers([]);
     setVoucherError(null);
   };
+
+  // Auto-focus barcode field when entering Step 2
+  useEffect(() => {
+    if (formStep === 1) {
+      setTimeout(() => barcodeInputRef.current?.focus(), 150);
+    }
+  }, [formStep]);
 
   // Auto-revalidate coupon when line items change (with debouncing)
   useEffect(() => {
@@ -1234,7 +1237,6 @@ export default function SalesPage() {
           showErrorToast(`Coupon no longer valid: ${response.message}`);
         }
       } catch (error: unknown) {
-        console.error("Coupon revalidation error:", error);
         setCouponValidation(null);
         setCouponError("Coupon validation failed");
       }
@@ -1622,19 +1624,19 @@ export default function SalesPage() {
                 <Box>
                   <Typography variant="caption" color="text.secondary">Credit Limit</Typography>
                   <Typography variant="body2" fontWeight={500}>
-                    Rs. {customerCreditStatus.max_credit_limit?.toLocaleString() || 0}
+                    Rs. {fmtLKR(customerCreditStatus.max_credit_limit || 0)}
                   </Typography>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Outstanding</Typography>
                   <Typography variant="body2" fontWeight={500} color="error.main">
-                    Rs. {customerCreditStatus.outstanding_credit?.toLocaleString() || 0}
+                    Rs. {fmtLKR(customerCreditStatus.outstanding_credit || 0)}
                   </Typography>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Available Credit</Typography>
                   <Typography variant="body2" fontWeight={500} color={customerCreditStatus.available_credit > 0 ? "success.main" : "error.main"}>
-                    Rs. {customerCreditStatus.available_credit?.toLocaleString() || 0}
+                    Rs. {fmtLKR(customerCreditStatus.available_credit || 0)}
                   </Typography>
                 </Box>
                 <Box>
@@ -1647,7 +1649,7 @@ export default function SalesPage() {
               {customerCreditStatus.overdue_count > 0 && (
                 <Box sx={{ mt: 1, p: 1, bgcolor: "error.light", borderRadius: 1 }}>
                   <Typography variant="caption" color="error.contrastText">
-                    ⚠️ {customerCreditStatus.overdue_count} overdue invoice(s) - Rs. {customerCreditStatus.total_overdue_amount?.toLocaleString()}
+                    ⚠️ {customerCreditStatus.overdue_count} overdue invoice(s) - Rs. {fmtLKR(customerCreditStatus.total_overdue_amount || 0)}
                   </Typography>
                 </Box>
               )}
@@ -1714,7 +1716,7 @@ export default function SalesPage() {
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight={500}>
-                            Rs. {(sale.grand_total || (
+                            Rs. {fmtLKR(sale.grand_total || (
                               sale.cash_amount +
                               sale.card_visa_amount +
                               sale.card_mastercard_amount +
@@ -1722,7 +1724,7 @@ export default function SalesPage() {
                               sale.cheque_amount +
                               sale.bank_transfer_amount +
                               sale.credit_amount
-                            ))?.toLocaleString()}
+                            ) || 0)}
                           </Typography>
                         </TableCell>
                         <TableCell>
@@ -1925,9 +1927,11 @@ export default function SalesPage() {
                             type="number"
                             value={item.selling_price}
                             onChange={(e) => updateLineItem(index, "selling_price", e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                            sx={{ width: 90 }}
+                            sx={{ width: 100 }}
                             inputProps={{ step: 0.01 }}
                             error={item.selling_price < item.minimum_selling_price}
+                            helperText={item.selling_price < item.minimum_selling_price ? `Min: ${fmtLKR(item.minimum_selling_price)}` : undefined}
+                            FormHelperTextProps={{ sx: { fontSize: "0.6rem", mx: 0, color: "error.main" } }}
                           />
                         </TableCell>
 
@@ -2328,7 +2332,7 @@ export default function SalesPage() {
                     <Typography variant="body2" component="span" color="success.dark" fontWeight="medium">
                       {couponValidation.discount_type === "PERCENT" 
                         ? `${couponValidation.discount_value}% off` 
-                        : `Rs. ${couponValidation.discount_value?.toLocaleString()} off`}
+                        : `Rs. ${fmtLKR(couponValidation.discount_value || 0)} off`}
                       {" - Discount: Rs. "}
                       {fmtLKR(couponValidation.calculated_discount || 0)}
                     </Typography>
@@ -2739,6 +2743,71 @@ export default function SalesPage() {
             </Paper>
           )}
 
+          {/* ── Sticky Live Total Bar ────────────────────────────────── */}
+          <Paper
+            variant="outlined"
+            sx={{
+              position: "sticky",
+              bottom: 8,
+              zIndex: 10,
+              px: 2,
+              py: 1.5,
+              bgcolor: "background.paper",
+              borderColor: "primary.light",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 2,
+              alignItems: "center",
+              justifyContent: "space-between",
+              boxShadow: 4,
+            }}
+          >
+            <Box sx={{ display: "flex", gap: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+              <Box sx={{ textAlign: "center" }}>
+                <Typography variant="caption" color="text.secondary" display="block">Items</Typography>
+                <Typography variant="body2" fontWeight={700}>{lineItems.length}</Typography>
+              </Box>
+              <Box sx={{ textAlign: "center" }}>
+                <Typography variant="caption" color="text.secondary" display="block">Subtotal</Typography>
+                <Typography variant="body2" fontWeight={700}>{fmtLKR(calculateLineItemsTotal())}</Typography>
+              </Box>
+              {(discountValue > 0 || calculateTotalItemDiscounts() > 0) && (
+                <Box sx={{ textAlign: "center" }}>
+                  <Typography variant="caption" color="text.secondary" display="block">Discounts</Typography>
+                  <Typography variant="body2" fontWeight={700} color="warning.dark">
+                    -{fmtLKR(calculateTotalItemDiscounts() + (discountType === "percent" ? calculateLineItemsTotal() * (discountValue / 100) : discountValue))}
+                  </Typography>
+                </Box>
+              )}
+              {taxRate > 0 && (
+                <Box sx={{ textAlign: "center" }}>
+                  <Typography variant="caption" color="text.secondary" display="block">Tax ({taxRate}%)</Typography>
+                  <Typography variant="body2" fontWeight={700} color="info.dark">
+                    +{fmtLKR((() => {
+                      const sub = calculateLineItemsTotal();
+                      const disc = discountType === "percent" ? sub * (discountValue / 100) : discountValue;
+                      return (sub - calculateTotalItemDiscounts() - disc) * (taxRate / 100);
+                    })())}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+            <Box sx={{ textAlign: "right" }}>
+              <Typography variant="caption" color="text.secondary" display="block">Grand Total</Typography>
+              <Typography variant="h6" fontWeight={800} color="primary.main">
+                {fmtLKR((() => {
+                  const sub = calculateLineItemsTotal();
+                  const itemDisc = calculateTotalItemDiscounts();
+                  const invoiceDisc = discountType === "percent" ? sub * (discountValue / 100) : discountValue;
+                  const taxable = sub - itemDisc - invoiceDisc;
+                  const tax = taxable * (taxRate / 100);
+                  const voucher = appliedVouchers.reduce((s, v) => s + Number(v.amountToRedeem || 0), 0);
+                  return Math.max(0, taxable + tax - voucher - creditNoteAmount);
+                })())}
+              </Typography>
+            </Box>
+          </Paper>
+
           {/* Step 2 Navigation */}
           <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
             <Button
@@ -2915,14 +2984,14 @@ export default function SalesPage() {
                   >
                     {customerCreditNotes.map((creditNote: any) => (
                       <MenuItem key={creditNote.id} value={creditNote.id}>
-                        {creditNote.credit_note_no} - Rs. {creditNote.amount?.toLocaleString()} (Balance: Rs. {creditNote.balance?.toLocaleString()})
+                        {creditNote.credit_note_no} - Rs. {fmtLKR(creditNote.amount || 0)} (Balance: Rs. {fmtLKR(creditNote.balance || 0)})
                       </MenuItem>
                     ))}
                   </TextField>
                   {paymentDetails.credit_note_id > 0 && (
                     <Box sx={{ p: 2, bgcolor: "success.lighter", borderRadius: 1, mt: 1 }}>
                       <Typography variant="body2" color="success.dark">
-                        Available Credit: Rs. {paymentDetails.credit_note_amount.toLocaleString()}
+                        Available Credit: Rs. {fmtLKR(paymentDetails.credit_note_amount)}
                       </Typography>
                     </Box>
                   )}
@@ -3191,7 +3260,7 @@ export default function SalesPage() {
                           fontWeight={600}
                           sx={{ color: isSelected ? "common.white" : "text.primary" }}
                         >
-                          Rs. {calculateTotal(invoice).toFixed(2)}
+                          Rs. {fmtLKR(calculateTotal(invoice))}
                         </Typography>
                         {isSelected && (
                           <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
@@ -3286,7 +3355,7 @@ export default function SalesPage() {
               onSave={handleSave}
               onCancel={handleCancel}
               isSaving={createMutation.isPending || updateMutation.isPending}
-              saveDisabled={!state.formData.invoice_no || lineItems.length === 0 || formStep !== 1}
+              saveDisabled={!state.formData.invoice_no || lineItems.length === 0 || formStep !== 2}
               customActions={customActions}
             />
 

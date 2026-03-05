@@ -1,27 +1,26 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Paper,
-  Typography,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  IconButton,
-} from "@mui/material";
+import { Box, Paper } from "@mui/material";
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
 } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm, Controller } from "react-hook-form";
-import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+import { useForm } from "react-hook-form";
+import {
+  handleApiError,
+  showErrorToast,
+  showSuccessToast,
+  TButton,
+  TConfirmDialog,
+  TFormDialog,
+  TFormField,
+  TIconButton,
+  TPageHeader,
+  useTConfirmDialog,
+} from "@/components/tijaero";
+import { formatDateTime } from "@/utils/formatters";
 import { promotionsApi } from "@/modules/hr/api";
 import { EmployeePromotionCreate } from "@/modules/hr/types";
 
@@ -29,7 +28,7 @@ export default function PromotionsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const deleteDialog = useConfirmDialog();
+  const { dialogProps, confirm } = useTConfirmDialog();
 
   const { data: promotions, isLoading } = useQuery({
     queryKey: ["promotions"],
@@ -50,8 +49,7 @@ export default function PromotionsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["promotions"] });
       showSuccessToast("Promotion created successfully");
-      setOpenDialog(false);
-      reset();
+      handleClose();
     },
     onError: (error: unknown) => {
       showErrorToast(handleApiError(error, "Failed to create promotion"));
@@ -64,9 +62,7 @@ export default function PromotionsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["promotions"] });
       showSuccessToast("Promotion updated successfully");
-      setOpenDialog(false);
-      setEditingId(null);
-      reset();
+      handleClose();
     },
     onError: (error: unknown) => {
       showErrorToast(handleApiError(error, "Failed to update promotion"));
@@ -84,6 +80,18 @@ export default function PromotionsPage() {
     },
   });
 
+  const handleDelete = async (id: number) => {
+    const confirmed = await confirm({
+      title: "Delete Promotion",
+      message: "Are you sure you want to delete this promotion?",
+      confirmText: "Delete",
+      danger: true,
+    });
+    if (confirmed) {
+      deleteMutation.mutate(id);
+    }
+  };
+
   const columns: GridColDef[] = [
     { field: "id", headerName: "ID", width: 70 },
     { field: "employee_id", headerName: "Employee ID", width: 130 },
@@ -96,15 +104,28 @@ export default function PromotionsPage() {
     },
     { field: "remark", headerName: "Remark", width: 250 },
     {
+      field: "created_at",
+      headerName: "Created",
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
+    },
+    {
+      field: "updated_at",
+      headerName: "Modified",
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
+    },
+    {
       field: "actions",
       headerName: "Actions",
       width: 120,
       sortable: false,
       renderCell: (params) => (
-        <Box>
-          <IconButton
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          <TIconButton
             size="small"
             color="primary"
+            tooltip="Edit"
             onClick={() => {
               setEditingId(params.row.id);
               reset(params.row);
@@ -112,20 +133,15 @@ export default function PromotionsPage() {
             }}
           >
             <EditIcon />
-          </IconButton>
-          <IconButton
+          </TIconButton>
+          <TIconButton
             size="small"
-            color="error"
-            onClick={() => {
-              deleteDialog.open(
-                "Delete Promotion",
-                "Are you sure you want to delete this promotion?",
-                () => deleteMutation.mutate(params.row.id)
-              );
-            }}
+            color="danger"
+            tooltip="Delete"
+            onClick={() => handleDelete(params.row.id)}
           >
             <DeleteIcon />
-          </IconButton>
+          </TIconButton>
         </Box>
       ),
     },
@@ -139,29 +155,33 @@ export default function PromotionsPage() {
     }
   };
 
+  const handleClose = () => {
+    setOpenDialog(false);
+    setEditingId(null);
+    reset();
+  };
+
+  const handleAdd = () => {
+    setEditingId(null);
+    reset({
+      employee_id: "",
+      designation: "",
+      appointed_date: new Date().toISOString().split("T")[0],
+      remark: "",
+    });
+    setOpenDialog(true);
+  };
+
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 3 }}>
-        <Typography variant="h4" fontWeight="bold">
-          Employee Promotions
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setEditingId(null);
-            reset({
-              employee_id: "",
-              designation: "",
-              appointed_date: new Date().toISOString().split("T")[0],
-              remark: "",
-            });
-            setOpenDialog(true);
-          }}
-        >
-          New Promotion
-        </Button>
-      </Box>
+      <TPageHeader
+        title="Employee Promotions"
+        actions={
+          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+            New Promotion
+          </TButton>
+        }
+      />
 
       <Paper sx={{ height: 600 }}>
         <DataGrid
@@ -175,111 +195,49 @@ export default function PromotionsPage() {
         />
       </Paper>
 
-      <Dialog
+      <TFormDialog
         open={openDialog}
-        onClose={() => {
-          setOpenDialog(false);
-          setEditingId(null);
-        }}
+        onClose={handleClose}
+        title={editingId ? "Edit Promotion" : "New Promotion"}
+        onSubmit={handleSubmit(onSubmit)}
+        submitText={editingId ? "Update" : "Create"}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
         maxWidth="sm"
-        fullWidth
       >
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogTitle>
-            {editingId ? "Edit Promotion" : "New Promotion"}
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
-                <Controller
-                  name="employee_id"
-                  control={control}
-                  rules={{ required: "Employee ID is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Employee ID"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="designation"
-                  control={control}
-                  rules={{ required: "Designation is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Designation"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="appointed_date"
-                  control={control}
-                  rules={{ required: "Appointed date is required" }}
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      {...field}
-                      label="Appointed Date"
-                      type="date"
-                      fullWidth
-                      required
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                      InputLabelProps={{ shrink: true }}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Controller
-                  name="remark"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Remark"
-                      fullWidth
-                      multiline
-                      rows={3}
-                    />
-                  )}
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => {
-                setOpenDialog(false);
-                setEditingId(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {editingId ? "Update" : "Create"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
-      <ConfirmDialog {...deleteDialog.dialogProps} />
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <TFormField
+            name="employee_id"
+            control={control}
+            label="Employee ID"
+            required
+            rules={{ required: "Employee ID is required" }}
+          />
+          <TFormField
+            name="designation"
+            control={control}
+            label="Designation"
+            required
+            rules={{ required: "Designation is required" }}
+          />
+          <TFormField
+            name="appointed_date"
+            control={control}
+            label="Appointed Date"
+            fieldType="date"
+            required
+            rules={{ required: "Appointed date is required" }}
+          />
+          <TFormField
+            name="remark"
+            control={control}
+            label="Remark"
+            fieldType="textarea"
+            rows={3}
+          />
+        </Box>
+      </TFormDialog>
+
+      <TConfirmDialog {...dialogProps} />
     </Box>
   );
 }

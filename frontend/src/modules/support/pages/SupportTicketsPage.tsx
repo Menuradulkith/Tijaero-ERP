@@ -20,6 +20,7 @@ import {
   showSuccessToast,
   showErrorToast,
 } from "@/components/tijaero";
+import { formatDateTime } from "@/utils/formatters";
 import { supportTicketsApi } from "@/modules/support/api";
 import { CustomerSupportCreate } from "@/modules/support/types";
 
@@ -113,6 +114,18 @@ export default function SupportTicketsPage() {
       valueFormatter: (value) => new Date(value).toLocaleDateString(),
     },
     { field: "job_description", headerName: "Description", width: 200 },
+    {
+      field: "created_at",
+      headerName: "Created",
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
+    },
+    {
+      field: "updated_at",
+      headerName: "Modified",
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
+    },
     {
       field: "actions",
       headerName: "Actions",

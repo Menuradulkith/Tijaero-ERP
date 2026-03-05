@@ -3,6 +3,7 @@
  */
 
 import { useMemo, useCallback, useEffect, useState } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -14,7 +15,7 @@ import {
   Chip,
 } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
+// ConfirmDialog now uses TConfirmDialog from tijaero
 
 import {
   MasterDetailLayout,
@@ -29,10 +30,12 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
+  TConfirmDialog,
   TDetailSkeleton,
   TITLE_CHOICES,
   GENDER_CHOICES,
   CIVIL_CHOICES,
+  useTConfirmDialog,
 } from "@/components/tijaero";
 
 import { suppliersApi } from "@/modules/purchasing/api";
@@ -104,7 +107,7 @@ export default function SuppliersPage() {
   const queryClient = useQueryClient();
 
   // Confirm dialog for unsaved changes and delete actions
-  const confirmDialog = useConfirmDialog();
+  const confirmDialog = useTConfirmDialog();
 
   // Validation state - track which fields have been touched/blurred
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -723,6 +726,16 @@ export default function SuppliersPage() {
                 sx={{ gridColumn: "span 3" }}
               />
             </FormSection>
+
+            {/* Record Information (view mode only) */}
+            {selectedSupplier && !isEditing && !isCreating && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Date Joined</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedSupplier.date_joined) || "-"}</Typography>
+                </Box>
+              </FormSection>
+            )}
           </>
         )}
       </Box>
@@ -738,7 +751,7 @@ export default function SuppliersPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );
 }

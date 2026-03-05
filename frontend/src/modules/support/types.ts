@@ -10,6 +10,8 @@ export interface CustomerSupport {
   assigned_user_id: number;
   customer_id?: number;
   invoice_id?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface CustomerSupportCreate {
@@ -36,6 +38,8 @@ export interface CSJobItem {
   customer_support_id: number;
   product_id: number;
   warrent_claim_id?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface CSJobItemCreate {
@@ -56,6 +60,8 @@ export interface CustomerCallLog {
   contact_person?: string;
   comment?: string;
   customer_support_id: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface CustomerCallLogCreate {
@@ -73,6 +79,8 @@ export interface WarrantyClaim {
   product_barcode_new_code?: string;
   comment?: string;
   created_date: string;
+  created_at?: string;
+  updated_at?: string;
   order_id: number;
   supplier_warrenty_claims: boolean;
 }

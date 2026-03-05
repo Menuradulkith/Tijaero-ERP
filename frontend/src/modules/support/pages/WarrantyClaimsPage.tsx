@@ -19,6 +19,7 @@ import {
   showSuccessToast,
   showErrorToast,
 } from "@/components/tijaero";
+import { formatDateTime } from "@/utils/formatters";
 import { warrantyClaimsApi } from "@/modules/support/api";
 import { WarrantyClaimCreate } from "@/modules/support/types";
 
@@ -114,8 +115,14 @@ export default function WarrantyClaimsPage() {
     {
       field: "created_date",
       headerName: "Created",
-      width: 180,
-      valueFormatter: (value) => new Date(value).toLocaleString(),
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
+    },
+    {
+      field: "updated_at",
+      headerName: "Modified",
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
     },
     {
       field: "actions",

@@ -135,7 +135,6 @@ export default function SalesOrderDialog({
 
       showSuccessToast(`Added: ${stockItem.product?.product_name || 'Product'}`);
     } catch (error) {
-      console.error('Barcode validation error:', error);
       setValidationError(handleApiError(error, 'Barcode not found in available stock'));
     } finally {
       setIsValidating(false);

@@ -5,6 +5,7 @@
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -39,6 +40,7 @@ import {
   DetailPanelHeader,
   FormSection,
   EmptyState,
+  fmtLKR,
   TFilterPanel,
   TBranchFilter,
   TStatusFilter,
@@ -282,7 +284,7 @@ export default function PurchaseReturnApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        Rs. {selectedReturn?.items?.reduce((sum, item) => sum + Number(item.return_price), 0).toLocaleString() || "0"}
+                        Rs. {fmtLKR(selectedReturn?.items?.reduce((sum, item) => sum + Number(item.return_price), 0) || 0)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Amount)
@@ -433,8 +435,8 @@ export default function PurchaseReturnApprovalsPage() {
                         }}>
                           <TableCell>{item.barcode}</TableCell>
                           <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
-                          <TableCell align="right">{Number(item.purchasing_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                          <TableCell align="right">{Number(item.return_price).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                          <TableCell align="right">{fmtLKR(Number(item.purchasing_price))}</TableCell>
+                          <TableCell align="right">{fmtLKR(Number(item.return_price))}</TableCell>
                         </TableRow>
                       );
                     })}
@@ -444,7 +446,7 @@ export default function PurchaseReturnApprovalsPage() {
                       </TableCell>
                       <TableCell align="right">
                         <strong>
-                          {(selectedReturn.items?.reduce((sum, item) => sum + Number(item.return_price), 0) || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {fmtLKR(selectedReturn.items?.reduce((sum, item) => sum + Number(item.return_price), 0) || 0)}
                         </strong>
                       </TableCell>
                     </TableRow>
@@ -469,6 +471,14 @@ export default function PurchaseReturnApprovalsPage() {
                     <MenuBookIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
+              </Box>
+            </FormSection>
+
+            {/* Record Information */}
+            <FormSection title="Record Information" columns={2}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Created</Typography>
+                <Typography variant="body2">{formatDateTimeReadable(selectedReturn.added_date) || "-"}</Typography>
               </Box>
             </FormSection>
           </>

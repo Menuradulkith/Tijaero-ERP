@@ -51,6 +51,7 @@ import {
   useTConfirmDialog,
   modernTableStyles,
 } from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import { usePermission } from "@/auth/permissions";
 import { couponsApi } from "@/modules/customers/api";
@@ -66,8 +67,10 @@ const SORT_OPTIONS: SortOption[] = [
 
 const STATUS_OPTIONS = [
   { value: "active", label: "Active" },
+  { value: "expiring_soon", label: "Expiring Soon" },
   { value: "inactive", label: "Inactive" },
   { value: "expired", label: "Expired" },
+  { value: "exhausted", label: "Exhausted" },
 ];
 
 const DISCOUNT_TYPE_OPTIONS = [
@@ -106,10 +109,12 @@ const resetFormFromCoupon = (coupon: CustomerCuponCodes): CustomerCuponCodesCrea
 const getCouponStatus = (coupon: CustomerCuponCodes): string => {
   const today = new Date();
   const expiryDate = new Date(coupon.valid_until_date);
+  const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   
   if (!coupon.active) return "inactive";
   if (expiryDate < today) return "expired";
   if (coupon.usage_count && coupon.usage_count >= coupon.limit_by_usage) return "exhausted";
+  if (daysUntilExpiry <= 7) return "expiring_soon";
   return "active";
 };
 
@@ -395,9 +400,13 @@ export default function CouponsPage() {
                     {/* Status Chip - shown below all fields when selected */}
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
                       <Chip
-                        label={status.charAt(0).toUpperCase() + status.slice(1)}
+                        label={status === "expiring_soon" ? "Expiring Soon" : status.charAt(0).toUpperCase() + status.slice(1)}
                         size="small"
-                        color={status === "active" ? "success" : status === "expired" ? "error" : "default"}
+                        color={
+                          status === "active" ? "success" :
+                          status === "expiring_soon" ? "warning" :
+                          status === "expired" || status === "exhausted" ? "error" : "default"
+                        }
                         sx={{ height: 18, fontSize: "0.65rem" }}
                       />
                     </Box>
@@ -706,6 +715,16 @@ export default function CouponsPage() {
                   </Paper>
                 )}
               </Paper>
+            )}
+
+            {/* Record Information (view mode only) */}
+            {selectedCoupon && !isCreating && !isEditing && (
+              <FormSection title="Record Information" columns={2}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedCoupon.created_date) || "-"}</Typography>
+                </Box>
+              </FormSection>
             )}
           </>
         )}

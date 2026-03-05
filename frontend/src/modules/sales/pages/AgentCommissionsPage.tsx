@@ -66,6 +66,50 @@ import {
   COMMISSION_TYPE_OPTIONS,
 } from "@/modules/sales/commission-types";
 
+// ── Date preset helpers ────────────────────────────────────────────────────
+const toDateStr = (d: Date) => d.toISOString().split("T")[0];
+
+const DATE_PRESETS = [
+  {
+    label: "Today",
+    getRange: () => {
+      const d = toDateStr(new Date());
+      return { from: d, to: d };
+    },
+  },
+  {
+    label: "This Month",
+    getRange: () => {
+      const now = new Date();
+      return {
+        from: toDateStr(new Date(now.getFullYear(), now.getMonth(), 1)),
+        to: toDateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+      };
+    },
+  },
+  {
+    label: "Last Month",
+    getRange: () => {
+      const now = new Date();
+      return {
+        from: toDateStr(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+        to: toDateStr(new Date(now.getFullYear(), now.getMonth(), 0)),
+      };
+    },
+  },
+  {
+    label: "This Quarter",
+    getRange: () => {
+      const now = new Date();
+      const quarter = Math.floor(now.getMonth() / 3);
+      return {
+        from: toDateStr(new Date(now.getFullYear(), quarter * 3, 1)),
+        to: toDateStr(new Date(now.getFullYear(), quarter * 3 + 3, 0)),
+      };
+    },
+  },
+];
+
 // Configuration
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_at", label: "Date Created" },
@@ -273,7 +317,6 @@ export default function AgentCommissionsPage() {
       showSuccessToast("Commission approved successfully");
     },
     onError: (error: unknown) => {
-      console.error("Approve commission error:", error);
       showErrorToast(handleApiError(error, "Failed to approve commission"));
     },
   });
@@ -431,6 +474,35 @@ export default function AgentCommissionsPage() {
             onChange={(e) => setDateTo(e.target.value)}
             InputLabelProps={{ shrink: true }}
           />
+          {/* Date Range Presets */}
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+            {DATE_PRESETS.map((preset) => (
+              <Button
+                key={preset.label}
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  const { from, to } = preset.getRange();
+                  setDateFrom(from);
+                  setDateTo(to);
+                }}
+                sx={{ fontSize: "0.65rem", py: 0.25, px: 0.75, minWidth: 0 }}
+              >
+                {preset.label}
+              </Button>
+            ))}
+            {(dateFrom || dateTo) && (
+              <Button
+                size="small"
+                variant="text"
+                color="error"
+                onClick={() => { setDateFrom(""); setDateTo(""); }}
+                sx={{ fontSize: "0.65rem", py: 0.25, px: 0.75, minWidth: 0 }}
+              >
+                Clear
+              </Button>
+            )}
+          </Box>
         </Box>
       }
       renderItem={(commission, isSelected) => (
@@ -610,7 +682,7 @@ export default function AgentCommissionsPage() {
                         isCurrency
                         subtitle={`${summary.total_invoices} invoices`}
                         onClick={() => setFilterAgentId(summary.agent_id)}
-                        tooltip={`Pending: Rs. ${summary.pending_amount.toLocaleString()} | Approved: Rs. ${summary.approved_amount.toLocaleString()} | Paid: Rs. ${summary.paid_amount.toLocaleString()}`}
+                        tooltip={`Pending: Rs. ${fmtLKR(summary.pending_amount)} | Approved: Rs. ${fmtLKR(summary.approved_amount)} | Paid: Rs. ${fmtLKR(summary.paid_amount)}`}
                         badge={summary.pending_amount > 0 ? 1 : undefined}
                       />
                     </Grid>

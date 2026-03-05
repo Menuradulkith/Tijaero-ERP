@@ -16,6 +16,8 @@ export interface SalaryDeduction {
   remarks?: string;
   created_by?: number;
   created_date?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface SalaryDeductionCreate {
@@ -200,6 +202,8 @@ export interface EmployeeSalaryProfile {
   effective_from_date?: string;
   benefits?: string;
   employee_name?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface EmployeeSalaryProfileCreate {
@@ -280,6 +284,8 @@ export interface EmployeePromotion {
   designation: string;
   appointed_date: string;
   remark?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface EmployeePromotionCreate {
@@ -296,6 +302,8 @@ export interface EmployeeAsset {
   asset_id: number;
   assign_reason?: string;
   revoke_assignment: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface EmployeeAssetCreate {

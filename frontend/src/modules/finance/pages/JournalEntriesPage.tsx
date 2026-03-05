@@ -37,6 +37,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateTimeReadable } from "@/utils/formatters";
 
 import {
   ActionToolbar,
@@ -58,8 +59,9 @@ import {
   type SortOption,
   useMasterDetailState,
   modernTableStyles,
+  TConfirmDialog,
+  useConfirmDialog,
 } from "@/components/tijaero";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ConfirmDialog";
 
 import { journalEntriesApi, chartOfAccountsApi } from "@/modules/finance/api";
 import type {
@@ -876,6 +878,18 @@ export default function JournalEntriesPage() {
                 </Table>
               </Paper>
             </FormSection>
+
+            {/* Record Information */}
+            <FormSection title="Record Information" columns={2}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Created</Typography>
+                <Typography variant="body2">{formatDateTimeReadable(detail.created_at) || "-"}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                <Typography variant="body2">{formatDateTimeReadable(detail.updated_at) || "-"}</Typography>
+              </Box>
+            </FormSection>
           </>
         ) : null}
       </Box>
@@ -938,7 +952,7 @@ export default function JournalEntriesPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog {...confirmDialog.dialogProps} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
 
       {/* Print Preview Dialog */}
       {selectedJEForPrint && (

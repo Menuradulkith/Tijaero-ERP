@@ -12,6 +12,7 @@ import {
   TPrintPreviewDialog,
   useTConfirmDialog
 } from "@/components/tijaero";
+import { formatDateTime } from "@/utils/formatters";
 import { payrollApi } from "@/modules/hr/api";
 import { EmployeePayrollCreate } from "@/modules/hr/types";
 import {
@@ -131,6 +132,18 @@ export default function PayrollPage() {
       headerName: "EPF (Employer)",
       width: 130,
       renderCell: (params) => params.value ? <TCurrency value={params.value} /> : "-",
+    },
+    {
+      field: "created_at",
+      headerName: "Created",
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
+    },
+    {
+      field: "updated_at",
+      headerName: "Modified",
+      width: 160,
+      valueFormatter: (value) => formatDateTime(value) || "-",
     },
     {
       field: "actions",

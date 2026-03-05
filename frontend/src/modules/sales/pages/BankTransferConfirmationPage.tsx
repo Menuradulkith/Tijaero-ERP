@@ -34,6 +34,7 @@ import {
   SearchableList,
   SelectableListItem,
   DetailPanelHeader,
+  fmtLKR,
   FormSection,
   handleApiError,
   EmptyState,
@@ -87,16 +88,11 @@ export default function BankTransferConfirmationPage() {
   const [rejectReason, setRejectReason] = useState("");
 
   // Fetch pending bank transfers
-  const { data: transfers = [], isLoading, error } = useQuery({
+  const { data: transfers = [], isLoading } = useQuery({
     queryKey: ["pendingBankTransfers", filterBranch],
     queryFn: () => bankTransferApi.getPending(filterBranch || undefined),
     refetchInterval: 30000, // Refresh every 30 seconds
   });
-
-  // Log for debugging
-  console.log("Bank Transfer Verification - Transfers:", transfers);
-  console.log("Bank Transfer Verification - Loading:", isLoading);
-  console.log("Bank Transfer Verification - Error:", error);
 
   // Fetch customers
   const { data: customers = [] } = useQuery({
@@ -221,7 +217,7 @@ export default function BankTransferConfirmationPage() {
     verifyDialog.open(
       "Verify Bank Transfer",
       `Are you sure you want to verify the bank transfer for invoice ${selectedTransfer.invoice_no}? 
-       Amount: Rs. ${selectedTransfer.bank_transfer_amount.toLocaleString()}
+       Amount: Rs. ${fmtLKR(selectedTransfer.bank_transfer_amount)}
        Bank: ${selectedTransfer.bank_name || "N/A"}
        Reference: ${selectedTransfer.bank_transfer_ref || "N/A"}`,
       () => verifyMutation.mutate(selectedTransfer.id)
@@ -242,7 +238,7 @@ export default function BankTransferConfirmationPage() {
   // Format currency
   const formatCurrency = (amount: number | undefined | null) => {
     if (amount === undefined || amount === null) return "Rs. 0.00";
-    return `Rs. ${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `Rs. ${fmtLKR(amount)}`;
   };
 
   // Format date
