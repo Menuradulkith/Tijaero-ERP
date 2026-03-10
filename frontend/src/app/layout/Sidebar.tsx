@@ -90,6 +90,7 @@ const menuItems: MenuItem[] = [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/sales/dashboard" },
       { text: "Customers", icon: <PeopleIcon />, path: "/sales/customers" },
       { text: "Quotations", icon: <ReceiptLongIcon />, path: "/sales/quotations" },
+      { text: "Proforma Invoices", icon: <ReceiptLongIcon />, path: "/sales/proforma" },
       { text: "Sales Orders", icon: <PointOfSaleIcon />, path: "/sales/orders" },
       { 
         text: "Approvals", 

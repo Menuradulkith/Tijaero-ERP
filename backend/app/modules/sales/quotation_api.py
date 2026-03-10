@@ -9,8 +9,11 @@ from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
                                                  CreatePOFromQuoteResponse,
                                                  CreateRevisionRequest,
                                                  CreateRevisionResponse,
+                                                 CustomerApprovalRequest,
                                                  QuoteStatusEnum,
-                                                 QuoteTypeEnum, SalesQuote,
+                                                 QuoteTypeEnum,
+                                                 RejectQuoteRequest,
+                                                 SalesQuote,
                                                  SalesQuoteCreate,
                                                  SalesQuoteDetail,
                                                  SalesQuoteFilter,
@@ -18,7 +21,9 @@ from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
                                                  SalesQuoteStatusUpdate,
                                                  SalesQuoteUpdate,
                                                  SalesQuoteWithItems,
-                                                 StockAvailabilityResponse)
+                                                 StockAvailabilityResponse,
+                                                 ToggleProformaRequest,
+                                                 ToggleProformaResponse)
 from app.modules.sales.quotation_service import sales_quote_service
 from app.modules.sales.schemas import InvoiceWithItems
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -329,6 +334,104 @@ def mark_as_accepted(
 ):
     """Mark quote as accepted by customer."""
     return sales_quote_service.mark_as_accepted(db, quote_id)
+
+
+@router.post(
+    "/{quote_id}/submit-to-customer",
+    response_model=SalesQuote,
+    summary="Submit Quotation to Customer",
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+)
+def submit_to_customer(
+    quote_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+):
+    """Submit quotation to customer. Sets status to 'submitted' and records submitted_date."""
+    return sales_quote_service.submit_to_customer(db, quote_id)
+
+
+@router.post(
+    "/{quote_id}/under-review",
+    response_model=SalesQuote,
+    summary="Mark as Under Review",
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+)
+def mark_under_review(
+    quote_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+):
+    """Mark quote as under review by customer (proforma stage)."""
+    return sales_quote_service.mark_under_review(db, quote_id)
+
+
+@router.post(
+    "/{quote_id}/toggle-proforma",
+    response_model=ToggleProformaResponse,
+    summary="Toggle Proforma Invoice",
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+)
+def toggle_proforma(
+    quote_id: int,
+    data: ToggleProformaRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+):
+    """
+    Toggle between quotation and proforma invoice type.
+    When is_proforma=true, the quote is displayed as a Proforma Invoice.
+    """
+    quote = sales_quote_service.toggle_proforma(db, quote_id, data.is_proforma)
+    return ToggleProformaResponse(
+        quote_id=quote.id,
+        quote_no=quote.quote_no,
+        is_proforma=quote.quote_type == 'proforma',
+        quote_type=quote.quote_type,
+        message=f"Quote {quote.quote_no} is now a {'Proforma Invoice' if data.is_proforma else 'Quotation'}"
+    )
+
+
+@router.post(
+    "/{quote_id}/customer-approve",
+    response_model=SalesQuote,
+    summary="Customer Approval",
+    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+)
+def customer_approve(
+    quote_id: int,
+    data: Optional[CustomerApprovalRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+):
+    """
+    Record customer approval. Customer agrees to proceed with purchase.
+    This sets the quote status to 'approved' and records the approval date.
+    """
+    approved_by = data.approved_by_customer if data else None
+    remarks = data.remarks if data else None
+    return sales_quote_service.customer_approve(db, quote_id, approved_by, remarks)
+
+
+@router.post(
+    "/{quote_id}/reject-quote",
+    response_model=SalesQuote,
+    summary="Reject Quote with Options",
+    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+)
+def reject_quote_with_options(
+    quote_id: int,
+    data: Optional[RejectQuoteRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+):
+    """
+    Reject a quote with optional reason and option to cancel linked PO.
+    If cancel_linked_po=true and a PO was created from this quote, the PO will also be cancelled.
+    """
+    reason = data.reason if data else None
+    cancel_po = data.cancel_linked_po if data else False
+    return sales_quote_service.reject_quote(db, quote_id, reason, cancel_po)
 
 
 @router.post(
