@@ -110,7 +110,7 @@ class PurchasingOrder(Base):
     items = relationship("PurchasingOrderItems", back_populates="purchasing_order")
     good_received_notes = relationship("GoodReceivedNote", back_populates="purchasing_order")
     payments = relationship("SupplierPayment", back_populates="purchasing_order")
-    sales_quote = relationship("SalesQuote", backref="purchasing_orders")
+    sales_quote = relationship("SalesQuote", foreign_keys=[sales_quote_id], backref="purchasing_orders")
 
 class PurchasingOrderItems(Base):
     __tablename__ = "purchasing_order_items"

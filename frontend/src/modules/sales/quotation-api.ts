@@ -6,15 +6,19 @@ import {
   CreatePOFromQuoteResponse,
   CreateRevisionRequest,
   CreateRevisionResponse,
+  CustomerApprovalRequest,
   QuoteStatus,
   QuoteType,
+  RejectQuoteRequest,
   SalesQuote,
   SalesQuoteCreate,
   SalesQuoteList,
   SalesQuoteStatusUpdate,
   SalesQuoteUpdate,
   SalesQuoteWithItems,
-  StockAvailabilityResponse
+  StockAvailabilityResponse,
+  ToggleProformaRequest,
+  ToggleProformaResponse
 } from "./quotation-types";
 
 const BASE_URL = "/sales/quotes";
@@ -181,6 +185,57 @@ export const quotationApi = {
     const response = await apiClient.post<SalesQuote>(`${BASE_URL}/${id}/cancel`, null, {
       params: { reason },
     });
+    return response.data;
+  },
+
+  // ==================== New Workflow Actions ====================
+
+  /**
+   * Submit quotation to customer
+   */
+  submitToCustomer: async (id: number): Promise<SalesQuote> => {
+    const response = await apiClient.post<SalesQuote>(`${BASE_URL}/${id}/submit-to-customer`);
+    return response.data;
+  },
+
+  /**
+   * Mark quote as under review by customer
+   */
+  markUnderReview: async (id: number): Promise<SalesQuote> => {
+    const response = await apiClient.post<SalesQuote>(`${BASE_URL}/${id}/under-review`);
+    return response.data;
+  },
+
+  /**
+   * Toggle proforma invoice status
+   */
+  toggleProforma: async (id: number, data: ToggleProformaRequest): Promise<ToggleProformaResponse> => {
+    const response = await apiClient.post<ToggleProformaResponse>(
+      `${BASE_URL}/${id}/toggle-proforma`,
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * Record customer approval
+   */
+  customerApprove: async (id: number, data?: CustomerApprovalRequest): Promise<SalesQuote> => {
+    const response = await apiClient.post<SalesQuote>(
+      `${BASE_URL}/${id}/customer-approve`,
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * Reject a quote with options (reason + cancel linked PO)
+   */
+  rejectWithOptions: async (id: number, data?: RejectQuoteRequest): Promise<SalesQuote> => {
+    const response = await apiClient.post<SalesQuote>(
+      `${BASE_URL}/${id}/reject-quote`,
+      data
+    );
     return response.data;
   },
 

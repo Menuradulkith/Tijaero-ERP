@@ -13,12 +13,15 @@ class QuoteTypeEnum(str, Enum):
 class QuoteStatusEnum(str, Enum):
     DRAFT = "draft"
     PENDING_APPROVAL = "pending_approval"
+    SUBMITTED = "submitted"
+    UNDER_REVIEW = "under_review"
     APPROVED = "approved"
     SENT = "sent"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     EXPIRED = "expired"
     CONVERTED = "converted"
+    CONVERTED_TO_INVOICE = "converted_to_invoice"
     PO_CREATED = "po_created"
     CANCELLED = "cancelled"
     REVISED = "revised"
@@ -87,6 +90,7 @@ class SalesQuoteItem(BaseModel):
     warrenty_month: str
     created_date: datetime
     is_price_estimate: bool = False
+    stock_status: Optional[str] = None  # 'in_stock', 'needs_procurement', or None
     description: Optional[str] = None
     remark: Optional[str] = None
     discount_percentage: float = 0
@@ -204,6 +208,15 @@ class SalesQuote(BaseModel):
     converted_to_invoice_id: Optional[int] = None
     converted_at: Optional[datetime] = None
     converted_by: Optional[int] = None
+    
+    # Workflow date tracking
+    submitted_date: Optional[datetime] = None
+    po_created_date: Optional[datetime] = None
+    approved_date: Optional[datetime] = None
+    approved_by_customer: Optional[str] = None
+    rejection_date: Optional[datetime] = None
+    conversion_date: Optional[datetime] = None
+    linked_po_id: Optional[int] = None
 
     # Revision tracking
     parent_quote_id: Optional[int] = None
@@ -357,3 +370,38 @@ class CreatePOFromQuoteResponse(BaseModel):
     purchasing_order_id: int
     purchasing_order_no: str
     message: str
+
+
+# ==================== Proforma Toggle Schema ====================
+
+
+class ToggleProformaRequest(BaseModel):
+    """Request to toggle proforma invoice status"""
+    is_proforma: bool
+
+
+class ToggleProformaResponse(BaseModel):
+    """Response after toggling proforma status"""
+    quote_id: int
+    quote_no: str
+    is_proforma: bool
+    quote_type: str
+    message: str
+
+
+# ==================== Reject Quote Schema ====================
+
+
+class RejectQuoteRequest(BaseModel):
+    """Request to reject a quote"""
+    reason: Optional[str] = None
+    cancel_linked_po: bool = False  # Whether to cancel the linked PO if one exists
+
+
+# ==================== Customer Approval Schema ====================
+
+
+class CustomerApprovalRequest(BaseModel):
+    """Request to mark customer approval"""
+    approved_by_customer: Optional[str] = None  # Customer contact name
+    remarks: Optional[str] = None

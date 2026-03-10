@@ -5,12 +5,15 @@ export type QuoteType = 'quotation' | 'proforma';
 export type QuoteStatus =
   | 'draft'
   | 'pending_approval'
+  | 'submitted'
+  | 'under_review'
   | 'approved'
   | 'sent'
   | 'accepted'
   | 'rejected'
   | 'expired'
   | 'converted'
+  | 'converted_to_invoice'
   | 'po_created'
   | 'cancelled'
   | 'revised';
@@ -29,6 +32,7 @@ export interface SalesQuoteItem {
   warrenty_month: string;
   created_date: string;
   is_price_estimate: boolean;
+  stock_status?: string; // 'in_stock', 'needs_procurement', or null
   description?: string;
   remark?: string;
   discount_percentage: number;
@@ -81,6 +85,15 @@ export interface SalesQuote {
   converted_to_invoice_id?: number;
   converted_at?: string;
   converted_by?: number;
+
+  // Workflow date tracking
+  submitted_date?: string;
+  po_created_date?: string;
+  approved_date?: string;
+  approved_by_customer?: string;
+  rejection_date?: string;
+  conversion_date?: string;
+  linked_po_id?: number;
 
   // Revision tracking
   parent_quote_id?: number;
@@ -208,12 +221,15 @@ export interface SalesQuoteFilter {
 export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
   draft: 'Draft',
   pending_approval: 'Pending Approval',
+  submitted: 'Submitted',
+  under_review: 'Under Review',
   approved: 'Approved',
   sent: 'Sent',
   accepted: 'Accepted',
   rejected: 'Rejected',
   expired: 'Expired',
   converted: 'Converted',
+  converted_to_invoice: 'Converted to Invoice',
   po_created: 'PO Created',
   cancelled: 'Cancelled',
   revised: 'Revised',
@@ -222,12 +238,15 @@ export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
 export const QUOTE_STATUS_COLORS: Record<QuoteStatus, string> = {
   draft: 'gray',
   pending_approval: 'yellow',
+  submitted: 'indigo',
+  under_review: 'amber',
   approved: 'blue',
   sent: 'purple',
   accepted: 'green',
   rejected: 'red',
   expired: 'orange',
   converted: 'teal',
+  converted_to_invoice: 'teal',
   po_created: 'cyan',
   cancelled: 'red',
   revised: 'gray',
@@ -273,4 +292,32 @@ export interface CreatePOFromQuoteResponse {
   purchasing_order_id: number;
   purchasing_order_no: string;
   message: string;
+}
+
+// ==================== Toggle Proforma Types ====================
+
+export interface ToggleProformaRequest {
+  is_proforma: boolean;
+}
+
+export interface ToggleProformaResponse {
+  quote_id: number;
+  quote_no: string;
+  is_proforma: boolean;
+  quote_type: string;
+  message: string;
+}
+
+// ==================== Reject Quote Types ====================
+
+export interface RejectQuoteRequest {
+  reason?: string;
+  cancel_linked_po?: boolean;
+}
+
+// ==================== Customer Approval Types ====================
+
+export interface CustomerApprovalRequest {
+  approved_by_customer?: string;
+  remarks?: string;
 }

@@ -17,12 +17,15 @@ class QuoteStatus(str, enum.Enum):
 
     DRAFT = "draft"  
     PENDING_APPROVAL = "pending_approval" 
+    SUBMITTED = "submitted"  # Sent/submitted to customer
+    UNDER_REVIEW = "under_review"  # Customer reviewing (proforma stage)
     APPROVED = "approved" 
     SENT = "sent" 
     ACCEPTED = "accepted" 
     REJECTED = "rejected" 
     EXPIRED = "expired"  
     CONVERTED = "converted" 
+    CONVERTED_TO_INVOICE = "converted_to_invoice"  # Successfully converted to invoice
     PO_CREATED = "po_created"  # PO raised from this quotation
     CANCELLED = "cancelled" 
     REVISED = "revised" 
@@ -73,6 +76,17 @@ class SalesQuote(Base, TimestampMixin):
     converted_at = Column(TIMESTAMP, nullable=True)
     converted_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
     
+    # Workflow date tracking
+    submitted_date = Column(TIMESTAMP, nullable=True)  # When submitted to customer
+    po_created_date = Column(TIMESTAMP, nullable=True)  # When PO was created from this quote
+    approved_date = Column(TIMESTAMP, nullable=True)  # When customer approved
+    approved_by_customer = Column(String(200), nullable=True)  # Customer contact who approved
+    rejection_date = Column(TIMESTAMP, nullable=True)  # When rejected
+    conversion_date = Column(TIMESTAMP, nullable=True)  # When converted to invoice
+    
+    # Linked PO tracking
+    linked_po_id = Column(Integer, ForeignKey("purchasing_orders.id"), nullable=True)
+    
     # Revision tracking
     parent_quote_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True)
     revision_number = Column(Integer, nullable=False, default=1)
@@ -97,9 +111,17 @@ class SalesQuote(Base, TimestampMixin):
     converted_by_user = relationship(
         "User", foreign_keys=[converted_by], backref="converted_quotes"
     )
+    linked_po = relationship(
+        "PurchasingOrder", foreign_keys="SalesQuote.linked_po_id", backref="source_quote_link"
+    )
     items = relationship(
         "SalesQuoteItem", back_populates="quote", cascade="all, delete-orphan"
     )
+    
+    @property
+    def is_proforma(self):
+        """Check if this quote is a proforma invoice"""
+        return self.quote_type == QuoteType.PROFORMA.value
 
 
 class SalesQuoteItem(Base, TimestampMixin):
@@ -123,6 +145,9 @@ class SalesQuoteItem(Base, TimestampMixin):
     is_price_estimate = Column(
         Boolean, nullable=False, default=False
     )  
+    stock_status = Column(
+        String(30), nullable=True, default=None
+    )  # 'in_stock', 'needs_procurement', or None (not checked)
     description = Column(Text, nullable=True)  
     remark = Column(Text, nullable=True)  
 
