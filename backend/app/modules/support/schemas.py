@@ -2,6 +2,8 @@ from pydantic import BaseModel
 from datetime import date, datetime
 from typing import Optional, List
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 # Customer Support Schemas
 class CustomerSupportBase(BaseModel):
     job_number: str
@@ -17,11 +19,8 @@ class CustomerSupportBase(BaseModel):
 class CustomerSupportCreate(CustomerSupportBase):
     pass
 
-class CustomerSupport(CustomerSupportBase):
+class CustomerSupport(CustomerSupportBase, TijaeroBaseSchema):
     id: int
-    
-    class Config:
-        from_attributes = True
 
 # CS Job Item Schemas
 class CSJobItemBase(BaseModel):
@@ -37,12 +36,9 @@ class CSJobItemBase(BaseModel):
 class CSJobItemCreate(CSJobItemBase):
     pass
 
-class CSJobItem(CSJobItemBase):
+class CSJobItem(CSJobItemBase, TijaeroBaseSchema):
     id: int
     date: datetime
-    
-    class Config:
-        from_attributes = True
 
 # Customer Call Log Schemas
 class CustomerCallLogBase(BaseModel):
@@ -53,12 +49,9 @@ class CustomerCallLogBase(BaseModel):
 class CustomerCallLogCreate(CustomerCallLogBase):
     pass
 
-class CustomerCallLog(CustomerCallLogBase):
+class CustomerCallLog(CustomerCallLogBase, TijaeroBaseSchema):
     id: int
     date: datetime
-    
-    class Config:
-        from_attributes = True
 
 # Warranty Claims Schemas
 class WarrantyClaimBase(BaseModel):
@@ -73,12 +66,9 @@ class WarrantyClaimBase(BaseModel):
 class WarrantyClaimCreate(WarrantyClaimBase):
     pass
 
-class WarrantyClaim(WarrantyClaimBase):
+class WarrantyClaim(WarrantyClaimBase, TijaeroBaseSchema):
     id: int
     created_date: datetime
-    
-    class Config:
-        from_attributes = True
 
 # Customer Support with Items
 class CustomerSupportWithItems(CustomerSupport):

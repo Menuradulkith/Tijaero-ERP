@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from datetime import datetime, date
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 
 # Report Schemas
 class ReportBase(BaseModel):
@@ -19,14 +21,11 @@ class ReportCreate(ReportBase):
     created_by: int
 
 
-class Report(ReportBase):
+class Report(ReportBase, TijaeroBaseSchema):
     id: int
     created_by: int
     created_date: datetime
     last_run: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 # Report Execution Schemas
@@ -36,7 +35,7 @@ class ReportExecutionCreate(BaseModel):
     parameters: Optional[str] = None
 
 
-class ReportExecution(BaseModel):
+class ReportExecution(TijaeroBaseSchema):
     id: int
     report_id: int
     executed_by: int
@@ -46,9 +45,6 @@ class ReportExecution(BaseModel):
     result_summary: Optional[str] = None
     execution_time: Optional[int] = None
     error_message: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 # Report Request/Response Schemas

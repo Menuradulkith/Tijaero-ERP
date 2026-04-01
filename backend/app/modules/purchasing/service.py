@@ -6,6 +6,8 @@ from decimal import Decimal
 from . import models, schemas, repository
 from fastapi import HTTPException, status
 from app.core import timezone as tz
+from app.common.audit import log_audit
+from app.common.enums import PurchaseOrderStatus, DocumentStatus, StockStatus
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 
 DAILY_PO_LIMIT_PER_BRANCH = 5
@@ -42,7 +44,11 @@ class SupplierService:
             pending_orders = self.repo.db.query(models.PurchasingOrder).filter(
                 (models.PurchasingOrder.first_suppliers_id == supplier_id) | 
                 (models.PurchasingOrder.second_suppliers_id == supplier_id),
-                models.PurchasingOrder.status.in_(["pending", "approved", "pending_approval"])
+                models.PurchasingOrder.status.in_([
+                    PurchaseOrderStatus.PENDING,
+                    PurchaseOrderStatus.APPROVED,
+                    PurchaseOrderStatus.PENDING_APPROVAL,
+                ])
             ).count()
             
             if pending_orders > 0:
@@ -142,7 +148,7 @@ class PurchasingOrderService:
         ) if order.items else Decimal("0")
         
         # All orders start with pending_approval status (both credit and non-credit)
-        initial_status = "pending_approval"
+        initial_status = PurchaseOrderStatus.PENDING_APPROVAL
         
         # For credit purchases, perform credit check to warn about limit
         if order.payment_method.lower() == "credit":
@@ -170,7 +176,9 @@ class PurchasingOrderService:
         created_order.approval_id = approval_record.id
         self.db.commit()
         self.db.refresh(created_order)
-        
+        log_audit(self.db, user_id=created_by, action="create", entity_type="purchase_order", entity_id=created_order.id, changes={"status": initial_status, "po_no": created_order.purchasing_order_no})
+        self.db.commit()
+
         return created_order
     
     def get_order(self, order_id: int) -> models.PurchasingOrder:
@@ -193,7 +201,7 @@ class PurchasingOrderService:
                 detail=f"Purchase order with id {order_id} not found"
             )
         
-        if existing_po.status in ["partially_completed", "completed"]:
+        if existing_po.status in (PurchaseOrderStatus.PARTIALLY_COMPLETED, PurchaseOrderStatus.COMPLETED):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot edit purchase order with status '{existing_po.status}'. Purchase orders that have received goods (GRN created) cannot be edited."
@@ -247,13 +255,13 @@ class PurchasingOrderService:
         if was_approved:
             from app.modules.common.models import Approvals
             
-            order.status = "pending_approval"
+            order.status = PurchaseOrderStatus.PENDING_APPROVAL
             
             # Reset the existing approval record back to pending
             if order.approval_id:
                 approval_record = self.db.query(Approvals).filter(Approvals.id == order.approval_id).first()
                 if approval_record:
-                    approval_record.status = "pending"
+                    approval_record.status = ApprovalStatus.PENDING
                     approval_record.status_changed_by = None
                     approval_record.remark = "Re-approval required: Purchase order was edited after approval."
             else:
@@ -346,16 +354,16 @@ class PurchasingOrderService:
             ).with_for_update().first()
             if approval_record:
                 # If approval record exists, update it
-                if approval_record.status == 'pending':
-                    approval_record.status = 'approved' if approve else 'rejected'
+                if approval_record.status == ApprovalStatus.PENDING:
+                    approval_record.status = ApprovalStatus.APPROVED if approve else ApprovalStatus.REJECTED
                     approval_record.status_changed_by = user_id
                     approval_record.remark = remarks or f"{'Approved' if approve else 'Rejected'} by user {user_id}"
         
         # Update PO Status
         if approve:
-            order.status = "approved"
+            order.status = PurchaseOrderStatus.APPROVED
         else:
-            order.status = "rejected"
+            order.status = PurchaseOrderStatus.REJECTED
             
         self.db.commit()
         self.db.refresh(order)
@@ -529,7 +537,7 @@ class PurchasingReturnService:
         if not return_no:
             return_no = f"PR-{uuid.uuid4().hex[:8].upper()}"
 
-        initial_status = "pending" if return_data.require_approval else "approved"
+        initial_status = DocumentStatus.PENDING if return_data.require_approval else DocumentStatus.APPROVED
         stock_status = "return_pending" if return_data.require_approval else "returned_to_supplier"
 
         now = tz.now()
@@ -624,7 +632,7 @@ class PurchasingReturnService:
                 detail=f"Purchase return with id {return_id} not found"
             )
         
-        if return_record.status != "pending":
+        if return_record.status != DocumentStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Return is not pending approval. Current status: {return_record.status}"
@@ -639,17 +647,17 @@ class PurchasingReturnService:
                 Approvals.id == return_record.approval_id
             ).with_for_update().first()
             if approval_record:
-                if approval_record.status != 'pending':
+                if approval_record.status != ApprovalStatus.PENDING:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Approval record is already {approval_record.status}"
                     )
-                approval_record.status = 'approved' if approve else 'rejected'
+                approval_record.status = ApprovalStatus.APPROVED if approve else ApprovalStatus.REJECTED
                 approval_record.status_changed_by = user_id
                 approval_record.remark = remarks or f"{'Approved' if approve else 'Rejected'} by user {user_id}"
         
         if approve:
-            return_record.status = "approved"
+            return_record.status = DocumentStatus.APPROVED
             return_record.approved_date = now
             if remarks:
                 return_record.remark = (return_record.remark or "") + f" | Approval note: {remarks}"
@@ -674,7 +682,7 @@ class PurchasingReturnService:
                     credit_service = SupplierCreditService()
                     credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
         else:
-            return_record.status = "rejected"
+            return_record.status = DocumentStatus.REJECTED
             if remarks:
                 return_record.remark = (return_record.remark or "") + f" | Rejection reason: {remarks}"
 
@@ -685,7 +693,7 @@ class PurchasingReturnService:
                         SalesStock.id == item.sales_stock_id
                     ).with_for_update().first()
                     if stock_item:
-                        stock_item.status = "available"
+                        stock_item.status = StockStatus.AVAILABLE
                         stock_item.purchase_return_id = None
         
         self.db.commit()
@@ -1317,7 +1325,7 @@ class SupplierCreditsSettleService:
             )
         
         from datetime import datetime
-        settle.status = "cancelled"
+        settle.status = DocumentStatus.CANCELLED
         settle.verified_by = verified_by
         settle.verified_date = tz.now()
         self.db.commit()

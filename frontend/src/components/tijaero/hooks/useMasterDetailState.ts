@@ -133,7 +133,7 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
       }
     }
     setSelectedItem(item);
-    const newFormData = resetFormFromItem ? resetFormFromItem(item) : initialFormData;
+    const newFormData = item && resetFormFromItem ? resetFormFromItem(item) : initialFormData;
     setFormData(newFormData);
     setOriginalFormData(newFormData);
     setIsEditing(false);

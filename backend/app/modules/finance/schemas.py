@@ -3,6 +3,9 @@ from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
+from app.common.base_schemas import TijaeroBaseSchema
+from app.common.enums import DocumentStatus, PaymentStatus, ExpenseStatus
+
 class BankDepositBase(BaseModel):
     deposits_amount: Decimal
     remarks: Optional[str] = None
@@ -14,18 +17,15 @@ class BankDepositBase(BaseModel):
 class BankDepositCreate(BankDepositBase):
     user_id: Optional[int] = None
 
-class BankDeposit(BankDepositBase):
+class BankDeposit(BankDepositBase, TijaeroBaseSchema):
     id: int
     created_date: datetime
     user_id: Optional[int] = None
     verified: bool = False
     returned: Optional[bool] = None
-    status: str = "pending"  # pending, confirmed, rejected
+    status: str = DocumentStatus.PENDING
     confirmed_by: Optional[int] = None
     confirmed_date: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 class CardPaymentBase(BaseModel):
     card_type: str
@@ -38,12 +38,9 @@ class CardPaymentBase(BaseModel):
 class CardPaymentCreate(CardPaymentBase):
     pass
 
-class CardPayment(CardPaymentBase):
+class CardPayment(CardPaymentBase, TijaeroBaseSchema):
     id: int
     date_time: datetime
-    
-    class Config:
-        from_attributes = True
 
 class ChequePaymentBase(BaseModel):
     cheque_number: int
@@ -60,12 +57,8 @@ class ChequePaymentBase(BaseModel):
 class ChequePaymentCreate(ChequePaymentBase):
     pass
 
-class ChequePayment(ChequePaymentBase):
+class ChequePayment(ChequePaymentBase, TijaeroBaseSchema):
     id: int
-    
-    class Config:
-        from_attributes = True
-        populate_by_name = True
 
 class CustomerAdvancePaymentBase(BaseModel):
     customer_id: int
@@ -78,7 +71,7 @@ class CustomerAdvancePaymentBase(BaseModel):
 class CustomerAdvancePaymentCreate(CustomerAdvancePaymentBase):
     pass
 
-class CustomerAdvancePayment(CustomerAdvancePaymentBase):
+class CustomerAdvancePayment(CustomerAdvancePaymentBase, TijaeroBaseSchema):
     id: int
     advance_payments_no: str
     created_date: date
@@ -86,9 +79,6 @@ class CustomerAdvancePayment(CustomerAdvancePaymentBase):
     applied_amount: Decimal = Decimal("0")
     remaining_amount: Decimal = Decimal("0")
     is_fully_applied: bool = False
-    
-    class Config:
-        from_attributes = True
 
 class CustomerCreditNoteBase(BaseModel):
     customer_id: int
@@ -99,12 +89,9 @@ class CustomerCreditNoteBase(BaseModel):
 class CustomerCreditNoteCreate(CustomerCreditNoteBase):
     pass
 
-class CustomerCreditNote(CustomerCreditNoteBase):
+class CustomerCreditNote(CustomerCreditNoteBase, TijaeroBaseSchema):
     id: int
     date: datetime
-    
-    class Config:
-        from_attributes = True
 
 class ExpenseBase(BaseModel):
     expenses_no: Optional[str] = None
@@ -143,9 +130,9 @@ class ExpenseUpdate(BaseModel):
     account_code: Optional[str] = None
     cost_center: Optional[str] = None
 
-class Expense(ExpenseBase):
+class Expense(ExpenseBase, TijaeroBaseSchema):
     id: int
-    status: str = "pending"
+    status: str = ExpenseStatus.PENDING
     submitted_by: Optional[int] = None
     approved_by: Optional[int] = None
     approved_date: Optional[datetime] = None
@@ -157,9 +144,6 @@ class Expense(ExpenseBase):
     created_date: date
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 class ExpenseApproval(BaseModel):
     remarks: Optional[str] = None
@@ -189,13 +173,10 @@ class CustomerCreditsSettleTransactionBase(BaseModel):
 class CustomerCreditsSettleTransactionCreate(CustomerCreditsSettleTransactionBase):
     pass
 
-class CustomerCreditsSettleTransaction(CustomerCreditsSettleTransactionBase):
+class CustomerCreditsSettleTransaction(CustomerCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
     created_date: date
     customer_credit_settle_id: int
-    
-    class Config:
-        from_attributes = True
 
 class CustomerCreditsSettleBase(BaseModel):
     customer_id: int
@@ -204,13 +185,10 @@ class CustomerCreditsSettleBase(BaseModel):
 class CustomerCreditsSettleCreate(CustomerCreditsSettleBase):
     transactions: List[CustomerCreditsSettleTransactionCreate]
 
-class CustomerCreditsSettle(CustomerCreditsSettleBase):
+class CustomerCreditsSettle(CustomerCreditsSettleBase, TijaeroBaseSchema):
     id: int
     customer_credits_settle_no: str
     created_date: datetime
-    
-    class Config:
-        from_attributes = True
 
 class CustomerCreditsSettleWithTransactions(CustomerCreditsSettle):
     transactions: List[CustomerCreditsSettleTransaction] = []
@@ -226,13 +204,10 @@ class SupplierCreditsSettleTransactionBase(BaseModel):
 class SupplierCreditsSettleTransactionCreate(SupplierCreditsSettleTransactionBase):
     pass
 
-class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase):
+class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
     created_date: datetime
     supplier_credit_settle_id: Optional[int] = None
-    
-    class Config:
-        from_attributes = True
 
 class ExpenseListFilter(BaseModel):
     branch_code: Optional[str] = None
@@ -272,7 +247,7 @@ class CashbookEntryType(str):
     ADJUSTMENT = "adjustment"
 
 
-class CashbookEntry(BaseModel):
+class CashbookEntry(TijaeroBaseSchema):
     """Single cashbook transaction entry"""
     id: int
     entry_type: str  # CashbookEntryType value
@@ -287,9 +262,6 @@ class CashbookEntry(BaseModel):
     branch_code: Optional[str] = None
     source_table: str  # Table name for drill-down
     source_id: int  # Record ID for drill-down
-
-    class Config:
-        from_attributes = True
 
 
 class CashbookFilter(BaseModel):
@@ -350,7 +322,7 @@ class PettyCashFundCreate(BaseModel):
     opened_by: Optional[int] = None
     remarks: Optional[str] = None
 
-class PettyCashFundResponse(BaseModel):
+class PettyCashFundResponse(TijaeroBaseSchema):
     id: int
     petty_cash_no: str
     opening_balance: Decimal
@@ -364,9 +336,6 @@ class PettyCashFundResponse(BaseModel):
     closed_date: Optional[date] = None
     remarks: Optional[str] = None
     created_date: datetime
-
-    class Config:
-        from_attributes = True
 
 class PettyCashFundWithTransactions(PettyCashFundResponse):
     transactions: List["PettyCashTransactionResponse"] = []
@@ -396,7 +365,7 @@ class PettyCashReplenishCreate(BaseModel):
     recorded_by: Optional[int] = None
     remarks: Optional[str] = None
 
-class PettyCashTransactionResponse(BaseModel):
+class PettyCashTransactionResponse(TijaeroBaseSchema):
     id: int
     transaction_no: str
     petty_cash_id: int
@@ -414,9 +383,6 @@ class PettyCashTransactionResponse(BaseModel):
     branch_code: str
     remarks: Optional[str] = None
     created_date: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class PettyCashReconcileRequest(BaseModel):

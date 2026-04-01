@@ -22,5 +22,3 @@ class WorkflowStep(Base, TimestampMixin):
     status = Column(String, default=WorkflowStatus.PENDING)
     approver_id = Column(Integer, ForeignKey("accounts_user.id"))
     comments = Column(String)
-    approver_id = Column(Integer, ForeignKey("accounts_user.id"))
-    comments = Column(String)

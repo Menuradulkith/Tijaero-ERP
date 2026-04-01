@@ -7,6 +7,8 @@ from typing import Optional, List
 from decimal import Decimal
 from datetime import date
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 
 # ============================================================================
 # Monthly Branch Sales Summary Schemas
@@ -28,7 +30,7 @@ class MonthlyBranchSalesSummaryCreate(BaseModel):
     branch_code: Optional[str] = None  # If None, generate for all branches
 
 
-class MonthlyBranchSalesSummaryResponse(MonthlyBranchSalesSummaryBase):
+class MonthlyBranchSalesSummaryResponse(TijaeroBaseSchema, MonthlyBranchSalesSummaryBase):
     id: int
     total_sales_revenue: Decimal
     total_sales_cost: Decimal
@@ -46,9 +48,6 @@ class MonthlyBranchSalesSummaryResponse(MonthlyBranchSalesSummaryBase):
     # Resolved fields
     branch_name: Optional[str] = None
     finalized_by_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 class MonthlyBranchSalesSummaryWithCommissions(MonthlyBranchSalesSummaryResponse):
@@ -72,7 +71,7 @@ class SalesOfficerCommissionBase(BaseModel):
     fiscal_month: int
 
 
-class SalesOfficerCommissionResponse(BaseModel):
+class SalesOfficerCommissionResponse(TijaeroBaseSchema):
     id: int
     monthly_sales_summary_id: int
     employee_id: int
@@ -96,9 +95,6 @@ class SalesOfficerCommissionResponse(BaseModel):
     branch_name: Optional[str] = None
     approved_by_name: Optional[str] = None
     month_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 class ApproveCommissionRequest(BaseModel):

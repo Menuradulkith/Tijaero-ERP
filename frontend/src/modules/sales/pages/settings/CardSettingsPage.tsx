@@ -25,15 +25,12 @@ import {
 import {
   Add as AddIcon,
   Edit as EditIcon,
-  Delete as DeleteIcon,
   CreditCard as CardIcon,
 } from "@mui/icons-material";
 import {
   TPageHeader,
   TButton,
   TDataGrid,
-  TConfirmDialog,
-  useTConfirmDialog,
   TFormDialog,
   TPageSkeleton,
   TEmptyState,
@@ -60,7 +57,6 @@ export default function CardSettingsPage() {
   const [editingCard, setEditingCard] = useState<PaymentCard | null>(null);
   const [formData, setFormData] = useState<PaymentCardCreate>(INITIAL_FORM_DATA);
   const [showInactive, setShowInactive] = useState(false);
-  const deleteDialog = useTConfirmDialog();
 
   // Fetch payment cards
   const { data: cards, isLoading } = useQuery({
@@ -91,17 +87,6 @@ export default function CardSettingsPage() {
     },
     onError: (error: Error) => {
       showErrorToast(error.message || "Failed to update payment card");
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: paymentCardsApi.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payment-cards"] });
-      showSuccessToast("Payment card deactivated successfully");
-    },
-    onError: (error: Error) => {
-      showErrorToast(error.message || "Failed to deactivate payment card");
     },
   });
 
@@ -138,16 +123,17 @@ export default function CardSettingsPage() {
     }
   };
 
-  const handleDelete = async (card: PaymentCard) => {
-    const confirmed = await deleteDialog.confirm({
-      title: "Deactivate Payment Card",
-      message: `Are you sure you want to deactivate "${card.card_name}"? This card will no longer be available for new payments.`,
-      confirmText: "Deactivate",
-      confirmColor: "warning",
+  const handleToggleActive = (card: PaymentCard, active: boolean) => {
+    updateMutation.mutate({
+      id: card.id,
+      data: {
+        card_name: card.card_name,
+        card_type: card.card_type,
+        service_charge_percent: card.service_charge_percent,
+        description: card.description || "",
+        active,
+      },
     });
-    if (confirmed) {
-      deleteMutation.mutate(card.id);
-    }
   };
 
   // Grid columns
@@ -209,9 +195,10 @@ export default function CardSettingsPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-            <Chip
-              label={params.row.active ? "Active" : "Inactive"}
+            <Switch
               size="small"
+              checked={params.row.active}
+              onChange={(e) => handleToggleActive(params.row, e.target.checked)}
               color={params.row.active ? "success" : "default"}
             />
           </Box>
@@ -247,17 +234,6 @@ export default function CardSettingsPage() {
                 <EditIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-            {params.row.active && (
-              <Tooltip title="Deactivate">
-                <IconButton
-                  size="small"
-                  color="error"
-                  onClick={() => handleDelete(params.row)}
-                >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
           </Box>
         ),
       },
@@ -398,8 +374,6 @@ export default function CardSettingsPage() {
           />
         </Box>
       </TFormDialog>
-
-      <TConfirmDialog {...deleteDialog.dialogProps} />
     </Box>
   );
 }

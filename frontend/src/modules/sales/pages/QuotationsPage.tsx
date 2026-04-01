@@ -279,11 +279,11 @@ export default function QuotationsPage() {
 
   // Filter and sort
   const filteredQuotes = useMemo(() => {
-    const quotes = quotesData?.items || [];
+    const quotes = (quotesData?.items || []).filter(Boolean);
     let filtered = quotes.filter(
       (quote) =>
-        quote.quote_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        quote.branch_code.toLowerCase().includes(searchQuery.toLowerCase())
+        quote.quote_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        quote.branch_code?.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     // Apply branch filter

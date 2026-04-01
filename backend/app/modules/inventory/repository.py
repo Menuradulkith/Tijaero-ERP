@@ -1,8 +1,10 @@
 from sqlalchemy.orm import Session
+from app.common.base_repository import BaseRepository
 from app.modules.products.models import Product
 
-class InventoryRepository:
-    def get_by_id(self, db: Session, product_id: int):
-        return db.query(Product).filter(Product.id == product_id).first()
+
+class InventoryRepository(BaseRepository[Product]):
+    model = Product
+
 
 inventory_repository = InventoryRepository()

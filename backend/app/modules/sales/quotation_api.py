@@ -48,7 +48,7 @@ def list_quotes(
     branch_code: Optional[str] = Query(None, description="Filter by branch"),
     search: Optional[str] = Query(None, description="Search in quote number"),
     page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    per_page: int = Query(20, ge=1, le=500, description="Items per page"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
 ):
@@ -84,7 +84,7 @@ def list_quotes(
 def list_quotations(
     status: Optional[QuoteStatusEnum] = Query(None),
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
 ):
@@ -104,7 +104,7 @@ def list_quotations(
 def list_proforma_invoices(
     status: Optional[QuoteStatusEnum] = Query(None),
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
 ):

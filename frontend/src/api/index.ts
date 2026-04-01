@@ -1,6 +1,10 @@
 // Export API client
 export { default as apiClient } from "./client";
 
+// Export CRUD API factory
+export { createCrudApi } from "./createCrudApi";
+export type { CrudApi } from "./createCrudApi";
+
 // Export auth API
 export { authApi } from "@/auth/api";
 

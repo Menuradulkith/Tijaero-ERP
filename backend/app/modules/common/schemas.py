@@ -3,6 +3,8 @@ from typing import Optional, List, Any
 from datetime import datetime
 from decimal import Decimal
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 class CountryBase(BaseModel):
     name: str
     iso: str
@@ -11,12 +13,9 @@ class CountryBase(BaseModel):
     currency_name: Optional[str] = None
     phone: Optional[str] = None
 
-class Country(CountryBase):
+class Country(CountryBase, TijaeroBaseSchema):
     id: int
     iso_numeric: int
-    
-    class Config:
-        from_attributes = True
 
 class LocationBase(BaseModel):
     name: str
@@ -25,12 +24,9 @@ class LocationBase(BaseModel):
 class LocationCreate(LocationBase):
     pass
 
-class Location(LocationBase):
+class Location(LocationBase, TijaeroBaseSchema):
     id: int
     created_date: datetime
-    
-    class Config:
-        from_attributes = True
 
 class ApprovalBase(BaseModel):
     approval_for: Optional[str] = None
@@ -47,16 +43,13 @@ class ApprovalUpdate(BaseModel):
     next_user_to_approve: Optional[int] = None
     remark: Optional[str] = None
 
-class Approval(ApprovalBase):
+class Approval(ApprovalBase, TijaeroBaseSchema):
     id: int
     status_changed_by: Optional[int] = None
     next_approval_group: Optional[str] = None
     next_user_to_approve: Optional[int] = None
-    
-    class Config:
-        from_attributes = True
 
-class ReferenceDataResponse(BaseModel):
+class ReferenceDataResponse(TijaeroBaseSchema):
 
     branches: Optional[List[Any]] = None
     categories: Optional[List[Any]] = None
@@ -68,6 +61,3 @@ class ReferenceDataResponse(BaseModel):
     customers: Optional[List[Any]] = None
     employees: Optional[List[Any]] = None
     sales_stock: Optional[List[Any]] = None
-    
-    class Config:
-        from_attributes = True

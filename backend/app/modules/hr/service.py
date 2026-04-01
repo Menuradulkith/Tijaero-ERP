@@ -11,6 +11,7 @@ from .sales_commission_models import SalesOfficerMonthlyCommission
 from app.modules.employees.models import Employee
 from app.modules.employees.models import EmployeePayroll, EmployeeSalaryProfile, EmployeePromotions, EmployeesAssets
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
+from app.common.enums import DocumentStatus, PaymentStatus
 
 # Salary Deductions Service
 class SalaryDeductionService:
@@ -146,7 +147,7 @@ class ReimbursementService:
             description=data.description,
             reimbursement_type=data.reimbursement_type,
             total_amount=total_amount,
-            status="pending",
+            status=DocumentStatus.PENDING,
             remark=data.remark,
         )
         self.db.add(db_reimbursement)
@@ -246,8 +247,8 @@ class ReimbursementService:
         if r.approval_id:
             from app.modules.common.models import Approvals
             approval = self.db.query(Approvals).filter(Approvals.id == r.approval_id).first()
-            if approval and approval.status == "pending":
-                approval.status = "approved"
+            if approval and approval.status == ApprovalStatus.PENDING:
+                approval.status = ApprovalStatus.APPROVED
                 approval.status_changed_by = user_id
                 approval.remark = data.remarks or f"Approved by user {user_id}"
 
@@ -263,15 +264,15 @@ class ReimbursementService:
         if r.status != "pending":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot reject. Current status: {r.status}")
 
-        r.status = "rejected"
+        r.status = DocumentStatus.REJECTED
         r.rejection_reason = data.rejection_reason
 
         # Update approval record
         if r.approval_id:
             from app.modules.common.models import Approvals
             approval = self.db.query(Approvals).filter(Approvals.id == r.approval_id).first()
-            if approval and approval.status == "pending":
-                approval.status = "rejected"
+            if approval and approval.status == ApprovalStatus.PENDING:
+                approval.status = ApprovalStatus.REJECTED
                 approval.status_changed_by = user_id
                 approval.remark = data.rejection_reason
 
@@ -309,8 +310,8 @@ class ReimbursementService:
         r.payment_reference = data.payment_reference
         r.paid_amount = data.paid_amount
         r.payment_date = tz.now()
-        r.payment_status = "paid"
-        r.status = "completed"
+        r.payment_status = PaymentStatus.PAID
+        r.status = DocumentStatus.COMPLETED
         if data.remarks:
             r.remark = data.remarks
 
@@ -777,7 +778,7 @@ class PayrollService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot approve. Current status: {batch.status}"
             )
-        batch.status = "approved"
+        batch.status = DocumentStatus.APPROVED
         batch.approved_by = user_id
         batch.approved_date = tz.now()
         # Update all payroll records
@@ -829,7 +830,7 @@ class PayrollService:
         
         # Update payroll records
         for pr in payroll_records:
-            pr.payment_status = "paid"
+            pr.payment_status = PaymentStatus.PAID
             pr.payment_date = payment_date
             pr.payment_reference = data.payment_reference
             pr.payment_method = data.payment_method
@@ -987,7 +988,7 @@ class PayrollService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot complete. Must process statutory payments first. Current status: {batch.status}"
             )
-        batch.status = "completed"
+        batch.status = DocumentStatus.COMPLETED
         batch.completed_date = tz.now()
         self.db.query(EmployeePayroll).filter(
             EmployeePayroll.payroll_batch_no == batch.batch_no
@@ -1006,7 +1007,7 @@ class PayrollService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot cancel batch with status '{batch.status}'"
             )
-        batch.status = "cancelled"
+        batch.status = DocumentStatus.CANCELLED
         self.db.query(EmployeePayroll).filter(
             EmployeePayroll.payroll_batch_no == batch.batch_no
         ).update({"status": "cancelled"})

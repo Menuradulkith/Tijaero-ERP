@@ -2,6 +2,8 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 class BranchBase(BaseModel):
     branch_name: str
     branch_code: str
@@ -18,10 +20,7 @@ class BranchUpdate(BaseModel):
     email: Optional[EmailStr] = None
     contact_number: Optional[str] = None
 
-class Branch(BranchBase):
+class Branch(BranchBase, TijaeroBaseSchema):
     id: int
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True

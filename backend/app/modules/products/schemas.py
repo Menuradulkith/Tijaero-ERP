@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import date, datetime
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 class CategoryBase(BaseModel):
     name: str = Field(..., max_length=255)
     category_code: str = Field(..., max_length=255)
@@ -19,14 +21,11 @@ class CategoryUpdate(BaseModel):
     description: Optional[str] = None
     active: Optional[bool] = None
 
-class Category(CategoryBase):
+class Category(CategoryBase, TijaeroBaseSchema):
     id: int
     created_date: datetime
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 class BrandBase(BaseModel):
     brand_name: str = Field(..., max_length=255)
@@ -41,11 +40,8 @@ class BrandUpdate(BaseModel):
     brand_code: Optional[str] = Field(None, max_length=4)
     description: Optional[str] = None
 
-class Brand(BrandBase):
+class Brand(BrandBase, TijaeroBaseSchema):
     id: int
-    
-    class Config:
-        from_attributes = True
 
 class ProductBase(BaseModel):
     name: str = Field(..., max_length=255)
@@ -79,22 +75,16 @@ class ProductUpdate(BaseModel):
     items_brand_id: Optional[int] = None
     image_url: Optional[str] = None
 
-class Product(ProductBase):
+class Product(ProductBase, TijaeroBaseSchema):
     id: int
     created_date: date
     added_date: datetime
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 class ProductWithDetails(Product):
     category: Optional[Category] = None
     brand: Optional[Brand] = None
-    
-    class Config:
-        from_attributes = True
 
 class MinimumPriceBase(BaseModel):
     minimum_price: float = Field(..., ge=0)
@@ -102,12 +92,9 @@ class MinimumPriceBase(BaseModel):
 class MinimumPriceCreate(BaseModel):
     minimum_price: float = Field(..., ge=0)
 
-class MinimumPrice(MinimumPriceBase):
+class MinimumPrice(MinimumPriceBase, TijaeroBaseSchema):
     id: int
     product_id: int
     created_date: datetime
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True

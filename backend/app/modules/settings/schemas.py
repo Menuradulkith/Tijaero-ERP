@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 
 # Notification Schemas
 class NotificationBase(BaseModel):
@@ -16,15 +18,12 @@ class NotificationCreate(NotificationBase):
     user_id: int
 
 
-class Notification(NotificationBase):
+class Notification(NotificationBase, TijaeroBaseSchema):
     id: int
     user_id: int
     is_read: bool
     created_date: datetime
     read_date: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 # User Preferences Schemas
@@ -58,13 +57,10 @@ class UserPreferencesUpdate(BaseModel):
     currency_format: Optional[str] = None
 
 
-class UserPreferences(UserPreferencesBase):
+class UserPreferences(UserPreferencesBase, TijaeroBaseSchema):
     id: int
     user_id: int
     updated_date: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # Profile Update Schema

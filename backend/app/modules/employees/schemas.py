@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import date, datetime
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 class EmployeeBase(BaseModel):
     user_id: int
     employee_id: str = Field(..., max_length=255)
@@ -12,13 +14,10 @@ class EmployeeCreate(EmployeeBase):
 class EmployeeUpdate(BaseModel):
     employee_id: Optional[str] = Field(None, max_length=255)
 
-class Employee(EmployeeBase):
+class Employee(EmployeeBase, TijaeroBaseSchema):
     id: int
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 class EmployeePayrollBase(BaseModel):
     employee_id: str
@@ -41,11 +40,8 @@ class EmployeePayrollBase(BaseModel):
 class EmployeePayrollCreate(EmployeePayrollBase):
     pass
 
-class EmployeePayroll(EmployeePayrollBase):
+class EmployeePayroll(EmployeePayrollBase, TijaeroBaseSchema):
     id: int
-    
-    class Config:
-        from_attributes = True
 
 class EmployeeSalaryProfileBase(BaseModel):
     employee_id: str
@@ -58,8 +54,5 @@ class EmployeeSalaryProfileBase(BaseModel):
 class EmployeeSalaryProfileCreate(EmployeeSalaryProfileBase):
     pass
 
-class EmployeeSalaryProfile(EmployeeSalaryProfileBase):
+class EmployeeSalaryProfile(EmployeeSalaryProfileBase, TijaeroBaseSchema):
     id: int
-    
-    class Config:
-        from_attributes = True

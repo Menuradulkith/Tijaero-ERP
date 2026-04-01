@@ -3,6 +3,8 @@ from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 # Salary Deduction Schemas
 class SalaryDeductionBase(BaseModel):
     employee_id: int
@@ -21,7 +23,7 @@ class SalaryDeductionCreate(SalaryDeductionBase):
     other_deductions: Optional[Decimal] = None
     remarks: Optional[str] = None
 
-class SalaryDeduction(SalaryDeductionBase):
+class SalaryDeduction(SalaryDeductionBase, TijaeroBaseSchema):
     id: int
     approval_id: Optional[int] = None
     deduction_period: Optional[str] = None
@@ -35,9 +37,6 @@ class SalaryDeduction(SalaryDeductionBase):
     remarks: Optional[str] = None
     created_by: Optional[int] = None
     created_date: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 # Reimbursement Item Schemas
 class ReimbursementItemBase(BaseModel):
@@ -50,12 +49,9 @@ class ReimbursementItemBase(BaseModel):
 class ReimbursementItemCreate(ReimbursementItemBase):
     pass
 
-class ReimbursementItemResponse(ReimbursementItemBase):
+class ReimbursementItemResponse(ReimbursementItemBase, TijaeroBaseSchema):
     id: int
     reimbursement_id: int
-
-    class Config:
-        from_attributes = True
 
 # Reimbursement Schemas
 class ReimbursementBase(BaseModel):
@@ -90,7 +86,7 @@ class ReimbursementPayment(BaseModel):
     paid_amount: Decimal
     remarks: Optional[str] = None
 
-class Reimbursement(BaseModel):
+class Reimbursement(TijaeroBaseSchema):
     id: int
     reimbursement_no: str
     employee_id: str
@@ -119,9 +115,6 @@ class Reimbursement(BaseModel):
     items: list[ReimbursementItemResponse] = []
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 class ReimbursementListFilter(BaseModel):
     employee_id: Optional[str] = None
@@ -160,7 +153,7 @@ class EmployeePayrollCreate(EmployeePayrollBase):
     payroll_year: Optional[int] = None
     payroll_batch_no: Optional[str] = None
 
-class EmployeePayrollResponse(EmployeePayrollBase):
+class EmployeePayrollResponse(EmployeePayrollBase, TijaeroBaseSchema):
     id: int
     payroll_month: Optional[int] = None
     payroll_year: Optional[int] = None
@@ -183,9 +176,6 @@ class EmployeePayrollResponse(EmployeePayrollBase):
     created_by: Optional[int] = None
     # Resolved fields
     employee_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 # Keep backward compat alias
 class EmployeePayroll(EmployeePayrollResponse):
@@ -206,7 +196,7 @@ class EmployeeSalaryProfileCreate(EmployeeSalaryProfileBase):
     effective_from_date: Optional[date] = None
     benefits: Optional[str] = None
 
-class EmployeeSalaryProfile(EmployeeSalaryProfileBase):
+class EmployeeSalaryProfile(EmployeeSalaryProfileBase, TijaeroBaseSchema):
     id: int
     designation: Optional[str] = None
     department: Optional[str] = None
@@ -214,9 +204,6 @@ class EmployeeSalaryProfile(EmployeeSalaryProfileBase):
     benefits: Optional[str] = None
     # Resolved
     employee_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 # Payroll Batch Schemas
 class PayrollBatchCreate(BaseModel):
@@ -224,7 +211,7 @@ class PayrollBatchCreate(BaseModel):
     payroll_year: int
     description: Optional[str] = None
 
-class PayrollBatchResponse(BaseModel):
+class PayrollBatchResponse(TijaeroBaseSchema):
     id: int
     batch_no: str
     payroll_month: int
@@ -252,9 +239,6 @@ class PayrollBatchResponse(BaseModel):
     created_by_name: Optional[str] = None
     approved_by_name: Optional[str] = None
     payroll_records: Optional[List["EmployeePayrollResponse"]] = None
-
-    class Config:
-        from_attributes = True
 
 # Payroll Run (trigger) Schema
 class PayrollRunRequest(BaseModel):
@@ -298,11 +282,8 @@ class EmployeePromotionBase(BaseModel):
 class EmployeePromotionCreate(EmployeePromotionBase):
     pass
 
-class EmployeePromotion(EmployeePromotionBase):
+class EmployeePromotion(EmployeePromotionBase, TijaeroBaseSchema):
     id: int
-    
-    class Config:
-        from_attributes = True
 
 # Employee Asset Schemas
 class EmployeeAssetBase(BaseModel):
@@ -314,11 +295,8 @@ class EmployeeAssetBase(BaseModel):
 class EmployeeAssetCreate(EmployeeAssetBase):
     pass
 
-class EmployeeAsset(EmployeeAssetBase):
+class EmployeeAsset(EmployeeAssetBase, TijaeroBaseSchema):
     id: int
-    
-    class Config:
-        from_attributes = True
 
 # Filter Schemas
 class HRListFilter(BaseModel):
