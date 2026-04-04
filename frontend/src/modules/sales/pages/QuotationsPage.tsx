@@ -34,7 +34,6 @@ import {
   Add as AddIcon,
   ArrowBack as ArrowBackIcon,
   ArrowForward as ArrowForwardIcon,
-  CheckCircle as ApproveIcon,
   Cancel as CancelIcon,
   Delete as DeleteIcon,
   Description as QuoteIcon,
@@ -44,7 +43,6 @@ import {
   Send as SendIcon,
   SwapHoriz as ProformaIcon,
   ThumbDown as RejectIcon,
-  Visibility as ReviewIcon
 } from "@mui/icons-material";
 import {
   Alert,
@@ -75,8 +73,8 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { addDays, format } from "date-fns";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { quotationApi } from "../quotation-api";
 import {
   QUOTE_TYPE_LABELS,
@@ -130,6 +128,7 @@ const getEmptyQuoteForm = (quoteType: QuoteType): Partial<SalesQuoteCreate> => (
 export default function QuotationsPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Determine which type this page shows based on URL
   const pageQuoteType: QuoteType = location.pathname.includes('proforma') ? 'proforma' : 'quotation';
@@ -151,35 +150,12 @@ export default function QuotationsPage() {
   // Workflow Dialog States
   const [stockCheckDialogOpen, setStockCheckDialogOpen] = useState(false);
   const [stockAvailability, setStockAvailability] = useState<StockAvailabilityItem[]>([]);
+  const [stockCheckedQuoteId, setStockCheckedQuoteId] = useState<number | null>(null);
   const [stockCheckLoading, setStockCheckLoading] = useState(false);
   const [stockAllSufficient, setStockAllSufficient] = useState(false);
-  const [createPODialogOpen, setCreatePODialogOpen] = useState(false);
-  const [convertInvoiceDialogOpen, setConvertInvoiceDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [cancelLinkedPO, setCancelLinkedPO] = useState(false);
-  const [customerApproveDialogOpen, setCustomerApproveDialogOpen] = useState(false);
-  const [customerApprovalName, setCustomerApprovalName] = useState("");
-  const [customerApprovalRemarks, setCustomerApprovalRemarks] = useState("");
-  const [poFormData, setPOFormData] = useState({
-    first_suppliers_id: 0,
-    second_suppliers_id: 0,
-    payment_method: "credit",
-    purchasing_invoice_no: "",
-    good_received_note_date: format(new Date(), "yyyy-MM-dd"),
-    remarks: "",
-  });
-  const [invoiceFormData, setInvoiceFormData] = useState({
-    payment_method: "cash",
-    cash_amount: 0,
-    card_visa_amount: 0,
-    card_mastercard_amount: 0,
-    card_amex_amount: 0,
-    cheque_amount: 0,
-    bank_transfer_amount: 0,
-    credit_amount: 0,
-    remarks: "",
-  });
 
   // Permissions
   const canCreate = usePermission("sales", "create");
@@ -235,13 +211,11 @@ export default function QuotationsPage() {
   });
 
   // OPTIMIZED: Use aggregated reference data endpoint instead of separate API calls
-  const { data: refData, filteredBranches } = useReferenceData(["products", "branches", "customers", "employees", "suppliers"]);
+  const { data: refData, filteredBranches } = useReferenceData(["products", "branches", "customers", "employees"]);
   const products = refData?.products || [];
   const branches = filteredBranches || [];
   const customers = refData?.customers || [];
   const employees = refData?.employees || [];
-  interface Supplier { id: number; supplier_name?: string; name?: string; [key: string]: unknown; }
-  const suppliers = ((refData as Record<string, unknown[]>)?.suppliers || []) as Supplier[];
 
   // Fetch selected quote with items
   const { data: selectedQuoteDetails } = useQuery({
@@ -257,6 +231,32 @@ export default function QuotationsPage() {
     setFormStep(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageQuoteType]);
+
+  // Auto-fetch stock availability silently whenever a quote is selected (no dialog)
+  useEffect(() => {
+    // Reset previous results immediately
+    setStockAvailability([]);
+    setStockAllSufficient(false);
+    setStockCheckedQuoteId(null);
+
+    if (!selectedQuote?.id || isCreating || isEditing) return;
+    // Only auto-check for non-terminal statuses
+    const terminalStatuses = ['cancelled', 'converted', 'converted_to_invoice', 'revised'];
+    if (terminalStatuses.includes(selectedQuote.status)) return;
+
+    let cancelled = false;
+    quotationApi.checkStockAvailability(selectedQuote.id)
+      .then(result => {
+        if (cancelled) return;
+        setStockAvailability(result.items);
+        setStockAllSufficient(result.all_sufficient);
+        setStockCheckedQuoteId(selectedQuote.id);
+      })
+      .catch(() => { /* silent — user can still manually click Stock for details */ });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedQuote?.id, isCreating, isEditing]);
 
   // Populate line items when quote details are loaded
   useEffect(() => {
@@ -279,11 +279,15 @@ export default function QuotationsPage() {
 
   // Filter and sort
   const filteredQuotes = useMemo(() => {
-    const quotes = quotesData?.items || [];
+    const quotes = (quotesData?.items || []).filter(Boolean);
+    // Enforce: proforma page shows only proforma, quotations page shows only quotations
     let filtered = quotes.filter(
       (quote) =>
-        quote.quote_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        quote.branch_code.toLowerCase().includes(searchQuery.toLowerCase())
+        quote.quote_type === pageQuoteType &&
+        (
+          quote.quote_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          quote.branch_code?.toLowerCase().includes(searchQuery.toLowerCase())
+        )
     );
 
     // Apply branch filter
@@ -313,6 +317,21 @@ export default function QuotationsPage() {
       handleSelectQuote(filteredQuotes[0]);
     }
   }, [filteredQuotes, selectedQuote, isCreating]);
+
+  // Handle navigation state: auto-select a specific quote (e.g. after converting to proforma)
+  const navStateHandled = useRef(false);
+  useEffect(() => {
+    const navState = location.state as { selectedQuoteId?: number } | null;
+    if (navState?.selectedQuoteId && filteredQuotes.length > 0 && !navStateHandled.current) {
+      const targetQuote = filteredQuotes.find(q => q.id === navState.selectedQuoteId);
+      if (targetQuote) {
+        navStateHandled.current = true;
+        handleSelectQuote(targetQuote);
+        // Clear navigation state to prevent re-triggering
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [filteredQuotes, location.state, handleSelectQuote]);
 
   // No tab changes, form reset handled elsewhere
 
@@ -392,39 +411,15 @@ export default function QuotationsPage() {
   const toggleProformaMutation = useMutation({
     mutationFn: ({ id, is_proforma }: { id: number; is_proforma: boolean }) =>
       quotationApi.toggleProforma(id, { is_proforma }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       // Invalidate both lists since toggling moves the item between lists
       queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
       queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
-      showSuccessToast("Quote type updated");
+      showSuccessToast("Converted to Proforma Invoice");
+      // Navigate to the Proforma Invoice page and auto-select the converted quote
+      navigate("/sales/proforma", { state: { selectedQuoteId: variables.id } });
     },
     onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to update type")),
-  });
-
-  const markUnderReviewMutation = useMutation({
-    mutationFn: (id: number) => quotationApi.markUnderReview(id),
-    onSuccess: (updatedQuote) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
-      queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
-      handleSelectQuote(updatedQuote);
-      showSuccessToast("Quote marked as under review");
-    },
-    onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to update status")),
-  });
-
-  const customerApproveMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: { approved_by_customer?: string; remarks?: string } }) =>
-      quotationApi.customerApprove(id, data),
-    onSuccess: (updatedQuote) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
-      queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
-      handleSelectQuote(updatedQuote);
-      setCustomerApproveDialogOpen(false);
-      setCustomerApprovalName("");
-      setCustomerApprovalRemarks("");
-      showSuccessToast("Customer approval recorded");
-    },
-    onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to record approval")),
   });
 
   const rejectMutation = useMutation({
@@ -454,30 +449,6 @@ export default function QuotationsPage() {
     onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to cancel")),
   });
 
-  const createPOMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: typeof poFormData & { purchasing_invoice_no: string; first_suppliers_id: number; second_suppliers_id: number; good_received_note_date: string } }) =>
-      quotationApi.createPOFromQuote(id, data),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
-      queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
-      setCreatePODialogOpen(false);
-      showSuccessToast(result.message);
-    },
-    onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to create PO")),
-  });
-
-  const convertToInvoiceMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: typeof invoiceFormData & { payment_method: string } }) =>
-      quotationApi.convertToInvoice(id, data),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
-      queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
-      setConvertInvoiceDialogOpen(false);
-      showSuccessToast(result.message);
-    },
-    onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to convert to invoice")),
-  });
-
   // ==================== Workflow Handlers ====================
 
   const handleCheckStock = useCallback(async () => {
@@ -488,6 +459,7 @@ export default function QuotationsPage() {
       const result = await quotationApi.checkStockAvailability(selectedQuote.id);
       setStockAvailability(result.items);
       setStockAllSufficient(result.all_sufficient);
+      setStockCheckedQuoteId(selectedQuote.id);
       queryClient.invalidateQueries({ queryKey: ["sales-quote-details", selectedQuote.id] });
     } catch (error) {
       showErrorToast(handleApiError(error as Error, "Failed to check stock"));
@@ -524,11 +496,6 @@ export default function QuotationsPage() {
     }
   }, [selectedQuote, confirmDialog, toggleProformaMutation]);
 
-  const handleMarkUnderReview = useCallback(async () => {
-    if (!selectedQuote) return;
-    markUnderReviewMutation.mutate(selectedQuote.id);
-  }, [selectedQuote, markUnderReviewMutation]);
-
   const handleCancel = useCallback(async () => {
     if (!selectedQuote) return;
     const confirmed = await confirmDialog.confirm({
@@ -542,24 +509,70 @@ export default function QuotationsPage() {
     }
   }, [selectedQuote, confirmDialog, cancelMutation]);
 
-  const handleCreatePOSubmit = useCallback(() => {
-    if (!selectedQuote) return;
-    createPOMutation.mutate({
-      id: selectedQuote.id,
-      data: {
-        ...poFormData,
-        purchasing_invoice_no: poFormData.purchasing_invoice_no || `PI-${selectedQuote.quote_no}`,
+  // Navigate to PO page with pre-filled data from proforma
+  const handleCreatePONavigate = useCallback(() => {
+    if (!selectedQuote || !selectedQuoteDetails?.items) return;
+
+    // Determine which items need procurement: use stock check data if available, otherwise all items
+    const itemsForPO = stockAvailability.length > 0
+      ? stockAvailability
+          .filter(sa => !sa.is_sufficient)
+          .map(sa => {
+            const quoteItem = selectedQuoteDetails.items.find(qi => qi.product_id === sa.product_id);
+            const shortfall = sa.requested_quantity - sa.available_quantity;
+            return {
+              product_id: sa.product_id,
+              quantity: shortfall > 0 ? shortfall : sa.requested_quantity,
+              unit_price: quoteItem ? Number(quoteItem.selling_price) : 0,
+              warrenty_month: quoteItem?.warrenty_month || "0",
+              remark: `From Proforma ${selectedQuote.quote_no}`,
+            };
+          })
+      : selectedQuoteDetails.items.map(item => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: Number(item.selling_price),
+          warrenty_month: item.warrenty_month || "0",
+          remark: `From Proforma ${selectedQuote.quote_no}`,
+        }));
+
+    navigate("/purchasing/orders", {
+      state: {
+        fromProforma: true,
+        proformaId: selectedQuote.id,
+        proformaNo: selectedQuote.quote_no,
+        branchCode: selectedQuote.branch_code,
+        remarks: `PO for Proforma ${selectedQuote.quote_no}`,
+        items: itemsForPO,
       },
     });
-  }, [selectedQuote, poFormData, createPOMutation]);
+  }, [selectedQuote, selectedQuoteDetails, stockAvailability, navigate]);
 
-  const handleConvertToInvoiceSubmit = useCallback(() => {
-    if (!selectedQuote) return;
-    convertToInvoiceMutation.mutate({
-      id: selectedQuote.id,
-      data: invoiceFormData,
+  // Navigate to Sales Order page with pre-filled data from proforma (all items available)
+  const handleCreateSONavigate = useCallback(() => {
+    if (!selectedQuote || !selectedQuoteDetails?.items) return;
+
+    const itemsForSO = selectedQuoteDetails.items.map(item => ({
+      product_id: item.product_id,
+      quantity: item.quantity,
+      selling_price: Number(item.selling_price),
+      minimum_selling_price: Number(item.minimum_selling_price),
+      warrenty_month: item.warrenty_month || "0",
+    }));
+
+    navigate("/sales/orders", {
+      state: {
+        fromProforma: true,
+        createNew: true,
+        proformaId: selectedQuote.id,
+        proformaNo: selectedQuote.quote_no,
+        customerId: selectedQuote.customer_id,
+        branchCode: selectedQuote.branch_code,
+        remarks: `SO from Proforma ${selectedQuote.quote_no}`,
+        items: itemsForSO,
+      },
     });
-  }, [selectedQuote, invoiceFormData, convertToInvoiceMutation]);
+  }, [selectedQuote, selectedQuoteDetails, navigate]);
 
   const handleRejectSubmit = useCallback(() => {
     if (!selectedQuote) return;
@@ -569,17 +582,6 @@ export default function QuotationsPage() {
     });
   }, [selectedQuote, rejectReason, cancelLinkedPO, rejectMutation]);
 
-  const handleCustomerApproveSubmit = useCallback(() => {
-    if (!selectedQuote) return;
-    customerApproveMutation.mutate({
-      id: selectedQuote.id,
-      data: {
-        approved_by_customer: customerApprovalName || undefined,
-        remarks: customerApprovalRemarks || undefined,
-      },
-    });
-  }, [selectedQuote, customerApprovalName, customerApprovalRemarks, customerApproveMutation]);
-
   // Determine which workflow actions are available based on current status
   const getAvailableActions = useCallback(() => {
     if (!selectedQuote || isCreating || isEditing) return [];
@@ -587,23 +589,15 @@ export default function QuotationsPage() {
     const actions: string[] = [];
 
     // Submit to customer
-    if (['draft', 'pending_approval', 'approved'].includes(s)) actions.push('submit_to_customer');
-    // Mark as proforma (toggle)
-    if (!['converted', 'converted_to_invoice', 'cancelled'].includes(s)) actions.push('toggle_proforma');
+    if (['draft', 'pending_approval'].includes(s)) actions.push('submit_to_customer');
+    // Mark as proforma (toggle) — only for quotation type
+    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'cancelled'].includes(s)) actions.push('toggle_proforma');
     // Check stock
-    if (!['cancelled', 'converted', 'converted_to_invoice'].includes(s)) actions.push('check_stock');
-    // Mark under review
-    if (s === 'submitted') actions.push('under_review');
-    // Customer approve
-    if (['submitted', 'under_review', 'sent', 'po_created'].includes(s)) actions.push('customer_approve');
-    // Create PO
-    if (['approved', 'accepted', 'submitted', 'under_review'].includes(s)) actions.push('create_po');
-    // Convert to invoice
-    if (['approved', 'accepted', 'po_created'].includes(s)) actions.push('convert_to_invoice');
+    if (!['cancelled', 'converted', 'converted_to_invoice', 'item_received', 'so_created'].includes(s)) actions.push('check_stock');
     // Reject
-    if (!['converted', 'converted_to_invoice', 'cancelled', 'revised', 'rejected'].includes(s)) actions.push('reject');
+    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'cancelled', 'revised', 'rejected'].includes(s)) actions.push('reject');
     // Cancel
-    if (!['converted', 'converted_to_invoice', 'cancelled', 'revised'].includes(s)) actions.push('cancel');
+    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'cancelled', 'revised'].includes(s)) actions.push('cancel');
 
     return actions;
   }, [selectedQuote, isCreating, isEditing]);
@@ -666,11 +660,6 @@ export default function QuotationsPage() {
   const handleSave = useCallback(() => {
     if (!formData.customer_id || formData.customer_id === 0) {
       showErrorToast("Please select a customer");
-      return;
-    }
-
-    if (!formData.sale_rep_id || formData.sale_rep_id === 0) {
-      showErrorToast("Please select a sales representative");
       return;
     }
 
@@ -930,7 +919,7 @@ export default function QuotationsPage() {
           onSave={handleSave}
           onCancel={handleDiscardChanges}
           isSaving={createMutation.isPending || updateMutation.isPending}
-          saveDisabled={!formData.customer_id || lineItems.length === 0}
+          saveDisabled={!formData.customer_id || !formData.branch_code || !formData.valid_until || lineItems.length === 0}
           endActions={
             selectedQuote && !isCreating && !isEditing ? (
               <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
@@ -943,11 +932,12 @@ export default function QuotationsPage() {
                     </Button>
                   </Tooltip>
                 )}
-                {getAvailableActions().includes('toggle_proforma') && (
-                  <Tooltip title={selectedQuote.quote_type === 'proforma' ? 'Mark as Quotation' : 'Mark as Proforma Invoice'}>
+                {/* Only quotations can be promoted to proforma — not the reverse */}
+                {getAvailableActions().includes('toggle_proforma') && selectedQuote.quote_type === 'quotation' && (
+                  <Tooltip title="Convert to Proforma Invoice">
                     <Button size="small" variant="outlined" color="secondary" startIcon={<ProformaIcon />}
                       onClick={handleToggleProforma} disabled={toggleProformaMutation.isPending}>
-                      {selectedQuote.quote_type === 'proforma' ? 'To Quote' : 'To Proforma'}
+                      To Proforma
                     </Button>
                   </Tooltip>
                 )}
@@ -959,35 +949,25 @@ export default function QuotationsPage() {
                     </Button>
                   </Tooltip>
                 )}
-                {getAvailableActions().includes('under_review') && (
-                  <Tooltip title="Mark as Under Review">
-                    <Button size="small" variant="outlined" startIcon={<ReviewIcon />}
-                      onClick={handleMarkUnderReview} disabled={markUnderReviewMutation.isPending}>
-                      Under Review
-                    </Button>
-                  </Tooltip>
-                )}
-                {getAvailableActions().includes('customer_approve') && (
-                  <Tooltip title="Record Customer Approval">
-                    <Button size="small" variant="contained" color="success" startIcon={<ApproveIcon />}
-                      onClick={() => setCustomerApproveDialogOpen(true)}>
-                      Approve
-                    </Button>
-                  </Tooltip>
-                )}
-                {getAvailableActions().includes('create_po') && (
-                  <Tooltip title="Create Purchase Order">
+                {pageQuoteType === 'proforma' &&
+                  stockCheckedQuoteId === selectedQuote.id &&
+                  !stockAllSufficient &&
+                  !['cancelled', 'converted', 'converted_to_invoice', 'so_created'].includes(selectedQuote.status) && (
+                  <Tooltip title="Create Purchase Order for unavailable items">
                     <Button size="small" variant="outlined" color="warning" startIcon={<POIcon />}
-                      onClick={() => { setPOFormData({ ...poFormData, remarks: `PO for ${selectedQuote.quote_no}` }); setCreatePODialogOpen(true); }}>
+                      onClick={handleCreatePONavigate}>
                       Create PO
                     </Button>
                   </Tooltip>
                 )}
-                {getAvailableActions().includes('convert_to_invoice') && (
-                  <Tooltip title="Convert to Invoice">
+                {pageQuoteType === 'proforma' &&
+                  stockCheckedQuoteId === selectedQuote.id &&
+                  stockAllSufficient &&
+                  !['cancelled', 'converted', 'converted_to_invoice', 'so_created'].includes(selectedQuote.status) && (
+                  <Tooltip title="Create Sales Order from Proforma">
                     <Button size="small" variant="contained" color="primary" startIcon={<InvoiceIcon />}
-                      onClick={() => setConvertInvoiceDialogOpen(true)}>
-                      To Invoice
+                      onClick={handleCreateSONavigate}>
+                      To Sales Order
                     </Button>
                   </Tooltip>
                 )}
@@ -1170,6 +1150,11 @@ export default function QuotationsPage() {
                   const baseTotal = item.quantity * Number(item.selling_price);
                   const discount = baseTotal * ((item.discount_percentage || 0) / 100);
                   const lineTotal = baseTotal - discount;
+                  // Prefer live stock check result; fall back to stored stock_status from DB
+                  const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
+                  const stockStatus = liveStock
+                    ? (liveStock.is_sufficient ? 'in_stock' : 'needs_procurement')
+                    : item.stock_status;
                   return (
                     <TableRow key={index} sx={{
                       ...modernTableStyles.bodyRow,
@@ -1181,9 +1166,11 @@ export default function QuotationsPage() {
                       <TableCell align="right">{item.discount_percentage ? `${item.discount_percentage}%` : "-"}</TableCell>
                       <TableCell>{item.warrenty_month || "-"}</TableCell>
                       <TableCell align="center">
-                        {item.stock_status === 'in_stock' ? (
+                        {stockCheckLoading && stockCheckedQuoteId !== selectedQuote?.id ? (
+                          <Typography variant="caption" color="text.secondary">…</Typography>
+                        ) : stockStatus === 'in_stock' ? (
                           <Chip label="In Stock" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                        ) : item.stock_status === 'needs_procurement' ? (
+                        ) : stockStatus === 'needs_procurement' ? (
                           <Chip label="Needs PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                         ) : (
                           <Typography variant="caption" color="text.secondary">-</Typography>
@@ -1259,8 +1246,8 @@ export default function QuotationsPage() {
 
   // Render form content (without header/toolbar)
   const renderFormContent = () => {
-    // Step 1 validation: Basic info is filled
-    const isStep1Valid = formData.customer_id && formData.customer_id > 0 && formData.branch_code && formData.sale_rep_id && formData.sale_rep_id > 0;
+    // Step 1 validation: Basic info is filled (sale_rep_id is optional)
+    const isStep1Valid = formData.customer_id && formData.customer_id > 0 && formData.branch_code && formData.valid_until;
 
     return (
       <>
@@ -1330,7 +1317,7 @@ export default function QuotationsPage() {
                 value={employees?.find((e) => e.id === formData.sale_rep_id) || null}
                 onChange={(_, newValue) => setFormData({ ...formData, sale_rep_id: newValue?.id || 0 })}
                 renderInput={(params) => (
-                  <TextField {...params} label="Sales Representative" required />
+                  <TextField {...params} label="Sales Representative (Optional)" />
                 )}
               />
             </FormSection>
@@ -1624,146 +1611,11 @@ export default function QuotationsPage() {
         <DialogActions>
           {!stockAllSufficient && !stockCheckLoading && selectedQuote && getAvailableActions().includes('create_po') && (
             <Button variant="contained" color="warning" startIcon={<POIcon />}
-              onClick={() => { setStockCheckDialogOpen(false); setCreatePODialogOpen(true); }}>
+              onClick={() => { setStockCheckDialogOpen(false); handleCreatePONavigate(); }}>
               Create Purchase Order
             </Button>
           )}
           <Button onClick={() => setStockCheckDialogOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ==================== Create PO Dialog ==================== */}
-      <Dialog open={createPODialogOpen} onClose={() => setCreatePODialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <POIcon color="warning" />
-            Create Purchase Order from Quotation
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Create a PO to procure items needed to fulfill {selectedQuote?.quote_no}. Items will be copied from the quotation.
-          </Typography>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
-            <Autocomplete
-              size="small"
-              options={suppliers}
-              getOptionLabel={(option: Supplier) => option.supplier_name || option.name || `Supplier #${option.id}`}
-              value={suppliers.find((s: Supplier) => s.id === poFormData.first_suppliers_id) || null}
-              onChange={(_, newValue) => setPOFormData({ ...poFormData, first_suppliers_id: (newValue as Supplier)?.id || 0 })}
-              renderInput={(params) => <TextField {...params} label="Primary Supplier" required />}
-            />
-            <Autocomplete
-              size="small"
-              options={suppliers}
-              getOptionLabel={(option: Supplier) => option.supplier_name || option.name || `Supplier #${option.id}`}
-              value={suppliers.find((s: Supplier) => s.id === poFormData.second_suppliers_id) || null}
-              onChange={(_, newValue) => setPOFormData({ ...poFormData, second_suppliers_id: (newValue as Supplier)?.id || 0 })}
-              renderInput={(params) => <TextField {...params} label="Secondary Supplier" required />}
-            />
-            <TextField
-              select label="Payment Method" size="small" required
-              value={poFormData.payment_method}
-              onChange={(e) => setPOFormData({ ...poFormData, payment_method: e.target.value })}
-            >
-              <MenuItem value="cash">Cash</MenuItem>
-              <MenuItem value="credit">Credit</MenuItem>
-              <MenuItem value="advance">Advance</MenuItem>
-              <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-            </TextField>
-            <TextField
-              label="GRN Date" type="date" size="small"
-              value={poFormData.good_received_note_date}
-              onChange={(e) => setPOFormData({ ...poFormData, good_received_note_date: e.target.value })}
-              InputLabelProps={{ shrink: true }}
-            />
-            <TextField
-              label="Remarks" size="small" multiline rows={2}
-              value={poFormData.remarks}
-              onChange={(e) => setPOFormData({ ...poFormData, remarks: e.target.value })}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreatePODialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="warning" onClick={handleCreatePOSubmit}
-            disabled={!poFormData.first_suppliers_id || !poFormData.second_suppliers_id || createPOMutation.isPending}>
-            {createPOMutation.isPending ? "Creating..." : "Create PO"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ==================== Convert to Invoice Dialog ==================== */}
-      <Dialog open={convertInvoiceDialogOpen} onClose={() => setConvertInvoiceDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <InvoiceIcon color="primary" />
-            Convert Quotation to Invoice
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            This will create a new invoice from {selectedQuote?.quote_no}. Stock will be reserved and the quotation will be marked as converted.
-          </Alert>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
-            <TextField
-              select label="Payment Method" size="small" required
-              value={invoiceFormData.payment_method}
-              onChange={(e) => setInvoiceFormData({ ...invoiceFormData, payment_method: e.target.value })}
-            >
-              <MenuItem value="cash">Cash</MenuItem>
-              <MenuItem value="card">Card</MenuItem>
-              <MenuItem value="credit">Credit</MenuItem>
-              <MenuItem value="cheque">Cheque</MenuItem>
-              <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-            </TextField>
-            {invoiceFormData.payment_method === 'cash' && (
-              <TextField label="Cash Amount" type="number" size="small"
-                value={invoiceFormData.cash_amount}
-                onChange={(e) => setInvoiceFormData({ ...invoiceFormData, cash_amount: parseFloat(e.target.value) || 0 })}
-                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-              />
-            )}
-            {invoiceFormData.payment_method === 'card' && (
-              <>
-                <TextField label="Visa Amount" type="number" size="small"
-                  value={invoiceFormData.card_visa_amount}
-                  onChange={(e) => setInvoiceFormData({ ...invoiceFormData, card_visa_amount: parseFloat(e.target.value) || 0 })}
-                  InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-                />
-                <TextField label="Mastercard Amount" type="number" size="small"
-                  value={invoiceFormData.card_mastercard_amount}
-                  onChange={(e) => setInvoiceFormData({ ...invoiceFormData, card_mastercard_amount: parseFloat(e.target.value) || 0 })}
-                  InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-                />
-              </>
-            )}
-            {invoiceFormData.payment_method === 'credit' && (
-              <TextField label="Credit Amount" type="number" size="small"
-                value={invoiceFormData.credit_amount}
-                onChange={(e) => setInvoiceFormData({ ...invoiceFormData, credit_amount: parseFloat(e.target.value) || 0 })}
-                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-              />
-            )}
-            {invoiceFormData.payment_method === 'bank_transfer' && (
-              <TextField label="Bank Transfer Amount" type="number" size="small"
-                value={invoiceFormData.bank_transfer_amount}
-                onChange={(e) => setInvoiceFormData({ ...invoiceFormData, bank_transfer_amount: parseFloat(e.target.value) || 0 })}
-                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-              />
-            )}
-            <TextField label="Remarks" size="small" multiline rows={2}
-              value={invoiceFormData.remarks}
-              onChange={(e) => setInvoiceFormData({ ...invoiceFormData, remarks: e.target.value })}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConvertInvoiceDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="primary" onClick={handleConvertToInvoiceSubmit}
-            disabled={convertToInvoiceMutation.isPending}>
-            {convertToInvoiceMutation.isPending ? "Converting..." : "Convert to Invoice"}
-          </Button>
         </DialogActions>
       </Dialog>
 
@@ -1803,41 +1655,6 @@ export default function QuotationsPage() {
         </DialogActions>
       </Dialog>
 
-      {/* ==================== Customer Approve Dialog ==================== */}
-      <Dialog open={customerApproveDialogOpen} onClose={() => setCustomerApproveDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <ApproveIcon color="success" />
-            Record Customer Approval
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Record customer approval for {selectedQuote?.quote_no}. The customer agrees to proceed with the purchase.
-          </Typography>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
-            <TextField
-              label="Customer Contact Name" size="small"
-              value={customerApprovalName}
-              onChange={(e) => setCustomerApprovalName(e.target.value)}
-              placeholder="Name of the customer who approved"
-            />
-            <TextField
-              label="Approval Remarks" size="small" multiline rows={2}
-              value={customerApprovalRemarks}
-              onChange={(e) => setCustomerApprovalRemarks(e.target.value)}
-              placeholder="Any notes about the approval..."
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCustomerApproveDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="success" onClick={handleCustomerApproveSubmit}
-            disabled={customerApproveMutation.isPending}>
-            {customerApproveMutation.isPending ? "Recording..." : "Record Approval"}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </>
   );
 }

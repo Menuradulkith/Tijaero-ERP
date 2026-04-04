@@ -140,6 +140,8 @@ export const STATUS_MAPS = {
     converted: { label: "Converted", color: "success" as StatusColor },
     converted_to_invoice: { label: "Converted to Invoice", color: "success" as StatusColor },
     po_created: { label: "PO Created", color: "info" as StatusColor },
+    item_received: { label: "Item Received", color: "success" as StatusColor },
+    so_created: { label: "SO Created", color: "info" as StatusColor },
     cancelled: { label: "Cancelled", color: "error" as StatusColor },
     revised: { label: "Revised", color: "default" as StatusColor },
   },

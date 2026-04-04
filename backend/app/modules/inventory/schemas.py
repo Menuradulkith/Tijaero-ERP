@@ -2,6 +2,10 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+from app.common.base_schemas import TijaeroBaseSchema
+from app.common.enums import StockStatus, AssetStatus
+
+
 class ProductBase(BaseModel):
     sku: str
     name: str
@@ -12,11 +16,8 @@ class ProductBase(BaseModel):
 class ProductCreate(ProductBase):
     pass
 
-class Product(ProductBase):
+class Product(ProductBase, TijaeroBaseSchema):
     id: int
-    
-    class Config:
-        from_attributes = True
 
 
 # Sales Stock Schemas
@@ -28,21 +29,18 @@ class SalesStockBase(BaseModel):
     good_received_note_id: int
     purchasing_order_items_id: int
     warranty_month: Optional[str] = None  # From PO item or entered in GRN
-    status: str = "available"
+    status: StockStatus = StockStatus.AVAILABLE
 
 class SalesStockCreate(SalesStockBase):
     pass
 
-class SalesStock(SalesStockBase):
+class SalesStock(SalesStockBase, TijaeroBaseSchema):
     id: int
     added_date: datetime
     grn_no: Optional[str] = None  # GRN number from relationship
     location_name: Optional[str] = None  # Location name from GRN
     cost_price: Optional[float] = None  # Cost price from product
     selling_price: Optional[float] = None  # Selling price from product
-    
-    class Config:
-        from_attributes = True
 
 
 # Company Assets Schemas - Real table for company-owned items
@@ -57,17 +55,14 @@ class CompanyAssetBase(BaseModel):
     warranty_month: Optional[str] = None  # Warranty period from PO or entered in GRN
     good_received_note_id: Optional[int] = None
     purchasing_order_items_id: Optional[int] = None
-    status: str = "available"  # available, in_use, retired, disposed
+    status: AssetStatus = AssetStatus.AVAILABLE
 
 class CompanyAssetCreate(CompanyAssetBase):
     pass
 
-class CompanyAsset(CompanyAssetBase):
+class CompanyAsset(CompanyAssetBase, TijaeroBaseSchema):
     id: int
     added_date: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 
 # GRN Stock Save Request - for saving items to sales_stock and/or company_assets

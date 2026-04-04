@@ -14,6 +14,8 @@ from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 
 # =============================================================================
 # CHART OF ACCOUNTS
@@ -44,16 +46,13 @@ class ChartOfAccountUpdate(BaseModel):
     description: Optional[str] = None
 
 
-class ChartOfAccountResponse(ChartOfAccountBase):
+class ChartOfAccountResponse(ChartOfAccountBase, TijaeroBaseSchema):
     id: int
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     # Resolved fields
     parent_account_name: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class ChartOfAccountTree(ChartOfAccountResponse):
@@ -84,16 +83,13 @@ class JournalEntryLineCreate(BaseModel):
     reference_no: Optional[str] = None
 
 
-class JournalEntryLineResponse(JournalEntryLineCreate):
+class JournalEntryLineResponse(JournalEntryLineCreate, TijaeroBaseSchema):
     id: int
     journal_entry_id: int
     created_at: Optional[datetime] = None
     # Resolved
     account_code: Optional[str] = None
     account_name: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class JournalEntryCreate(BaseModel):
@@ -138,7 +134,7 @@ class JournalEntryUpdate(BaseModel):
         return v
 
 
-class JournalEntryResponse(BaseModel):
+class JournalEntryResponse(TijaeroBaseSchema):
     id: int
     journal_entry_no: str
     entry_date: date
@@ -169,9 +165,6 @@ class JournalEntryResponse(BaseModel):
     submitted_by_name: Optional[str] = None
     approved_by_name: Optional[str] = None
     posted_by_name: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class JournalEntryListFilter(BaseModel):
@@ -225,7 +218,7 @@ class ValidateJournalEntryResponse(BaseModel):
 # GENERAL LEDGER
 # =============================================================================
 
-class GeneralLedgerResponse(BaseModel):
+class GeneralLedgerResponse(TijaeroBaseSchema):
     id: int
     transaction_date: date
     posting_date: date
@@ -248,9 +241,6 @@ class GeneralLedgerResponse(BaseModel):
     account_code: Optional[str] = None
     account_name: Optional[str] = None
     account_type: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class GLListFilter(BaseModel):
@@ -304,7 +294,7 @@ class AccountingPeriodCreate(BaseModel):
     end_date: date
 
 
-class AccountingPeriodResponse(BaseModel):
+class AccountingPeriodResponse(TijaeroBaseSchema):
     id: int
     fiscal_year: int
     period_number: int
@@ -315,9 +305,6 @@ class AccountingPeriodResponse(BaseModel):
     closed_by: Optional[int] = None
     closed_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 class AccountingPeriodListFilter(BaseModel):
@@ -361,7 +348,7 @@ class CashFlowCategoryUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
-class CashFlowCategoryResponse(BaseModel):
+class CashFlowCategoryResponse(TijaeroBaseSchema):
     id: int
     category_code: str
     category_name: str
@@ -373,9 +360,6 @@ class CashFlowCategoryResponse(BaseModel):
     description: Optional[str] = None
     is_active: bool = True
     created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 class CashFlowStatementLineCreate(BaseModel):
@@ -389,7 +373,7 @@ class CashFlowStatementLineCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class CashFlowStatementLineResponse(CashFlowStatementLineCreate):
+class CashFlowStatementLineResponse(CashFlowStatementLineCreate, TijaeroBaseSchema):
     id: int
     cash_flow_statement_id: int
     created_at: Optional[datetime] = None
@@ -397,9 +381,6 @@ class CashFlowStatementLineResponse(CashFlowStatementLineCreate):
     category_code: Optional[str] = None
     category_name: Optional[str] = None
     section: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class CashFlowStatementCreate(BaseModel):
@@ -409,7 +390,7 @@ class CashFlowStatementCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class CashFlowStatementResponse(BaseModel):
+class CashFlowStatementResponse(TijaeroBaseSchema):
     id: int
     statement_no: str
     fiscal_year: int
@@ -431,9 +412,6 @@ class CashFlowStatementResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     lines: List[CashFlowStatementLineResponse] = []
-
-    class Config:
-        from_attributes = True
 
 
 class CashFlowStatementListFilter(BaseModel):

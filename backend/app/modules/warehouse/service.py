@@ -14,6 +14,7 @@ from .models import (
 from app.modules.inventory.models import SalesStock
 from app.modules.common.models import Locations, Approvals
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
+from app.common.enums import StockStatus
 
 # Item Transfer Note Service
 class ItemTransferNoteService:
@@ -376,7 +377,7 @@ class ItemTransferNoteService:
                     SalesStock.barcode == item.barcode
                 ).with_for_update().first()
                 if stock_item and stock_item.status in ["transfer_pending", "in_transit"]:
-                    stock_item.status = "available"
+                    stock_item.status = StockStatus.AVAILABLE
                     stock_item.is_active = True
 
         self.db.commit()
@@ -532,7 +533,7 @@ class ItemTransferNoteApprovalService:
                             SalesStock.barcode == item.barcode
                         ).first()
                         if stock_item and stock_item.status in ("transfer_pending", "in_transit"):
-                            stock_item.status = "available"
+                            stock_item.status = StockStatus.AVAILABLE
                             stock_item.is_active = True
         
         self.db.commit()
@@ -690,7 +691,7 @@ class ItemReceiveNoteService:
                 if to_location and to_location.branch_code:
                     stock_item.branch_code = to_location.branch_code
                 # Update status back to available
-                stock_item.status = "available"
+                stock_item.status = StockStatus.AVAILABLE
                 stock_item.is_active = True
                 product_name = stock_item.product.name if stock_item.product else None
             

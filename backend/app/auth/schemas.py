@@ -2,6 +2,8 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import date, datetime
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 class BranchBase(BaseModel):
     branch_name: str = Field(..., max_length=255)
     branch_code: str = Field(..., max_length=255)
@@ -9,13 +11,10 @@ class BranchBase(BaseModel):
     email: Optional[EmailStr] = None
     contact_number: Optional[str] = Field(None, max_length=255)
 
-class BranchSimple(BaseModel):
+class BranchSimple(TijaeroBaseSchema):
     id: int
     branch_name: str
     branch_code: str
-    
-    class Config:
-        from_attributes = True
 
 class PermissionBase(BaseModel):
     name: str = Field(..., max_length=255)
@@ -26,21 +25,15 @@ class PermissionBase(BaseModel):
 class PermissionCreate(PermissionBase):
     pass
 
-class Permission(PermissionBase):
+class Permission(TijaeroBaseSchema, PermissionBase):
     id: int
-    
-    class Config:
-        from_attributes = True
 
 class GroupBase(BaseModel):
     name: str = Field(..., max_length=150)
 
-class GroupSimple(BaseModel):
+class GroupSimple(TijaeroBaseSchema):
     id: int
     name: str
-    
-    class Config:
-        from_attributes = True
 
 class GroupCreate(GroupBase):
     permission_ids: List[int] = []
@@ -49,12 +42,9 @@ class GroupUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=150)
     permission_ids: Optional[List[int]] = None
 
-class Group(GroupBase):
+class Group(TijaeroBaseSchema, GroupBase):
     id: int
     permissions: List[Permission] = []
-    
-    class Config:
-        from_attributes = True
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -89,7 +79,7 @@ class UserUpdate(BaseModel):
     branch_ids: Optional[List[int]] = None
     group_ids: Optional[List[int]] = None
 
-class User(UserBase):
+class User(TijaeroBaseSchema, UserBase):
     id: int
     is_superuser: bool
     employee_id: str
@@ -100,11 +90,8 @@ class User(UserBase):
     groups: List[Group] = []
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True
 
-class UserList(BaseModel):
+class UserList(TijaeroBaseSchema):
     id: int
     username: str
     email: str
@@ -120,9 +107,6 @@ class UserList(BaseModel):
     occupation: str
     branches: List[BranchSimple] = []
     groups: List[GroupSimple] = []
-    
-    class Config:
-        from_attributes = True
 
 class Token(BaseModel):
     access_token: str

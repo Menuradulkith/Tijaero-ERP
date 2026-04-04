@@ -3,6 +3,8 @@ from typing import Optional, List
 from datetime import datetime, date
 from decimal import Decimal
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 class CustomerBase(BaseModel):
     customer_name: str = Field(..., min_length=1, max_length=255, description="Customer name")
     title: str = Field(..., max_length=30, description="Title (Mr/Ms/Mrs)")
@@ -60,23 +62,17 @@ class CustomerUpdate(BaseModel):
     commission_rate: Optional[float] = Field(None, ge=0, le=100)
     country_id: Optional[int] = None
 
-class Customer(CustomerBase):
+class Customer(CustomerBase, TijaeroBaseSchema):
     id: int
     date_joined: datetime
     created_at: datetime
     updated_at: datetime
     created_by: Optional[int] = None
     updated_by: Optional[int] = None
-    
-    class Config:
-        from_attributes = True
 
 class CustomerList(BaseModel):
     total: int
     items: list[Customer]
-    
-    class Config:
-        from_attributes = True
 
 class CustomerAdvancePaymentsBase(BaseModel):
     advance_payments_no: str
@@ -99,12 +95,9 @@ class CustomerAdvancePaymentsUpdate(BaseModel):
     cheque_date: Optional[date] = None
     active: Optional[bool] = None
 
-class CustomerAdvancePayments(CustomerAdvancePaymentsBase):
+class CustomerAdvancePayments(CustomerAdvancePaymentsBase, TijaeroBaseSchema):
     id: int
     created_date: date
-    
-    class Config:
-        from_attributes = True
 
 class CustomerCreditNotesBase(BaseModel):
     customer_id: int
@@ -115,12 +108,9 @@ class CustomerCreditNotesBase(BaseModel):
 class CustomerCreditNotesCreate(CustomerCreditNotesBase):
     pass
 
-class CustomerCreditNotes(CustomerCreditNotesBase):
+class CustomerCreditNotes(CustomerCreditNotesBase, TijaeroBaseSchema):
     id: int
     date: datetime
-    
-    class Config:
-        from_attributes = True
 
 
 # Customer Credits Settle Schemas
@@ -135,13 +125,10 @@ class CustomerCreditsSettleTransactionBase(BaseModel):
 class CustomerCreditsSettleTransactionCreate(CustomerCreditsSettleTransactionBase):
     pass
 
-class CustomerCreditsSettleTransaction(CustomerCreditsSettleTransactionBase):
+class CustomerCreditsSettleTransaction(CustomerCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
     customer_credit_settle_id: int
     created_date: date
-    
-    class Config:
-        from_attributes = True
 
 class CustomerCreditsSettleBase(BaseModel):
     customer_credits_settle_no: str
@@ -154,12 +141,9 @@ class CustomerCreditsSettleCreate(CustomerCreditsSettleBase):
 class CustomerCreditsSettleUpdate(BaseModel):
     branch_code: Optional[str] = None
 
-class CustomerCreditsSettle(CustomerCreditsSettleBase):
+class CustomerCreditsSettle(CustomerCreditsSettleBase, TijaeroBaseSchema):
     id: int
     created_date: datetime
-    
-    class Config:
-        from_attributes = True
 
 class CustomerCreditsSettleWithTransactions(CustomerCreditsSettle):
     transactions: List[CustomerCreditsSettleTransaction] = []
@@ -199,16 +183,13 @@ class CustomerCuponCodesUpdate(BaseModel):
     category_ids: Optional[List[int]] = None
     brand_ids: Optional[List[int]] = None
 
-class CustomerCuponCodes(CustomerCuponCodesBase):
+class CustomerCuponCodes(CustomerCuponCodesBase, TijaeroBaseSchema):
     id: int
     created_date: Optional[datetime] = None
     usage_count: int = 0  # Track total usage count
     product_ids: List[int] = []  # Computed field for restricted product IDs
     category_ids: List[int] = []  # Computed field for restricted category IDs
     brand_ids: List[int] = []  # Computed field for restricted brand IDs
-    
-    class Config:
-        from_attributes = True
 
 
 # Coupon Usage Schemas
@@ -221,14 +202,11 @@ class CouponUsageBase(BaseModel):
 class CouponUsageCreate(CouponUsageBase):
     pass
 
-class CouponUsage(CouponUsageBase):
+class CouponUsage(CouponUsageBase, TijaeroBaseSchema):
     id: int
     used_date: datetime
     invoice_no: Optional[str] = None
     customer_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 # Coupon Validation Request/Response
@@ -271,13 +249,10 @@ class CustomerGiftVoucherUpdate(BaseModel):
     claimed_date: Optional[datetime] = None
     claimed_invoice_no: Optional[str] = None
 
-class CustomerGiftVoucher(CustomerGiftVoucherBase):
+class CustomerGiftVoucher(CustomerGiftVoucherBase, TijaeroBaseSchema):
     id: int
     claimed_date: Optional[datetime] = None
     claimed_invoice_no: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 # Customer Support Schemas
@@ -288,13 +263,10 @@ class CustomerCallLogBase(BaseModel):
 class CustomerCallLogCreate(CustomerCallLogBase):
     customer_support_id: Optional[int] = None
 
-class CustomerCallLog(CustomerCallLogBase):
+class CustomerCallLog(CustomerCallLogBase, TijaeroBaseSchema):
     id: int
     date: datetime
     customer_support_id: Optional[int] = None
-    
-    class Config:
-        from_attributes = True
 
 class CustomerSupportBase(BaseModel):
     job_number: str
@@ -320,11 +292,8 @@ class CustomerSupportUpdate(BaseModel):
     customer_id: Optional[int] = None
     invoice_id: Optional[int] = None
 
-class CustomerSupport(CustomerSupportBase):
+class CustomerSupport(CustomerSupportBase, TijaeroBaseSchema):
     id: int
-    
-    class Config:
-        from_attributes = True
 
 class CustomerSupportWithCallLogs(CustomerSupport):
     call_logs: List[CustomerCallLog] = []
@@ -351,7 +320,7 @@ class GiftVoucherUpdate(BaseModel):
     valid_period_in_months: Optional[int] = None
     status: Optional[str] = None
 
-class GiftVoucher(GiftVoucherBase):
+class GiftVoucher(GiftVoucherBase, TijaeroBaseSchema):
     id: int
     balance: Decimal
     date: date
@@ -360,9 +329,6 @@ class GiftVoucher(GiftVoucherBase):
     claimed_date: Optional[datetime] = None
     claimed_invoice_no: Optional[str] = None
     created_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 class VoucherUsageBase(BaseModel):
     voucher_id: int
@@ -372,13 +338,10 @@ class VoucherUsageBase(BaseModel):
 class VoucherUsageCreate(VoucherUsageBase):
     pass
 
-class VoucherUsage(VoucherUsageBase):
+class VoucherUsage(VoucherUsageBase, TijaeroBaseSchema):
     id: int
     used_date: datetime
     invoice_no: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 class VoucherValidationRequest(BaseModel):
     barcode_no: str = Field(..., description="Voucher barcode/code to validate")

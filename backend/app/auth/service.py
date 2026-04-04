@@ -204,10 +204,10 @@ class AuthService:
             pass
 
         try:
-            from app.common.workflow import WorkflowInstance
-            workflow_count = db.query(WorkflowInstance).filter(WorkflowInstance.approver_id == user_id).count()
+            from app.common.workflow import WorkflowStep
+            workflow_count = db.query(WorkflowStep).filter(WorkflowStep.approver_id == user_id).count()
             if workflow_count > 0:
-                errors.append(f"User is approver in {workflow_count} workflow instance(s)")
+                errors.append(f"User is approver in {workflow_count} workflow step(s)")
         except (ImportError, Exception):
             pass
         

@@ -8,6 +8,8 @@ from typing import Optional, List
 from datetime import datetime, date
 from decimal import Decimal
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 
 # =============================================================================
 # Commission Schemas
@@ -36,16 +38,13 @@ class CustomerAgentCommissionUpdate(BaseModel):
     remarks: Optional[str] = None
 
 
-class CustomerAgentCommission(CustomerAgentCommissionBase):
+class CustomerAgentCommission(TijaeroBaseSchema, CustomerAgentCommissionBase):
     id: int
     status: str
     approved_by: Optional[int] = None
     approved_date: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 class CustomerAgentCommissionWithDetails(CustomerAgentCommission):
@@ -54,9 +53,6 @@ class CustomerAgentCommissionWithDetails(CustomerAgentCommission):
     customer_name: Optional[str] = None
     invoice_no: Optional[str] = None
     total_paid: Optional[Decimal] = Decimal("0")
-
-    class Config:
-        from_attributes = True
 
 
 # =============================================================================
@@ -72,13 +68,10 @@ class CommissionPaymentItemCreate(CommissionPaymentItemBase):
     pass
 
 
-class CommissionPaymentItem(CommissionPaymentItemBase):
+class CommissionPaymentItem(TijaeroBaseSchema, CommissionPaymentItemBase):
     id: int
     payment_id: int
     created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 class CommissionPaymentItemWithDetails(CommissionPaymentItem):
@@ -87,9 +80,6 @@ class CommissionPaymentItemWithDetails(CommissionPaymentItem):
     invoice_amount: Optional[Decimal] = None
     commission_amount: Optional[Decimal] = None
     commission_status: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class CustomerAgentCommissionPaymentBase(BaseModel):
@@ -112,7 +102,7 @@ class CustomerAgentCommissionPaymentUpdate(BaseModel):
     remarks: Optional[str] = None
 
 
-class CustomerAgentCommissionPayment(CustomerAgentCommissionPaymentBase):
+class CustomerAgentCommissionPayment(TijaeroBaseSchema, CustomerAgentCommissionPaymentBase):
     id: int
     payment_no: str
     status: str
@@ -121,17 +111,11 @@ class CustomerAgentCommissionPayment(CustomerAgentCommissionPaymentBase):
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
 
 class CustomerAgentCommissionPaymentWithItems(CustomerAgentCommissionPayment):
     """Payment with items and details"""
     items: List[CommissionPaymentItemWithDetails] = []
     agent_name: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 # =============================================================================

@@ -40,6 +40,8 @@ class InvoiceBase(BaseModel):
     payment_adjustments: float = Field(default=0)
     remarks: Optional[str] = None
     special: bool = False
+    source_quote_id: Optional[int] = None  # Link to source proforma/quotation
+    source_quote_type: Optional[str] = None  # 'quotation' or 'proforma'
     # Cheque payment details
     cheque_number: Optional[str] = None
     cheque_bank: Optional[str] = None

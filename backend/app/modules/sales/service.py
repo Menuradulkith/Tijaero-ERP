@@ -8,6 +8,8 @@ from app.modules.finance.models import ChequePayments, CardPayments, BankDeposit
 from app.modules.customers.credit_service import CustomerCreditService
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.core import timezone as tz
+from app.common.audit import log_audit
+from app.common.enums import DocumentStatus, PaymentStatus, StockStatus
 from decimal import Decimal
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
@@ -88,13 +90,13 @@ class SalesService:
         # Apply status filter
         if status:
             if status == "pending":
-                query = query.filter(Invoice.approval == False, Invoice.approval_status.in_(["pending", None]))
+                query = query.filter(Invoice.approval == False, Invoice.approval_status.in_([DocumentStatus.PENDING, None]))
             elif status == "approved":
                 query = query.filter(Invoice.approval == True)
             elif status == "completed":
-                query = query.filter(Invoice.approval_status == "completed")
+                query = query.filter(Invoice.approval_status == DocumentStatus.COMPLETED)
             elif status == "cancelled":
-                query = query.filter(Invoice.approval_status == "cancelled")
+                query = query.filter(Invoice.approval_status == DocumentStatus.CANCELLED)
         
         # Apply search filter
         if search:
@@ -348,7 +350,7 @@ class SalesService:
         ).join(
             SalesStock, SalesStock.product_id == Product.id
         ).filter(
-            SalesStock.status == 'available',
+            SalesStock.status == StockStatus.AVAILABLE,
             SalesStock.is_active == True,
             Product.status == True
         ).group_by(
@@ -396,7 +398,7 @@ class SalesService:
         # Count available stock items for this product
         available_count = db.query(func.count(SalesStock.id)).filter(
             SalesStock.product_id == product_id,
-            SalesStock.status == 'available',
+            SalesStock.status == StockStatus.AVAILABLE,
             SalesStock.is_active == True
         ).scalar() or 0
         
@@ -697,14 +699,14 @@ class SalesService:
             invoice_dict['bank_transfer_status'] = "pending_verification"
             invoice_dict['paid_amount'] = float(total_prepaid)  # Voucher + credit note paid
             invoice_dict['balance_due'] = float(amount_after_voucher)
-            invoice_dict['payment_status'] = "pending"
+            invoice_dict['payment_status'] = PaymentStatus.UNPAID
         else:
             # Cash/Card/Cheque - auto-approved and fully paid
             invoice_dict['approval'] = True
-            invoice_dict['approval_status'] = "completed"
+            invoice_dict['approval_status'] = DocumentStatus.COMPLETED
             invoice_dict['paid_amount'] = float(grand_total)  # Full grand total is paid (voucher + payment method)
             invoice_dict['balance_due'] = 0
-            invoice_dict['payment_status'] = "paid"
+            invoice_dict['payment_status'] = PaymentStatus.PAID
         
         # Handle coupon/discount code
         coupon_id = getattr(invoice_data, 'cupon_id', None)
@@ -757,7 +759,7 @@ class SalesService:
                 invoice_no=invoice_data.invoice_no,
                 verified=False,
                 returned=False,
-                status="pending"
+                status=DocumentStatus.PENDING
             )
             db.add(cheque_bank_deposit)
             db.flush()
@@ -821,7 +823,7 @@ class SalesService:
                 amount=grand_total,
                 credit_terms=f"{credit_days} days",
                 due_date=due_date,
-                status="pending",  # Will be updated when approved
+                status=DocumentStatus.PENDING,  # Will be updated when approved
                 created_date=tz.now()
             )
             db.add(credit_payment)
@@ -852,7 +854,7 @@ class SalesService:
             if barcode:
                 stock_item = db.query(SalesStock).filter(
                     SalesStock.barcode == barcode,
-                    SalesStock.status == 'available'
+                    SalesStock.status == StockStatus.AVAILABLE
                 ).first()
                 
                 if stock_item:
@@ -860,13 +862,13 @@ class SalesService:
                     item_dict['sales_stock_id'] = sales_stock_id
                     
                     # Update stock status based on approval status
-                    if invoice_dict['approval_status'] == 'completed':
+                    if invoice_dict['approval_status'] == DocumentStatus.COMPLETED:
                         # Cash/Card/Cheque orders - mark as sold immediately
-                        stock_item.status = 'sold'
+                        stock_item.status = StockStatus.SOLD
                         stock_item.is_active = False
-                    elif invoice_dict['approval_status'] in ['pending_approval', 'pending_bank_verification']:
+                    elif invoice_dict['approval_status'] in [DocumentStatus.PENDING_APPROVAL, 'pending_bank_verification']:
                         # Credit orders or bank transfers - reserve stock until approved/verified
-                        stock_item.status = 'reserved'
+                        stock_item.status = StockStatus.RESERVED
             
             # Calculate line total with item discount
             gross_line_total = Decimal(str(item_dict['quantity'])) * Decimal(str(item_dict['selling_price']))
@@ -1053,7 +1055,7 @@ class SalesService:
                     commission_type="PERCENT",
                     commission_rate=commission_rate,
                     commission_amount=commission_amount,
-                    status="pending",
+                    status=DocumentStatus.PENDING,
                 )
                 db.add(commission)
         
@@ -1062,7 +1064,7 @@ class SalesService:
         # Cash/Card/Cheque invoices are auto-approved → post immediately
         # Credit/Bank Transfer invoices → post on approval/verification
         # =================================================================
-        if invoice_dict.get('approval_status') == 'completed':
+        if invoice_dict.get('approval_status') == DocumentStatus.COMPLETED:
             try:
                 from app.modules.sales.accounting_integration import SalesAccountingIntegration
                 gl_integration = SalesAccountingIntegration(db)
@@ -1091,6 +1093,22 @@ class SalesService:
                     f"GL posting for advance application failed for invoice {invoice.invoice_no}: {e}"
                 )
         
+        # Update linked proforma/quotation status to so_created when SO is created from proforma
+        source_quote_id = getattr(invoice_data, 'source_quote_id', None)
+        if source_quote_id:
+            try:
+                from app.modules.sales.quotation_models import SalesQuote, QuoteStatus as QStatus
+                linked_quote = db.query(SalesQuote).filter(SalesQuote.id == source_quote_id).first()
+                if linked_quote and linked_quote.status not in [
+                    QStatus.SO_CREATED.value,
+                    QStatus.CONVERTED_TO_INVOICE.value,
+                    QStatus.CANCELLED.value,
+                ]:
+                    linked_quote.status = QStatus.SO_CREATED.value
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to update linked proforma status: {e}")
+        
         db.commit()
         db.refresh(invoice)
         return invoice
@@ -1099,11 +1117,11 @@ class SalesService:
         invoice = self.get_invoice(db, invoice_id)
         
         # Track original status for re-approval logic
-        was_completed = invoice.approval_status == 'completed'
+        was_completed = invoice.approval_status == DocumentStatus.COMPLETED
         
         # Block manual approval via update_invoice - must use Approval Dashboard
         update_data = invoice_data.model_dump(exclude_unset=True, exclude={'items'})
-        if update_data.get('approval_status') == 'completed' and invoice.approval_status == 'pending_approval':
+        if update_data.get('approval_status') == DocumentStatus.COMPLETED and invoice.approval_status == DocumentStatus.PENDING_APPROVAL:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Sales orders cannot be manually approved. Please use the Approval Dashboard."
@@ -1116,8 +1134,8 @@ class SalesService:
             for item in existing_items:
                 if item.sales_stock_id:
                     stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
-                    if stock_item and stock_item.status in ['sold', 'reserved']:
-                        stock_item.status = 'available'
+                    if stock_item and stock_item.status in [StockStatus.SOLD, StockStatus.RESERVED]:
+                        stock_item.status = StockStatus.AVAILABLE
                         stock_item.is_active = True
             
             # Delete existing items and barcode links
@@ -1134,7 +1152,7 @@ class SalesService:
                     # Check if this barcode is still available
                     stock = db.query(SalesStock).filter(
                         SalesStock.barcode == item_data.barcode,
-                        SalesStock.status == 'available'
+                        SalesStock.status == StockStatus.AVAILABLE
                     ).first()
                     if not stock:
                         raise HTTPException(
@@ -1156,7 +1174,7 @@ class SalesService:
                 if barcode:
                     stock_item = db.query(SalesStock).filter(
                         SalesStock.barcode == barcode,
-                        SalesStock.status == 'available'
+                        SalesStock.status == StockStatus.AVAILABLE
                     ).first()
                     
                     if stock_item:
@@ -1164,11 +1182,11 @@ class SalesService:
                         item_dict['sales_stock_id'] = sales_stock_id
                         
                         # Reserve/sell stock based on approval status
-                        if invoice.approval_status == 'completed':
-                            stock_item.status = 'sold'
+                        if invoice.approval_status == DocumentStatus.COMPLETED:
+                            stock_item.status = StockStatus.SOLD
                             stock_item.is_active = False
                         else:
-                            stock_item.status = 'reserved'
+                            stock_item.status = StockStatus.RESERVED
                 
                 # Calculate line total
                 line_total = item_dict['quantity'] * item_dict['selling_price']
@@ -1185,11 +1203,11 @@ class SalesService:
             if is_credit_payment:
                 # Credit payment - requires approval
                 update_data['approval'] = False
-                update_data['approval_status'] = "pending_approval"
+                update_data['approval_status'] = DocumentStatus.PENDING_APPROVAL
             else:
                 # Cash/Card/Cheque/Bank - auto-approved and completed
                 update_data['approval'] = True
-                update_data['approval_status'] = "completed"
+                update_data['approval_status'] = DocumentStatus.COMPLETED
         
         for field, value in update_data.items():
             setattr(invoice, field, value)
@@ -1202,13 +1220,13 @@ class SalesService:
             from app.modules.common.models import Approvals
             
             invoice.approval = False
-            invoice.approval_status = "pending_approval"
+            invoice.approval_status = DocumentStatus.PENDING_APPROVAL
             
             # Reset the existing approval record back to pending
             if invoice.approval_id:
                 approval_record = db.query(Approvals).filter(Approvals.id == invoice.approval_id).first()
                 if approval_record:
-                    approval_record.status = "pending"
+                    approval_record.status = ApprovalStatus.PENDING
                     approval_record.status_changed_by = None
                     approval_record.remark = "Re-approval required: Sales order was edited after approval."
             else:
@@ -1230,8 +1248,8 @@ class SalesService:
             for item in items:
                 if item.sales_stock_id:
                     stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
-                    if stock_item and stock_item.status == 'sold':
-                        stock_item.status = 'reserved'
+                    if stock_item and stock_item.status == StockStatus.SOLD:
+                        stock_item.status = StockStatus.RESERVED
                         stock_item.is_active = True
             
             db.commit()
@@ -1247,9 +1265,9 @@ class SalesService:
         for item in items:
             if item.sales_stock_id:
                 stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
-                if stock_item and stock_item.status == 'sold':
+                if stock_item and stock_item.status == StockStatus.SOLD:
                     # Restore the stock item to available
-                    stock_item.status = 'available'
+                    stock_item.status = StockStatus.AVAILABLE
                     stock_item.is_active = True
         
         db.delete(invoice)
@@ -1269,7 +1287,7 @@ class SalesService:
                 detail=f"Invoice with id {invoice_id} not found"
             )
         
-        if invoice.approval_status != 'pending_approval':
+        if invoice.approval_status != DocumentStatus.PENDING_APPROVAL:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invoice is already {invoice.approval_status}"
@@ -1280,13 +1298,13 @@ class SalesService:
             from app.modules.common.models import Approvals
             approval_record = db.query(Approvals).filter(Approvals.id == invoice.approval_id).first()
             if approval_record:
-                if approval_record.status != 'pending':
+                if approval_record.status != ApprovalStatus.PENDING:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Approval record is already {approval_record.status}"
                     )
                 # Update approval record
-                approval_record.status = 'approved'
+                approval_record.status = ApprovalStatus.APPROVED
                 approval_record.status_changed_by = user_id
                 approval_record.remark = f"Approved by user {user_id} on {tz.now().strftime('%Y-%m-%d %H:%M')}"
         else:
@@ -1301,13 +1319,13 @@ class SalesService:
                 remarks=f"Credit sales order approved. Amount: Rs. {invoice.grand_total:,.2f}",
                 approval_group="sales_approvers"
             )
-            approval_record.status = 'approved'
+            approval_record.status = ApprovalStatus.APPROVED
             approval_record.status_changed_by = user_id
             invoice.approval_id = approval_record.id
         
         # Update invoice approval status
         invoice.approval = True
-        invoice.approval_status = 'completed'  # Credit orders go directly to completed after approval
+        invoice.approval_status = DocumentStatus.COMPLETED  # Credit orders go directly to completed after approval
         
         # Update sales stock status to 'sold' for all items with barcodes
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
@@ -1317,8 +1335,8 @@ class SalesService:
                 stock_item = db.query(SalesStock).filter(
                     SalesStock.id == item.sales_stock_id
                 ).with_for_update().first()
-                if stock_item and stock_item.status == 'reserved':
-                    stock_item.status = 'sold'
+                if stock_item and stock_item.status == StockStatus.RESERVED:
+                    stock_item.status = StockStatus.SOLD
                     stock_item.is_active = False
         
         # Update credit payment status to 'approved' and customer credit balance
@@ -1326,7 +1344,7 @@ class SalesService:
             from app.modules.finance.models import CreditPayments
             credit_payment = db.query(CreditPayments).filter(CreditPayments.id == invoice.credit_payment_id).first()
             if credit_payment:
-                credit_payment.status = 'approved'
+                credit_payment.status = ApprovalStatus.APPROVED
         
         # Update customer's left_credit_amount for credit sales
         if invoice.credit_amount and invoice.credit_amount > 0:
@@ -1334,7 +1352,7 @@ class SalesService:
         
         # For credit orders that are approved, automatically mark as completed
         # since stock is already marked as sold
-        invoice.approval_status = 'completed'
+        invoice.approval_status = DocumentStatus.COMPLETED
         
         # =================================================================
         # Scenario 30: Auto-post to General Ledger on credit sale approval
@@ -1366,7 +1384,7 @@ class SalesService:
             )
         
         invoice.approval = True
-        invoice.approval_status = 'completed'
+        invoice.approval_status = DocumentStatus.COMPLETED
         
         # Ensure all stock items are marked as sold
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
@@ -1374,7 +1392,7 @@ class SalesService:
             if item.sales_stock_id:
                 stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
                 if stock_item:
-                    stock_item.status = 'sold'
+                    stock_item.status = StockStatus.SOLD
                     stock_item.is_active = False
         
         # Scenario 30: Auto-post to GL on invoice completion
@@ -1398,7 +1416,7 @@ class SalesService:
         """
         invoice = self.get_invoice(db, invoice_id)
         
-        if invoice.approval_status == 'completed':
+        if invoice.approval_status == DocumentStatus.COMPLETED:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot cancel a completed invoice. Please create a sale return instead."
@@ -1410,7 +1428,7 @@ class SalesService:
             if item.sales_stock_id:
                 stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
                 if stock_item:
-                    stock_item.status = 'available'
+                    stock_item.status = StockStatus.AVAILABLE
                     stock_item.is_active = True
         
         # Cancel/void the credit payment record if exists
@@ -1418,10 +1436,10 @@ class SalesService:
             from app.modules.finance.models import CreditPayments
             credit_payment = db.query(CreditPayments).filter(CreditPayments.id == invoice.credit_payment_id).first()
             if credit_payment:
-                credit_payment.status = 'cancelled'
+                credit_payment.status = DocumentStatus.CANCELLED
         
         invoice.status = False
-        invoice.approval_status = 'cancelled'
+        invoice.approval_status = DocumentStatus.CANCELLED
         
         db.commit()
         
@@ -1540,11 +1558,11 @@ class SalesService:
         return_dict = sale_return_data.model_dump(exclude={'items'})
         return_dict['added_date'] = tz.today()
         return_dict['cheque_date'] = tz.today()
-        return_dict['status'] = 'pending'
+        return_dict['status'] = DocumentStatus.PENDING
         return_dict['subtotal'] = float(subtotal)
         return_dict['tax_refund'] = float(tax_refund)
         return_dict['total_refund'] = float(total_refund)
-        return_dict['refund_status'] = 'pending'
+        return_dict['refund_status'] = DocumentStatus.PENDING
         return_dict['refund_amount'] = 0
         return_dict['created_by'] = user_id
         
@@ -1596,7 +1614,7 @@ class SalesService:
         """
         sale_return = self.get_sale_return(db, return_id)
         
-        if sale_return.status != 'pending':
+        if sale_return.status != DocumentStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Sale return is already {sale_return.status}"
@@ -1607,12 +1625,12 @@ class SalesService:
             from app.modules.common.models import Approvals
             approval_record = db.query(Approvals).filter(Approvals.id == sale_return.approval_id).first()
             if approval_record:
-                if approval_record.status != 'pending':
+                if approval_record.status != ApprovalStatus.PENDING:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Approval record is already {approval_record.status}"
                     )
-                approval_record.status = 'approved'
+                approval_record.status = ApprovalStatus.APPROVED
                 approval_record.status_changed_by = user_id
                 approval_record.remark = f"Approved by user {user_id} on {tz.now().strftime('%Y-%m-%d %H:%M')}"
         else:
@@ -1627,11 +1645,11 @@ class SalesService:
                 remarks=f"Sale return approved.",
                 approval_group="sales_approvers"
             )
-            approval_record.status = 'approved'
+            approval_record.status = ApprovalStatus.APPROVED
             approval_record.status_changed_by = user_id
             sale_return.approval_id = approval_record.id
         
-        sale_return.status = 'approved'
+        sale_return.status = DocumentStatus.APPROVED
         sale_return.approved_by = user_id
         
         db.commit()
@@ -1655,11 +1673,11 @@ class SalesService:
             from app.modules.common.models import Approvals
             approval_record = db.query(Approvals).filter(Approvals.id == sale_return.approval_id).first()
             if approval_record:
-                approval_record.status = 'rejected'
+                approval_record.status = ApprovalStatus.REJECTED
                 approval_record.status_changed_by = user_id
                 approval_record.remark = reason or f"Rejected by user {user_id}"
         
-        sale_return.status = 'rejected'
+        sale_return.status = DocumentStatus.REJECTED
         if reason:
             sale_return.remark = f"{sale_return.remark or ''} | Rejected: {reason}".strip(' |')
         
@@ -1677,7 +1695,7 @@ class SalesService:
         """
         sale_return = self.get_sale_return(db, return_id)
         
-        if sale_return.status not in ['pending', 'approved']:
+        if sale_return.status not in [DocumentStatus.PENDING, DocumentStatus.APPROVED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot process sale return with status: {sale_return.status}"
@@ -1702,7 +1720,7 @@ class SalesService:
                         SalesStock.id == item.sales_stock_id
                     ).with_for_update().first()
                     if stock:
-                        stock.status = 'available'
+                        stock.status = StockStatus.AVAILABLE
                         stock.is_active = True
                         stock.returned_date = tz.now()
                         item.restocked = True
@@ -1713,7 +1731,7 @@ class SalesService:
                         SalesStock.barcode == item.barcode
                     ).with_for_update().first()
                     if stock:
-                        stock.status = 'available'
+                        stock.status = StockStatus.AVAILABLE
                         stock.is_active = True
                         stock.returned_date = tz.now()
                         item.restocked = True
@@ -1787,11 +1805,11 @@ class SalesService:
         balance = float(invoice.balance_due or 0)
 
         if grand > 0 and balance <= 0 and paid >= grand:
-            invoice.payment_status = 'paid'
+            invoice.payment_status = PaymentStatus.PAID
         elif paid > 0:
-            invoice.payment_status = 'partial'
+            invoice.payment_status = PaymentStatus.PARTIAL
         else:
-            invoice.payment_status = 'unpaid'
+            invoice.payment_status = PaymentStatus.UNPAID
         
         # Scenario 30: Auto-post sale return reversal to GL
         try:
@@ -1819,7 +1837,7 @@ class SalesService:
         """Delete a pending sale return."""
         sale_return = self.get_sale_return(db, return_id)
         
-        if sale_return.status not in ['pending', 'rejected']:
+        if sale_return.status not in [DocumentStatus.PENDING, DocumentStatus.REJECTED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete a processed or approved sale return"
@@ -1836,7 +1854,7 @@ class SalesService:
         
         total_returns = db.query(func.count(SaleReturn.id)).scalar() or 0
         pending_returns = db.query(func.count(SaleReturn.id)).filter(
-            SaleReturn.status == 'pending'
+            SaleReturn.status == DocumentStatus.PENDING
         ).scalar() or 0
         
         current_month_returns = db.query(func.count(SaleReturn.id)).filter(
@@ -1984,10 +2002,10 @@ class SalesService:
         
         # Update payment status
         if invoice.balance_due <= 0:
-            invoice.payment_status = "paid"
+            invoice.payment_status = PaymentStatus.PAID
             invoice.balance_due = 0  # Ensure no negative balance
         elif invoice.paid_amount > 0:
-            invoice.payment_status = "partial"
+            invoice.payment_status = PaymentStatus.PARTIAL
         
         db.commit()
         
@@ -2155,10 +2173,10 @@ class SalesService:
             invoice.bank_transfer_verified_by = user_id
             invoice.bank_transfer_verified_date = tz.now()
             invoice.approval = True
-            invoice.approval_status = "completed"
+            invoice.approval_status = DocumentStatus.COMPLETED
             invoice.paid_amount = float(invoice.grand_total)
             invoice.balance_due = 0
-            invoice.payment_status = "paid"
+            invoice.payment_status = PaymentStatus.PAID
             
             # Mark bank deposit as verified
             if invoice.bank_transfer:
@@ -2170,8 +2188,8 @@ class SalesService:
                     stock_item = db.query(SalesStock).filter(
                         SalesStock.id == item.sales_stock_id
                     ).first()
-                    if stock_item and stock_item.status == 'reserved':
-                        stock_item.status = 'sold'
+                    if stock_item and stock_item.status == StockStatus.RESERVED:
+                        stock_item.status = StockStatus.SOLD
                         stock_item.is_active = False
             
             # Scenario 30: Auto-post to GL on bank transfer verification
@@ -2208,8 +2226,8 @@ class SalesService:
             invoice.bank_transfer_verified_date = tz.now()
             invoice.bank_transfer_rejection_reason = rejection_reason
             invoice.approval = False
-            invoice.approval_status = "cancelled"
-            invoice.payment_status = "cancelled"
+            invoice.approval_status = DocumentStatus.CANCELLED
+            invoice.payment_status = PaymentStatus.UNPAID
             invoice.status = False
             
             # Release reserved stock back to available
@@ -2218,8 +2236,8 @@ class SalesService:
                     stock_item = db.query(SalesStock).filter(
                         SalesStock.id == item.sales_stock_id
                     ).first()
-                    if stock_item and stock_item.status == 'reserved':
-                        stock_item.status = 'available'
+                    if stock_item and stock_item.status == StockStatus.RESERVED:
+                        stock_item.status = StockStatus.AVAILABLE
                         stock_item.is_active = True
             
             db.commit()

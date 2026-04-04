@@ -2,6 +2,9 @@ from pydantic import BaseModel
 from datetime import date, datetime
 from typing import Optional, List
 
+from app.common.base_schemas import TijaeroBaseSchema
+from app.common.enums import DocumentStatus
+
 # Item Transfer Note Schemas
 class ItemTransferNoteBase(BaseModel):
     item_transfer_note: str
@@ -15,16 +18,13 @@ class ItemTransferNoteCreate(ItemTransferNoteBase):
     approval_id: Optional[int] = None
     status: Optional[str] = "pending"
 
-class ItemTransferNote(ItemTransferNoteBase):
+class ItemTransferNote(ItemTransferNoteBase, TijaeroBaseSchema):
     id: int
     added_date: datetime
     approval_id: Optional[int] = None
-    status: str = "pending"
+    status: str = DocumentStatus.PENDING
     from_location_name: Optional[str] = None
     to_location_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 # Item Transfer Note Items Schemas
 class ItemTransferNoteItemBase(BaseModel):
@@ -37,14 +37,11 @@ class ItemTransferNoteItemBase(BaseModel):
 class ItemTransferNoteItemCreate(ItemTransferNoteItemBase):
     itemtransfernote_id: int
 
-class ItemTransferNoteItem(ItemTransferNoteItemBase):
+class ItemTransferNoteItem(ItemTransferNoteItemBase, TijaeroBaseSchema):
     id: int
     itemtransfernote_id: int
     created_date: datetime
     product_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 # Item Transfer Note Approved Schemas
 class ItemTransferNoteApprovedBase(BaseModel):
@@ -55,13 +52,10 @@ class ItemTransferNoteApprovedBase(BaseModel):
 class ItemTransferNoteApprovedCreate(ItemTransferNoteApprovedBase):
     approved_user_id: Optional[int] = None
 
-class ItemTransferNoteApproved(ItemTransferNoteApprovedBase):
+class ItemTransferNoteApproved(ItemTransferNoteApprovedBase, TijaeroBaseSchema):
     id: int
     approved_user_id: Optional[int] = None
     approved_date: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 # Item Receive Note Schemas
 class ItemReceiveNoteBase(BaseModel):
@@ -72,13 +66,10 @@ class ItemReceiveNoteBase(BaseModel):
 class ItemReceiveNoteCreate(ItemReceiveNoteBase):
     recieved_user: Optional[int] = None
 
-class ItemReceiveNote(ItemReceiveNoteBase):
+class ItemReceiveNote(ItemReceiveNoteBase, TijaeroBaseSchema):
     id: int
     recieved_user: Optional[int] = None
     recieved_date: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 # Item Transfer Note with Items
 class ItemTransferNoteWithItems(ItemTransferNote):

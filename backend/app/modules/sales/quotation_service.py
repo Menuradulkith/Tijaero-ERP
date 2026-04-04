@@ -273,7 +273,7 @@ class SalesQuoteService:
         return self.repository.update(db, quote)
     
     def toggle_proforma(self, db: Session, quote_id: int, is_proforma: bool) -> SalesQuote:
-        """Toggle between quotation and proforma invoice type"""
+        """Promote a quotation to proforma invoice type (one-way: quotation → proforma only)"""
         quote = self.repository.get_by_id(db, quote_id)
         if not quote:
             raise HTTPException(
@@ -288,12 +288,22 @@ class SalesQuoteService:
                 detail=f"Cannot change type in '{quote.status}' status"
             )
         
-        if is_proforma:
-            quote.quote_type = QuoteType.PROFORMA.value
-            quote.is_estimate = False
-        else:
-            quote.quote_type = QuoteType.QUOTATION.value
-            quote.is_estimate = True
+        # Enforce one-way: a Quotation can be promoted to Proforma, but not the reverse
+        if not is_proforma:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A Proforma Invoice cannot be converted back to a Quotation. Create a new Quotation instead."
+            )
+        
+        # Only quotations can be promoted
+        if quote.quote_type != QuoteType.QUOTATION.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only a Quotation can be promoted to a Proforma Invoice."
+            )
+        
+        quote.quote_type = QuoteType.PROFORMA.value
+        quote.is_estimate = False
         
         return self.repository.update(db, quote)
     
@@ -730,7 +740,18 @@ class SalesQuoteService:
                 QuoteStatus.APPROVED.value,  # Customer can approve after PO
                 QuoteStatus.CONVERTED.value,
                 QuoteStatus.CONVERTED_TO_INVOICE.value,
+                QuoteStatus.ITEM_RECEIVED.value,  # GRN completed
+                QuoteStatus.SO_CREATED.value,  # Sales Order created
                 QuoteStatus.REJECTED.value,
+                QuoteStatus.CANCELLED.value
+            ],
+            QuoteStatus.ITEM_RECEIVED.value: [
+                QuoteStatus.CONVERTED_TO_INVOICE.value,  # Can still convert to invoice after items received
+                QuoteStatus.SO_CREATED.value,  # Sales Order created
+                QuoteStatus.CANCELLED.value
+            ],
+            QuoteStatus.SO_CREATED.value: [
+                QuoteStatus.CONVERTED_TO_INVOICE.value,  # Can convert to invoice from SO
                 QuoteStatus.CANCELLED.value
             ],
             QuoteStatus.REJECTED.value: [

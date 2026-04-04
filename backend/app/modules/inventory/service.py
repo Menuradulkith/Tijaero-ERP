@@ -3,6 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from typing import List, Optional
 from app.core import timezone as tz
+from app.common.enums import StockStatus
 from app.modules.inventory import repository, schemas, models
 
 class InventoryService:
@@ -130,7 +131,7 @@ class SalesStockService:
     def get_available_by_branch(self, branch_code: str) -> List[models.SalesStock]:
         return self.db.query(models.SalesStock).filter(
             models.SalesStock.branch_code == branch_code,
-            models.SalesStock.status == "available"
+            models.SalesStock.status == StockStatus.AVAILABLE
         ).all()
     
     def get_by_barcode(self, barcode: str) -> Optional[dict]:

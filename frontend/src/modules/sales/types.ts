@@ -88,6 +88,9 @@ export interface InvoiceCreate {
   remarks?: string;
   special?: boolean;
   items: InvoiceItemCreate[];
+  // Source proforma/quotation link
+  source_quote_id?: number;
+  source_quote_type?: string;
   // Cheque payment details
   cheque_number?: string;
   cheque_bank?: string;

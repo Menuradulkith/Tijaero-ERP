@@ -18,6 +18,7 @@ FormattedDateTime = Annotated[
 class TijaeroBaseSchema(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
+        populate_by_name=True,
         json_encoders={
             datetime: lambda v: v.strftime("%Y-%m-%d %H:%M:%S") if v else None
         }

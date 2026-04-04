@@ -3,6 +3,9 @@ from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
+from app.common.base_schemas import TijaeroBaseSchema
+from app.common.enums import PurchaseOrderStatus, DocumentStatus
+
 class SupplierBase(BaseModel):
     title: str
     full_name: str
@@ -60,14 +63,11 @@ class SupplierUpdate(BaseModel):
     active: Optional[bool] = None
     country_id: Optional[int] = None
 
-class Supplier(SupplierBase):
+class Supplier(SupplierBase, TijaeroBaseSchema):
     id: int
     date_joined: datetime
     left_credit_amount: Optional[int] = None
     initial_credit_amount: Optional[int] = None
-    
-    class Config:
-        from_attributes = True
 
 class PurchasingOrderItemBase(BaseModel):
     product_id: int
@@ -79,14 +79,11 @@ class PurchasingOrderItemBase(BaseModel):
 class PurchasingOrderItemCreate(PurchasingOrderItemBase):
     pass
 
-class PurchasingOrderItem(PurchasingOrderItemBase):
+class PurchasingOrderItem(PurchasingOrderItemBase, TijaeroBaseSchema):
     id: int
     purchasingorders_id: int
     created_date: date
     added_date: datetime
-    
-    class Config:
-        from_attributes = True
 
 class PurchasingOrderBase(BaseModel):
     purchasing_order_no: str
@@ -99,6 +96,7 @@ class PurchasingOrderBase(BaseModel):
     credit_date: Optional[int] = None
     first_suppliers_id: int
     second_suppliers_id: int
+    sales_quote_id: Optional[int] = None  # Link to source proforma/quotation
 
 class PurchasingOrderCreate(PurchasingOrderBase):
     items: List[PurchasingOrderItemCreate]
@@ -116,12 +114,12 @@ class PurchasingOrderUpdate(BaseModel):
     status: Optional[str] = None
     items: Optional[List[PurchasingOrderItemCreate]] = None
 
-class PurchasingOrder(PurchasingOrderBase):
+class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
     id: int
     created_date: date
     added_date: datetime
     approval_id: Optional[int] = None
-    status: str = "pending"
+    status: PurchaseOrderStatus = PurchaseOrderStatus.PENDING
     total_amount: Decimal = Decimal("0.00")
     paid_amount: Decimal = Decimal("0.00")
     sales_quote_id: Optional[int] = None
@@ -129,10 +127,7 @@ class PurchasingOrder(PurchasingOrderBase):
     @field_validator('status', mode='before')
     @classmethod
     def default_status(cls, v):
-        return v if v is not None else "pending"
-    
-    class Config:
-        from_attributes = True
+        return v if v is not None else PurchaseOrderStatus.PENDING
 
 class PurchasingOrderWithItems(PurchasingOrder):
     items: List[PurchasingOrderItem] = []
@@ -147,15 +142,12 @@ class PurchasingReturnItemBase(BaseModel):
 class PurchasingReturnItemCreate(PurchasingReturnItemBase):
     pass
 
-class PurchasingReturnItem(PurchasingReturnItemBase):
+class PurchasingReturnItem(PurchasingReturnItemBase, TijaeroBaseSchema):
     id: int
     purchasingreturn_id: int
     branch_code: str
     added_date: datetime
     product_name: Optional[str] = None 
-    
-    class Config:
-        from_attributes = True
 
 class PurchasingReturnBase(BaseModel):
     purchasing_return_no: Optional[str] = None 
@@ -167,15 +159,12 @@ class PurchasingReturnCreate(PurchasingReturnBase):
     items: List[PurchasingReturnItemCreate]
     require_approval: bool = False 
 
-class PurchasingReturn(PurchasingReturnBase):
+class PurchasingReturn(PurchasingReturnBase, TijaeroBaseSchema):
     id: int
     added_date: date
-    status: str = "draft" 
+    status: str = DocumentStatus.DRAFT
     approved_date: Optional[datetime] = None
     approval_id: Optional[int] = None
-    
-    class Config:
-        from_attributes = True
 
 class PurchasingReturnWithItems(PurchasingReturn):
     items: List[PurchasingReturnItem] = []
@@ -234,13 +223,10 @@ class GoodReceivedNoteBase(BaseModel):
 class GoodReceivedNoteCreate(GoodReceivedNoteBase):
     pass
 
-class GoodReceivedNote(GoodReceivedNoteBase):
+class GoodReceivedNote(GoodReceivedNoteBase, TijaeroBaseSchema):
     id: int
     created_date: date
     added_date: datetime
-    
-    class Config:
-        from_attributes = True
 
 class GoodReceivedItemBase(BaseModel):
     good_received_note: str
@@ -252,13 +238,10 @@ class GoodReceivedItemBase(BaseModel):
 class GoodReceivedItemCreate(GoodReceivedItemBase):
     pass
 
-class GoodReceivedItem(GoodReceivedItemBase):
+class GoodReceivedItem(GoodReceivedItemBase, TijaeroBaseSchema):
     id: int
     created_date: date
     added_date: datetime
-    
-    class Config:
-        from_attributes = True
 
 
 class GoodReceivedItemWithDetails(GoodReceivedItem):
@@ -266,9 +249,6 @@ class GoodReceivedItemWithDetails(GoodReceivedItem):
     product_name: Optional[str] = None
     saved_to_sales_stock: bool = False
     saved_to_company_assets: bool = False
-    
-    class Config:
-        from_attributes = True
 
 class GoodReceivedNoteListFilter(BaseModel):
     branch_code: Optional[str] = None
@@ -289,16 +269,13 @@ class SupplierCreditsSettleTransactionBase(BaseModel):
 class SupplierCreditsSettleTransactionCreate(SupplierCreditsSettleTransactionBase):
     pass
 
-class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase):
+class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
     supplier_credit_settle_id: int
     created_date: datetime
     grn_no: Optional[str] = None
     po_no: Optional[str] = None
     invoice_no: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 class SupplierCreditsSettleBase(BaseModel):
     supplier_credits_settle_no: str
@@ -312,15 +289,12 @@ class SupplierCreditsSettleUpdate(BaseModel):
     branch_code: Optional[str] = None
     status: Optional[str] = None
 
-class SupplierCreditsSettle(SupplierCreditsSettleBase):
+class SupplierCreditsSettle(TijaeroBaseSchema, SupplierCreditsSettleBase):
     id: int
     created_date: datetime
     status: str
     verified_by: Optional[int] = None
     verified_date: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 class SupplierCreditsSettleWithTransactions(SupplierCreditsSettle):
     transactions: List[SupplierCreditsSettleTransaction] = []
@@ -394,7 +368,7 @@ class SupplierPaymentUpdate(BaseModel):
     status: Optional[str] = None
 
 
-class SupplierPayment(SupplierPaymentBase):
+class SupplierPayment(SupplierPaymentBase, TijaeroBaseSchema):
     id: int
     payment_no: str
     status: str
@@ -405,9 +379,6 @@ class SupplierPayment(SupplierPaymentBase):
     
     supplier_name: Optional[str] = None
     po_no: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 class SupplierPaymentListFilter(BaseModel):
@@ -447,7 +418,7 @@ class SupplierAdvancePaymentUpdate(BaseModel):
     remarks: Optional[str] = None
 
 
-class SupplierAdvancePayment(SupplierAdvancePaymentBase):
+class SupplierAdvancePayment(SupplierAdvancePaymentBase, TijaeroBaseSchema):
     id: int
     advance_no: str
     payment_voucher_id: Optional[int] = None
@@ -460,16 +431,10 @@ class SupplierAdvancePayment(SupplierAdvancePaymentBase):
     
     # Loaded from relationships
     supplier_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 class SupplierAdvancePaymentWithApplications(SupplierAdvancePayment):
     applications: List["SupplierAdvanceApplication"] = []
-    
-    class Config:
-        from_attributes = True
 
 
 class SupplierAdvancePaymentListFilter(BaseModel):
@@ -496,7 +461,7 @@ class SupplierAdvanceApplicationCreate(SupplierAdvanceApplicationBase):
     pass
 
 
-class SupplierAdvanceApplication(SupplierAdvanceApplicationBase):
+class SupplierAdvanceApplication(SupplierAdvanceApplicationBase, TijaeroBaseSchema):
     id: int
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -504,9 +469,6 @@ class SupplierAdvanceApplication(SupplierAdvanceApplicationBase):
     # Loaded from relationships
     grn_no: Optional[str] = None
     advance_no: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 class SupplierAdvanceBalanceSummary(BaseModel):

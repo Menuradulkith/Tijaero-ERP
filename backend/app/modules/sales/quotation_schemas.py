@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from app.common.base_schemas import TijaeroBaseSchema
+
 
 class QuoteTypeEnum(str, Enum):
     QUOTATION = "quotation"
@@ -23,6 +25,8 @@ class QuoteStatusEnum(str, Enum):
     CONVERTED = "converted"
     CONVERTED_TO_INVOICE = "converted_to_invoice"
     PO_CREATED = "po_created"
+    ITEM_RECEIVED = "item_received"
+    SO_CREATED = "so_created"
     CANCELLED = "cancelled"
     REVISED = "revised"
 
@@ -78,7 +82,7 @@ class SalesQuoteItemUpdate(BaseModel):
     remark: Optional[str] = None
 
 
-class SalesQuoteItem(BaseModel):
+class SalesQuoteItem(TijaeroBaseSchema):
     """Schema for quote item response"""
 
     id: int
@@ -95,18 +99,12 @@ class SalesQuoteItem(BaseModel):
     remark: Optional[str] = None
     discount_percentage: float = 0
 
-    class Config:
-        from_attributes = True
-
 
 class SalesQuoteItemWithProduct(SalesQuoteItem):
     """Schema for quote item with product details"""
 
     product_name: Optional[str] = None
     product_code: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 # ==================== Quote Schemas ====================
@@ -118,7 +116,7 @@ class SalesQuoteBase(BaseModel):
     quote_type: QuoteTypeEnum = QuoteTypeEnum.QUOTATION
     branch_code: str = Field(..., max_length=200)
     customer_id: int
-    sale_rep_id: int
+    sale_rep_id: Optional[int] = None  # Optional - can be assigned later
     customer_agent_id: Optional[int] = None
     valid_until: date
     expected_delivery_date: Optional[date] = None
@@ -152,7 +150,7 @@ class SalesQuoteUpdate(BaseModel):
 
     branch_code: Optional[str] = Field(None, max_length=200)
     customer_id: Optional[int] = None
-    sale_rep_id: Optional[int] = None
+    sale_rep_id: Optional[int] = None  # Optional
     customer_agent_id: Optional[int] = None
     valid_until: Optional[date] = None
     expected_delivery_date: Optional[date] = None
@@ -180,7 +178,7 @@ class SalesQuoteStatusUpdate(BaseModel):
     remarks: Optional[str] = None
 
 
-class SalesQuote(BaseModel):
+class SalesQuote(TijaeroBaseSchema):
     """Schema for sales quote response"""
 
     id: int
@@ -188,7 +186,7 @@ class SalesQuote(BaseModel):
     quote_type: QuoteTypeEnum
     branch_code: str
     customer_id: int
-    sale_rep_id: int
+    sale_rep_id: Optional[int] = None
     customer_agent_id: Optional[int] = None
     created_date: date
     created_date_time: datetime
@@ -228,17 +226,11 @@ class SalesQuote(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class SalesQuoteWithItems(SalesQuote):
     """Schema for sales quote with items"""
 
     items: List[SalesQuoteItem] = []
-
-    class Config:
-        from_attributes = True
 
 
 class SalesQuoteDetail(SalesQuoteWithItems):
@@ -248,9 +240,6 @@ class SalesQuoteDetail(SalesQuoteWithItems):
     customer_agent_name: Optional[str] = None
     sale_rep_name: Optional[str] = None
     converted_invoice_no: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class SalesQuoteList(BaseModel):

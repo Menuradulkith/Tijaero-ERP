@@ -7,6 +7,7 @@ import orjson
 from datetime import datetime, date
 
 from app.core.config import settings
+from app.core.exceptions import AppException
 from app.core.middleware import setup_middleware
 from app.core.swagger import tags_metadata, swagger_ui_parameters
 from app.api.v1.router import api_router
@@ -152,6 +153,17 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 
 setup_middleware(app)
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+# ── Global Exception Handlers ────────────────────────────────────────
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException):
+    """Translate custom business exceptions into JSON HTTP responses."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, **({"extra": exc.extra} if exc.extra else {})},
+    )
+
 
 @app.get("/")
 def root():

@@ -8,7 +8,7 @@
 export const ERP_CURRENCY = "LKR";
 export const ERP_CURRENCY_SYMBOL = "Rs.";
 export const ERP_LOCALE = "en-LK";
-export const ERP_TIMEZONE = "Asia/Colombo";
+export const ERP_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 /**
  * Format a number as currency with LKR and two decimal places

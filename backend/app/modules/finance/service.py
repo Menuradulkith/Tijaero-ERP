@@ -5,6 +5,8 @@ from decimal import Decimal
 from . import models, schemas, repository
 from fastapi import HTTPException, status
 from app.core import timezone as tz
+from app.common.audit import log_audit
+from app.common.enums import ExpenseStatus, PaymentStatus
 
 from app.modules.customers.models import (
     CustomerAdvancePayments,
@@ -114,11 +116,12 @@ class ExpenseService:
 
     def submit_expense(self, expense_id: int, submitted_by: int) -> models.Expenses:
         expense = self.get_expense(expense_id)
-        if expense.status not in ("pending", "rejected"):
+        if expense.status not in (ExpenseStatus.PENDING, ExpenseStatus.REJECTED):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot submit expense in '{expense.status}' status")
-        expense.status = "submitted"
+        expense.status = ExpenseStatus.SUBMITTED
         expense.submitted_by = submitted_by
         expense.rejection_reason = None
+        log_audit(self.db, user_id=submitted_by, action="submit", entity_type="expense", entity_id=expense_id, changes={"status": ExpenseStatus.SUBMITTED})
         self.db.commit()
         self.db.refresh(expense)
         return expense
@@ -131,13 +134,14 @@ class ExpenseService:
         ).with_for_update().first()
         if not expense:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
-        if expense.status != "submitted":
+        if expense.status != ExpenseStatus.SUBMITTED:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot approve expense in '{expense.status}' status")
-        expense.status = "approved"
+        expense.status = ExpenseStatus.APPROVED
         expense.approved_by = approved_by
         expense.approved_date = tz.now()
         if remarks:
             expense.remarks = (expense.remarks or "") + f"\n[Approval] {remarks}"
+        log_audit(self.db, user_id=approved_by, action="approve", entity_type="expense", entity_id=expense_id, changes={"status": ExpenseStatus.APPROVED})
         self.db.commit()
         self.db.refresh(expense)
         return expense
@@ -149,13 +153,15 @@ class ExpenseService:
         ).with_for_update().first()
         if not expense:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
-        if expense.status != "submitted":
+        if expense.status != ExpenseStatus.SUBMITTED:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot reject expense in '{expense.status}' status")
-        expense.status = "rejected"
+        expense.status = ExpenseStatus.REJECTED
         expense.approved_by = rejected_by
         expense.rejection_reason = rejection_reason
+        log_audit(self.db, user_id=rejected_by, action="reject", entity_type="expense", entity_id=expense_id, changes={"status": ExpenseStatus.REJECTED, "reason": rejection_reason})
         self.db.commit()
         self.db.refresh(expense)
+        return expense
         return expense
 
     def process_payment(self, expense_id: int, payment_data: schemas.ExpensePayment, processed_by: int) -> models.Expenses:
@@ -166,13 +172,13 @@ class ExpenseService:
         ).with_for_update().first()
         if not expense:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
-        if expense.status != "approved":
+        if expense.status != ExpenseStatus.APPROVED:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot process payment for expense in '{expense.status}' status")
-        expense.payment_status = "paid"
+        expense.payment_status = PaymentStatus.PAID
         expense.payment_method = payment_data.payment_method
         expense.payment_reference = payment_data.payment_reference
         expense.payment_date = payment_data.payment_date or date_type.today()
-        expense.status = "paid"
+        expense.status = ExpenseStatus.PAID
         if payment_data.remarks:
             expense.remarks = (expense.remarks or "") + f"\n[Payment] {payment_data.remarks}"
         self.db.commit()
@@ -194,7 +200,7 @@ class ExpenseService:
 
     def record_expense(self, expense_id: int, record_data: schemas.ExpenseRecord) -> models.Expenses:
         expense = self.get_expense(expense_id)
-        if expense.status != "paid":
+        if expense.status != ExpenseStatus.PAID:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot record expense in '{expense.status}' status")
         expense.account_code = record_data.account_code
         expense.cost_center = record_data.cost_center
