@@ -46,6 +46,7 @@ import {
 } from "@mui/icons-material";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -76,7 +77,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-// import { useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { salesApi } from "../api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate } from "../types";
@@ -136,7 +137,7 @@ const emptyInvoiceForm: Partial<InvoiceCreate> = {
 
 export default function SalesPage() {
   const queryClient = useQueryClient();
-  // const navigate = useNavigate();
+  const location = useLocation();
 
   // Line items state (separate from main form for complex management)
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
@@ -395,6 +396,123 @@ export default function SalesPage() {
       state.setSelectedItem(filteredInvoices[0]);
     }
   }, [filteredInvoices, state.selectedItem, state.isCreating]);
+
+  // Handle navigation state from Proforma page (auto-select Sales Order created from proforma)
+  const navStateHandled = useRef(false);
+  useEffect(() => {
+    const navState = location.state as { fromProforma?: boolean; invoiceId?: number; invoiceNo?: string } | null;
+    if (navState?.fromProforma && navState.invoiceId && !navStateHandled.current) {
+      navStateHandled.current = true;
+      // Invalidate and refetch to ensure the newly created invoice appears
+      queryClient.invalidateQueries({ queryKey: ["sales"] });
+    }
+  }, [location.state, queryClient]);
+
+  // After invoices are (re)loaded, select the invoice from navigation state
+  const navSelectHandled = useRef(false);
+  useEffect(() => {
+    const navState = location.state as { fromProforma?: boolean; invoiceId?: number; invoiceNo?: string } | null;
+    if (navState?.fromProforma && navState.invoiceId && invoices && !navSelectHandled.current) {
+      const createdInvoice = invoices.find((inv: Invoice) => inv.id === navState.invoiceId);
+      if (createdInvoice) {
+        navSelectHandled.current = true;
+        state.setSelectedItem(createdInvoice);
+        showSuccessToast(`Navigated to Sales Order ${navState.invoiceNo || createdInvoice.invoice_no} created from proforma invoice`);
+        // Clear navigation state to prevent re-triggering
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [invoices, location.state, state]);
+
+  // Handle navigation from Proforma page: auto-create new SO with pre-filled items
+  interface ProformaNavState {
+    fromProforma?: boolean;
+    createNew?: boolean;
+    proformaId?: number;
+    proformaNo?: string;
+    customerId?: number;
+    branchCode?: string;
+    remarks?: string;
+    items?: Array<{
+      product_id: number;
+      quantity: number;
+      selling_price: number;
+      minimum_selling_price: number;
+      warrenty_month: string;
+      product_name?: string;
+    }>;
+  }
+  const proformaCreateHandled = useRef(false);
+  useEffect(() => {
+    const navState = location.state as ProformaNavState | null;
+    if (navState?.fromProforma && navState.createNew && navState.proformaId && !proformaCreateHandled.current) {
+      proformaCreateHandled.current = true;
+
+      // Enter create mode
+      state.setSelectedItem(null);
+      state.setIsCreating(true);
+      setFormStep(0);
+      setLineItems([]);
+      setBarcodeInput("");
+      setBarcodeError(null);
+      setValidatedBarcodes([]);
+      setCouponCode("");
+      setCouponValidation(null);
+      setCouponError(null);
+      setVoucherCode("");
+      setAppliedVouchers([]);
+      setVoucherError(null);
+      setCreditNoteAmount(0);
+      setDiscountType("percent");
+      setDiscountValue(0);
+      setTaxRate(0);
+
+      // Pre-fill form with proforma data
+      const now = new Date();
+      const yr = now.getFullYear();
+      const seq = String(Math.floor(Date.now() / 1000)).slice(-5);
+      state.setFormData({
+        invoice_no: `INV-${yr}-${seq}`,
+        branch_code: navState.branchCode || "MAIN",
+        customer_id: navState.customerId || 0,
+        customer_agent_id: undefined,
+        sale_rep_id: 1,
+        payment_method: "cash",
+        cash_amount: 0,
+        card_visa_amount: 0,
+        card_mastercard_amount: 0,
+        card_amex_amount: 0,
+        cheque_amount: 0,
+        bank_transfer_amount: 0,
+        credit_amount: 0,
+        payment_adjustments: 0,
+        remarks: navState.remarks || "",
+        special: false,
+        items: [],
+        source_quote_id: navState.proformaId,
+        source_quote_type: "proforma",
+      });
+
+      // Pre-fill line items from proforma (without barcodes — user scans barcodes to assign)
+      if (navState.items && navState.items.length > 0) {
+        const prefilledItems: ItemFormData[] = navState.items.map(item => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          selling_price: item.selling_price,
+          minimum_selling_price: item.minimum_selling_price,
+          warrenty_month: item.warrenty_month || "0",
+          barcode: undefined, // Barcode not yet assigned — user scans to assign
+          product_name: item.product_name || "",
+        }));
+        setLineItems(prefilledItems);
+      }
+
+      showSuccessToast(`Creating Sales Order from Proforma ${navState.proformaNo}. Scan barcodes to assign stock items.`);
+      // Clear navigation state to prevent re-triggering
+      window.history.replaceState({}, document.title);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   // Mutations
   const deleteMutation = useMutation({
@@ -1051,7 +1169,37 @@ export default function SalesPage() {
       const warrantyMonths = stockItem.warranty_month || stockItem.product?.warrenty_month || "0";
       const productName = stockItem.product_name || stockItem.product?.product_name || stockItem.product?.name || "";
 
-      // Add to line items
+      // === Proforma mode: assign barcode to existing pre-filled item ===
+      const isFromProforma = !!(state.formData as any).source_quote_id;
+      if (isFromProforma) {
+        // Find a pre-filled item matching this product that doesn't yet have a barcode
+        const unassignedIdx = lineItems.findIndex(
+          item => item.product_id === stockItem.product_id && !item.barcode
+        );
+        if (unassignedIdx >= 0) {
+          // Assign barcode to the existing item
+          setLineItems(prev => prev.map((item, idx) =>
+            idx === unassignedIdx
+              ? { ...item, barcode: barcode.trim(), product_name: productName || item.product_name, branch_code: stockItem.branch_code }
+              : item
+          ));
+          setValidatedBarcodes(prev => [...prev, barcode.trim()]);
+          setBarcodeInput("");
+          barcodeInputRef.current?.focus();
+          showSuccessToast(`Assigned barcode to: ${productName || "Product"}`);
+          return;
+        } else {
+          // No unassigned item for this product — check if ALL items for this product are assigned
+          const hasProductAtAll = lineItems.some(item => item.product_id === stockItem.product_id);
+          if (hasProductAtAll) {
+            setBarcodeError(`All items for ${productName || "this product"} already have barcodes assigned`);
+            return;
+          }
+          // Product not in proforma list — add as extra item (fall through to normal flow)
+        }
+      }
+
+      // === Normal mode: add new line item ===
       const newItem: ItemFormData = {
         product_id: stockItem.product_id,
         quantity: 1,
@@ -1073,7 +1221,7 @@ export default function SalesPage() {
     } finally {
       setIsValidatingBarcode(false);
     }
-  }, [lineItems, products, state.formData.branch_code]);
+  }, [lineItems, products, state.formData.branch_code, state.formData]);
 
   // Coupon validation handler
   const handleValidateCoupon = useCallback(async () => {
@@ -1835,6 +1983,20 @@ export default function SalesPage() {
               </Button>
             </Box>
           </Paper>
+
+          {/* Proforma Mode: Show assignment progress */}
+          {!!(state.formData as any).source_quote_id && lineItems.length > 0 && (
+            <Alert
+              severity={lineItems.every(item => !!item.barcode) ? "success" : "info"}
+              sx={{ mb: 2 }}
+            >
+              <strong>Proforma Items:</strong>{" "}
+              {lineItems.filter(item => !!item.barcode).length} / {lineItems.length} items have barcodes assigned.
+              {!lineItems.every(item => !!item.barcode)
+                ? " Scan barcodes to assign stock to the remaining items."
+                : " All items assigned! You can proceed to payment."}
+            </Alert>
+          )}
 
           {/* Line Items Section */}
           <Box sx={{ mb: 3 }}>
@@ -2743,13 +2905,10 @@ export default function SalesPage() {
             </Paper>
           )}
 
-          {/* ── Sticky Live Total Bar ────────────────────────────────── */}
+          {/* ── Live Total Bar ────────────────────────────────── */}
           <Paper
             variant="outlined"
             sx={{
-              position: "sticky",
-              bottom: 8,
-              zIndex: 10,
               px: 2,
               py: 1.5,
               bgcolor: "background.paper",
@@ -2759,7 +2918,6 @@ export default function SalesPage() {
               gap: 2,
               alignItems: "center",
               justifyContent: "space-between",
-              boxShadow: 4,
             }}
           >
             <Box sx={{ display: "flex", gap: 2.5, flexWrap: "wrap", alignItems: "center" }}>

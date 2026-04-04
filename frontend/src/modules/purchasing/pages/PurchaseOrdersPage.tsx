@@ -36,7 +36,8 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 // Import tijaero components
 import {
   ActionToolbar,
@@ -135,6 +136,7 @@ const resetFormFromOrder = (order: PurchasingOrder | PurchasingOrderWithItems): 
 
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
   const [formStep, setFormStep] = useState(0);
 
@@ -374,6 +376,83 @@ export default function PurchaseOrdersPage() {
       handleSelectOrderWithItems(filteredOrders[0]);
     }
   }, [filteredOrders, selectedOrder, isCreating]);
+
+  // Handle navigation state from Quotation page (auto-select PO created from quotation)
+  const navStateHandled = useRef(false);
+  useEffect(() => {
+    const navState = location.state as { fromQuotation?: boolean; purchaseOrderId?: number; purchaseOrderNo?: string } | null;
+    if (navState?.fromQuotation && navState.purchaseOrderId && !navStateHandled.current) {
+      navStateHandled.current = true;
+      // Invalidate and refetch to ensure the newly created PO appears
+      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+    }
+  }, [location.state, queryClient]);
+
+  // After orders are (re)loaded, select the PO from navigation state
+  const navSelectHandled = useRef(false);
+  useEffect(() => {
+    const navState = location.state as { fromQuotation?: boolean; purchaseOrderId?: number; purchaseOrderNo?: string } | null;
+    if (navState?.fromQuotation && navState.purchaseOrderId && orders && !navSelectHandled.current) {
+      const createdPO = orders.find((o: PurchasingOrder) => o.id === navState.purchaseOrderId);
+      if (createdPO) {
+        navSelectHandled.current = true;
+        handleSelectOrderWithItems(createdPO);
+        showSuccessToast(`Navigated to PO ${navState.purchaseOrderNo || createdPO.purchasing_order_no} created from quotation`);
+        // Clear navigation state to prevent re-triggering
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [orders, location.state, handleSelectOrderWithItems]);
+
+  // Handle navigation from Proforma page — auto-create PO with pre-filled items
+  const proformaNavHandled = useRef(false);
+  useEffect(() => {
+    interface ProformaNavState {
+      fromProforma?: boolean;
+      proformaId?: number;
+      proformaNo?: string;
+      branchCode?: string;
+      remarks?: string;
+      items?: Array<{
+        product_id: number;
+        quantity: number;
+        unit_price: number;
+        warrenty_month: string;
+        remark: string;
+      }>;
+    }
+    const navState = location.state as ProformaNavState | null;
+    if (navState?.fromProforma && navState.items && !proformaNavHandled.current) {
+      proformaNavHandled.current = true;
+
+      // Enter create mode
+      startNewOrderInternal();
+
+      // Pre-fill form data
+      setFormData((prev) => ({
+        ...prev,
+        branch_code: navState.branchCode || prev.branch_code,
+        remarks: navState.remarks || "",
+        sales_quote_id: navState.proformaId,
+      }));
+
+      // Pre-fill line items from proforma
+      const prefilledItems: OrderLineItem[] = navState.items.map((item, idx) => ({
+        _id: `proforma-${idx}-${Date.now()}`,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        warrenty_month: item.warrenty_month || "0",
+        remark: item.remark || "",
+      }));
+      setLineItems(prefilledItems);
+
+      showSuccessToast(`Creating PO from Proforma ${navState.proformaNo || ""}. Fill in supplier details and save.`);
+
+      // Clear navigation state to prevent re-triggering
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, startNewOrderInternal, setFormData]);
 
   // Check credit limit when supplier or amount changes
   const checkCreditLimit = useCallback(async (supplierId: number, amount: number, paymentMethod: string) => {

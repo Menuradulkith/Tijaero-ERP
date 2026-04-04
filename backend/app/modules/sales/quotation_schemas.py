@@ -25,6 +25,8 @@ class QuoteStatusEnum(str, Enum):
     CONVERTED = "converted"
     CONVERTED_TO_INVOICE = "converted_to_invoice"
     PO_CREATED = "po_created"
+    ITEM_RECEIVED = "item_received"
+    SO_CREATED = "so_created"
     CANCELLED = "cancelled"
     REVISED = "revised"
 
@@ -114,7 +116,7 @@ class SalesQuoteBase(BaseModel):
     quote_type: QuoteTypeEnum = QuoteTypeEnum.QUOTATION
     branch_code: str = Field(..., max_length=200)
     customer_id: int
-    sale_rep_id: int
+    sale_rep_id: Optional[int] = None  # Optional - can be assigned later
     customer_agent_id: Optional[int] = None
     valid_until: date
     expected_delivery_date: Optional[date] = None
@@ -148,7 +150,7 @@ class SalesQuoteUpdate(BaseModel):
 
     branch_code: Optional[str] = Field(None, max_length=200)
     customer_id: Optional[int] = None
-    sale_rep_id: Optional[int] = None
+    sale_rep_id: Optional[int] = None  # Optional
     customer_agent_id: Optional[int] = None
     valid_until: Optional[date] = None
     expected_delivery_date: Optional[date] = None
@@ -184,7 +186,7 @@ class SalesQuote(TijaeroBaseSchema):
     quote_type: QuoteTypeEnum
     branch_code: str
     customer_id: int
-    sale_rep_id: int
+    sale_rep_id: Optional[int] = None
     customer_agent_id: Optional[int] = None
     created_date: date
     created_date_time: datetime

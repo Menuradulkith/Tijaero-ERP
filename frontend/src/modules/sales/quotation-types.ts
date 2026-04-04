@@ -15,6 +15,8 @@ export type QuoteStatus =
   | 'converted'
   | 'converted_to_invoice'
   | 'po_created'
+  | 'item_received'
+  | 'so_created'
   | 'cancelled'
   | 'revised';
 
@@ -231,6 +233,8 @@ export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
   converted: 'Converted',
   converted_to_invoice: 'Converted to Invoice',
   po_created: 'PO Created',
+  item_received: 'Item Received',
+  so_created: 'SO Created',
   cancelled: 'Cancelled',
   revised: 'Revised',
 };
@@ -248,6 +252,8 @@ export const QUOTE_STATUS_COLORS: Record<QuoteStatus, string> = {
   converted: 'teal',
   converted_to_invoice: 'teal',
   po_created: 'cyan',
+  item_received: 'teal',
+  so_created: 'indigo',
   cancelled: 'red',
   revised: 'gray',
 };

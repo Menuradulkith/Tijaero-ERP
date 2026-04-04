@@ -27,6 +27,8 @@ class QuoteStatus(str, enum.Enum):
     CONVERTED = "converted" 
     CONVERTED_TO_INVOICE = "converted_to_invoice"  # Successfully converted to invoice
     PO_CREATED = "po_created"  # PO raised from this quotation
+    ITEM_RECEIVED = "item_received"  # GRN completed for linked PO
+    SO_CREATED = "so_created"  # Sales Order created from proforma
     CANCELLED = "cancelled" 
     REVISED = "revised" 
 
@@ -48,7 +50,7 @@ class SalesQuote(Base, TimestampMixin):
     )  
     branch_code = Column(String(200), nullable=False) 
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    sale_rep_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    sale_rep_id = Column(Integer, ForeignKey("employees.id"), nullable=True)  # Optional
     customer_agent_id = Column(Integer, ForeignKey("customers.id"), nullable=True)
     created_date = Column(Date, nullable=False)
     created_date_time = Column(TIMESTAMP, nullable=False)

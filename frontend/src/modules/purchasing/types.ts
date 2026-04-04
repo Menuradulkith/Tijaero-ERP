@@ -143,6 +143,7 @@ export interface PurchasingOrderCreate {
   credit_date?: number;
   first_suppliers_id: number;
   second_suppliers_id: number;
+  sales_quote_id?: number;  // Link to source proforma/quotation
   items: PurchasingOrderItemCreate[];
 }
 

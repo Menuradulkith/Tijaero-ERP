@@ -1093,6 +1093,22 @@ class SalesService:
                     f"GL posting for advance application failed for invoice {invoice.invoice_no}: {e}"
                 )
         
+        # Update linked proforma/quotation status to so_created when SO is created from proforma
+        source_quote_id = getattr(invoice_data, 'source_quote_id', None)
+        if source_quote_id:
+            try:
+                from app.modules.sales.quotation_models import SalesQuote, QuoteStatus as QStatus
+                linked_quote = db.query(SalesQuote).filter(SalesQuote.id == source_quote_id).first()
+                if linked_quote and linked_quote.status not in [
+                    QStatus.SO_CREATED.value,
+                    QStatus.CONVERTED_TO_INVOICE.value,
+                    QStatus.CANCELLED.value,
+                ]:
+                    linked_quote.status = QStatus.SO_CREATED.value
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to update linked proforma status: {e}")
+        
         db.commit()
         db.refresh(invoice)
         return invoice

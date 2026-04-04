@@ -179,6 +179,25 @@ class PurchasingOrderService:
         log_audit(self.db, user_id=created_by, action="create", entity_type="purchase_order", entity_id=created_order.id, changes={"status": initial_status, "po_no": created_order.purchasing_order_no})
         self.db.commit()
 
+        # If PO was created from a proforma/quotation, update the quote status to po_created
+        if order.sales_quote_id:
+            try:
+                from app.modules.sales.quotation_models import SalesQuote, QuoteStatus
+                linked_quote = self.db.query(SalesQuote).filter(SalesQuote.id == order.sales_quote_id).first()
+                if linked_quote and linked_quote.status not in [
+                    QuoteStatus.PO_CREATED.value,
+                    QuoteStatus.ITEM_RECEIVED.value,
+                    QuoteStatus.CONVERTED_TO_INVOICE.value,
+                    QuoteStatus.CANCELLED.value,
+                ]:
+                    linked_quote.status = QuoteStatus.PO_CREATED.value
+                    linked_quote.linked_po_id = created_order.id
+                    linked_quote.po_created_date = tz.now()
+                    self.db.commit()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to update linked quote status: {e}")
+
         return created_order
     
     def get_order(self, order_id: int) -> models.PurchasingOrder:
@@ -824,6 +843,17 @@ class GoodReceivedNoteService:
 
         po_status = self._determine_po_completion_status(po.id)
         po.status = po_status
+        
+        # If PO is linked to a sales quote/proforma and is completed, update quote status to item_received
+        if po_status == "completed" and po.sales_quote_id:
+            try:
+                from app.modules.sales.quotation_models import SalesQuote, QuoteStatus
+                linked_quote = self.db.query(SalesQuote).filter(SalesQuote.id == po.sales_quote_id).first()
+                if linked_quote and linked_quote.status == QuoteStatus.PO_CREATED.value:
+                    linked_quote.status = QuoteStatus.ITEM_RECEIVED.value
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to update linked quote status on GRN: {e}")
         
         # Update credit balance in the same transaction for atomicity
         credit_service = SupplierCreditService()

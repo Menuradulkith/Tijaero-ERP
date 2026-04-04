@@ -96,6 +96,7 @@ class PurchasingOrderBase(BaseModel):
     credit_date: Optional[int] = None
     first_suppliers_id: int
     second_suppliers_id: int
+    sales_quote_id: Optional[int] = None  # Link to source proforma/quotation
 
 class PurchasingOrderCreate(PurchasingOrderBase):
     items: List[PurchasingOrderItemCreate]
