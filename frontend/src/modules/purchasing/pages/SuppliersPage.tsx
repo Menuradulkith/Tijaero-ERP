@@ -349,7 +349,7 @@ export default function SuppliersPage() {
             <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
               {/* Supplier Name */}
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{`${supplier.title} ${supplier.full_name}`}</span>
+                <span>{supplier.full_name}</span>
                 {isSelected && (
                   <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                     (Name)
@@ -387,6 +387,15 @@ export default function SuppliersPage() {
                       color={supplier.active ? "success" : "default"}
                       sx={{ height: 18, fontSize: "0.65rem" }}
                     />
+                    {supplier.title && (
+                      <Chip
+                        label={supplier.title.charAt(0).toUpperCase() + supplier.title.slice(1)}
+                        size="small"
+                        color="secondary"
+                        variant="outlined"
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                    )}
                   </Box>
                 </>
               )}

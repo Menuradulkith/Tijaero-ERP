@@ -18,6 +18,9 @@ class CompanyAssets(Base):
     good_received_note_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=True)
     purchasing_order_items_id = Column(Integer, ForeignKey("purchasing_order_items.id"), nullable=True)
     status = Column(String(50), nullable=False, default="available")  
+    return_reason = Column(String(200), nullable=True)  # Reason for return (from sale return)
+    sale_return_id = Column(Integer, nullable=True)  # Link to sale return record
+    source = Column(String(50), nullable=False, default="grn")  # 'grn' or 'sale_return'
     added_date = Column(TIMESTAMP, nullable=True)
     
     product = relationship("Product", back_populates="company_assets")

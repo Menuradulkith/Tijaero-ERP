@@ -182,6 +182,7 @@ export default function SaleReturnsPage() {
     const [barcodeInput, setBarcodeInput] = useState("");
     const barcodeInputRef = useRef<HTMLInputElement>(null);
     const [invoiceItems, setInvoiceItems] = useState<InvoiceWithItems["items"] | null>(null);
+    const [selectedCandidates, setSelectedCandidates] = useState<Set<number>>(new Set());
 
     // Print Dialog State
     const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -238,6 +239,7 @@ export default function SaleReturnsPage() {
         setFormStep(0);
         setBarcodeInput("");
         setTouched({});
+        setSelectedCandidates(new Set());
     }, [handleNewReturnBase, setFormData, defaultBranchCode]);
 
     const handleStartEdit = useCallback(() => {
@@ -480,6 +482,29 @@ export default function SaleReturnsPage() {
         }
     };
 
+    const handleAddSelectedCandidates = useCallback(() => {
+        if (!invoiceItems || selectedCandidates.size === 0) return;
+        const toAdd = invoiceItems.filter(inv => selectedCandidates.has(inv.id) && !lineItems.some(li => li.invoice_item_id === inv.id));
+        const newItems: ReturnLineItem[] = toAdd.map(inv => ({
+            _id: `inv-${inv.id}-${Date.now()}`,
+            barcode: inv.barcode || "",
+            return_price: Number(inv.selling_price || 0),
+            sold_price: Number(inv.selling_price || 0),
+            branch_code: formData.branch_code,
+            invoice_item_id: inv.id,
+            product_id: inv.product_id,
+            quantity: inv.quantity || 1,
+            condition: "good",
+            restockable: true,
+            added_date: inv.created_date || new Date().toISOString(),
+        }));
+        if (newItems.length > 0) {
+            setLineItems(prev => [...prev, ...newItems]);
+            setSelectedCandidates(new Set());
+            showSuccessToast(`${newItems.length} item(s) added`);
+        }
+    }, [invoiceItems, selectedCandidates, lineItems, formData.branch_code]);
+
     const handleSave = useCallback(() => {
         const dataToSave: SaleReturnCreate = {
             ...formData,
@@ -712,8 +737,10 @@ export default function SaleReturnsPage() {
                                                     branch_code: newValue.branch_code
                                                 });
                                                 setLineItems([]);
+                                                setSelectedCandidates(new Set());
                                             } else {
                                                 setFormData({ ...formData, invoice_id: 0 });
+                                                setSelectedCandidates(new Set());
                                             }
                                             handleBlur('invoice_id');
                                         }}
@@ -903,6 +930,108 @@ export default function SaleReturnsPage() {
                                     </Button>
                                 )}
 
+                                {/* Load Invoice Items Panel */}
+                                {(isEditing || isCreating) && invoiceItems && invoiceItems.length > 0 && (
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{ p: 2, mb: 2, borderColor: "primary.main", borderWidth: 2, borderRadius: 2 }}
+                                    >
+                                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
+                                            <Typography variant="subtitle2" fontWeight="bold" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                                <AssignmentReturnIcon color="primary" fontSize="small" />
+                                                Invoice Items — Tick to Add
+                                            </Typography>
+                                            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    onClick={() => {
+                                                        const unaddedIds = invoiceItems
+                                                            .filter(inv => !lineItems.some(li => li.invoice_item_id === inv.id))
+                                                            .map(inv => inv.id);
+                                                        setSelectedCandidates(new Set(unaddedIds));
+                                                    }}
+                                                >
+                                                    Select All
+                                                </Button>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    onClick={() => setSelectedCandidates(new Set())}
+                                                    disabled={selectedCandidates.size === 0}
+                                                >
+                                                    Clear
+                                                </Button>
+                                                <Button
+                                                    size="small"
+                                                    variant="contained"
+                                                    color="primary"
+                                                    onClick={handleAddSelectedCandidates}
+                                                    disabled={selectedCandidates.size === 0}
+                                                    startIcon={<AddIcon />}
+                                                >
+                                                    Add Selected ({selectedCandidates.size})
+                                                </Button>
+                                            </Box>
+                                        </Box>
+                                        <Table size="small">
+                                            <TableHead>
+                                                <TableRow sx={modernTableStyles.headerRow}>
+                                                    <TableCell padding="checkbox" />
+                                                    <TableCell>Product</TableCell>
+                                                    <TableCell>Barcode</TableCell>
+                                                    <TableCell align="right">Qty</TableCell>
+                                                    <TableCell align="right">Selling Price</TableCell>
+                                                    <TableCell>Status</TableCell>
+                                                </TableRow>
+                                            </TableHead>
+                                            <TableBody>
+                                                {invoiceItems.map((inv) => {
+                                                    const alreadyAdded = lineItems.some(li => li.invoice_item_id === inv.id);
+                                                    const isChecked = selectedCandidates.has(inv.id);
+                                                    return (
+                                                        <TableRow
+                                                            key={inv.id}
+                                                            sx={{
+                                                                ...modernTableStyles.bodyRow,
+                                                                opacity: alreadyAdded ? 0.45 : 1,
+                                                                cursor: alreadyAdded ? "default" : "pointer",
+                                                            }}
+                                                            onClick={() => {
+                                                                if (alreadyAdded) return;
+                                                                setSelectedCandidates(prev => {
+                                                                    const next = new Set(prev);
+                                                                    if (next.has(inv.id)) next.delete(inv.id); else next.add(inv.id);
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                        >
+                                                            <TableCell padding="checkbox">
+                                                                <Checkbox
+                                                                    checked={isChecked || alreadyAdded}
+                                                                    disabled={alreadyAdded}
+                                                                    size="small"
+                                                                    onChange={() => {}}
+                                                                />
+                                                            </TableCell>
+                                                            <TableCell>{getProductName(inv.product_id) || `Product #${inv.product_id}`}</TableCell>
+                                                            <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{inv.barcode || "—"}</TableCell>
+                                                            <TableCell align="right">{inv.quantity}</TableCell>
+                                                            <TableCell align="right">Rs. {fmtLKR(Number(inv.selling_price))}</TableCell>
+                                                            <TableCell>
+                                                                {alreadyAdded
+                                                                    ? <Chip label="Added" size="small" color="success" sx={{ height: 18, fontSize: "0.65rem" }} />
+                                                                    : <Chip label="Available" size="small" color="default" sx={{ height: 18, fontSize: "0.65rem" }} />
+                                                                }
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })}
+                                            </TableBody>
+                                        </Table>
+                                    </Paper>
+                                )}
+
                                 {/* Barcode Scanner Section */}
                                 {(isEditing || isCreating) && (
                                     <Paper
@@ -970,7 +1099,7 @@ export default function SaleReturnsPage() {
                                 {/* Warning for empty items */}
                                 {(isEditing || isCreating) && lineItems.length === 0 && (
                                     <Alert severity="warning" sx={{ mb: 2 }}>
-                                        At least one item is required to save the return. Scan barcodes to add items.
+                                        At least one item is required. Select items from the invoice list above, or scan a barcode.
                                     </Alert>
                                 )}
 

@@ -121,6 +121,34 @@ def get_sales_stock_tracking(
 
 
 # Company Assets Endpoints - Real table for company-owned items
+@router.get("/company-assets", response_model=List[schemas.CompanyAsset])
+def get_all_company_assets(
+    branch_code: Optional[str] = None,
+    product_id: Optional[int] = None,
+    asset_status: Optional[str] = Query(None, alias="status"),
+    source: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
+):
+    """Get all company assets with optional filters"""
+    if branch_code:
+        if user_branches is not None and branch_code not in user_branches:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {branch_code}"
+            )
+    
+    company_asset_service = service.CompanyAssetService(db)
+    return company_asset_service.get_all(
+        branch_code=branch_code,
+        branch_codes=user_branches,
+        product_id=product_id,
+        status=asset_status,
+        source=source,
+    )
+
+
 @router.post("/company-assets", response_model=schemas.CompanyAsset, status_code=status.HTTP_201_CREATED)
 def create_company_asset(
     item: schemas.CompanyAssetCreate,

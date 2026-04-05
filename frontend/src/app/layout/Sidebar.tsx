@@ -8,6 +8,7 @@ import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import BalanceIcon from "@mui/icons-material/Balance";
 import BookIcon from "@mui/icons-material/Book";
 import BusinessIcon from "@mui/icons-material/Business";
+import BusinessCenterIcon from "@mui/icons-material/BusinessCenter";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CategoryIcon from "@mui/icons-material/Category";
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -228,6 +229,12 @@ const menuItems: MenuItem[] = [
       { text: "ITN Approvals", icon: <FactCheckIcon />, path: "/warehouse/itn-approvals" },
       { text: "Receive Notes", icon: <InventoryIcon />, path: "/warehouse/receive-notes" },
     ],
+  },
+  {
+    text: "Company Assets",
+    icon: <BusinessCenterIcon />,
+    path: "/warehouse/company-assets",
+    permission: PERMISSIONS.WAREHOUSE_VIEW,
   },
   {
     text: "Support",
