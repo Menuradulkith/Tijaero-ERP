@@ -394,10 +394,17 @@ export default function SalesStockDashboard() {
   const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(false);
 
   // OPTIMIZED: Fetch all reference data in a single API call
-  const { data: refData, isLoading: isLoadingRefData, filteredBranches } = useReferenceData(
+  const { data: refData, isLoading: isLoadingRefData, filteredBranches, defaultBranchCode } = useReferenceData(
     REFERENCE_DATA_PRESETS.DASHBOARD,
     { productsLimit: 1000 }
   );
+
+  // Set default branch filter from user's assigned branch
+  useEffect(() => {
+    if (defaultBranchCode && !selectedBranch) {
+      setSelectedBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch sales stock data (still separate as it depends on branch filter)
   const { data: salesStockData, isLoading: isLoadingStock, refetch: refetchStock } = useQuery({

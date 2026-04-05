@@ -1,5 +1,6 @@
 import apiClient from "@/api/client";
 import { useReferenceData } from "@/hooks";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
@@ -53,10 +54,13 @@ export default function SalesOrderDialog({
   const salesStock = refData?.sales_stock || [];
   const branches = filteredBranches || [];
 
+  // Get user's default branch
+  const { getDefaultBranchCode } = useBranchFilter();
+
   const { control, handleSubmit, watch, setValue } = useForm<InvoiceCreate>({
     defaultValues: {
       invoice_no: "",
-      branch_code: "MAIN",
+      branch_code: getDefaultBranchCode || "MAIN",
       customer_id: 0,
       sale_rep_id: 1,
       payment_method: "cash",

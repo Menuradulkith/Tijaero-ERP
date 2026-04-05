@@ -28,7 +28,7 @@ import { useQuery } from "@tanstack/react-query";
 import { salesApi } from "../api";
 import { Invoice } from "../types";
 // OPTIMIZED: Removed customersApi, productsApi imports - using aggregated endpoint
-import { modernTableStyles, TPrintPreviewDialog, fmtLKR } from "@/components/tijaero";
+import { modernTableStyles, TPrintPreviewDialog, fmtLKR, canPrintDocument } from "@/components/tijaero";
 import { format } from "date-fns";
 import { useRef, useState } from "react";
 
@@ -101,7 +101,7 @@ export default function InvoiceDetailsDialog({
           <Typography variant="h6">Invoice Details</Typography>
         </Box>
         <Box>
-          <IconButton onClick={handlePrint} disabled={isLoading}>
+          <IconButton onClick={handlePrint} disabled={isLoading || !canPrintDocument(invoiceDetails?.approval_status ?? invoice?.approval_status, ["cancelled"])}>
             <PrintIcon />
           </IconButton>
           <IconButton onClick={onClose}>
@@ -363,7 +363,7 @@ export default function InvoiceDetailsDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
-        <Button variant="contained" startIcon={<PrintIcon />} onClick={handlePrint} disabled={isLoading}>
+        <Button variant="contained" startIcon={<PrintIcon />} onClick={handlePrint} disabled={isLoading || !canPrintDocument(invoiceDetails?.approval_status ?? invoice?.approval_status, ["cancelled"])}>
           Print Invoice
         </Button>
       </DialogActions>

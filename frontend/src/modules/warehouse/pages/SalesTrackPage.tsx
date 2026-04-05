@@ -139,8 +139,15 @@ export default function SalesTrackPage() {
   const products = (productsResult as any)?.items || (Array.isArray(productsResult) ? productsResult : []) || [];
 
   // OPTIMIZED: Using aggregated endpoint for branches
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
+
+  // Set default branch filter from user's assigned branch
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create lookup maps
   const customerMap = useMemo(() => {

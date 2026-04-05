@@ -158,8 +158,15 @@ export default function VouchersPage() {
   });
 
   // Data fetching
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
+
+  // Set default branch when creating new voucher
+  useEffect(() => {
+    if (isCreating && defaultBranchCode && !formData.branch_code) {
+      setFormData(prev => ({ ...prev, branch_code: defaultBranchCode }));
+    }
+  }, [isCreating, defaultBranchCode, formData.branch_code, setFormData]);
 
   const { data: vouchers, isLoading, refetch } = useQuery({
     queryKey: ["vouchers"],

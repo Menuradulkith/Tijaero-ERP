@@ -173,7 +173,14 @@ export default function CommissionPaymentsPage() {
   );
 
   // Fetch branches
-  const { filteredBranches: branches = [] } = useReferenceData(["branches"]);
+  const { filteredBranches: branches = [], defaultBranchCode } = useReferenceData(["branches"]);
+
+  // Set default branch when creating new payment
+  useEffect(() => {
+    if (isCreating && defaultBranchCode && !formData.branch_code) {
+      setFormData(prev => ({ ...prev, branch_code: defaultBranchCode }));
+    }
+  }, [isCreating, defaultBranchCode, formData.branch_code, setFormData]);
 
   // Fetch payment details when a payment is selected
   const { data: paymentDetails, isLoading: isDetailLoading } = useQuery({

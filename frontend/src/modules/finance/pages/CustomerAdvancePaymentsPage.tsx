@@ -133,7 +133,7 @@ export default function CustomerAdvancePaymentsPage() {
   });
 
   // Reference data
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
   // Fetch customers
@@ -258,8 +258,11 @@ export default function CustomerAdvancePaymentsPage() {
 
   const handleNewAdvance = useCallback(() => {
     handleNew();
+    if (defaultBranchCode) {
+      setFormData(prev => ({ ...prev, branch_code: defaultBranchCode }));
+    }
     setTouched({});
-  }, [handleNew]);
+  }, [handleNew, defaultBranchCode, setFormData]);
 
   const handleSelectWithCheck = useCallback(
     async (item: CustomerAdvancePayment) => {
