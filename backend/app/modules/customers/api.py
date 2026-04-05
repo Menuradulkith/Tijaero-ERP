@@ -20,10 +20,11 @@ router = APIRouter(dependencies=[Depends(get_current_active_user)])
 def list_customers(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    active_only: bool = Query(False, description="Only return active customers"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW))
 ):
-    return service.customer_service.get_all_customers(db, skip, limit)
+    return service.customer_service.get_all_customers(db, skip, limit, active_only)
 
 @router.get(
     "/search",

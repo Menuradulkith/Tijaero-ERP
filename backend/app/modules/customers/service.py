@@ -19,8 +19,8 @@ class CustomerService:
             )
         return customer
     
-    def get_all_customers(self, db: Session, skip: int = 0, limit: int = 100) -> List[Customer]:
-        return repository.customer_repository.get_all(db, skip, limit)
+    def get_all_customers(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Customer]:
+        return repository.customer_repository.get_all(db, skip, limit, active_only)
     
     def search_customers(self, db: Session, query: str, skip: int = 0, limit: int = 100) -> List[Customer]:
         return repository.customer_repository.search(db, query, skip, limit)

@@ -46,6 +46,7 @@ export interface Branch {
   address?: string;
   email?: string;
   contact_number?: string;
+  active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -56,6 +57,7 @@ export interface BranchCreate {
   address?: string;
   email?: string;
   contact_number?: string;
+  active?: boolean;
 }
 
 export interface BranchUpdate {
@@ -63,6 +65,7 @@ export interface BranchUpdate {
   address?: string;
   email?: string;
   contact_number?: string;
+  active?: boolean;
 }
 
 // Pagination

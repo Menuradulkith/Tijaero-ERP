@@ -8,8 +8,8 @@ class BranchService:
     def __init__(self):
         self.repository = repository.branch_repository
     
-    def get_all_branches(self, db: Session, skip: int = 0, limit: int = 100) -> List[Branch]:
-        return self.repository.get_all(db, skip, limit)
+    def get_all_branches(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Branch]:
+        return self.repository.get_all(db, skip, limit, active_only)
     
     def get_branch(self, db: Session, branch_id: int) -> Branch:
         branch = self.repository.get_by_id(db, branch_id)

@@ -457,6 +457,55 @@ class SalesService:
             )
     
     def create_invoice(self, db: Session, invoice_data: schemas.InvoiceCreate, user_id: int):
+        # ── Validate branch is active ──
+        from app.common.branch_validation import validate_branch_is_active
+        validate_branch_is_active(db, invoice_data.branch_code)
+
+        # ── Validate customer is active ──
+        from app.modules.customers.models import Customer
+        customer = db.query(Customer).filter(Customer.id == invoice_data.customer_id).first()
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer with id {invoice_data.customer_id} not found"
+            )
+        if not customer.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Customer '{customer.customer_name}' is inactive. Please reactivate the customer before creating an invoice."
+            )
+
+        # ── Validate customer agent is active (if provided) ──
+        customer_agent_id = getattr(invoice_data, 'customer_agent_id', None)
+        if customer_agent_id:
+            agent = db.query(Customer).filter(Customer.id == customer_agent_id).first()
+            if agent and not agent.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Customer agent '{agent.customer_name}' is inactive. Please reactivate the agent before creating an invoice."
+                )
+
+        # ── Validate all products are active ──
+        from app.modules.products.models import Product
+        for item_data in invoice_data.items:
+            product = db.query(Product).filter(Product.id == item_data.product_id).first()
+            if product and not product.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to an invoice."
+                )
+
+        # ── Validate coupon is still active (if provided) ──
+        coupon_id = getattr(invoice_data, 'cupon_id', None)
+        if coupon_id:
+            from app.modules.customers.models import CustomerCuponCodes
+            coupon = db.query(CustomerCuponCodes).filter(CustomerCuponCodes.id == coupon_id).first()
+            if coupon and not coupon.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The coupon is no longer active. Please remove it and try again."
+                )
+
         # Calculate subtotal and gross_total from items (after item-level discounts)
         subtotal = Decimal("0")
         gross_total = Decimal("0")
@@ -897,10 +946,11 @@ class SalesService:
             
             # Find and link the sales stock item if barcode provided
             if barcode:
+                # Lock the stock row to prevent two invoices reserving the same item
                 stock_item = db.query(SalesStock).filter(
                     SalesStock.barcode == barcode,
                     SalesStock.status == StockStatus.AVAILABLE
-                ).first()
+                ).with_for_update().first()
                 
                 if stock_item:
                     sales_stock_id = stock_item.id
@@ -1161,6 +1211,39 @@ class SalesService:
     def update_invoice(self, db: Session, invoice_id: int, invoice_data: schemas.InvoiceUpdate, user_id: int):
         invoice = self.get_invoice(db, invoice_id)
         
+        # ── Validate customer is active (if customer is being changed) ──
+        update_data_raw = invoice_data.model_dump(exclude_unset=True, exclude={'items'})
+        if 'customer_id' in update_data_raw:
+            from app.modules.customers.models import Customer
+            customer = db.query(Customer).filter(Customer.id == update_data_raw['customer_id']).first()
+            if customer and not customer.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Customer '{customer.customer_name}' is inactive. Please reactivate the customer before updating the invoice."
+                )
+
+        # ── Validate customer agent is active (if agent is being changed) ──
+        if 'customer_agent_id' in update_data_raw and update_data_raw['customer_agent_id']:
+            from app.modules.customers.models import Customer as CustomerModel
+            agent = db.query(CustomerModel).filter(CustomerModel.id == update_data_raw['customer_agent_id']).first()
+            if agent and not agent.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Customer agent '{agent.customer_name}' is inactive. Please reactivate the agent before updating the invoice."
+                )
+
+        # ── Validate products are active (if items are being changed) ──
+        if invoice_data.items is not None:
+            from app.modules.products.models import Product
+            for item_data in invoice_data.items:
+                if hasattr(item_data, 'product_id') and item_data.product_id:
+                    product = db.query(Product).filter(Product.id == item_data.product_id).first()
+                    if product and not product.active:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to an invoice."
+                        )
+
         # Track original status for re-approval logic
         was_completed = invoice.approval_status == DocumentStatus.COMPLETED
         
@@ -1174,11 +1257,11 @@ class SalesService:
         
         # Handle items update if provided
         if invoice_data.items is not None:
-            # First, restore stock for existing items
+            # First, restore stock for existing items (lock rows to prevent concurrent modification)
             existing_items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
             for item in existing_items:
                 if item.sales_stock_id:
-                    stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                    stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
                     if stock_item and stock_item.status in [StockStatus.SOLD, StockStatus.RESERVED]:
                         stock_item.status = StockStatus.AVAILABLE
                         stock_item.is_active = True
@@ -1217,10 +1300,11 @@ class SalesService:
                 sales_stock_id = None
                 
                 if barcode:
+                    # Lock the stock row to prevent concurrent reservation
                     stock_item = db.query(SalesStock).filter(
                         SalesStock.barcode == barcode,
                         SalesStock.status == StockStatus.AVAILABLE
-                    ).first()
+                    ).with_for_update().first()
                     
                     if stock_item:
                         sales_stock_id = stock_item.id
@@ -1288,11 +1372,11 @@ class SalesService:
                 )
                 invoice.approval_id = approval_record.id
             
-            # Restore stock to reserved state
+            # Restore stock to reserved state (lock rows to prevent concurrent modification)
             items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
             for item in items:
                 if item.sales_stock_id:
-                    stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                    stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
                     if stock_item and stock_item.status == StockStatus.SOLD:
                         stock_item.status = StockStatus.RESERVED
                         stock_item.is_active = True
@@ -1305,11 +1389,11 @@ class SalesService:
     def delete_invoice(self, db: Session, invoice_id: int):
         invoice = self.get_invoice(db, invoice_id)
         
-        # Restore sales stock for items that were sold
+        # Restore sales stock for items that were sold (lock rows to prevent concurrent modification)
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
         for item in items:
             if item.sales_stock_id:
-                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
                 if stock_item and stock_item.status == StockStatus.SOLD:
                     # Restore the stock item to available
                     stock_item.status = StockStatus.AVAILABLE
@@ -1431,11 +1515,11 @@ class SalesService:
         invoice.approval = True
         invoice.approval_status = DocumentStatus.COMPLETED
         
-        # Ensure all stock items are marked as sold
+        # Ensure all stock items are marked as sold (lock rows to prevent concurrent modification)
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
         for item in items:
             if item.sales_stock_id:
-                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
                 if stock_item:
                     stock_item.status = StockStatus.SOLD
                     stock_item.is_active = False
@@ -1467,11 +1551,11 @@ class SalesService:
                 detail="Cannot cancel a completed invoice. Please create a sale return instead."
             )
         
-        # Restore sales stock for all items
+        # Restore sales stock for all items (lock rows to prevent concurrent modification)
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
         for item in items:
             if item.sales_stock_id:
-                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+                stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
                 if stock_item:
                     stock_item.status = StockStatus.AVAILABLE
                     stock_item.is_active = True
@@ -1525,6 +1609,10 @@ class SalesService:
         4. Create sale return record
         5. Create sale return items
         """
+        # ── Validate branch is active ──
+        from app.common.branch_validation import validate_branch_is_active
+        validate_branch_is_active(db, sale_return_data.branch_code)
+
         # Get and validate the original invoice
         invoice = db.query(Invoice).filter(Invoice.id == sale_return_data.invoice_id).first()
         if not invoice:
@@ -2193,7 +2281,8 @@ class SalesService:
         rejection_reason: Optional[str] = None
     ):
         """Confirm (verify) or reject a bank transfer payment."""
-        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+        # Lock the invoice row to prevent concurrent verify/reject
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
         
         if not invoice:
             raise HTTPException(
@@ -2228,12 +2317,12 @@ class SalesService:
             if invoice.bank_transfer:
                 invoice.bank_transfer.verified = True
             
-            # Mark reserved stock as sold
+            # Mark reserved stock as sold (lock rows to prevent concurrent modification)
             for item in invoice.items:
                 if item.sales_stock_id:
                     stock_item = db.query(SalesStock).filter(
                         SalesStock.id == item.sales_stock_id
-                    ).first()
+                    ).with_for_update().first()
                     if stock_item and stock_item.status == StockStatus.RESERVED:
                         stock_item.status = StockStatus.SOLD
                         stock_item.is_active = False
@@ -2276,12 +2365,12 @@ class SalesService:
             invoice.payment_status = PaymentStatus.UNPAID
             invoice.status = False
             
-            # Release reserved stock back to available
+            # Release reserved stock back to available (lock rows to prevent concurrent modification)
             for item in invoice.items:
                 if item.sales_stock_id:
                     stock_item = db.query(SalesStock).filter(
                         SalesStock.id == item.sales_stock_id
-                    ).first()
+                    ).with_for_update().first()
                     if stock_item and stock_item.status == StockStatus.RESERVED:
                         stock_item.status = StockStatus.AVAILABLE
                         stock_item.is_active = True

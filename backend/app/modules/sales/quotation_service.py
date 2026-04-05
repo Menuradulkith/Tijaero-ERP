@@ -69,6 +69,33 @@ class SalesQuoteService:
     ) -> SalesQuote:
         """Create a new quote (quotation or proforma)"""
         
+        # ── Validate branch is active ──
+        from app.common.branch_validation import validate_branch_is_active
+        validate_branch_is_active(db, quote_data.branch_code)
+
+        # ── Validate customer is active ──
+        from app.modules.customers.models import Customer
+        customer = db.query(Customer).filter(Customer.id == quote_data.customer_id).first()
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer with id {quote_data.customer_id} not found"
+            )
+        if not customer.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Customer '{customer.customer_name}' is inactive. Please reactivate the customer before creating a quotation."
+            )
+
+        # ── Validate customer agent is active (if provided) ──
+        if quote_data.customer_agent_id:
+            agent = db.query(Customer).filter(Customer.id == quote_data.customer_agent_id).first()
+            if agent and not agent.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Customer agent '{agent.customer_name}' is inactive. Please reactivate the agent before creating a quotation."
+                )
+
         # Generate quote number
         quote_no = self.repository.get_next_quote_number(
             db, 
@@ -134,6 +161,27 @@ class SalesQuoteService:
                 detail=f"Cannot edit quote in '{quote.status}' status"
             )
         
+        # ── Validate customer is active (if customer is being changed) ──
+        update_dict = quote_data.model_dump(exclude_unset=True, exclude={'items'})
+        if 'customer_id' in update_dict:
+            from app.modules.customers.models import Customer
+            customer = db.query(Customer).filter(Customer.id == update_dict['customer_id']).first()
+            if customer and not customer.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Customer '{customer.customer_name}' is inactive. Please reactivate the customer before updating the quotation."
+                )
+
+        # ── Validate customer agent is active (if agent is being changed) ──
+        if 'customer_agent_id' in update_dict and update_dict['customer_agent_id']:
+            from app.modules.customers.models import Customer as CustomerModel
+            agent = db.query(CustomerModel).filter(CustomerModel.id == update_dict['customer_agent_id']).first()
+            if agent and not agent.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Customer agent '{agent.customer_name}' is inactive. Please reactivate the agent before updating the quotation."
+                )
+
         # Update fields
         update_data = quote_data.model_dump(exclude_unset=True, exclude={'items'})
         for key, value in update_data.items():
@@ -412,7 +460,13 @@ class SalesQuoteService:
         converted_by: Optional[int] = None
     ) -> Invoice:
         """Convert quote/proforma to invoice"""
-        quote = self.repository.get_by_id_with_items(db, quote_id)
+        from sqlalchemy.orm import joinedload
+        # Lock the quote row to prevent concurrent conversions
+        quote = db.query(SalesQuote).filter(
+            SalesQuote.id == quote_id
+        ).options(
+            joinedload(SalesQuote.items)
+        ).with_for_update().first()
         
         if not quote:
             raise HTTPException(
@@ -459,6 +513,28 @@ class SalesQuoteService:
                 detail=f"Insufficient stock for: {', '.join(insufficient)}"
             )
         
+        # ── Validate branch is still active at conversion time ──
+        from app.common.branch_validation import validate_branch_is_active
+        validate_branch_is_active(db, quote.branch_code)
+
+        # ── Validate customer is still active at conversion time ──
+        from app.modules.customers.models import Customer
+        customer = db.query(Customer).filter(Customer.id == quote.customer_id).first()
+        if customer and not customer.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Customer '{customer.customer_name}' is inactive. Please reactivate the customer before converting the quotation to an invoice."
+            )
+
+        # ── Validate customer agent is still active (if present) ──
+        if quote.customer_agent_id:
+            agent = db.query(Customer).filter(Customer.id == quote.customer_agent_id).first()
+            if agent and not agent.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Customer agent '{agent.customer_name}' is inactive. Please reactivate the agent before converting the quotation to an invoice."
+                )
+
         # Generate invoice number
         now = tz.now()
         year = now.year
@@ -841,6 +917,14 @@ class SalesQuoteService:
         """Create a Purchasing Order from an accepted/approved quotation"""
         from app.modules.purchasing.models import PurchasingOrder, PurchasingOrderItems
         
+        # Lock the quote row to prevent concurrent PO creation
+        quote = db.query(SalesQuote).filter(
+            SalesQuote.id == quote_id
+        ).with_for_update().first()
+        if not quote:
+            # Eagerly load items after locking
+            pass
+        # Re-fetch with items loaded
         quote = self.repository.get_by_id_with_items(db, quote_id)
         if not quote:
             raise HTTPException(
