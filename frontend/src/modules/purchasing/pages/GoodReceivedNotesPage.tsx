@@ -113,7 +113,19 @@ interface Location {
   branch_code: string;
 }
 
-const generateGRNNo = () => `GRN-${Date.now().toString(36).toUpperCase()}`;
+/** Preview next sequential number using same format as backend */
+const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+  const year = new Date().getFullYear();
+  const fullPrefix = `${prefix}-${year}-`;
+  let maxSeq = 0;
+  for (const item of existing) {
+    if (item.no?.startsWith(fullPrefix)) {
+      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
+      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  }
+  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+};
 
 const INITIAL_FORM_DATA: GoodReceivedNoteCreate = {
   good_received_no: "",
@@ -281,7 +293,7 @@ export default function GoodReceivedNotesPage() {
     handleNewGRNBase();
     setFormData(prev => ({
       ...prev,
-      good_received_no: generateGRNNo(),
+      good_received_no: "",
     }));
     setLineItems([]);
     setFormStep(0);
@@ -352,6 +364,10 @@ export default function GoodReceivedNotesPage() {
     queryKey: ["goodReceivedNotes"],
     queryFn: () => goodReceivedNotesApi.getAll(),
   });
+
+  const nextGRNNumber = useMemo(() =>
+    getNextNumber('GRN', (grns || []).map((g: GoodReceivedNote) => ({ no: g.good_received_no }))),
+  [grns]);
 
   const { data: purchaseOrders } = useQuery({
     queryKey: ["purchaseOrders"],
@@ -1123,7 +1139,6 @@ export default function GoodReceivedNotesPage() {
 
     switch (fieldName) {
       case 'good_received_no':
-        if (!formData.good_received_no) return 'GRN number is required';
         break;
       case 'purchasingorders_id':
         if (!formData.purchasingorders_id || formData.purchasingorders_id === 0) return 'Purchase order is required';
@@ -1343,13 +1358,8 @@ export default function GoodReceivedNotesPage() {
                   <TextField
                     label="GRN Number"
                     size="small"
-                    value={formData.good_received_no}
-                    onChange={(e) => setFormData({ ...formData, good_received_no: e.target.value })}
-                    onBlur={() => handleBlur('good_received_no')}
-                    disabled={!isEditing && !isCreating}
-                    required
-                    error={hasError('good_received_no')}
-                    helperText={getFieldError('good_received_no')}
+                    value={isCreating ? nextGRNNumber : formData.good_received_no}
+                    disabled
                   />
                   <Autocomplete
                     size="small"

@@ -84,9 +84,21 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "purchasing_return_no", label: "Return Number" },
 ];
 
-const FORM_STEPS = ["Return Information", "Return Items"];
+/** Preview next sequential number using same format as backend */
+const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+  const year = new Date().getFullYear();
+  const fullPrefix = `${prefix}-${year}-`;
+  let maxSeq = 0;
+  for (const item of existing) {
+    if (item.no?.startsWith(fullPrefix)) {
+      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
+      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  }
+  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+};
 
-const generateReturnNo = () => `RET-${Date.now().toString(36).toUpperCase()}`;
+const FORM_STEPS = ["Return Information", "Return Items"];
 
 const INITIAL_FORM_DATA: PurchasingReturnCreate = {
   purchasing_return_no: "",
@@ -206,7 +218,7 @@ export default function PurchaseReturnsPage() {
     handleNewReturnBase();
     setFormData(prev => ({
       ...prev,
-      purchasing_return_no: generateReturnNo(),
+      purchasing_return_no: "",
     }));
     setLineItems([]);
     setFormStep(0);
@@ -282,6 +294,10 @@ export default function PurchaseReturnsPage() {
     queryKey: ["purchaseReturns"],
     queryFn: () => purchaseReturnsApi.getAll(),
   });
+
+  const nextReturnNumber = useMemo(() =>
+    getNextNumber('RET', (returns || []).map((r: any) => ({ no: r.purchasing_return_no }))),
+  [returns]);
 
   const { data: grns } = useQuery({
     queryKey: ["goodReceivedNotes"],
@@ -536,7 +552,7 @@ export default function PurchaseReturnsPage() {
     if (selectedReturn) {
       const newFormData = {
         ...resetFormFromReturn(selectedReturn),
-        purchasing_return_no: generateReturnNo(),
+        purchasing_return_no: "",
       };
       setFormData(newFormData);
       // @ts-ignore
@@ -569,7 +585,7 @@ export default function PurchaseReturnsPage() {
 
     switch (fieldName) {
       case 'purchasing_return_no':
-        if (!formData.purchasing_return_no) return 'Return number is required';
+        if (!formData.purchasing_return_no && !isCreating) return 'Return number is required';
         break;
       case 'goodreceivednote_id':
         if (!formData.goodreceivednote_id || formData.goodreceivednote_id === 0) return 'GRN selection is required';
@@ -781,13 +797,8 @@ export default function PurchaseReturnsPage() {
                   <TextField
                     label="Return Number"
                     size="small"
-                    value={formData.purchasing_return_no}
-                    onChange={(e) => setFormData({ ...formData, purchasing_return_no: e.target.value })}
-                    onBlur={() => handleBlur('purchasing_return_no')}
-                    disabled={!isEditing && !isCreating}
-                    required
-                    error={hasError('purchasing_return_no')}
-                    helperText={getFieldError('purchasing_return_no')}
+                    value={isCreating ? nextReturnNumber : formData.purchasing_return_no}
+                    disabled
                   />
                   <Autocomplete
                     size="small"

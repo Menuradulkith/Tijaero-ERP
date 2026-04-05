@@ -19,6 +19,48 @@ from typing import List, Optional
 customer_credit_service = CustomerCreditService()
 
 class SalesService:
+    def _get_next_invoice_number(self, db: Session) -> str:
+        """Generate next Invoice number: INV-YYYY-XXXXX with advisory lock"""
+        year = tz.year()
+        prefix = f"INV-{year}"
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last = (
+            db.query(Invoice)
+            .filter(Invoice.invoice_no.like(f"{prefix}-%"))
+            .order_by(Invoice.id.desc())
+            .first()
+        )
+        if last:
+            try:
+                last_seq = int(last.invoice_no.split("-")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        return f"{prefix}-{next_seq:05d}"
+    
+    def _get_next_sale_return_number(self, db: Session) -> str:
+        """Generate next Sale Return number: SR-YYYY-XXXXX with advisory lock"""
+        year = tz.year()
+        prefix = f"SR-{year}"
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last = (
+            db.query(SaleReturn)
+            .filter(SaleReturn.sale_return_no.like(f"{prefix}-%"))
+            .order_by(SaleReturn.id.desc())
+            .first()
+        )
+        if last:
+            try:
+                last_seq = int(last.sale_return_no.split("-")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        return f"{prefix}-{next_seq:05d}"
+    
     def get_all_invoices(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
         return repository.sales_repository.get_all(db, skip, limit, branch_codes)
     
@@ -620,6 +662,9 @@ class SalesService:
         
         # Override sale_rep_id with the logged-in user
         invoice_dict['sale_rep_id'] = user_id
+        
+        # Server-side sequential invoice number generation
+        invoice_dict['invoice_no'] = self._get_next_invoice_number(db)
         
         invoice_dict['created_date'] = tz.today()
         invoice_dict['created_date_time'] = tz.now()
@@ -1556,6 +1601,7 @@ class SalesService:
         
         # Create sale return record
         return_dict = sale_return_data.model_dump(exclude={'items'})
+        return_dict['sale_return_no'] = self._get_next_sale_return_number(db)
         return_dict['added_date'] = tz.today()
         return_dict['cheque_date'] = tz.today()
         return_dict['status'] = DocumentStatus.PENDING

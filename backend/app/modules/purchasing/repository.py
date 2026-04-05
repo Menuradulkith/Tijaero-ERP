@@ -66,8 +66,31 @@ class PurchasingOrderRepository:
     def __init__(self, db: Session):
         self.db = db
     
+    def get_next_po_number(self) -> str:
+        """Generate next PO number: PO-YYYY-XXXXX with advisory lock"""
+        year = tz.year()
+        prefix = f"PO-{year}"
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last = (
+            self.db.query(models.PurchasingOrder)
+            .filter(models.PurchasingOrder.purchasing_order_no.like(f"{prefix}-%"))
+            .order_by(models.PurchasingOrder.id.desc())
+            .first()
+        )
+        if last:
+            try:
+                last_seq = int(last.purchasing_order_no.split("-")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        return f"{prefix}-{next_seq:05d}"
+    
     def create(self, order: schemas.PurchasingOrderCreate, initial_status: str = "pending") -> models.PurchasingOrder:
         order_data = order.model_dump(exclude={'items'})
+        # Server-side sequential number generation
+        order_data['purchasing_order_no'] = self.get_next_po_number()
         db_order = models.PurchasingOrder(
             **order_data,
             status=initial_status,
@@ -183,8 +206,31 @@ class PurchasingReturnRepository:
     def __init__(self, db: Session):
         self.db = db
     
+    def get_next_return_number(self) -> str:
+        """Generate next Purchase Return number: RET-YYYY-XXXXX with advisory lock"""
+        year = tz.year()
+        prefix = f"RET-{year}"
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last = (
+            self.db.query(models.PurchasingReturn)
+            .filter(models.PurchasingReturn.purchasing_return_no.like(f"{prefix}-%"))
+            .order_by(models.PurchasingReturn.id.desc())
+            .first()
+        )
+        if last:
+            try:
+                last_seq = int(last.purchasing_return_no.split("-")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        return f"{prefix}-{next_seq:05d}"
+    
     def create(self, return_data: schemas.PurchasingReturnCreate) -> models.PurchasingReturn:
         return_dict = return_data.model_dump(exclude={'items'})
+        # Server-side sequential number generation
+        return_dict['purchasing_return_no'] = self.get_next_return_number()
         db_return = models.PurchasingReturn(**return_dict, added_date=tz.today())
         self.db.add(db_return)
         self.db.flush()
@@ -219,9 +265,33 @@ class GoodReceivedNoteRepository:
     def __init__(self, db: Session):
         self.db = db
     
+    def get_next_grn_number(self) -> str:
+        """Generate next GRN number: GRN-YYYY-XXXXX with advisory lock"""
+        year = tz.year()
+        prefix = f"GRN-{year}"
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last = (
+            self.db.query(models.GoodReceivedNote)
+            .filter(models.GoodReceivedNote.good_received_no.like(f"{prefix}-%"))
+            .order_by(models.GoodReceivedNote.id.desc())
+            .first()
+        )
+        if last:
+            try:
+                last_seq = int(last.good_received_no.split("-")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        return f"{prefix}-{next_seq:05d}"
+    
     def create(self, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
+        grn_data = grn.model_dump()
+        # Server-side sequential number generation
+        grn_data['good_received_no'] = self.get_next_grn_number()
         db_grn = models.GoodReceivedNote(
-            **grn.model_dump(),
+            **grn_data,
             created_date=tz.today(),
             added_date=tz.now()
         )

@@ -16,14 +16,40 @@ from app.modules.common.models import Locations, Approvals
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.common.enums import StockStatus
 
+from sqlalchemy import text
+
 # Item Transfer Note Service
 class ItemTransferNoteService:
     def __init__(self, db: Session):
         self.db = db
     
+    def _get_next_itn_number(self) -> str:
+        """Generate next ITN number: ITN-YYYY-XXXXX with advisory lock"""
+        year = tz.year()
+        prefix = f"ITN-{year}"
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last = (
+            self.db.query(ItemTransferNote)
+            .filter(ItemTransferNote.item_transfer_note.like(f"{prefix}-%"))
+            .order_by(ItemTransferNote.id.desc())
+            .first()
+        )
+        if last:
+            try:
+                last_seq = int(last.item_transfer_note.split("-")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        return f"{prefix}-{next_seq:05d}"
+    
     def create_transfer_note(self, transfer_note: schemas.ItemTransferNoteCreate) -> ItemTransferNote:
+        transfer_data = transfer_note.model_dump(exclude={'status', 'approval_id'})
+        # Server-side sequential ITN number generation
+        transfer_data['item_transfer_note'] = self._get_next_itn_number()
         db_transfer_note = ItemTransferNote(
-            **transfer_note.model_dump(exclude={'status', 'approval_id'}),
+            **transfer_data,
             added_date=tz.now(),
             status=TransferNoteStatus.PENDING
         )

@@ -317,13 +317,14 @@ class SalesQuoteService:
             )
         
         valid_from = [
+            QuoteStatus.DRAFT.value,
             QuoteStatus.SUBMITTED.value, QuoteStatus.UNDER_REVIEW.value,
             QuoteStatus.SENT.value, QuoteStatus.PO_CREATED.value
         ]
         if quote.status not in valid_from:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot approve from '{quote.status}'. Must be submitted, under_review, sent, or po_created."
+                detail=f"Cannot approve from '{quote.status}'. Must be draft, submitted, under_review, sent, or po_created."
             )
         
         now = tz.now()
@@ -354,7 +355,7 @@ class SalesQuoteService:
             )
         
         # Allow rejection from most non-final statuses
-        non_rejectable = [QuoteStatus.CONVERTED.value, QuoteStatus.CONVERTED_TO_INVOICE.value, QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value]
+        non_rejectable = [QuoteStatus.CONVERTED.value, QuoteStatus.CONVERTED_TO_INVOICE.value, QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value, QuoteStatus.REJECTED.value]
         if quote.status in non_rejectable:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -426,14 +427,15 @@ class SalesQuoteService:
                 detail="Quote has already been converted to an invoice"
             )
         
-        # Check if quote can be converted (must be accepted, approved, sent, or po_created)
+        # Check if quote can be converted (must be draft, accepted, approved, sent, or po_created)
         if quote.status not in [
+            QuoteStatus.DRAFT.value,
             QuoteStatus.ACCEPTED.value, QuoteStatus.APPROVED.value,
             QuoteStatus.SENT.value, QuoteStatus.PO_CREATED.value
         ]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Quote must be accepted/approved to convert. Current status: '{quote.status}'"
+                detail=f"Quote must be in an active status to convert. Current status: '{quote.status}'"
             )
         
         # For quotations with estimates, verify all prices are exact
@@ -683,15 +685,15 @@ class SalesQuoteService:
         """Check if status transition is valid"""
         valid_transitions = {
             QuoteStatus.DRAFT.value: [
-                QuoteStatus.PENDING_APPROVAL.value,
-                QuoteStatus.SUBMITTED.value,
                 QuoteStatus.APPROVED.value,
-                QuoteStatus.SENT.value,
+                QuoteStatus.ACCEPTED.value,
+                QuoteStatus.REJECTED.value,
+                QuoteStatus.CONVERTED.value,
+                QuoteStatus.CONVERTED_TO_INVOICE.value,
                 QuoteStatus.CANCELLED.value
             ],
             QuoteStatus.PENDING_APPROVAL.value: [
                 QuoteStatus.APPROVED.value,
-                QuoteStatus.SUBMITTED.value,
                 QuoteStatus.REJECTED.value,
                 QuoteStatus.CANCELLED.value
             ],

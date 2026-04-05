@@ -107,6 +107,8 @@ class UserList(TijaeroBaseSchema):
     occupation: str
     branches: List[BranchSimple] = []
     groups: List[GroupSimple] = []
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 class Token(BaseModel):
     access_token: str

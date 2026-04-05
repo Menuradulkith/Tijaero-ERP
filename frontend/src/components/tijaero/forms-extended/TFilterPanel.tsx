@@ -325,4 +325,30 @@ export const REIMBURSEMENT_STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
   { value: "completed", label: "Completed" },
 ];
 
+/** Quotation status filter options */
+export const QUOTATION_STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
+  { value: null, label: "All Statuses" },
+  { value: "draft", label: "Draft" },
+  { value: "accepted", label: "Accepted" },
+  { value: "rejected", label: "Rejected" },
+  { value: "expired", label: "Expired" },
+  { value: "converted", label: "Converted to Proforma" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "revised", label: "Revised" },
+];
+
+/** Proforma Invoice status filter options */
+export const PROFORMA_STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
+  { value: null, label: "All Statuses" },
+  { value: "draft", label: "Draft" },
+  { value: "accepted", label: "Accepted" },
+  { value: "po_created", label: "PO Created" },
+  { value: "item_received", label: "Item Received" },
+  { value: "so_created", label: "SO Created" },
+  { value: "converted_to_invoice", label: "Converted to Invoice" },
+  { value: "rejected", label: "Rejected" },
+  { value: "expired", label: "Expired" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
 export default TFilterPanel;

@@ -82,6 +82,19 @@ import { salesApi } from "../api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate } from "../types";
 
+const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+  const year = new Date().getFullYear();
+  const fullPrefix = `${prefix}-${year}-`;
+  let maxSeq = 0;
+  for (const item of existing) {
+    if (item.no?.startsWith(fullPrefix)) {
+      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
+      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  }
+  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+};
+
 // Sort options
 const sortOptions: SortOption[] = [
   { value: "created_date", label: "Date (Newest)" },
@@ -250,6 +263,10 @@ export default function SalesPage() {
     queryKey: ["sales"],
     queryFn: () => salesApi.getAll(),
   });
+
+  const nextInvoiceNumber = useMemo(() =>
+    getNextNumber('INV', (invoices || []).map((inv: any) => ({ no: inv.invoice_no }))),
+  [invoices]);
 
   // Fetch customers separately (has complex operations like credit check)
   const { data: customers } = useQuery({
@@ -468,11 +485,8 @@ export default function SalesPage() {
       setTaxRate(0);
 
       // Pre-fill form with proforma data
-      const now = new Date();
-      const yr = now.getFullYear();
-      const seq = String(Math.floor(Date.now() / 1000)).slice(-5);
       state.setFormData({
-        invoice_no: `INV-${yr}-${seq}`,
+        invoice_no: "",
         branch_code: navState.branchCode || "MAIN",
         customer_id: navState.customerId || 0,
         customer_agent_id: undefined,
@@ -690,11 +704,8 @@ export default function SalesPage() {
       credit_note_id: 0,
       credit_note_amount: 0,
     });
-    const now = new Date();
-    const yr = now.getFullYear();
-    const seq = String(Math.floor(Date.now() / 1000)).slice(-5);
     state.setFormData({
-      invoice_no: `INV-${yr}-${seq}`,
+      invoice_no: "",
       branch_code: "MAIN",
       customer_id: customers?.[0]?.id || 0,
       customer_agent_id: undefined,
@@ -1721,9 +1732,8 @@ export default function SalesPage() {
             <TextField
               label="Invoice No"
               size="small"
-              value={state.formData.invoice_no}
-              onChange={(e) => state.setFormData({ ...state.formData, invoice_no: e.target.value })}
-              required
+              value={state.isCreating ? nextInvoiceNumber : state.formData.invoice_no}
+              disabled
             />
             <Autocomplete
               size="small"
@@ -3513,7 +3523,7 @@ export default function SalesPage() {
               onSave={handleSave}
               onCancel={handleCancel}
               isSaving={createMutation.isPending || updateMutation.isPending}
-              saveDisabled={!state.formData.invoice_no || lineItems.length === 0 || formStep !== 2}
+              saveDisabled={lineItems.length === 0 || formStep !== 2}
               customActions={customActions}
             />
 
