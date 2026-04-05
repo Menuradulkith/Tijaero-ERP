@@ -86,7 +86,7 @@ class PurchasingOrderItem(PurchasingOrderItemBase, TijaeroBaseSchema):
     added_date: datetime
 
 class PurchasingOrderBase(BaseModel):
-    purchasing_order_no: str
+    purchasing_order_no: Optional[str] = None  # Auto-generated on server
     purchasing_invoice_no: Optional[str] = None
     branch_code: str
     payment_method: str
@@ -211,7 +211,7 @@ class PurchaseOrderListFilter(BaseModel):
     limit: int = 100
 
 class GoodReceivedNoteBase(BaseModel):
-    good_received_no: str
+    good_received_no: Optional[str] = None  # Auto-generated on server
     good_received_date: date
     supplier_invoice_no: str
     supplier_invoice_date: date

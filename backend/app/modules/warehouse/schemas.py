@@ -7,7 +7,7 @@ from app.common.enums import DocumentStatus
 
 # Item Transfer Note Schemas
 class ItemTransferNoteBase(BaseModel):
-    item_transfer_note: str
+    item_transfer_note: Optional[str] = None  # Auto-generated on server
     remark: Optional[str] = None
     created_date: date
     from_location_id: int

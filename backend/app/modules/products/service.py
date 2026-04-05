@@ -106,7 +106,15 @@ class CategoryService:
         return repository.category_repository.get_all(db, skip, limit, active_only)
     
     def create_category(self, db: Session, category: schemas.CategoryCreate, user_id: int) -> schemas.Category:
-        return repository.category_repository.create(db, category, user_id)
+        from sqlalchemy.exc import IntegrityError
+        try:
+            return repository.category_repository.create(db, category, user_id)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Category with name '{category.name}' or code '{category.category_code}' already exists"
+            )
     
     def update_category(self, db: Session, category_id: int, category: schemas.CategoryUpdate, user_id: int) -> schemas.Category:
         updated_category = repository.category_repository.update(db, category_id, category, user_id)
@@ -154,7 +162,15 @@ class BrandService:
         return repository.brand_repository.get_all(db, skip, limit)
     
     def create_brand(self, db: Session, brand: schemas.BrandCreate) -> schemas.Brand:
-        return repository.brand_repository.create(db, brand)
+        from sqlalchemy.exc import IntegrityError
+        try:
+            return repository.brand_repository.create(db, brand)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Brand with name '{brand.brand_name}' or code '{brand.brand_code}' already exists"
+            )
     
     def update_brand(self, db: Session, brand_id: int, brand: schemas.BrandUpdate) -> schemas.Brand:
         updated_brand = repository.brand_repository.update(db, brand_id, brand)

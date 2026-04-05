@@ -89,7 +89,19 @@ const SORT_OPTIONS: SortOption[] = [
 
 const FORM_STEPS = ["Order Information", "Order Items"];
 
-const generateOrderNo = () => `PO-${Date.now().toString(36).toUpperCase()}`;
+/** Preview the next sequential number using the same format as the backend */
+const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+  const year = new Date().getFullYear();
+  const fullPrefix = `${prefix}-${year}-`;
+  let maxSeq = 0;
+  for (const item of existing) {
+    if (item.no?.startsWith(fullPrefix)) {
+      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
+      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  }
+  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+};
 
 // Extended form type to include editable status fields
 interface PurchaseOrderFormData extends PurchasingOrderCreate {
@@ -289,6 +301,8 @@ export default function PurchaseOrdersPage() {
     queryFn: () => purchaseOrdersApi.getAll(),
   });
 
+  const nextPONumber = useMemo(() => getNextNumber('PO', (orders || []).map((o: PurchasingOrder) => ({ no: o.purchasing_order_no }))), [orders]);
+
   // OPTIMIZED: Fetch suppliers separately (has complex filters) but use aggregated endpoint for products/branches
   const { data: suppliers } = useQuery({
     queryKey: ["suppliers"],
@@ -318,7 +332,7 @@ export default function PurchaseOrdersPage() {
     handleNewOrderBase();
     setFormData((prev) => ({
       ...prev,
-      purchasing_order_no: generateOrderNo(),
+      purchasing_order_no: "",
     }));
     setLineItems([]);
     setFormStep(0);
@@ -659,7 +673,7 @@ export default function PurchaseOrdersPage() {
     if (selectedOrder) {
       const newFormData = {
         ...resetFormFromOrder(selectedOrder),
-        purchasing_order_no: generateOrderNo(),
+        purchasing_order_no: "",
         purchasing_order_date: new Date().toISOString().split("T")[0],
       };
       setFormData(newFormData);
@@ -685,8 +699,6 @@ export default function PurchaseOrdersPage() {
 
     switch (fieldName) {
       case 'purchasing_order_no':
-        if (!formData.purchasing_order_no) return 'Order number is required';
-        if (formData.purchasing_order_no.length < 3) return 'Order number must be at least 3 characters';
         break;
       case 'branch_code':
         if (!formData.branch_code) return 'Branch is required';
@@ -893,13 +905,8 @@ export default function PurchaseOrdersPage() {
                   <TextField
                     label="Order Number"
                     size="small"
-                    value={formData.purchasing_order_no}
-                    onChange={(e) => setFormData({ ...formData, purchasing_order_no: e.target.value })}
-                    onBlur={() => handleBlur('purchasing_order_no')}
-                    disabled={!isEditing && !isCreating}
-                    required
-                    error={hasError('purchasing_order_no')}
-                    helperText={getFieldError('purchasing_order_no')}
+                    value={isCreating ? nextPONumber : formData.purchasing_order_no}
+                    disabled
                   />
                   {/* Searchable Branch Dropdown */}
                   <Autocomplete

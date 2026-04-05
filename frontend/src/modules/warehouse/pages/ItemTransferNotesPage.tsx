@@ -74,14 +74,25 @@ import {
   ItemTransferNoteWithItems,
 } from "@/modules/warehouse/types";
 
+const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+  const year = new Date().getFullYear();
+  const fullPrefix = `${prefix}-${year}-`;
+  let maxSeq = 0;
+  for (const item of existing) {
+    if (item.no?.startsWith(fullPrefix)) {
+      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
+      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  }
+  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+};
+
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_date", label: "Date" },
   { value: "item_transfer_note", label: "ITN Number" },
 ];
 
 const FORM_STEPS = ["Transfer Information", "Scan & Transfer Items"];
-
-const generateITNNo = () => `ITN-${Date.now().toString(36).toUpperCase()}`;
 
 const INITIAL_FORM_DATA: ItemTransferNoteCreate = {
   item_transfer_note: "",
@@ -200,7 +211,7 @@ export default function ItemTransferNotesPage() {
     handleNewITNBase();
     setFormData(prev => ({
       ...prev,
-      item_transfer_note: generateITNNo(),
+      item_transfer_note: "",
     }));
     setLineItems([]);
     setValidatedItems([]);
@@ -342,6 +353,10 @@ export default function ItemTransferNotesPage() {
     queryKey: ["transfer-notes"],
     queryFn: () => transferNotesApi.getAll(),
   });
+
+  const nextITNNumber = useMemo(() =>
+    getNextNumber('ITN', (transferNotes || []).map((t: any) => ({ no: t.item_transfer_note }))),
+  [transferNotes]);
 
   const filteredITNs = useMemo(() => {
     if (!transferNotes) return [];
@@ -617,9 +632,8 @@ export default function ItemTransferNotesPage() {
                   <TextField
                     label="ITN Number"
                     size="small"
-                    value={formData.item_transfer_note}
+                    value={isCreating ? nextITNNumber : formData.item_transfer_note}
                     disabled
-                    required
                   />
                   <TextField
                     label="Transfer Date"

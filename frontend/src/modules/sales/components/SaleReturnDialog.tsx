@@ -59,7 +59,7 @@ export default function SaleReturnDialog({
 
   const { control, handleSubmit, watch, setValue, reset } = useForm<SaleReturnCreate>({
     defaultValues: {
-      sale_return_no: `SR-${Date.now()}`,
+      sale_return_no: '', // Server generates return number,
       branch_code: "MAIN",
       invoice_id: preselectedInvoice?.id || 0,
       good_received_locations_id: 1,

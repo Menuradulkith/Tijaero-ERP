@@ -78,6 +78,19 @@ import {
     SaleReturnWithItems,
 } from "../types";
 
+const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+  const year = new Date().getFullYear();
+  const fullPrefix = `${prefix}-${year}-`;
+  let maxSeq = 0;
+  for (const item of existing) {
+    if (item.no?.startsWith(fullPrefix)) {
+      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
+      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  }
+  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+};
+
 const SORT_OPTIONS: SortOption[] = [
     { value: "added_date", label: "Date" },
     { value: "sale_return_no", label: "Return Number" },
@@ -94,12 +107,6 @@ const RETURN_REASON_OPTIONS = [
 ];
 
 const FORM_STEPS = ["Return Information", "Return Items"];
-
-const generateReturnNo = () => {
-    const yr = new Date().getFullYear();
-    const seq = String(Math.floor(Date.now() / 1000)).slice(-5);
-    return `SR-${yr}-${seq}`;
-};
 
 const INITIAL_FORM_DATA: SaleReturnCreate = {
     sale_return_no: "",
@@ -218,7 +225,7 @@ export default function SaleReturnsPage() {
         handleNewReturnBase();
         setFormData(prev => ({
             ...prev,
-            sale_return_no: generateReturnNo(),
+            sale_return_no: "",
             payment_method: "credit_note",
         }));
         setLineItems([]);
@@ -290,6 +297,10 @@ export default function SaleReturnsPage() {
         queryKey: ["sale-returns"],
         queryFn: () => saleReturnsApi.getAll(),
     });
+
+    const nextSRNumber = useMemo(() =>
+        getNextNumber('SR', (returns || []).map((r: any) => ({ no: r.sale_return_no }))),
+    [returns]);
 
     const { data: invoices } = useQuery({
         queryKey: ["sales"],
@@ -485,9 +496,6 @@ export default function SaleReturnsPage() {
         if (!touched[fieldName] && !isCreating) return undefined;
 
         switch (fieldName) {
-            case 'sale_return_no':
-                if (!formData.sale_return_no) return 'Return number is required';
-                break;
             case 'invoice_id':
                 if (!formData.invoice_id || formData.invoice_id === 0) return 'Invoice selection is required';
                 break;
@@ -506,7 +514,7 @@ export default function SaleReturnsPage() {
     };
 
     // Step 1 validation
-    const isStep1Valid = formData.sale_return_no && formData.invoice_id > 0;
+    const isStep1Valid = formData.invoice_id > 0;
 
     // Full form validation
     const isFormValid = isStep1Valid && lineItems.length > 0;
@@ -686,13 +694,9 @@ export default function SaleReturnsPage() {
                                     <TextField
                                         label="Return Number"
                                         size="small"
-                                        value={formData.sale_return_no}
-                                        onChange={(e) => setFormData({ ...formData, sale_return_no: e.target.value })}
-                                        onBlur={() => handleBlur('sale_return_no')}
-                                        disabled={!isEditing && !isCreating}
-                                        required
-                                        error={hasError('sale_return_no')}
-                                        helperText={getFieldError('sale_return_no')}
+                                        value={isCreating ? nextSRNumber : formData.sale_return_no}
+                                        disabled
+                                        InputProps={{ readOnly: true }}
                                     />
                                     <Autocomplete
                                         size="small"

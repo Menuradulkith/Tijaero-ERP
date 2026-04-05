@@ -12,6 +12,8 @@ import {
   handleApiError,
   MasterDetailLayout,
   modernTableStyles,
+  PROFORMA_STATUS_FILTER_OPTIONS,
+  QUOTATION_STATUS_FILTER_OPTIONS,
   SearchableList,
   SelectableListItem,
   showErrorToast,
@@ -40,7 +42,6 @@ import {
   Inventory as StockIcon,
   LocalShipping as POIcon,
   Receipt as InvoiceIcon,
-  Send as SendIcon,
   SwapHoriz as ProformaIcon,
   ThumbDown as RejectIcon,
 } from "@mui/icons-material";
@@ -136,12 +137,15 @@ export default function QuotationsPage() {
 
   // Line items state
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
+  // True only when user has actively modified line items (not just loaded them for editing)
+  const [lineItemsDirty, setLineItemsDirty] = useState(false);
 
   // Form step state for stepper workflow
   const [formStep, setFormStep] = useState(0);
 
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -200,8 +204,8 @@ export default function QuotationsPage() {
         confirmColor: "error",
       });
     },
-    extraDirty: lineItems.length > 0,
-    onDiscard: () => { setLineItems([]); setFormStep(0); },
+    extraDirty: lineItemsDirty,
+    onDiscard: () => { setLineItems([]); setLineItemsDirty(false); setFormStep(0); },
   });
 
   // Data fetching — filtered by page type
@@ -211,7 +215,7 @@ export default function QuotationsPage() {
   });
 
   // OPTIMIZED: Use aggregated reference data endpoint instead of separate API calls
-  const { data: refData, filteredBranches } = useReferenceData(["products", "branches", "customers", "employees"]);
+  const { data: refData, filteredBranches } = useReferenceData(["products", "branches", "customers", "employees"], { productsLimit: 2000 });
   const products = refData?.products || [];
   const branches = filteredBranches || [];
   const customers = refData?.customers || [];
@@ -267,13 +271,15 @@ export default function QuotationsPage() {
         selling_price: Number(item.selling_price),
         minimum_selling_price: Number(item.minimum_selling_price),
         warrenty_month: item.warrenty_month,
-        min_price: 0,
+        min_price: Number(item.minimum_selling_price),
         max_price: 0,
         is_price_estimate: item.is_price_estimate,
         description: item.description || "",
         discount_percent: item.discount_percentage || 0,
         tax_rate: 0,
       })));
+      // Loading existing items is NOT a user change — keep lineItemsDirty false
+      setLineItemsDirty(false);
     }
   }, [selectedQuoteDetails, isCreating, isEditing]);
 
@@ -295,6 +301,11 @@ export default function QuotationsPage() {
       filtered = filtered.filter(quote => quote.branch_code === filterBranch);
     }
 
+    // Apply status filter
+    if (filterStatus) {
+      filtered = filtered.filter(quote => quote.status === filterStatus);
+    }
+
     filtered.sort((a, b) => {
       if (sortField === "quote_no") {
         return a.quote_no.localeCompare(b.quote_no);
@@ -309,7 +320,7 @@ export default function QuotationsPage() {
     });
 
     return filtered;
-  }, [quotesData?.items, searchQuery, sortField, filterBranch]);
+  }, [quotesData?.items, searchQuery, sortField, filterBranch, filterStatus]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -347,9 +358,7 @@ export default function QuotationsPage() {
   // Calculate line items total
   const calculateLineItemsTotal = () => {
     return lineItems.reduce((sum, item) => {
-      const baseTotal = item.quantity * item.selling_price;
-      const discount = baseTotal * (item.discount_percent / 100);
-      return sum + (baseTotal - discount);
+      return sum + item.quantity * item.selling_price;
     }, 0);
   };
 
@@ -375,6 +384,7 @@ export default function QuotationsPage() {
       queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
       handleSelectQuote(updatedQuote);
       setIsEditing(false);
+      setLineItemsDirty(false);
       setLineItems([]);
       showSuccessToast("Quote updated successfully");
     },
@@ -396,17 +406,6 @@ export default function QuotationsPage() {
   });
 
   // ==================== Workflow Mutations ====================
-
-  const submitToCustomerMutation = useMutation({
-    mutationFn: (id: number) => quotationApi.submitToCustomer(id),
-    onSuccess: (updatedQuote) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
-      queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
-      handleSelectQuote(updatedQuote);
-      showSuccessToast("Quotation submitted to customer");
-    },
-    onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to submit")),
-  });
 
   const toggleProformaMutation = useMutation({
     mutationFn: ({ id, is_proforma }: { id: number; is_proforma: boolean }) =>
@@ -468,19 +467,6 @@ export default function QuotationsPage() {
     }
   }, [selectedQuote, queryClient]);
 
-  const handleSubmitToCustomer = useCallback(async () => {
-    if (!selectedQuote) return;
-    const confirmed = await confirmDialog.confirm({
-      title: "Submit to Customer",
-      message: `Submit ${selectedQuote.quote_no} to the customer? A quotation document will be generated for customer review.`,
-      confirmText: "Submit",
-      confirmColor: "primary",
-    });
-    if (confirmed) {
-      submitToCustomerMutation.mutate(selectedQuote.id);
-    }
-  }, [selectedQuote, confirmDialog, submitToCustomerMutation]);
-
   const handleToggleProforma = useCallback(async () => {
     if (!selectedQuote) return;
     const newIsProforma = selectedQuote.quote_type !== "proforma";
@@ -519,22 +505,26 @@ export default function QuotationsPage() {
           .filter(sa => !sa.is_sufficient)
           .map(sa => {
             const quoteItem = selectedQuoteDetails.items.find(qi => qi.product_id === sa.product_id);
+            const product = products.find(p => p.id === sa.product_id);
             const shortfall = sa.requested_quantity - sa.available_quantity;
             return {
               product_id: sa.product_id,
               quantity: shortfall > 0 ? shortfall : sa.requested_quantity,
-              unit_price: quoteItem ? Number(quoteItem.selling_price) : 0,
+              unit_price: product?.cost_price ?? (quoteItem ? Number(quoteItem.selling_price) : 0),
               warrenty_month: quoteItem?.warrenty_month || "0",
               remark: `From Proforma ${selectedQuote.quote_no}`,
             };
           })
-      : selectedQuoteDetails.items.map(item => ({
-          product_id: item.product_id,
-          quantity: item.quantity,
-          unit_price: Number(item.selling_price),
-          warrenty_month: item.warrenty_month || "0",
-          remark: `From Proforma ${selectedQuote.quote_no}`,
-        }));
+      : selectedQuoteDetails.items.map(item => {
+          const product = products.find(p => p.id === item.product_id);
+          return {
+            product_id: item.product_id,
+            quantity: item.quantity,
+            unit_price: product?.cost_price ?? Number(item.selling_price),
+            warrenty_month: item.warrenty_month || "0",
+            remark: `From Proforma ${selectedQuote.quote_no}`,
+          };
+        });
 
     navigate("/purchasing/orders", {
       state: {
@@ -546,7 +536,7 @@ export default function QuotationsPage() {
         items: itemsForPO,
       },
     });
-  }, [selectedQuote, selectedQuoteDetails, stockAvailability, navigate]);
+  }, [selectedQuote, selectedQuoteDetails, stockAvailability, products, navigate]);
 
   // Navigate to Sales Order page with pre-filled data from proforma (all items available)
   const handleCreateSONavigate = useCallback(() => {
@@ -588,8 +578,6 @@ export default function QuotationsPage() {
     const s = selectedQuote.status;
     const actions: string[] = [];
 
-    // Submit to customer
-    if (['draft', 'pending_approval'].includes(s)) actions.push('submit_to_customer');
     // Mark as proforma (toggle) — only for quotation type
     if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'cancelled'].includes(s)) actions.push('toggle_proforma');
     // Check stock
@@ -607,6 +595,7 @@ export default function QuotationsPage() {
   const handleCreateNew = useCallback(() => {
     setFormData(getEmptyQuoteForm(pageQuoteType));
     setLineItems([]);
+    setLineItemsDirty(false);
     setFormStep(0);
     handleNewQuote();
   }, [handleNewQuote, setFormData, pageQuoteType]);
@@ -653,6 +642,7 @@ export default function QuotationsPage() {
         customer_notes: selectedQuote.customer_notes || "",
         special: selectedQuote.special,
       });
+      setLineItemsDirty(false);
       handleStartEdit();
     }
   }, [selectedQuote, setFormData, handleStartEdit]);
@@ -720,6 +710,7 @@ export default function QuotationsPage() {
 
   // Add line item
   const handleAddLineItem = () => {
+    setLineItemsDirty(true);
     setLineItems([
       ...lineItems,
       {
@@ -739,6 +730,7 @@ export default function QuotationsPage() {
   const handleUpdateLineItem = async (index: number, field: keyof ItemFormData, value: unknown) => {
     // For non-product fields, update immediately
     if (field !== "product_id") {
+      setLineItemsDirty(true);
       setLineItems(prev => {
         const updated = [...prev];
         updated[index] = { ...updated[index], [field]: value } as ItemFormData;
@@ -750,12 +742,17 @@ export default function QuotationsPage() {
 
     // For product selection, fetch minimum price from MinimumPrice table
     if (field === "product_id" && value) {
+      setLineItemsDirty(true);
       const product = products?.find((p) => p.id === value);
       if (product) {
-        // First update with product selected
+        // First update with product selected and selling_price from the product catalogue
         setLineItems(prev => {
           const updated = [...prev];
-          updated[index] = { ...updated[index], product_id: value as number } as ItemFormData;
+          updated[index] = {
+            ...updated[index],
+            product_id: value as number,
+            selling_price: product.selling_price || 0,
+          } as ItemFormData;
           return updated;
         });
 
@@ -764,12 +761,11 @@ export default function QuotationsPage() {
           const minPriceData = await minimumPriceApi.getCurrent(product.id);
           const minSellingPrice = minPriceData?.minimum_price || 0;
 
-          // Update with the fetched minimum price
+          // Update minimum price fields only — keep selling_price as product catalogue price
           setLineItems(prev => {
             const updated = [...prev];
             updated[index].min_price = minSellingPrice;
             updated[index].minimum_selling_price = minSellingPrice;
-            updated[index].selling_price = minSellingPrice;
             return updated;
           });
         } catch (error) {
@@ -778,7 +774,6 @@ export default function QuotationsPage() {
             const updated = [...prev];
             updated[index].min_price = 0;
             updated[index].minimum_selling_price = 0;
-            updated[index].selling_price = 0;
             return updated;
           });
           showErrorToast("No minimum price set for this product. Please set a minimum price first.");
@@ -789,6 +784,7 @@ export default function QuotationsPage() {
 
   // Remove line item
   const handleRemoveLineItem = (index: number) => {
+    setLineItemsDirty(true);
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
@@ -924,14 +920,6 @@ export default function QuotationsPage() {
             selectedQuote && !isCreating && !isEditing ? (
               <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
                 {/* Workflow Action Buttons */}
-                {getAvailableActions().includes('submit_to_customer') && (
-                  <Tooltip title="Submit to Customer">
-                    <Button size="small" variant="outlined" color="primary" startIcon={<SendIcon />}
-                      onClick={handleSubmitToCustomer} disabled={submitToCustomerMutation.isPending}>
-                      Submit
-                    </Button>
-                  </Tooltip>
-                )}
                 {/* Only quotations can be promoted to proforma — not the reverse */}
                 {getAvailableActions().includes('toggle_proforma') && selectedQuote.quote_type === 'quotation' && (
                   <Tooltip title="Convert to Proforma Invoice">
@@ -1028,9 +1016,7 @@ export default function QuotationsPage() {
     const calculateTotal = () => {
       if (!selectedQuoteDetails?.items) return quote.total_amount;
       return selectedQuoteDetails.items.reduce((sum, item) => {
-        const baseTotal = item.quantity * Number(item.selling_price);
-        const discount = baseTotal * ((item.discount_percentage || 0) / 100);
-        return sum + (baseTotal - discount);
+        return sum + item.quantity * Number(item.selling_price);
       }, 0);
     };
 
@@ -1137,7 +1123,6 @@ export default function QuotationsPage() {
                 <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
                 <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
                 <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
-                <TableCell align="right" sx={{ width: 100 }}>Discount (%)</TableCell>
                 <TableCell sx={{ width: 100 }}>Warranty</TableCell>
                 <TableCell align="center" sx={{ width: 120 }}>Stock</TableCell>
                 <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
@@ -1147,9 +1132,7 @@ export default function QuotationsPage() {
               {selectedQuoteDetails?.items && selectedQuoteDetails.items.length > 0 ? (
                 selectedQuoteDetails.items.map((item, index) => {
                   const product = products?.find(p => p.id === item.product_id);
-                  const baseTotal = item.quantity * Number(item.selling_price);
-                  const discount = baseTotal * ((item.discount_percentage || 0) / 100);
-                  const lineTotal = baseTotal - discount;
+                  const lineTotal = item.quantity * Number(item.selling_price);
                   // Prefer live stock check result; fall back to stored stock_status from DB
                   const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
                   const stockStatus = liveStock
@@ -1163,7 +1146,6 @@ export default function QuotationsPage() {
                       <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                       <TableCell align="right">{item.quantity}</TableCell>
                       <TableCell align="right"><TCurrency value={Number(item.selling_price)} /></TableCell>
-                      <TableCell align="right">{item.discount_percentage ? `${item.discount_percentage}%` : "-"}</TableCell>
                       <TableCell>{item.warrenty_month || "-"}</TableCell>
                       <TableCell align="center">
                         {stockCheckLoading && stockCheckedQuoteId !== selectedQuote?.id ? (
@@ -1182,14 +1164,14 @@ export default function QuotationsPage() {
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} sx={modernTableStyles.emptyCell}>
+                  <TableCell colSpan={6} sx={modernTableStyles.emptyCell}>
                     No items in this quote
                   </TableCell>
                 </TableRow>
               )}
               {/* Total Row */}
               <TableRow sx={modernTableStyles.footerRow}>
-                <TableCell colSpan={6} align="right">
+                <TableCell colSpan={5} align="right">
                   <Typography fontWeight="bold">Total:</Typography>
                 </TableCell>
                 <TableCell align="right">
@@ -1366,7 +1348,6 @@ export default function QuotationsPage() {
                       <TableCell>Product</TableCell>
                       <TableCell align="right">Qty</TableCell>
                       <TableCell align="right">Price (Rs.)</TableCell>
-                      <TableCell align="right">Discount (%)</TableCell>
                       {formData.quote_type === "quotation" && (
                         <>
                           <TableCell align="right">Min Price (Rs.)</TableCell>
@@ -1381,14 +1362,22 @@ export default function QuotationsPage() {
                       <TableRow key={index}>
                         <TableCell>
                           <Autocomplete
-                            options={products || []}
-                            getOptionLabel={(option) => option.name}
+                            options={[...(products || [])].sort((a, b) => a.name.localeCompare(b.name))}
+                            getOptionLabel={(option) => `${option.item_code} - ${option.name}`}
+                            filterOptions={(options, { inputValue }) => {
+                              const q = inputValue.toLowerCase();
+                              return options.filter(
+                                (o) =>
+                                  o.name.toLowerCase().includes(q) ||
+                                  o.item_code.toLowerCase().includes(q)
+                              );
+                            }}
                             value={products?.find((p) => p.id === item.product_id) || null}
                             onChange={(_, newValue) =>
                               handleUpdateLineItem(index, "product_id", newValue?.id || 0)
                             }
                             renderInput={(params) => (
-                              <TextField {...params} size="small" placeholder="Select product" />
+                              <TextField {...params} size="small" placeholder="Search by name or code" />
                             )}
                             sx={{ minWidth: 200 }}
                           />
@@ -1422,18 +1411,6 @@ export default function QuotationsPage() {
                             helperText={item.selling_price < (item.min_price || 0) ? "Cannot be less than min price" : ""}
                           />
                         </TableCell>
-                        <TableCell align="right">
-                          <TextField
-                            type="number"
-                            value={item.discount_percent}
-                            onChange={(e) =>
-                              handleUpdateLineItem(index, "discount_percent", parseFloat(e.target.value) || 0)
-                            }
-                            size="small"
-                            sx={{ width: 80 }}
-                            inputProps={{ min: 0, max: 100 }}
-                          />
-                        </TableCell>
                         {formData.quote_type === "quotation" && (
                           <>
                             <TableCell align="right">
@@ -1455,9 +1432,7 @@ export default function QuotationsPage() {
                         <TableCell align="right">
                           <Typography fontWeight="medium">
                             <TCurrency
-                              value={
-                                item.quantity * item.selling_price * (1 - item.discount_percent / 100)
-                              }
+                              value={item.quantity * item.selling_price}
                               showSymbol={false}
                             />
                           </Typography>
@@ -1536,6 +1511,9 @@ export default function QuotationsPage() {
                   branches={branches}
                   branchValue={filterBranch}
                   onBranchChange={setFilterBranch}
+                  statusOptions={pageQuoteType === 'proforma' ? PROFORMA_STATUS_FILTER_OPTIONS : QUOTATION_STATUS_FILTER_OPTIONS}
+                  statusValue={filterStatus}
+                  onStatusChange={setFilterStatus}
                 />
               </Box>
             }

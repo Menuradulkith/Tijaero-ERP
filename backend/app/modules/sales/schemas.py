@@ -24,7 +24,7 @@ class InvoiceItem(InvoiceItemBase):
     model_config = ConfigDict(from_attributes=True)
 
 class InvoiceBase(BaseModel):
-    invoice_no: str = Field(..., max_length=200)
+    invoice_no: Optional[str] = None  # Auto-generated on server
     branch_code: str = Field(..., max_length=200)
     customer_id: int
     sale_rep_id: int
@@ -140,7 +140,7 @@ class SaleReturnItem(SaleReturnItemBase):
     model_config = ConfigDict(from_attributes=True)
 
 class SaleReturnBase(BaseModel):
-    sale_return_no: str = Field(..., max_length=200)
+    sale_return_no: Optional[str] = None  # Auto-generated on server
     branch_code: str = Field(..., max_length=200)
     invoice_id: int
     good_received_locations_id: int
