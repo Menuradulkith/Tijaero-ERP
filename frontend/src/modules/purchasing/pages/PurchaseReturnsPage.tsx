@@ -214,11 +214,16 @@ export default function PurchaseReturnsPage() {
     onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
 
+  // OPTIMIZED: Use aggregated endpoint for branches (placed before handlers that need defaultBranchCode)
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
+
   const handleNewReturn = useCallback(() => {
     handleNewReturnBase();
     setFormData(prev => ({
       ...prev,
       purchasing_return_no: "",
+      branch_code: defaultBranchCode || prev.branch_code,
     }));
     setLineItems([]);
     setFormStep(0);
@@ -226,7 +231,7 @@ export default function PurchaseReturnsPage() {
     setValidationError(null);
     setValidatedItems([]);
     setTouched({}); // Reset validation state
-  }, [handleNewReturnBase, setFormData]);
+  }, [handleNewReturnBase, setFormData, defaultBranchCode]);
 
   const handleStartEdit = useCallback(() => {
     handleStartEditBase();
@@ -321,10 +326,6 @@ export default function PurchaseReturnsPage() {
     };
     loadSuppliers();
   }, []);
-
-  // OPTIMIZED: Use aggregated endpoint for branches
-  const { filteredBranches } = useReferenceData(["branches"]);
-  const branches = filteredBranches || [];
 
   const filteredReturns = useMemo(() => {
     if (!returns) return [];
@@ -765,8 +766,8 @@ export default function PurchaseReturnsPage() {
             <TPrintButton
               documentType="purchase-return"
               documentId={selectedReturn.id}
-              disabled={!canPrintDocument(selectedReturn.status)}
-              disabledReason="Cannot print draft/pending returns"
+              disabled={!canPrintDocument(selectedReturn.status, ["cancelled", "rejected"])}
+              disabledReason={`Cannot print: return is ${(selectedReturn.status || "").replace(/_/g, " ")}`}
               tooltip="Print Purchase Return"
               onClick={() => handlePrint(selectedReturn.id)}
             />

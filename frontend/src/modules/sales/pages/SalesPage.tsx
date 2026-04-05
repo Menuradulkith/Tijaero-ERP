@@ -320,7 +320,7 @@ export default function SalesPage() {
   });
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
-  const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
   const branches = filteredBranches || [];
 
@@ -487,7 +487,7 @@ export default function SalesPage() {
       // Pre-fill form with proforma data
       state.setFormData({
         invoice_no: "",
-        branch_code: navState.branchCode || "MAIN",
+        branch_code: navState.branchCode || defaultBranchCode || "MAIN",
         customer_id: navState.customerId || 0,
         customer_agent_id: undefined,
         sale_rep_id: 1,
@@ -706,7 +706,7 @@ export default function SalesPage() {
     });
     state.setFormData({
       invoice_no: "",
-      branch_code: "MAIN",
+      branch_code: defaultBranchCode || "MAIN",
       customer_id: customers?.[0]?.id || 0,
       customer_agent_id: undefined,
       sale_rep_id: 1,
@@ -1455,7 +1455,7 @@ export default function SalesPage() {
         documentType="invoice"
         documentId={state.selectedItem.id}
         disabled={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"])}
-        disabledReason="Cannot print cancelled invoices"
+        disabledReason={`Cannot print: invoice is ${(state.selectedItem.approval_status || "").replace(/_/g, " ")}`}
         tooltip="Print Invoice"
         onClick={() => {
           setSelectedItemForPrint(state.selectedItem);

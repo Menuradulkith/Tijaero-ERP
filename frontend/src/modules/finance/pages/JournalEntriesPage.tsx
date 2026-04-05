@@ -595,8 +595,8 @@ export default function JournalEntriesPage() {
               <TPrintButton
                 documentType="journal-entry"
                 documentId={detail.id}
-                disabled={!canPrintDocument(detail.status, [])}
-                disabledReason="Cannot print this journal entry"
+                disabled={!canPrintDocument(detail.status, ["cancelled", "rejected", "voided"])}
+                disabledReason={`Cannot print: journal entry is ${(detail.status || "").replace(/_/g, " ")}`}
                 tooltip="Print Journal Entry"
                 onClick={() => {
                   setSelectedJEForPrint(selectedJE);

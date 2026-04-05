@@ -22,12 +22,14 @@ import {
 } from "@/components/tijaero";
 import { transferNotesApi } from "@/modules/warehouse/api";
 import { ItemTransferNoteCreate } from "@/modules/warehouse/types";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 
 export default function TransferNotesPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const { dialogProps, confirm } = useTConfirmDialog();
+  const { getDefaultBranchCode } = useBranchFilter();
 
   const { data: transferNotes, isLoading } = useQuery({
     queryKey: ["transfer-notes"],
@@ -165,7 +167,7 @@ export default function TransferNotesPage() {
       created_date: new Date().toISOString().split("T")[0],
       from_location_id: 0,
       to_location_id: 0,
-      branch_code: "",
+      branch_code: getDefaultBranchCode || "",
     });
     setOpenDialog(true);
   };

@@ -139,7 +139,7 @@ export default function SupplierAdvancePaymentsPage() {
   });
 
   // Reference data
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
   // Fetch suppliers
@@ -298,8 +298,11 @@ export default function SupplierAdvancePaymentsPage() {
 
   const handleNewAdvance = useCallback(() => {
     handleNew();
+    if (defaultBranchCode) {
+      setFormData(prev => ({ ...prev, branch_code: defaultBranchCode }));
+    }
     setTouched({});
-  }, [handleNew]);
+  }, [handleNew, defaultBranchCode, setFormData]);
 
   const handleSelectWithCheck = useCallback(
     async (item: SupplierAdvancePayment) => {

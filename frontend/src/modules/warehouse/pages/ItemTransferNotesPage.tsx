@@ -204,7 +204,7 @@ export default function ItemTransferNotesPage() {
   const locations = locationsData || [];
 
   // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
   const handleNewITN = useCallback(() => {
@@ -212,6 +212,7 @@ export default function ItemTransferNotesPage() {
     setFormData(prev => ({
       ...prev,
       item_transfer_note: "",
+      branch_code: defaultBranchCode || prev.branch_code,
     }));
     setLineItems([]);
     setValidatedItems([]);
@@ -219,7 +220,7 @@ export default function ItemTransferNotesPage() {
     setValidationError(null);
     setFormStep(0);
     setTouched({});
-  }, [handleNewITNBase, setFormData]);
+  }, [handleNewITNBase, setFormData, defaultBranchCode]);
 
   // Load ITN items when selecting an ITN
   const loadITNItems = useCallback(async (itnId: number) => {
@@ -595,8 +596,8 @@ export default function ItemTransferNotesPage() {
             <TPrintButton
               documentType="item-transfer-note"
               documentId={selectedITN.id}
-              disabled={!canPrintDocument(getITNStatus(selectedITN), [])}
-              disabledReason="Cannot print this transfer note"
+              disabled={!canPrintDocument(getITNStatus(selectedITN), ["rejected", "cancelled"])}
+              disabledReason={`Cannot print: transfer note is ${(getITNStatus(selectedITN) || "").replace(/_/g, " ")}`}
               onClick={() => setPrintDialogOpen(true)}
             />
           ) : undefined

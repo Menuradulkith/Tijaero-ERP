@@ -310,7 +310,7 @@ export default function PurchaseOrdersPage() {
   });
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
-  const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
   const branches = filteredBranches || [];
 
@@ -333,12 +333,13 @@ export default function PurchaseOrdersPage() {
     setFormData((prev) => ({
       ...prev,
       purchasing_order_no: "",
+      branch_code: defaultBranchCode || prev.branch_code,
     }));
     setLineItems([]);
     setFormStep(0);
     setTouched({}); // Reset validation state
     setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false }); // Clear credit warning
-  }, [handleNewOrderBase, setFormData]);
+  }, [handleNewOrderBase, setFormData, defaultBranchCode]);
 
   // Handle new order - don't check daily limit here, check when branch is selected
   const handleNewOrder = useCallback(async () => {
@@ -874,8 +875,8 @@ export default function PurchaseOrdersPage() {
             <TPrintButton
               documentType="purchase-order"
               documentId={selectedOrder.id}
-              disabled={!canPrintDocument(selectedOrder.status, ["draft"])}
-              disabledReason="Cannot print draft orders"
+              disabled={!canPrintDocument(selectedOrder.status, ["cancelled"])}
+              disabledReason={`Cannot print: order is ${(selectedOrder.status || "").replace(/_/g, " ")}`}
               onClick={() => handlePrint(selectedOrder.id)}
             />
           ) : undefined
