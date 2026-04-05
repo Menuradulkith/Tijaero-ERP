@@ -219,6 +219,11 @@ export const salesStockApi = {
 
 // Company Assets API - Real table for company-owned items
 export const companyAssetsApi = {
+  getAll: async (params?: { branch_code?: string; product_id?: number; status?: string; source?: string }) => {
+    const response = await apiClient.get<CompanyAsset[]>("/inventory/company-assets", { params });
+    return response.data;
+  },
+
   create: async (data: CompanyAssetCreate) => {
     const response = await apiClient.post<CompanyAsset>(
       "/inventory/company-assets",

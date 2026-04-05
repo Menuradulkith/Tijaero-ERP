@@ -64,6 +64,7 @@ class AssetStatus(str, Enum):
     IN_USE = "in_use"
     RETIRED = "retired"
     DISPOSED = "disposed"
+    RETURNED = "returned"  # From sale return (non-restockable)
 
 
 class ExpenseStatus(str, Enum):

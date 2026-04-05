@@ -56,6 +56,9 @@ class CompanyAssetBase(BaseModel):
     good_received_note_id: Optional[int] = None
     purchasing_order_items_id: Optional[int] = None
     status: AssetStatus = AssetStatus.AVAILABLE
+    return_reason: Optional[str] = None  # Reason for return (from sale return)
+    sale_return_id: Optional[int] = None  # Link to sale return record
+    source: Optional[str] = "grn"  # 'grn' or 'sale_return'
 
 class CompanyAssetCreate(CompanyAssetBase):
     pass
@@ -63,6 +66,12 @@ class CompanyAssetCreate(CompanyAssetBase):
 class CompanyAsset(CompanyAssetBase, TijaeroBaseSchema):
     id: int
     added_date: Optional[datetime] = None
+    # Enriched fields from relationships
+    product_name: Optional[str] = None
+    item_code: Optional[str] = None
+    brand_id: Optional[int] = None
+    cost_price: Optional[float] = None
+    grn_no: Optional[str] = None
 
 
 # GRN Stock Save Request - for saving items to sales_stock and/or company_assets

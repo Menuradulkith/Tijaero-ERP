@@ -384,6 +384,64 @@ class CompanyAssetService:
     def __init__(self, db: Session):
         self.db = db
     
+    def get_all(
+        self,
+        branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
+        product_id: Optional[int] = None,
+        status: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> List[dict]:
+        """Get all company assets with enriched product data"""
+        from app.modules.purchasing.models import GoodReceivedNote
+        
+        query = self.db.query(models.CompanyAssets).options(
+            joinedload(models.CompanyAssets.product),
+            joinedload(models.CompanyAssets.good_received_note),
+        )
+        
+        if branch_code:
+            query = query.filter(models.CompanyAssets.branch_code == branch_code)
+        elif branch_codes:
+            query = query.filter(models.CompanyAssets.branch_code.in_(branch_codes))
+        if product_id:
+            query = query.filter(models.CompanyAssets.product_id == product_id)
+        if status:
+            query = query.filter(models.CompanyAssets.status == status)
+        if source:
+            query = query.filter(models.CompanyAssets.source == source)
+        
+        items = query.order_by(models.CompanyAssets.added_date.desc()).all()
+        
+        result = []
+        for item in items:
+            item_dict = {
+                "id": item.id,
+                "product_id": item.product_id,
+                "inventory_no": item.inventory_no,
+                "item": item.item,
+                "description": item.description,
+                "branch_code": item.branch_code,
+                "asigned_to": item.asigned_to,
+                "barcode": item.barcode,
+                "warranty_month": item.warranty_month,
+                "good_received_note_id": item.good_received_note_id,
+                "purchasing_order_items_id": item.purchasing_order_items_id,
+                "status": item.status,
+                "return_reason": item.return_reason,
+                "sale_return_id": item.sale_return_id,
+                "source": item.source or "grn",
+                "added_date": item.added_date,
+                "product_name": item.product.name if item.product else item.item,
+                "item_code": item.product.item_code if item.product else None,
+                "brand_id": item.product.items_brand_id if item.product else None,
+                "cost_price": item.product.cost_price if item.product else None,
+                "grn_no": item.good_received_note.good_received_no if item.good_received_note else None,
+            }
+            result.append(item_dict)
+        
+        return result
+    
     def create(self, item: schemas.CompanyAssetCreate) -> models.CompanyAssets:
         # Check if barcode already exists (prevent duplicates)
         if item.barcode:
@@ -411,6 +469,9 @@ class CompanyAssetService:
             good_received_note_id=item.good_received_note_id,
             purchasing_order_items_id=item.purchasing_order_items_id,
             status=item.status,
+            return_reason=item.return_reason,
+            sale_return_id=item.sale_return_id,
+            source=item.source or "grn",
             added_date=tz.now()
         )
         try:

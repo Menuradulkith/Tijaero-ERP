@@ -323,7 +323,7 @@ export default function CustomersPage() {
             <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
               {/* Customer Name */}
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{`${customer.title} ${customer.customer_name}`}</span>
+                <span>{customer.customer_name}</span>
                 {isSelected && (
                   <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                     (Name)
@@ -359,6 +359,15 @@ export default function CustomersPage() {
                       color={customer.active ? "success" : "default"}
                       sx={{ height: 18, fontSize: "0.65rem" }}
                     />
+                    {customer.title && (
+                      <Chip
+                        label={customer.title.charAt(0).toUpperCase() + customer.title.slice(1)}
+                        size="small"
+                        color="secondary"
+                        variant="outlined"
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                    )}
                     {customer.is_customer_agent && (
                       <Chip
                         label="Agent"

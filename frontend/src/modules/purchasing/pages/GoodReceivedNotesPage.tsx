@@ -1169,7 +1169,10 @@ export default function GoodReceivedNotesPage() {
   };
 
   // Step 1 validation: GRN Information, Supplier Invoice, Remarks
-  const isStep1Valid = formData.good_received_no &&
+  // When creating, the GRN number is auto-generated (nextGRNNumber) and never written
+  // into formData.good_received_no, so treat the preview number as valid instead.
+  const effectiveGRNNumber = isCreating ? nextGRNNumber : formData.good_received_no;
+  const isStep1Valid = effectiveGRNNumber &&
     formData.purchasingorders_id > 0 &&
     formData.supplier_invoice_no;
 
