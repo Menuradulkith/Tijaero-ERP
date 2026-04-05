@@ -10,6 +10,7 @@ class BranchBase(BaseModel):
     address: Optional[str] = None
     email: Optional[EmailStr] = None
     contact_number: Optional[str] = None
+    active: bool = True
 
 class BranchCreate(BranchBase):
     pass
@@ -19,8 +20,10 @@ class BranchUpdate(BaseModel):
     address: Optional[str] = None
     email: Optional[EmailStr] = None
     contact_number: Optional[str] = None
+    active: Optional[bool] = None
 
 class Branch(BranchBase, TijaeroBaseSchema):
     id: int
+    active: bool
     created_at: datetime
     updated_at: datetime

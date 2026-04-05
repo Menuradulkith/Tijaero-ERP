@@ -45,6 +45,10 @@ class ItemTransferNoteService:
         return f"{prefix}-{next_seq:05d}"
     
     def create_transfer_note(self, transfer_note: schemas.ItemTransferNoteCreate) -> ItemTransferNote:
+        # ── Validate branch is active ──
+        from app.common.branch_validation import validate_branch_is_active
+        validate_branch_is_active(self.db, transfer_note.branch_code)
+
         transfer_data = transfer_note.model_dump(exclude={'status', 'approval_id'})
         # Server-side sequential ITN number generation
         transfer_data['item_transfer_note'] = self._get_next_itn_number()
@@ -535,9 +539,10 @@ class ItemTransferNoteApprovalService:
                 
                 for item in items:
                     if item.barcode:
+                        # Lock the stock row to prevent concurrent status changes
                         stock_item = self.db.query(SalesStock).filter(
                             SalesStock.barcode == item.barcode
-                        ).first()
+                        ).with_for_update().first()
                         if stock_item:
                             stock_item.status = "transfer_pending"
         
@@ -555,9 +560,10 @@ class ItemTransferNoteApprovalService:
                 ).all()
                 for item in items:
                     if item.barcode:
+                        # Lock the stock row to prevent concurrent status changes
                         stock_item = self.db.query(SalesStock).filter(
                             SalesStock.barcode == item.barcode
-                        ).first()
+                        ).with_for_update().first()
                         if stock_item and stock_item.status in ("transfer_pending", "in_transit"):
                             stock_item.status = StockStatus.AVAILABLE
                             stock_item.is_active = True

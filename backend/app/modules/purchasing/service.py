@@ -110,6 +110,10 @@ class PurchasingOrderService:
         )
     
     def create_order(self, order: schemas.PurchasingOrderCreate, created_by: int = 1) -> models.PurchasingOrder:
+        # ── Validate branch is active ──
+        from app.common.branch_validation import validate_branch_is_active
+        validate_branch_is_active(self.db, order.branch_code)
+
         limit_check = self.check_daily_limit(order.branch_code)
         if not limit_check.can_create:
             raise HTTPException(
@@ -141,6 +145,18 @@ class PurchasingOrderService:
                 detail=f"Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
             )
         
+        # ── Validate all products in order items are active ──
+        if order.items:
+            from app.modules.products.models import Product
+            for po_item in order.items:
+                if hasattr(po_item, 'product_id') and po_item.product_id:
+                    product = self.db.query(Product).filter(Product.id == po_item.product_id).first()
+                    if product and not product.active:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to a purchase order."
+                        )
+
         from decimal import Decimal
         po_total = sum(
             Decimal(str(item.quantity)) * item.unit_price 
@@ -585,9 +601,10 @@ class PurchasingReturnService:
             )
             self.db.add(db_item)
 
+            # Lock the stock row to prevent concurrent status changes
             stock_item = self.db.query(SalesStock).filter(
                 SalesStock.id == validation.sales_stock_id
-            ).first()
+            ).with_for_update().first()
             if stock_item:
                 stock_item.status = stock_status
                 stock_item.purchase_return_id = db_return.id
@@ -763,9 +780,10 @@ class GoodReceivedNoteService:
                 detail=f"Location with id {grn.good_received_locations_id} not found"
             )
         
+        # Lock the PO row to prevent concurrent GRN creations from racing on status update
         po = self.db.query(models.PurchasingOrder).filter(
             models.PurchasingOrder.id == grn.purchasingorders_id
-        ).first()
+        ).with_for_update().first()
         
         if not po:
             raise HTTPException(
@@ -1110,9 +1128,10 @@ class GoodReceivedNoteService:
             if po_item:
                 # Update the PO status based on received items
                 po_status = self._determine_po_completion_status(po_item.purchasingorders_id)
+                # Lock the PO row to prevent concurrent status updates
                 po = self.db.query(models.PurchasingOrder).filter(
                     models.PurchasingOrder.id == po_item.purchasingorders_id
-                ).first()
+                ).with_for_update().first()
                 
                 if po:
                     po.status = po_status
@@ -1305,7 +1324,10 @@ class SupplierCreditsSettleService:
     
     def verify_settlement(self, settle_id: int, verified_by: int = None) -> models.SupplierCreditsSettle:
         """Verify a credit settlement"""
-        settle = self.repo.get_by_id(settle_id)
+        # Lock the settlement row to prevent concurrent verification
+        settle = self.db.query(models.SupplierCreditsSettle).filter(
+            models.SupplierCreditsSettle.id == settle_id
+        ).with_for_update().first()
         if not settle:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1378,6 +1400,11 @@ class SupplierPaymentService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier with id {payment.supplier_id} not found"
+            )
+        if not supplier.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Supplier '{supplier.full_name}' is inactive. Please reactivate the supplier before creating a payment."
             )
 
         if payment.purchasing_order_id:
@@ -1575,12 +1602,17 @@ class SupplierAdvancePaymentService:
         self.supplier_repo = repository.SupplierRepository(db)
     
     def create_advance(self, data: schemas.SupplierAdvancePaymentCreate, created_by: Optional[int] = None) -> models.SupplierAdvancePayment:
-        # Validate supplier exists
+        # Validate supplier exists and is active
         supplier = self.supplier_repo.get_by_id(data.supplier_id)
         if not supplier:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier with id {data.supplier_id} not found"
+            )
+        if not supplier.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Supplier '{supplier.full_name}' is inactive. Please reactivate the supplier before creating an advance payment."
             )
         
         advance = self.repo.create(data, created_by)

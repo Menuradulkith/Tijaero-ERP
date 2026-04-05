@@ -226,7 +226,8 @@ class ReimbursementService:
 
     def approve_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementApprove, user_id: int) -> schemas.Reimbursement:
         """Approve or partially approve a reimbursement."""
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).first()
+        # Lock the reimbursement row to prevent concurrent approve/reject
+        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).with_for_update().first()
         if not r:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
         if r.status != "pending":
@@ -258,7 +259,8 @@ class ReimbursementService:
 
     def reject_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementReject, user_id: int) -> schemas.Reimbursement:
         """Reject a reimbursement."""
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).first()
+        # Lock the reimbursement row to prevent concurrent approve/reject
+        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).with_for_update().first()
         if not r:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
         if r.status != "pending":
@@ -770,7 +772,8 @@ class PayrollService:
 
     def approve_batch(self, batch_id: int, data: schemas.PayrollBatchApprove, user_id: int) -> schemas.PayrollBatchResponse:
         """Step 6: Approve payroll batch."""
-        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).first()
+        # Lock the batch row to prevent concurrent approve/reject
+        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).with_for_update().first()
         if not batch:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll batch not found")
         if batch.status != "pending_approval":
@@ -791,7 +794,8 @@ class PayrollService:
 
     def reject_batch(self, batch_id: int, data: schemas.PayrollBatchReject, user_id: int) -> schemas.PayrollBatchResponse:
         """Reject payroll batch back to draft."""
-        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).first()
+        # Lock the batch row to prevent concurrent approve/reject
+        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).with_for_update().first()
         if not batch:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll batch not found")
         if batch.status != "pending_approval":
@@ -810,7 +814,8 @@ class PayrollService:
 
     def process_salary_payment(self, batch_id: int, data: schemas.PayrollBatchProcessPayment, user_id: int) -> schemas.PayrollBatchResponse:
         """Step 7: Process salary payments for all employees in the batch."""
-        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).first()
+        # Lock the batch row to prevent concurrent payment processing
+        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).with_for_update().first()
         if not batch:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll batch not found")
         if batch.status != "approved":
@@ -874,7 +879,8 @@ class PayrollService:
 
     def process_statutory_payment(self, batch_id: int, data: schemas.PayrollBatchProcessStatutory, user_id: int) -> schemas.PayrollBatchResponse:
         """Step 8: Process statutory payments (EPF/ETF) for the batch."""
-        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).first()
+        # Lock the batch row to prevent concurrent state transitions
+        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).with_for_update().first()
         if not batch:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll batch not found")
         if batch.status != "salary_paid":
@@ -980,7 +986,8 @@ class PayrollService:
 
     def complete_batch(self, batch_id: int, user_id: int) -> schemas.PayrollBatchResponse:
         """Step 10: Complete the payroll cycle."""
-        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).first()
+        # Lock the batch row to prevent concurrent state transitions
+        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).with_for_update().first()
         if not batch:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll batch not found")
         if batch.status != "statutory_paid":
@@ -999,7 +1006,8 @@ class PayrollService:
 
     def cancel_batch(self, batch_id: int, user_id: int) -> schemas.PayrollBatchResponse:
         """Cancel a payroll batch (only if not yet paid)."""
-        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).first()
+        # Lock the batch row to prevent concurrent state transitions
+        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).with_for_update().first()
         if not batch:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll batch not found")
         if batch.status in ("salary_paid", "statutory_paid", "completed"):

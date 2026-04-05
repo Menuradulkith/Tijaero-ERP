@@ -10,8 +10,11 @@ class CustomerRepository:
     def get_by_id(self, db: Session, customer_id: int) -> Optional[Customer]:
         return db.query(Customer).filter(Customer.id == customer_id).first()
     
-    def get_all(self, db: Session, skip: int = 0, limit: int = 100) -> List[Customer]:
-        return db.query(Customer).offset(skip).limit(limit).all()
+    def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Customer]:
+        query = db.query(Customer)
+        if active_only:
+            query = query.filter(Customer.active == True)
+        return query.offset(skip).limit(limit).all()
     
     def search(self, db: Session, query: str, skip: int = 0, limit: int = 100) -> List[Customer]:
         search_filter = or_(

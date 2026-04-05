@@ -96,6 +96,11 @@ class ExpenseService:
         self.db = db
 
     def create_expense(self, expense: schemas.ExpenseCreate, submitted_by: int = None) -> models.Expenses:
+        # ── Validate branch is active ──
+        if hasattr(expense, 'branch_code') and expense.branch_code:
+            from app.common.branch_validation import validate_branch_is_active
+            validate_branch_is_active(self.db, expense.branch_code)
+
         return self.repo.create(expense, submitted_by=submitted_by)
 
     def update_expense(self, expense_id: int, data: schemas.ExpenseUpdate) -> models.Expenses:
@@ -225,6 +230,25 @@ class CustomerAdvancePaymentService:
         self.db = db
     
     def create_advance_payment(self, advance: schemas.CustomerAdvancePaymentCreate, user_id: int = 0) -> CustomerAdvancePayments:
+        # ── Validate branch is active ──
+        if hasattr(advance, 'branch_code') and advance.branch_code:
+            from app.common.branch_validation import validate_branch_is_active
+            validate_branch_is_active(self.db, advance.branch_code)
+
+        # Validate customer is active
+        from app.modules.customers.models import Customer
+        customer = self.db.query(Customer).filter(Customer.id == advance.customer_id).first()
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer with id {advance.customer_id} not found"
+            )
+        if not customer.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Customer '{customer.customer_name}' is inactive. Please reactivate the customer before creating an advance payment."
+            )
+
         db_advance = self.repo.create(advance)
         
         # ── GL Auto-Posting: Customer Advance Receipt (Gap B2) ───────────

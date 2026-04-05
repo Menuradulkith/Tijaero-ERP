@@ -510,7 +510,10 @@ class SupplierPaymentRepository:
         return db_payment
     
     def verify(self, payment_id: int, verified_by: int) -> Optional[models.SupplierPayment]:
-        db_payment = self.get_by_id(payment_id)
+        # Lock the payment row to prevent concurrent verify/cancel
+        db_payment = self.db.query(models.SupplierPayment).filter(
+            models.SupplierPayment.id == payment_id
+        ).with_for_update().first()
         if db_payment and db_payment.status == "pending":
             db_payment.status = "verified"
             db_payment.verified_by = verified_by
@@ -520,7 +523,10 @@ class SupplierPaymentRepository:
         return db_payment
     
     def cancel(self, payment_id: int) -> Optional[models.SupplierPayment]:
-        db_payment = self.get_by_id(payment_id)
+        # Lock the payment row to prevent concurrent verify/cancel
+        db_payment = self.db.query(models.SupplierPayment).filter(
+            models.SupplierPayment.id == payment_id
+        ).with_for_update().first()
         if db_payment and db_payment.status == "pending":
             db_payment.status = "cancelled"
             self.db.commit()
