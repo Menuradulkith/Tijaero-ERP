@@ -136,7 +136,7 @@ export default function AdvancePaymentsPage() {
   const [supplierForm, setSupplierForm] = useState<Partial<SupplierAdvancePaymentCreate>>(SUPPLIER_INITIAL_FORM);
 
   // Reference data
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
   // Fetch customers
@@ -278,11 +278,11 @@ export default function AdvancePaymentsPage() {
     setIsEditing(true);
     setTouched({});
     if (advanceType === "customer") {
-      setCustomerForm({ ...CUSTOMER_INITIAL_FORM });
+      setCustomerForm({ ...CUSTOMER_INITIAL_FORM, branch_code: defaultBranchCode || "" });
     } else {
-      setSupplierForm({ ...SUPPLIER_INITIAL_FORM });
+      setSupplierForm({ ...SUPPLIER_INITIAL_FORM, branch_code: defaultBranchCode || "" });
     }
-  }, [advanceType]);
+  }, [advanceType, defaultBranchCode]);
 
   // Cancel handler
   const handleCancel = useCallback(() => {

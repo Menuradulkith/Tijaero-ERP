@@ -21,17 +21,20 @@ import LocationOnIcon from "@mui/icons-material/LocationOn";
 import {
     Box,
     Button,
+    Chip,
     Dialog,
     DialogActions,
     DialogContent,
     DialogTitle,
     Divider,
+    FormControlLabel,
     IconButton,
     List,
     ListItem,
     ListItemSecondaryAction,
     ListItemText,
     Paper,
+    Switch,
     TextField,
     Typography,
 } from "@mui/material";
@@ -74,6 +77,7 @@ const INITIAL_FORM_DATA: BranchCreate = {
   address: "",
   email: "",
   contact_number: "",
+  active: true,
 };
 
 const resetFormFromBranch = (branch: Branch): BranchCreate => ({
@@ -82,6 +86,7 @@ const resetFormFromBranch = (branch: Branch): BranchCreate => ({
   address: branch.address || "",
   email: branch.email || "",
   contact_number: branch.contact_number || "",
+  active: branch.active,
 });
 
 export default function BranchesPage() {
@@ -451,7 +456,16 @@ export default function BranchesPage() {
             <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
               {/* Branch Code */}
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{branch.branch_code}</span>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <span>{branch.branch_code}</span>
+                  <Chip
+                    label={branch.active ? "Active" : "Inactive"}
+                    size="small"
+                    color={branch.active ? "success" : "default"}
+                    variant={branch.active ? "filled" : "outlined"}
+                    sx={{ height: 20, fontSize: "0.7rem" }}
+                  />
+                </Box>
                 {isSelected && (
                   <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                     (Branch Code)
@@ -527,6 +541,11 @@ export default function BranchesPage() {
             ? `${selectedBranch.branch_code} - ${selectedBranch.branch_name}`
             : ""
         }
+        chips={
+          selectedBranch
+            ? [{ label: selectedBranch.active ? "Active" : "Inactive", color: selectedBranch.active ? "success" : "error", size: "small" }]
+            : undefined
+        }
         titleIcon={<BusinessIcon color="primary" />}
         isCreating={isCreating}
         createTitle="New Branch"
@@ -592,6 +611,23 @@ export default function BranchesPage() {
               onChange={(e) => setFormData({ ...formData, contact_number: e.target.value })}
               disabled={!isEditing && !isCreating}
             />
+            <Box sx={{ display: "flex", alignItems: "center" }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={formData.active ?? true}
+                    onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                    disabled={!isEditing && !isCreating}
+                    color="success"
+                  />
+                }
+                label={
+                  <Typography variant="body2" color={formData.active ? "success.main" : "text.secondary"}>
+                    {formData.active ? "Active" : "Inactive"}
+                  </Typography>
+                }
+              />
+            </Box>
             <TextField
               label="Address"
               size="small"

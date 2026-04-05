@@ -12,12 +12,13 @@ router = APIRouter()
 def get_branches(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100),
+    active_only: bool = Query(False, description="Only return active branches"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
 
     skip = (page - 1) * size
-    branches = service.branch_service.get_all_branches(db, skip=skip, limit=size)
+    branches = service.branch_service.get_all_branches(db, skip=skip, limit=size, active_only=active_only)
     total = service.branch_service.get_total_count(db)
     
     branch_schemas = [schemas.Branch.model_validate(branch) for branch in branches]

@@ -80,34 +80,50 @@ export function getReportUrl(
   return `${resolvedBaseUrl}/api/v1/reporting/documents/${documentType}/${documentId}`;
 }
 
+/** Statuses that are always non-printable (pending approval or draft) */
+export const PENDING_APPROVAL_STATUSES = [
+  "draft",
+  "pending",
+  "pending_approval",
+  "pending_bank_verification",
+  "return_pending",
+];
+
 /**
- * Determine if a document can be printed based on status
- * 
+ * Determine if a document can be printed based on status.
+ * Any document in a pending-approval state is blocked by default.
+ *
  * @param status - Document status
- * @param nonPrintableStatuses - Custom list of statuses that cannot be printed
+ * @param additionalBlockedStatuses - Extra statuses to block (merged with pending defaults)
  * @returns Whether document can be printed
  */
 export function canPrintDocument(
   status?: string,
-  nonPrintableStatuses: string[] = ["draft", "pending"]
+  additionalBlockedStatuses: string[] = []
 ): boolean {
   if (!status) return false;
-  return !nonPrintableStatuses.includes(status.toLowerCase());
+  const blocked = [...PENDING_APPROVAL_STATUSES, ...additionalBlockedStatuses];
+  return !blocked.includes(status.toLowerCase());
 }
 
 /**
  * Get the disabled reason for printing based on status
- * 
+ *
  * @param status - Document status
- * @param nonPrintableStatuses - Custom list of statuses that cannot be printed
+ * @param additionalBlockedStatuses - Extra statuses to block
  * @returns Disabled reason string or undefined if printable
  */
 export function getPrintDisabledReason(
   status?: string,
-  nonPrintableStatuses: string[] = ["draft", "pending"]
+  additionalBlockedStatuses: string[] = []
 ): string | undefined {
-  if (!canPrintDocument(status, nonPrintableStatuses)) {
-    return `Cannot print ${status || "draft"} documents`;
+  if (!canPrintDocument(status, additionalBlockedStatuses)) {
+    const s = (status || "").toLowerCase();
+    if (s.includes("pending_approval")) return "Cannot print: document is pending approval";
+    if (s.includes("pending_bank")) return "Cannot print: bank transfer is pending verification";
+    if (s === "pending") return "Cannot print: document is pending";
+    if (s === "draft") return "Cannot print draft documents";
+    return `Cannot print documents in '${status}' status`;
   }
   return undefined;
 }

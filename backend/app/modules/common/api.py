@@ -249,7 +249,8 @@ def approve_request(
     """
     from .models import Approvals
     
-    approval = db.query(Approvals).filter(Approvals.id == approval_id).first()
+    # Lock the approval row to prevent concurrent approve/reject
+    approval = db.query(Approvals).filter(Approvals.id == approval_id).with_for_update().first()
     if not approval:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -327,7 +328,8 @@ def reject_request(
             detail="Rejection reason is required"
         )
     
-    approval = db.query(Approvals).filter(Approvals.id == approval_id).first()
+    # Lock the approval row to prevent concurrent approve/reject
+    approval = db.query(Approvals).filter(Approvals.id == approval_id).with_for_update().first()
     if not approval:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -135,6 +135,7 @@ class Branch(Base, TimestampMixin):
     email = Column(String(75))
     contact_number = Column(String(255))
     branch_code = Column(String(255), unique=True, nullable=False)
+    active = Column(Boolean, nullable=False, server_default="true", default=True)
 
     users = relationship("User", secondary=user_branches, back_populates="branches")
 

@@ -23,12 +23,14 @@ import {
 import { formatDateTime } from "@/utils/formatters";
 import { supportTicketsApi } from "@/modules/support/api";
 import { CustomerSupportCreate } from "@/modules/support/types";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 
 export default function SupportTicketsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const { dialogProps, confirm } = useTConfirmDialog();
+  const { getDefaultBranchCode } = useBranchFilter();
 
   const { data: tickets, isLoading } = useQuery({
     queryKey: ["support-tickets"],
@@ -181,7 +183,7 @@ export default function SupportTicketsPage() {
       job_type: "",
       date: new Date().toISOString().split("T")[0],
       contact_person: "",
-      branch_code: "",
+      branch_code: getDefaultBranchCode || "",
       assigned_user_id: 0,
     });
     setOpenDialog(true);

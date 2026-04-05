@@ -215,7 +215,7 @@ export default function QuotationsPage() {
   });
 
   // OPTIMIZED: Use aggregated reference data endpoint instead of separate API calls
-  const { data: refData, filteredBranches } = useReferenceData(["products", "branches", "customers", "employees"], { productsLimit: 2000 });
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches", "customers", "employees"], { productsLimit: 2000 });
   const products = refData?.products || [];
   const branches = filteredBranches || [];
   const customers = refData?.customers || [];
@@ -593,12 +593,13 @@ export default function QuotationsPage() {
 
   // Handlers
   const handleCreateNew = useCallback(() => {
-    setFormData(getEmptyQuoteForm(pageQuoteType));
+    const emptyForm = getEmptyQuoteForm(pageQuoteType);
+    setFormData({ ...emptyForm, branch_code: defaultBranchCode || emptyForm.branch_code });
     setLineItems([]);
     setLineItemsDirty(false);
     setFormStep(0);
     handleNewQuote();
-  }, [handleNewQuote, setFormData, pageQuoteType]);
+  }, [handleNewQuote, setFormData, pageQuoteType, defaultBranchCode]);
 
   const handleDiscardChanges = useCallback(async () => {
     if ((isEditing || isCreating) && hasChanges) {
@@ -979,8 +980,8 @@ export default function QuotationsPage() {
                 <TPrintButton
                   documentType="quotation"
                   documentId={selectedQuote.id}
-                  disabled={!canPrintDocument(selectedQuote.status, [])}
-                  disabledReason="Cannot print this quote"
+                  disabled={!canPrintDocument(selectedQuote.status, ["cancelled"])}
+                  disabledReason={`Cannot print: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}`}
                   onClick={() => {
                     setSelectedQuoteForPrint(selectedQuote);
                     setPrintDialogOpen(true);

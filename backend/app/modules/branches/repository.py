@@ -6,8 +6,11 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 
 class BranchRepository:
-    def get_all(self, db: Session, skip: int = 0, limit: int = 100) -> List[Branch]:
-        return db.query(Branch).offset(skip).limit(limit).all()
+    def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Branch]:
+        query = db.query(Branch)
+        if active_only:
+            query = query.filter(Branch.active == True)
+        return query.offset(skip).limit(limit).all()
     
     def get_by_id(self, db: Session, branch_id: int) -> Optional[Branch]:
         return db.query(Branch).filter(Branch.id == branch_id).first()

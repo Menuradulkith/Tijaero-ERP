@@ -278,7 +278,10 @@ class CommissionRepository:
 
     def verify_payment(self, db: Session, payment_id: int, verified_by: int) -> Optional[CustomerAgentCommissionPayment]:
         """Verify a payment"""
-        payment = self.get_payment_by_id(db, payment_id)
+        # Lock the payment row to prevent concurrent verify/cancel
+        payment = db.query(CustomerAgentCommissionPayment).filter(
+            CustomerAgentCommissionPayment.id == payment_id
+        ).with_for_update().first()
         if not payment or payment.status != "pending":
             return None
 
@@ -291,7 +294,10 @@ class CommissionRepository:
 
     def cancel_payment(self, db: Session, payment_id: int) -> Optional[CustomerAgentCommissionPayment]:
         """Cancel a payment"""
-        payment = self.get_payment_by_id(db, payment_id)
+        # Lock the payment row to prevent concurrent verify/cancel
+        payment = db.query(CustomerAgentCommissionPayment).filter(
+            CustomerAgentCommissionPayment.id == payment_id
+        ).with_for_update().first()
         if not payment or payment.status != "pending":
             return None
 

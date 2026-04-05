@@ -146,7 +146,7 @@ export default function ReimbursementsPage() {
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
 
   // Reference data
-  const { data: refData, filteredBranches } = useReferenceData(["branches", "employees"]);
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["branches", "employees"]);
   const branches = filteredBranches || [];
   const employees = refData?.employees || [];
 
@@ -179,6 +179,13 @@ export default function ReimbursementsPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); },
   });
+
+  // Set default branch when creating new reimbursement
+  useEffect(() => {
+    if (isCreating && defaultBranchCode && !formData.branch_code) {
+      setFormData(prev => ({ ...prev, branch_code: defaultBranchCode }));
+    }
+  }, [isCreating, defaultBranchCode, formData.branch_code, setFormData]);
 
   // Data query
   const { data: reimbursements, isLoading } = useQuery({

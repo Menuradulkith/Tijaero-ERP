@@ -221,18 +221,24 @@ export default function SaleReturnsPage() {
         onDiscard: () => { setLineItems([]); setFormStep(0); },
     });
 
+    // Use aggregated endpoint for branches/products (placed before handlers that need defaultBranchCode)
+    const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["branches", "products"]);
+    const branches = filteredBranches || [];
+    const products = refData?.products || [];
+
     const handleNewReturn = useCallback(() => {
         handleNewReturnBase();
         setFormData(prev => ({
             ...prev,
             sale_return_no: "",
+            branch_code: defaultBranchCode || prev.branch_code,
             payment_method: "credit_note",
         }));
         setLineItems([]);
         setFormStep(0);
         setBarcodeInput("");
         setTouched({});
-    }, [handleNewReturnBase, setFormData]);
+    }, [handleNewReturnBase, setFormData, defaultBranchCode]);
 
     const handleStartEdit = useCallback(() => {
         handleStartEditBase();
@@ -306,11 +312,6 @@ export default function SaleReturnsPage() {
         queryKey: ["sales"],
         queryFn: () => salesApi.getAll(),
     });
-
-    // Use aggregated endpoint for branches/products
-    const { data: refData, filteredBranches } = useReferenceData(["branches", "products"]);
-    const branches = filteredBranches || [];
-    const products = refData?.products || [];
 
     const getProductName = useCallback((productId?: number) => {
         if (!productId) return "";
@@ -661,8 +662,8 @@ export default function SaleReturnsPage() {
                         <TPrintButton
                             documentType="credit-note"
                             documentId={selectedReturn.id}
-                            disabled={!canPrintDocument(selectedReturn.status, ["pending", "approved"])}
-                            disabledReason="Can only print processed returns"
+                            disabled={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"])}
+                            disabledReason={`Cannot print: return is ${(selectedReturn.status || "").replace(/_/g, " ")}`}
                             tooltip="Print Credit Note"
                             onClick={() => {
                                 setSelectedReturnForPrint(selectedReturn);

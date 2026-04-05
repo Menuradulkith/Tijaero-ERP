@@ -261,7 +261,7 @@ export default function GoodReceivedNotesPage() {
   });
 
   // OPTIMIZED: Fetch locations and branches in a single call
-  const { data: refData, filteredBranches } = useReferenceData(["locations", "branches"]);
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["locations", "branches"]);
 
   // Load suppliers for filter
   useEffect(() => {
@@ -294,11 +294,12 @@ export default function GoodReceivedNotesPage() {
     setFormData(prev => ({
       ...prev,
       good_received_no: "",
+      branch_code: defaultBranchCode || prev.branch_code,
     }));
     setLineItems([]);
     setFormStep(0);
     setTouched({}); // Reset validation state
-  }, [handleNewGRNBase, setFormData]);
+  }, [handleNewGRNBase, setFormData, defaultBranchCode]);
 
   // Load GRN items when selecting a GRN
   const loadGRNItems = useCallback(async (grnId: number) => {

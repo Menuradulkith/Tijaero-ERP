@@ -134,7 +134,7 @@ export default function ExpensesPage() {
   const approveDialog = useTConfirmDialog();
 
   // Ref data
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
   // Master detail state
@@ -188,8 +188,11 @@ export default function ExpensesPage() {
 
   const handleNewExpense = useCallback(() => {
     handleNewExpenseBase();
+    if (defaultBranchCode) {
+      setFormData(prev => ({ ...prev, branch_code: defaultBranchCode }));
+    }
     setFormStep(0);
-  }, [handleNewExpenseBase]);
+  }, [handleNewExpenseBase, defaultBranchCode, setFormData]);
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -687,8 +690,8 @@ export default function ExpensesPage() {
               <TPrintButton
                 documentType="expense"
                 documentId={selectedExpense.id}
-                disabled={!canPrintDocument(selectedExpense.status, [])}
-                disabledReason="Cannot print this expense"
+                disabled={!canPrintDocument(selectedExpense.status, ["cancelled", "rejected"])}
+                disabledReason={`Cannot print: expense is ${(selectedExpense.status || "").replace(/_/g, " ")}`}
                 onClick={() => {
                   setSelectedExpenseForPrint(selectedExpense);
                   setPrintDialogOpen(true);

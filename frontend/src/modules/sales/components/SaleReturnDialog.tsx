@@ -24,6 +24,7 @@ import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { saleReturnsApi, salesApi } from "../api";
 import { Invoice, SaleReturnCreate } from "../types";
 import { useReferenceData } from "@/hooks";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import { showSuccessToast, showErrorToast, fmtLKR } from "@/components/tijaero";
 import { format } from "date-fns";
@@ -57,10 +58,13 @@ export default function SaleReturnDialog({
   const { filteredBranches } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
+  // Get user's default branch
+  const { getDefaultBranchCode } = useBranchFilter();
+
   const { control, handleSubmit, watch, setValue, reset } = useForm<SaleReturnCreate>({
     defaultValues: {
       sale_return_no: '', // Server generates return number,
-      branch_code: "MAIN",
+      branch_code: getDefaultBranchCode || "MAIN",
       invoice_id: preselectedInvoice?.id || 0,
       good_received_locations_id: 1,
       payment_method: "cash",
@@ -115,7 +119,7 @@ export default function SaleReturnDialog({
       barcode: "",
       return_price: 0,
       sold_price: 0,
-      branch_code: "MAIN",
+      branch_code: getDefaultBranchCode || "MAIN",
       invoice_item_id: undefined,
     });
   };
