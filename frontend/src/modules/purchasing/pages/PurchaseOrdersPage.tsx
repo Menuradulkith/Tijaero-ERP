@@ -296,13 +296,6 @@ export default function PurchaseOrdersPage() {
     }
   }, [handleSelectOrder]);
 
-  const { data: orders, isLoading } = useQuery({
-    queryKey: ["purchaseOrders"],
-    queryFn: () => purchaseOrdersApi.getAll(),
-  });
-
-  const nextPONumber = useMemo(() => getNextNumber('PO', (orders || []).map((o: PurchasingOrder) => ({ no: o.purchasing_order_no }))), [orders]);
-
   // OPTIMIZED: Fetch suppliers separately (has complex filters) but use aggregated endpoint for products/branches
   const { data: suppliers } = useQuery({
     queryKey: ["suppliers"],
@@ -320,6 +313,17 @@ export default function PurchaseOrdersPage() {
       setFilterBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  const { data: orders, isLoading } = useQuery({
+    queryKey: ["purchaseOrders"],
+    queryFn: () => purchaseOrdersApi.getAll(),
+    enabled: branchResolved,
+  });
+
+  const nextPONumber = useMemo(() => getNextNumber('PO', (orders || []).map((o: PurchasingOrder) => ({ no: o.purchasing_order_no }))), [orders]);
 
   // Check daily PO limit for a branch
   const checkDailyLimit = useCallback(
@@ -880,6 +884,17 @@ export default function PurchaseOrdersPage() {
         onDelete={canDelete ? handleDelete : undefined}
         canDelete={canDelete}
         endActions={
+          isCreating && formStep === 0 ? (
+            <Button
+              size="small"
+              variant="contained"
+              onClick={handleNextStep}
+              disabled={!isStep1Valid || isDailyLimitExceeded}
+              endIcon={<ArrowForwardIcon />}
+            >
+              Next
+            </Button>
+          ) :
           selectedOrder && !isCreating && !isEditing ? (
             <TPrintButton
               documentType="purchase-order"
@@ -1136,25 +1151,7 @@ export default function PurchaseOrdersPage() {
                   />
                 </FormSection>
 
-                {/* Next/Cancel buttons for step 1 in create mode */}
-                {isCreating && (
-                  <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
-                    <Button
-                      variant="outlined"
-                      onClick={() => handleCancel(filteredOrders)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="contained"
-                      onClick={handleNextStep}
-                      disabled={!isStep1Valid || isDailyLimitExceeded}
-                      endIcon={<ArrowForwardIcon />}
-                    >
-                      Next
-                    </Button>
-                  </Box>
-                )}
+
               </>
             )}
 
@@ -1197,7 +1194,6 @@ export default function PurchaseOrdersPage() {
                           <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
                           <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
                           <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
-                          <TableCell sx={{ width: 100 }}>Warranty</TableCell>
                           <TableCell sx={{ width: 150 }}>Remark</TableCell>
                           <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
                           {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
@@ -1206,7 +1202,7 @@ export default function PurchaseOrdersPage() {
                       <TableBody>
                         {lineItems.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={isEditing || isCreating ? 7 : 6} sx={modernTableStyles.emptyCell}>
+                            <TableCell colSpan={isEditing || isCreating ? 6 : 5} sx={modernTableStyles.emptyCell}>
                               No items added yet
                             </TableCell>
                           </TableRow>
@@ -1273,19 +1269,6 @@ export default function PurchaseOrdersPage() {
                                   />
                                 ) : (
                                   fmtLKR(Number(item.unit_price))
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {(isEditing || isCreating) ? (
-                                  <TextField
-                                    size="small"
-                                    value={item.warrenty_month}
-                                    onChange={(e) => handleUpdateLineItem(item._id, "warrenty_month", e.target.value)}
-                                    sx={{ width: 80 }}
-                                    placeholder="Months"
-                                  />
-                                ) : (
-                                  `${item.warrenty_month} mo`
                                 )}
                               </TableCell>
                               <TableCell>

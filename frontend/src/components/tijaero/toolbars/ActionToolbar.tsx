@@ -164,7 +164,11 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
       )}
 
       {/* Custom End Actions */}
-      {customEnd}
+      {customEnd && (
+        <Box sx={{ ml: "auto" }}>
+          {customEnd}
+        </Box>
+      )}
     </Box>
   );
 };

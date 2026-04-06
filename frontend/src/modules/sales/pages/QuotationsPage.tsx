@@ -208,12 +208,6 @@ export default function QuotationsPage() {
     onDiscard: () => { setLineItems([]); setLineItemsDirty(false); setFormStep(0); },
   });
 
-  // Data fetching — filtered by page type
-  const { data: quotesData, isLoading } = useQuery({
-    queryKey: ["sales-quotes", pageQuoteType],
-    queryFn: () => quotationApi.getAll({ quote_type: pageQuoteType, per_page: 200 }),
-  });
-
   // OPTIMIZED: Use aggregated reference data endpoint instead of separate API calls
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches", "customers", "employees"], { productsLimit: 2000 });
   const products = refData?.products || [];
@@ -227,6 +221,16 @@ export default function QuotationsPage() {
       setFilterBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  // Data fetching — filtered by page type
+  const { data: quotesData, isLoading } = useQuery({
+    queryKey: ["sales-quotes", pageQuoteType],
+    queryFn: () => quotationApi.getAll({ quote_type: pageQuoteType, per_page: 200 }),
+    enabled: branchResolved,
+  });
 
   // Fetch selected quote with items
   const { data: selectedQuoteDetails } = useQuery({

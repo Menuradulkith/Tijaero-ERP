@@ -19,17 +19,27 @@ SCENARIO 31: PURCHASE TRANSACTIONS
     When Advance Given:
         Dr  2020  Supplier Advances ....... advance_amount
         Cr  1020  Bank Account ............ advance_amount
-    When Advance Applied:
+    When Advance Applied (manual or auto during GRN):
         Dr  1210  Inventory ............... applied_amount
         Cr  2020  Supplier Advances ....... applied_amount
 
-3. CREDIT PURCHASE (GRN received, credit PO):
+3. ADVANCE PURCHASE (GRN received, advance PO):
+    Dr  1210  Finished Goods Inventory .. purchase_amount
+    Cr  2020  Supplier Advances ......... purchase_amount
+
+4. CREDIT PURCHASE (GRN received, credit PO):
     When GRN Received:
         Dr  1210  Inventory ............... purchase_amount
         Cr  2010  Trade Creditors ......... purchase_amount
     When Credit Settled (Payment Made):
         Dr  2010  Trade Creditors ......... payment_amount
-        Cr  1020  Bank Account ............ payment_amount
+        Cr  1020  Bank Account ............ bank_portion
+        Cr  1010  Cash on Hand ............ cash_portion
+
+5. PURCHASE RETURN (approved):
+    Credit PO:    Dr 2010 Trade Creditors  / Cr 1210 Inventory
+    Cash/Bank PO: Dr 1020 Bank Account    / Cr 1210 Inventory
+    Advance PO:   Dr 2020 Supplier Adv    / Cr 1210 Inventory
 
 ═══════════════════════════════════════════════════════════════════════════
 SCENARIO 32: EXPENSES & PAYROLL
@@ -359,10 +369,18 @@ class PurchaseExpensePayrollGL:
 
         payment_method = (po.payment_method or "").lower()
         is_credit = payment_method == "credit"
+        is_advance = payment_method == "advance"
 
-        # Determine credit account
-        credit_account = ACCT_TRADE_CREDITORS if is_credit else ACCT_BANK_ACCOUNT
-        credit_desc = "Trade creditor" if is_credit else "Payment to supplier"
+        # Determine credit account based on PO payment method
+        if is_credit:
+            credit_account = ACCT_TRADE_CREDITORS
+            credit_desc = "Trade creditor"
+        elif is_advance:
+            credit_account = ACCT_SUPPLIER_ADVANCES
+            credit_desc = "Advance applied to purchase"
+        else:
+            credit_account = ACCT_BANK_ACCOUNT
+            credit_desc = "Payment to supplier"
 
         lines = [
             {
@@ -525,11 +543,18 @@ class PurchaseExpensePayrollGL:
         if self._check_already_posted(settlement.id, marker):
             return None
 
-        # Sum up all settlement transactions
-        total_payment = Decimal("0")
+        # Sum up settlement transactions, grouped by payment method
+        total_cash = Decimal("0")
+        total_bank = Decimal("0")
         for txn in (settlement.transactions or []):
-            total_payment += Decimal(str(txn.payment_amount or 0))
+            amount = Decimal(str(txn.payment_amount or 0))
+            txn_method = (getattr(txn, "payment_method", "") or "").lower()
+            if txn_method == "cash":
+                total_cash += amount
+            else:
+                total_bank += amount
 
+        total_payment = total_cash + total_bank
         if total_payment <= 0:
             return None
 
@@ -540,13 +565,21 @@ class PurchaseExpensePayrollGL:
                 "credit": Decimal("0"),
                 "description": f"Credit settlement - {settlement.supplier_credits_settle_no}",
             },
-            {
+        ]
+        if total_cash > 0:
+            lines.append({
+                "account_code": ACCT_CASH_ON_HAND,
+                "debit": Decimal("0"),
+                "credit": total_cash,
+                "description": f"Cash payment to supplier - {settlement.supplier_credits_settle_no}",
+            })
+        if total_bank > 0:
+            lines.append({
                 "account_code": ACCT_BANK_ACCOUNT,
                 "debit": Decimal("0"),
-                "credit": total_payment,
-                "description": f"Payment to supplier - {settlement.supplier_credits_settle_no}",
-            },
-        ]
+                "credit": total_bank,
+                "description": f"Bank payment to supplier - {settlement.supplier_credits_settle_no}",
+            })
 
         description = (
             f"Auto GL - Credit Settlement | Settle: {settlement.supplier_credits_settle_no} | "
@@ -948,7 +981,7 @@ class PurchaseExpensePayrollGL:
         if total_return <= 0:
             return None
 
-        # Determine debit account based on original GRN/PO payment type
+        # Determine debit account based on original GRN/PO payment method
         debit_account = ACCT_TRADE_CREDITORS  # Default: credit purchase
         grn = getattr(purchase_return, "good_received_note", None)
         if grn:
@@ -957,9 +990,11 @@ class PurchaseExpensePayrollGL:
                 PurchasingOrder.id == grn.purchasingorders_id
             ).first()
             if po:
-                payment_type = (getattr(po, "payment_type", "") or "").lower()
-                if payment_type in ("cash", "bank", "cheque"):
+                payment_method = (getattr(po, "payment_method", "") or "").lower()
+                if payment_method in ("cash", "bank", "cheque"):
                     debit_account = ACCT_BANK_ACCOUNT
+                elif payment_method == "advance":
+                    debit_account = ACCT_SUPPLIER_ADVANCES
 
         return_no = purchase_return.purchasing_return_no or f"PR-{purchase_return.id}"
 

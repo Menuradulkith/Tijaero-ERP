@@ -270,6 +270,9 @@ export default function GoodReceivedNotesPage() {
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Load suppliers for filter
   useEffect(() => {
     const loadSuppliers = async () => {
@@ -371,6 +374,7 @@ export default function GoodReceivedNotesPage() {
   const { data: grns, isLoading, refetch } = useQuery({
     queryKey: ["goodReceivedNotes"],
     queryFn: () => goodReceivedNotesApi.getAll(),
+    enabled: branchResolved,
   });
 
   const nextGRNNumber = useMemo(() =>

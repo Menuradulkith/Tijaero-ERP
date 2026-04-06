@@ -214,6 +214,9 @@ export default function ItemTransferNotesPage() {
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   const handleNewITN = useCallback(() => {
     handleNewITNBase();
     setFormData(prev => ({
@@ -360,6 +363,7 @@ export default function ItemTransferNotesPage() {
   const { data: transferNotes, isLoading } = useQuery({
     queryKey: ["transfer-notes"],
     queryFn: () => transferNotesApi.getAll(),
+    enabled: branchResolved,
   });
 
   const nextITNNumber = useMemo(() =>
@@ -599,7 +603,17 @@ export default function ItemTransferNotesPage() {
         canUpdate={selectedITN ? getITNStatus(selectedITN) === "pending" : false}
         canDelete={selectedITN ? getITNStatus(selectedITN) === "pending" : false}
         endActions={
-          selectedITN && !isCreating && !isEditing ? (
+          isCreating && formStep === 0 ? (
+            <Button
+              size="small"
+              variant="contained"
+              onClick={handleNextStep}
+              disabled={!isStep1Valid}
+              endIcon={<ArrowForwardIcon />}
+            >
+              Next: Select Items
+            </Button>
+          ) : selectedITN && !isCreating && !isEditing ? (
             <TPrintButton
               documentType="item-transfer-note"
               documentId={selectedITN.id}
@@ -717,25 +731,7 @@ export default function ItemTransferNotesPage() {
                   />
                 </FormSection>
 
-                {/* Next/Cancel buttons for step 1 in create mode */}
-                {isCreating && (
-                  <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
-                    <Button 
-                      variant="outlined" 
-                      onClick={() => handleCancel(filteredITNs)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button 
-                      variant="contained" 
-                      onClick={handleNextStep}
-                      disabled={!isStep1Valid}
-                      endIcon={<ArrowForwardIcon />}
-                    >
-                      Next: Select Items
-                    </Button>
-                  </Box>
-                )}
+
               </>
             )}
 
