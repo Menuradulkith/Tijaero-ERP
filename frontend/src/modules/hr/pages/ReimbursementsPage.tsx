@@ -150,6 +150,16 @@ export default function ReimbursementsPage() {
   const branches = filteredBranches || [];
   const employees = refData?.employees || [];
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Master-detail state
   const {
     searchQuery,
@@ -195,7 +205,7 @@ export default function ReimbursementsPage() {
         branch_code: filterBranch ?? undefined,
         status: filterStatus ?? undefined,
       }),
-    enabled: true,
+    enabled: branchResolved,
     placeholderData: (prev) => prev,
   });
 

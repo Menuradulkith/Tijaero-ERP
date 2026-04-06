@@ -54,7 +54,7 @@ class SupplierCreditService:
         return (tz.today() - due_date).days
     
     
-    def get_supplier_credit_status(self, db: Session, supplier_id: int) -> Dict[str, Any]:
+    def get_supplier_credit_status(self, db: Session, supplier_id: int, exclude_po_id: Optional[int] = None) -> Dict[str, Any]:
 
         supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
         if not supplier:
@@ -64,7 +64,7 @@ class SupplierCreditService:
             )
 
         outstanding = self._calculate_outstanding_payable(db, supplier_id)
-        pending_credits = self._calculate_pending_credits(db, supplier_id)
+        pending_credits = self._calculate_pending_credits(db, supplier_id, exclude_po_id=exclude_po_id)
         total_exposure = float(outstanding) + float(pending_credits)
         
         overdue_grns = self._get_overdue_grns(db, supplier_id, supplier.credit_days)
@@ -402,16 +402,19 @@ class SupplierCreditService:
         
         return total_grn_value - total_settled - total_returns
     
-    def _calculate_pending_credits(self, db: Session, supplier_id: int) -> Decimal:
+    def _calculate_pending_credits(self, db: Session, supplier_id: int, exclude_po_id: Optional[int] = None) -> Decimal:
         from app.modules.purchasing.models import PurchasingOrderItems
         
         pending_statuses = ['draft', 'pending', 'pending_approval', 'approved']
-        pending_credit_po_ids = db.query(PurchasingOrder.id).filter(
+        query = db.query(PurchasingOrder.id).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) == "credit",
             PurchasingOrder.status.in_(pending_statuses)
-        ).all()
-        pending_credit_po_ids = [p[0] for p in pending_credit_po_ids]
+        )
+        # Exclude the PO currently being checked/approved to avoid double-counting
+        if exclude_po_id is not None:
+            query = query.filter(PurchasingOrder.id != exclude_po_id)
+        pending_credit_po_ids = [p[0] for p in query.all()]
         
         if not pending_credit_po_ids:
             return Decimal("0")
@@ -575,7 +578,8 @@ class SupplierCreditService:
         db: Session, 
         supplier_id: int, 
         po_value: Decimal,
-        payment_method: str = "Credit"
+        payment_method: str = "Credit",
+        exclude_po_id: Optional[int] = None
     ) -> Dict[str, Any]:
 
         if payment_method.lower() != "credit":
@@ -602,7 +606,7 @@ class SupplierCreditService:
                 "message": "PO can be saved (non-credit purchase)"
             }
         
-        status = self.get_supplier_credit_status(db, supplier_id)
+        status = self.get_supplier_credit_status(db, supplier_id, exclude_po_id=exclude_po_id)
         
         # Check if PO value exceeds AVAILABLE CREDIT
         # available_credit = max_credit_limit - total_exposure (outstanding + pending)

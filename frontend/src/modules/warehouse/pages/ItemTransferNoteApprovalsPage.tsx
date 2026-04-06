@@ -93,19 +93,6 @@ export default function ItemTransferNoteApprovalsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
 
-  // Fetch transfer notes with approval status
-  const { data: transferNotes = [], isLoading, refetch } = useQuery({
-    queryKey: ["transfer-notes"],
-    queryFn: () => transferNotesApi.getAll(),
-  });
-
-  // Fetch locations
-  const { data: locationsData } = useQuery({
-    queryKey: ["locations"],
-    queryFn: () => locationsApi.getAll(),
-  });
-  const locations = locationsData || [];
-
   // OPTIMIZED: Single API call for branches and products (was 2 separate calls)
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["branches", "products"]);
   const branches = filteredBranches || [];
@@ -117,6 +104,23 @@ export default function ItemTransferNoteApprovalsPage() {
       setFilterBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  // Fetch transfer notes with approval status
+  const { data: transferNotes = [], isLoading, refetch } = useQuery({
+    queryKey: ["transfer-notes"],
+    queryFn: () => transferNotesApi.getAll(),
+    enabled: branchResolved,
+  });
+
+  // Fetch locations
+  const { data: locationsData } = useQuery({
+    queryKey: ["locations"],
+    queryFn: () => locationsApi.getAll(),
+  });
+  const locations = locationsData || [];
 
   // Create lookup maps
   const locationMap = useMemo(() => {

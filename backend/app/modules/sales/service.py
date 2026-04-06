@@ -2085,6 +2085,19 @@ class SalesService:
             )
         
         db.commit()
+        
+        # Update customer credit balance if this return affects a credit invoice
+        # (balance_due may have been reduced by credit note, changing outstanding credit)
+        if invoice.customer_id and (invoice.payment_method or '').lower() == 'credit':
+            try:
+                customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
+            except Exception as cred_err:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Customer credit balance update after sale return {sale_return.sale_return_no} "
+                    f"failed (non-blocking): {cred_err}"
+                )
+        
         db.refresh(sale_return)
         
         return {
@@ -2274,6 +2287,20 @@ class SalesService:
         
         # Step 12: Update customer credit balance (restore left_credit_amount)
         customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
+        
+        # Step 13: Post credit settlement to GL (Dr Cash/Bank/Card, Cr Trade Debtors)
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(db)
+            gl_service.post_customer_credit_settlement_to_gl(
+                credit_settle, [settle_transaction], user_id=user_id
+            )
+            db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"GL posting for credit settlement {settle_no} failed (non-blocking): {gl_err}"
+            )
         
         db.refresh(invoice)
         

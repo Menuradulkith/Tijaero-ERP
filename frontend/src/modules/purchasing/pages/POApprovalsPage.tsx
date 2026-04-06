@@ -97,18 +97,6 @@ export default function POApprovalsPage() {
     setItemRemarkModalOpen(true);
   };
 
-  // Fetch orders
-  const { data: orders = [], isLoading, refetch } = useQuery({
-    queryKey: ["purchase-orders"],
-    queryFn: () => purchaseOrdersApi.getAll(),
-  });
-
-  // Fetch suppliers (needs separate call due to complex filters)
-  const { data: suppliers = [] } = useQuery({
-    queryKey: ["suppliers"],
-    queryFn: () => suppliersApi.getAll(),
-  });
-
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = (refData?.products || []) as Product[];
@@ -120,6 +108,22 @@ export default function POApprovalsPage() {
       setFilterBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  // Fetch orders
+  const { data: orders = [], isLoading, refetch } = useQuery({
+    queryKey: ["purchase-orders"],
+    queryFn: () => purchaseOrdersApi.getAll(),
+    enabled: branchResolved,
+  });
+
+  // Fetch suppliers (needs separate call due to complex filters)
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ["suppliers"],
+    queryFn: () => suppliersApi.getAll(),
+  });
 
   // Create lookup maps
   const supplierMap = useMemo(() => {
@@ -224,7 +228,7 @@ export default function POApprovalsPage() {
       const totalAmount = (selectedOrder.items || []).reduce((sum: number, item: any) => sum + (item.quantity * item.unit_price), 0);
 
       try {
-        const creditCheck = await purchaseOrdersApi.checkCredit(selectedOrder.first_suppliers_id, totalAmount);
+        const creditCheck = await purchaseOrdersApi.checkCredit(selectedOrder.first_suppliers_id, totalAmount, selectedOrder.id);
 
         // Show warning modal if requires approval
         if (creditCheck.requires_approval) {
@@ -456,7 +460,6 @@ export default function POApprovalsPage() {
             {/* Order Information */}
             <FormSection title="Order Information" columns={3}>
               <TextField label="PO Number" size="small" value={selectedOrder.purchasing_order_no} disabled />
-              <TextField label="Invoice Number" size="small" value={selectedOrder.purchasing_invoice_no || "-"} disabled />
               <TextField
                 label="Order Date"
                 size="small"

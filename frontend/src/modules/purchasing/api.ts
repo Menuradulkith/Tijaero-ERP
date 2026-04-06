@@ -162,11 +162,11 @@ export const purchaseOrdersApi = {
     return response.data;
   },
 
-  checkCredit: async (supplierId: number, poAmount: number): Promise<POCreditCheckResult> => {
+  checkCredit: async (supplierId: number, poAmount: number, poId?: number): Promise<POCreditCheckResult> => {
     const response = await apiClient.post<POCreditCheckResult>(
       `/purchasing/orders/check-credit`,
       null,
-      { params: { supplier_id: supplierId, po_value: poAmount, payment_method: "Credit" } }
+      { params: { supplier_id: supplierId, po_value: poAmount, payment_method: "Credit", ...(poId !== undefined && { po_id: poId }) } }
     );
     return response.data;
   },

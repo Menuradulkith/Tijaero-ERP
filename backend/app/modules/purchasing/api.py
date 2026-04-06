@@ -181,11 +181,13 @@ def check_po_credit(
     supplier_id: int = Query(..., description="Supplier ID"),
     po_value: float = Query(..., description="Total PO value"),
     payment_method: str = Query("Credit", description="Payment method (Credit/Cash)"),
+    po_id: Optional[int] = Query(None, description="PO ID to exclude from pending credits (used when re-checking an existing PO)"),
     db: Session = Depends(get_db)
 ):
     from decimal import Decimal
     return supplier_credit_service.check_po_credit(
-        db, supplier_id, Decimal(str(po_value)), payment_method
+        db, supplier_id, Decimal(str(po_value)), payment_method,
+        exclude_po_id=po_id
     )
 
 
