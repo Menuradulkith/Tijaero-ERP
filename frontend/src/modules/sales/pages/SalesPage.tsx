@@ -324,6 +324,13 @@ export default function SalesPage() {
   const products = refData?.products || [];
   const branches = filteredBranches || [];
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load full invoice with items when viewing
   const { data: fullInvoice } = useQuery({
     queryKey: ["sales", state.selectedItem?.id],

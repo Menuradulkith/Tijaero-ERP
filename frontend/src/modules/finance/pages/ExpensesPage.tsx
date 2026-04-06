@@ -137,6 +137,15 @@ export default function ExpensesPage() {
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Master detail state
   const {
     searchQuery,
@@ -205,6 +214,8 @@ export default function ExpensesPage() {
         expense_category: filterCategory ?? undefined,
         limit: 500,
       }),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   const expenses = expensesData?.items || [];

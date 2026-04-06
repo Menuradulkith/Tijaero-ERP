@@ -221,6 +221,13 @@ export default function QuotationsPage() {
   const customers = refData?.customers || [];
   const employees = refData?.employees || [];
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Fetch selected quote with items
   const { data: selectedQuoteDetails } = useQuery({
     queryKey: ["sales-quote-details", selectedQuote?.id],

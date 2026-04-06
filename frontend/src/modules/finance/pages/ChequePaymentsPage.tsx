@@ -95,8 +95,17 @@ export default function ChequePaymentsPage() {
     defaultSortField: "cheque_date",
   });
 
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
   const { data: cheques = [], isLoading, refetch } = useQuery({
     queryKey: ["cheque-payments", filterBranch],
@@ -104,6 +113,8 @@ export default function ChequePaymentsPage() {
       chequePaymentsApi.getAll({
         branch_code: filterBranch || undefined,
       }),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   const filteredCheques = useMemo(() => {

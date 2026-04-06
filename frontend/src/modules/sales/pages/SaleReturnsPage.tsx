@@ -227,6 +227,13 @@ export default function SaleReturnsPage() {
     const branches = filteredBranches || [];
     const products = refData?.products || [];
 
+    // Auto-default branch filter for non-superuser users
+    useEffect(() => {
+      if (defaultBranchCode && filterBranch === null) {
+        setFilterBranch(defaultBranchCode);
+      }
+    }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const handleNewReturn = useCallback(() => {
         handleNewReturnBase();
         setFormData(prev => ({

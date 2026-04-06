@@ -17,6 +17,7 @@ export interface User {
   verify: boolean;
   blocked: boolean;
   date_joined: string;
+  last_login?: string;
   branches: BranchSimple[];
   groups: Group[];
   created_at: string;
@@ -32,6 +33,8 @@ export interface UserList {
   last_name: string;
   gender: string;
   birthdate: string;
+  date_joined: string;
+  last_login?: string;
   is_active: boolean;
   is_superuser: boolean;
   is_staff: boolean;
@@ -77,6 +80,7 @@ export interface UserCreate {
   last_name: string;
   gender: string;
   birthdate: string;
+  date_joined: string;
   occupation: string;
   employee_id: string;
   is_active: boolean;
@@ -93,6 +97,7 @@ export interface UserUpdate {
   last_name?: string;
   gender?: string;
   birthdate?: string;
+  date_joined?: string;
   occupation?: string;
   password?: string;
   is_active?: boolean;

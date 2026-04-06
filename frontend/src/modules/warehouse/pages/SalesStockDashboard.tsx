@@ -40,6 +40,7 @@ import {
   ExpandMore as ExpandIcon,
   ExpandLess as CollapseIcon,
   AssignmentReturn as ReturnIcon,
+  FileDownload as DownloadIcon,
 } from "@mui/icons-material";
 import { salesStockApi } from "@/modules/inventory/api";
 import { fmtLKR } from "@/components/tijaero";
@@ -406,6 +407,9 @@ export default function SalesStockDashboard() {
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Wait until branch default is resolved before firing the query
+  const branchResolved = defaultBranchCode === undefined || selectedBranch !== "";
+
   // Fetch sales stock data (still separate as it depends on branch filter)
   const { data: salesStockData, isLoading: isLoadingStock, refetch: refetchStock } = useQuery({
     queryKey: ["salesStock", selectedBranch],
@@ -417,6 +421,8 @@ export default function SalesStockDashboard() {
       const result = await salesStockApi.getAll(params);
       return result;
     },
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   // Extract data from aggregated reference data response
@@ -547,6 +553,51 @@ export default function SalesStockDashboard() {
     setPage(0);
   }, [searchQuery, selectedBrand, selectedProduct, selectedStatus, dateFrom, dateTo, selectedLocation, selectedBranch]);
 
+  // ─── CSV Export ─────────────────────────────────────────────────────────
+  const exportToCSV = () => {
+    const headers = [
+      "Barcode", "Product", "Item Code", "Brand", "Category", "Branch",
+      "Location", "Status", "GRN No", "Received Date", "Cost Price", "Selling Price",
+    ];
+    const rows = filteredStock.map((stock: SalesStock) => {
+      const product = getProduct(stock.product_id);
+      const brandName = stock.brand_id ? getBrand(stock.brand_id)?.brand_name : getProductBrandName(product);
+      const categoryName = getProductCategoryName(product);
+      return [
+        stock.barcode,
+        stock.product_name || product?.name || "",
+        stock.item_code || product?.item_code || "",
+        brandName || "",
+        categoryName || "",
+        stock.branch_code,
+        stock.location_name || "",
+        stock.status,
+        stock.grn_no || "",
+        stock.added_date ? format(parseISO(stock.added_date), "yyyy-MM-dd") : "",
+        stock.cost_price ?? "",
+        stock.selling_price ?? "",
+      ];
+    });
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) =>
+        row.map((cell) => {
+          const str = String(cell).replace(/"/g, '""');
+          return str.includes(",") || str.includes('"') || str.includes("\n") ? `"${str}"` : str;
+        }).join(",")
+      ),
+    ].join("\n");
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sales_stock_${selectedBranch || "all"}_${format(new Date(), "yyyy-MM-dd_HHmmss")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Clear all filters
   const clearFilters = () => {
     setSearchQuery("");
@@ -574,6 +625,15 @@ export default function SalesStockDashboard() {
             onClick={() => setShowFilters(!showFilters)}
           >
             {showFilters ? "Hide Filters" : "Show Filters"}
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={exportToCSV}
+            disabled={filteredStock.length === 0}
+          >
+            Export CSV
           </Button>
           <Button
             variant="outlined"

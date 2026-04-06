@@ -263,6 +263,13 @@ export default function GoodReceivedNotesPage() {
   // OPTIMIZED: Fetch locations and branches in a single call
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["locations", "branches"]);
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load suppliers for filter
   useEffect(() => {
     const loadSuppliers = async () => {

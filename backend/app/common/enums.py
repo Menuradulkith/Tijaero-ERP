@@ -55,7 +55,12 @@ class StockStatus(str, Enum):
     SOLD = "sold"
     RESERVED = "reserved"
     RETURNED = "returned"
+    RETURNED_TO_SUPPLIER = "returned_to_supplier"
+    RETURNED_NON_RESTOCKABLE = "returned_non_restockable"
+    RETURN_PENDING = "return_pending"
     TRANSFERRED = "transferred"
+    TRANSFER_PENDING = "transfer_pending"
+    IN_TRANSIT = "in_transit"
     DAMAGED = "damaged"
 
 

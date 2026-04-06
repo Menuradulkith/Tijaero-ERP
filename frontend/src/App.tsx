@@ -5,6 +5,7 @@ import MainLayout from "./app/layout/MainLayout";
 import ProtectedRoute from "./auth/components/ProtectedRoute";
 import LoginPage from "./auth/pages/LoginPage";
 import { TPageSkeleton } from "./components/tijaero";
+import PermissionGuard from "./auth/components/PermissionGuard";
 
 // Lazy load route modules for better initial load performance
 const DashboardPage = lazy(() => import("./app/pages/DashboardPage"));
@@ -53,59 +54,81 @@ function App() {
             </Suspense>
           } />
           <Route path="/sales/*" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <SalesRoutes />
-            </Suspense>
+            <PermissionGuard resource="sales" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <SalesRoutes />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/inventory/*" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <InventoryRoutes />
-            </Suspense>
+            <PermissionGuard resource="inventory" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <InventoryRoutes />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/purchasing/*" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <PurchasingRoutes />
-            </Suspense>
+            <PermissionGuard resource="purchasing" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <PurchasingRoutes />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/finance/*" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <FinanceRoutes />
-            </Suspense>
+            <PermissionGuard resource="finance" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <FinanceRoutes />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/hr/*" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <HRRoutes />
-            </Suspense>
+            <PermissionGuard resource="hr" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <HRRoutes />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/warehouse/*" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <WarehouseRoutes />
-            </Suspense>
+            <PermissionGuard resource="warehouse" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <WarehouseRoutes />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/support/*" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <SupportRoutes />
-            </Suspense>
+            <PermissionGuard resource="support" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <SupportRoutes />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/reporting/*" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <ReportingRoutes />
-            </Suspense>
+            <PermissionGuard resource="reporting" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <ReportingRoutes />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/branches/*" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <BranchesRoutes />
-            </Suspense>
+            <PermissionGuard resource="branches" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <BranchesRoutes />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/users" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <UsersPage />
-            </Suspense>
+            <PermissionGuard resource="users" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <UsersPage />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="/roles" element={
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <GroupsPage />
-            </Suspense>
+            <PermissionGuard resource="groups" action="view" redirectTo="/dashboard">
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <GroupsPage />
+              </Suspense>
+            </PermissionGuard>
           } />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>

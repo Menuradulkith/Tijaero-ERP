@@ -2,7 +2,7 @@
  * PurchasingDashboard - Overview dashboard for purchasing module
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -62,8 +62,15 @@ export default function PurchasingDashboard() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: suppliers, isLoading: suppliersLoading } = useQuery({
     queryKey: ["suppliers"],

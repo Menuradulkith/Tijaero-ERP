@@ -157,8 +157,15 @@ export default function CustomersPage() {
   });
 
   // OPTIMIZED: Using aggregated endpoint for branches
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filter and sort
   const filteredCustomers = useMemo(() => {

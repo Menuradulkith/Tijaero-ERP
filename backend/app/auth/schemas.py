@@ -72,6 +72,7 @@ class UserUpdate(BaseModel):
     last_name: Optional[str] = Field(None, max_length=30)
     gender: Optional[str] = Field(None, max_length=30)
     birthdate: Optional[date] = None
+    date_joined: Optional[date] = None
     occupation: Optional[str] = Field(None, max_length=30)
     password: Optional[str] = None
     is_active: Optional[bool] = None
@@ -86,6 +87,7 @@ class User(TijaeroBaseSchema, UserBase):
     verify: bool
     blocked: bool
     date_joined: date
+    last_login: Optional[datetime] = None
     branches: List[BranchSimple] = []
     groups: List[Group] = []
     created_at: datetime
@@ -105,6 +107,7 @@ class UserList(TijaeroBaseSchema):
     is_staff: bool
     employee_id: str
     occupation: str
+    last_login: Optional[datetime] = None
     branches: List[BranchSimple] = []
     groups: List[GroupSimple] = []
     created_at: Optional[datetime] = None
