@@ -141,7 +141,6 @@ function ApprovalRow({ label, count, icon, color, onClick }: ApprovalRowProps) {
   );
 }
 
-
 export default function DashboardPage() {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -348,200 +347,194 @@ export default function DashboardPage() {
           </Grid>
 
           {/* Charts Row */}
-          <Grid container spacing={3}>
-            {/* Sales Trend Chart */}
-            <Grid item xs={12} lg={8}>
-              <TSection title="Sales Trend" paper>
-                {loading ? (
-                  <TLoadingSkeleton type="card" />
-                ) : (
-                  <Box sx={{ height: 300 }}>
-                    <ResponsiveContainer
-                      width="100%"
-                      height="100%"
-                      minWidth={0}
+          {/* Sales Trend Chart */}
+          <Grid item xs={12} lg={8}>
+            <TSection title="Sales Trend" paper>
+              {loading ? (
+                <TLoadingSkeleton type="card" />
+              ) : (
+                <Box sx={{ height: 300 }}>
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                    <LineChart
+                      data={chartData}
+                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                     >
-                      <LineChart
-                        data={chartData}
-                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis yAxisId="left" />
-                        <YAxis yAxisId="right" orientation="right" />
-                        <RechartsTooltip
-                          formatter={(
-                            value: number | string | undefined,
-                            name: string | undefined,
-                          ) => {
-                            if (name === "sales") {
-                              return [`Rs. ${fmtLKR(Number(value))}`, "Sales"];
-                            }
-                            return [value, "Orders"];
-                          }}
-                        />
-                        <Legend />
-                        <Line
-                          yAxisId="left"
-                          type="monotone"
-                          dataKey="sales"
-                          stroke="#2e7d32"
-                          strokeWidth={2}
-                          name="Sales"
-                        />
-                        <Line
-                          yAxisId="right"
-                          type="monotone"
-                          dataKey="orders"
-                          stroke="#1976d2"
-                          strokeWidth={2}
-                          name="Orders"
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </Box>
-                )}
-              </TSection>
-            </Grid>
-
-            {/* Performance Metrics */}
-            <Grid item xs={12} lg={4}>
-              <TSection title="Performance Metrics" paper>
-                {loading ? (
-                  <TLoadingSkeleton type="list" count={3} />
-                ) : (
-                  <Box>
-                    {/* Sales Today */}
-                    <Box sx={{ mb: 3 }}>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          mb: 1,
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis yAxisId="left" />
+                      <YAxis yAxisId="right" orientation="right" />
+                      <RechartsTooltip
+                        formatter={(
+                          value: number | string | undefined,
+                          name: string | undefined,
+                        ) => {
+                          if (name === "sales") {
+                            return [`Rs. ${fmtLKR(Number(value))}`, "Sales"];
+                          }
+                          return [value, "Orders"];
                         }}
-                      >
-                        <Typography variant="body2">Today's Sales</Typography>
-                        <Typography variant="body2" fontWeight={600}>
-                          Rs. {fmtLKR(metrics?.total_sales_today || 0)}
-                        </Typography>
-                      </Box>
-                      <LinearProgress
-                        variant="determinate"
-                        value={
-                          metrics?.total_sales_month
-                            ? Math.min(
-                                (metrics.total_sales_today /
-                                  metrics.total_sales_month) *
-                                  100,
-                                100,
-                              )
-                            : 0
-                        }
-                        sx={{ height: 8, borderRadius: 1 }}
                       />
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ mt: 0.5, display: "block" }}
-                      >
-                        {metrics?.total_sales_month
-                          ? `${(
+                      <Legend />
+                      <Line
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="sales"
+                        stroke="#2e7d32"
+                        strokeWidth={2}
+                        name="Sales"
+                      />
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="orders"
+                        stroke="#1976d2"
+                        strokeWidth={2}
+                        name="Orders"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </Box>
+              )}
+            </TSection>
+          </Grid>
+
+          {/* Performance Metrics */}
+          <Grid item xs={12} lg={4}>
+            <TSection title="Performance Metrics" paper>
+              {loading ? (
+                <TLoadingSkeleton type="list" count={3} />
+              ) : (
+                <Box>
+                  {/* Sales Today */}
+                  <Box sx={{ mb: 3 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        mb: 1,
+                      }}
+                    >
+                      <Typography variant="body2">Today's Sales</Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        Rs. {fmtLKR(metrics?.total_sales_today || 0)}
+                      </Typography>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={
+                        metrics?.total_sales_month
+                          ? Math.min(
                               (metrics.total_sales_today /
                                 metrics.total_sales_month) *
-                              100
-                            ).toFixed(1)}% of monthly sales`
-                          : "No data"}
+                                100,
+                              100,
+                            )
+                          : 0
+                      }
+                      sx={{ height: 8, borderRadius: 1 }}
+                    />
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ mt: 0.5, display: "block" }}
+                    >
+                      {metrics?.total_sales_month
+                        ? `${(
+                            (metrics.total_sales_today /
+                              metrics.total_sales_month) *
+                            100
+                          ).toFixed(1)}% of monthly sales`
+                        : "No data"}
+                    </Typography>
+                  </Box>
+
+                  {/* Orders Today */}
+                  <Box sx={{ mb: 3 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        mb: 1,
+                      }}
+                    >
+                      <Typography variant="body2">Orders Today</Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        {metrics?.total_orders_today || 0}
                       </Typography>
                     </Box>
-
-                    {/* Orders Today */}
-                    <Box sx={{ mb: 3 }}>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          mb: 1,
-                        }}
-                      >
-                        <Typography variant="body2">Orders Today</Typography>
-                        <Typography variant="body2" fontWeight={600}>
-                          {metrics?.total_orders_today || 0}
-                        </Typography>
-                      </Box>
-                      <LinearProgress
-                        variant="determinate"
-                        value={
-                          metrics?.total_orders_month
-                            ? Math.min(
-                                (metrics.total_orders_today /
-                                  metrics.total_orders_month) *
-                                  100,
-                                100,
-                              )
-                            : 0
-                        }
-                        sx={{ height: 8, borderRadius: 1 }}
-                        color="success"
-                      />
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ mt: 0.5, display: "block" }}
-                      >
-                        {metrics?.total_orders_month
-                          ? `${(
+                    <LinearProgress
+                      variant="determinate"
+                      value={
+                        metrics?.total_orders_month
+                          ? Math.min(
                               (metrics.total_orders_today /
                                 metrics.total_orders_month) *
-                              100
-                            ).toFixed(1)}% of monthly orders`
-                          : "No data"}
-                      </Typography>
-                    </Box>
-
-                    {/* Support Tickets */}
-                    <Box>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          mb: 1,
-                        }}
-                      >
-                        <Typography variant="body2">
-                          Open Support Tickets
-                        </Typography>
-                        <Typography variant="body2" fontWeight={600}>
-                          {metrics?.open_support_tickets || 0}
-                        </Typography>
-                      </Box>
-                      <LinearProgress
-                        variant="determinate"
-                        value={
-                          metrics?.open_support_tickets
-                            ? Math.min(metrics.open_support_tickets * 10, 100)
-                            : 0
-                        }
-                        sx={{ height: 8, borderRadius: 1 }}
-                        color={
-                          (metrics?.open_support_tickets || 0) > 5
-                            ? "warning"
-                            : "info"
-                        }
-                      />
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ mt: 0.5, display: "block" }}
-                      >
-                        {(metrics?.open_support_tickets || 0) > 5
-                          ? "High ticket volume"
-                          : "Normal ticket volume"}
-                      </Typography>
-                    </Box>
+                                100,
+                              100,
+                            )
+                          : 0
+                      }
+                      sx={{ height: 8, borderRadius: 1 }}
+                      color="success"
+                    />
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ mt: 0.5, display: "block" }}
+                    >
+                      {metrics?.total_orders_month
+                        ? `${(
+                            (metrics.total_orders_today /
+                              metrics.total_orders_month) *
+                            100
+                          ).toFixed(1)}% of monthly orders`
+                        : "No data"}
+                    </Typography>
                   </Box>
-                )}
-              </TSection>
-            </Grid>
+
+                  {/* Support Tickets */}
+                  <Box>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        mb: 1,
+                      }}
+                    >
+                      <Typography variant="body2">
+                        Open Support Tickets
+                      </Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        {metrics?.open_support_tickets || 0}
+                      </Typography>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={
+                        metrics?.open_support_tickets
+                          ? Math.min(metrics.open_support_tickets * 10, 100)
+                          : 0
+                      }
+                      sx={{ height: 8, borderRadius: 1 }}
+                      color={
+                        (metrics?.open_support_tickets || 0) > 5
+                          ? "warning"
+                          : "info"
+                      }
+                    />
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ mt: 0.5, display: "block" }}
+                    >
+                      {(metrics?.open_support_tickets || 0) > 5
+                        ? "High ticket volume"
+                        : "Normal ticket volume"}
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+            </TSection>
           </Grid>
 
           {/* Pending Approvals */}
