@@ -1,0 +1,278 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Git Status",
+			"type": "shell",
+			"command": "git status",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Continue Rebase",
+			"type": "shell",
+			"command": "git add .vscode/tasks.json && GIT_EDITOR=true git rebase --continue",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check Markers",
+			"type": "shell",
+			"command": "python3 -c \"import re; f = open('frontend/src/app/pages/DashboardPage.tsx').read(); res = re.findall(r'<<<<<<< HEAD.*?=======\\n(.*?)\\n>>>>>>> [0-9a-f]+.*?\\n', f, re.DOTALL); print(len(res))\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Mergers",
+			"type": "shell",
+			"command": "grep -n -C 5 \"<<<<<<< HEAD\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Dashboard",
+			"type": "shell",
+			"command": "sed -n '345,700p' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Mergers 2",
+			"type": "shell",
+			"command": "grep -n -C 5 \"<<<<<<< HEAD\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Git Status",
+			"type": "shell",
+			"command": "git status",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Git Continue",
+			"type": "shell",
+			"command": "git add frontend/src/app/pages/DashboardPage.tsx && GIT_EDITOR=true git rebase --continue",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Diff Check",
+			"type": "shell",
+			"command": "git diff --check",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Git Status",
+			"type": "shell",
+			"command": "git status",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Git Continue",
+			"type": "shell",
+			"command": "GIT_EDITOR=true git rebase --continue",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Force Continue",
+			"type": "shell",
+			"command": "git commit -a --no-edit && GIT_EDITOR=true git rebase --continue",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Dashboard",
+			"type": "shell",
+			"command": "cat -n frontend/src/app/pages/DashboardPage.tsx | grep -B 2 -A 20 \"Recent Activity\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Dashboard Full",
+			"type": "shell",
+			"command": "cat frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check Grid tags",
+			"type": "shell",
+			"command": "grep -n -E \"<Grid|</Grid>\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read 340-400",
+			"type": "shell",
+			"command": "cat -n frontend/src/app/pages/DashboardPage.tsx | sed -n '340,400p'",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read 530-600",
+			"type": "shell",
+			"command": "cat -n frontend/src/app/pages/DashboardPage.tsx | sed -n '530,600p'",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read 630-700",
+			"type": "shell",
+			"command": "cat -n frontend/src/app/pages/DashboardPage.tsx | sed -n '630,700p'",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Main Dashboard",
+			"type": "shell",
+			"command": "git show main:frontend/src/app/pages/DashboardPage.tsx | grep -n -B 2 -A 5 \"Pending Approvals\\|Performance Metrics\\|Recent Activities\\|Recent Activity\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read HEAD~1 Dashboard",
+			"type": "shell",
+			"command": "git show HEAD~1:frontend/src/app/pages/DashboardPage.tsx | grep -n -B 2 -A 5 \"Pending Approvals\\|Performance Metrics\\|Recent Activities\\|Recent Activity\\|ROW 2\\|ROW 3\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check all columns",
+			"type": "shell",
+			"command": "grep -n -A 1 \"<Grid item.*lg=\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read 348-355",
+			"type": "shell",
+			"command": "sed -n '348,355p' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read 542-550",
+			"type": "shell",
+			"command": "sed -n '542,550p' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Find height 100",
+			"type": "shell",
+			"command": "grep -n 'height: \"100%\"' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Lint Dashboard",
+			"type": "shell",
+			"command": "npx eslint frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Quick Actions",
+			"type": "shell",
+			"command": "sed -n '1116,1150p' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check Duplicates",
+			"type": "shell",
+			"command": "grep -c \"Pending Approvals\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check Recent Activity",
+			"type": "shell",
+			"command": "grep -n \"Recent Activity\\|Recent Activities\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check Performance Metrics",
+			"type": "shell",
+			"command": "grep -n \"Performance Metrics\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read 348-358",
+			"type": "shell",
+			"command": "sed -n '348,358p' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read 538-550",
+			"type": "shell",
+			"command": "sed -n '538,550p' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read 540-548",
+			"type": "shell",
+			"command": "sed -n '540,548p' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read 895-905",
+			"type": "shell",
+			"command": "sed -n '895,905p' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check close grids",
+			"type": "shell",
+			"command": "grep -n \"</Grid>\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Build test",
+			"type": "shell",
+			"command": "cd frontend && npm run build",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read ReimbursementsPage",
+			"type": "shell",
+			"command": "sed -n '190,205p' frontend/src/modules/hr/pages/ReimbursementsPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Reimbursements useQuery",
+			"type": "shell",
+			"command": "sed -n '196,211p' frontend/src/modules/hr/pages/ReimbursementsPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Build test 2",
+			"type": "shell",
+			"command": "cd frontend && npm run build",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Hook",
+			"type": "shell",
+			"command": "cat frontend/src/hooks/useDashboardMetrics.ts",
+			"isBackground": false,
+			"group": "test"
+		}
+	]
+}

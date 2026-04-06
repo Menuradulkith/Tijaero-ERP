@@ -97,7 +97,8 @@ export function useDashboardMetrics(
   // Initial fetch on mount
   useEffect(() => {
     if (!skipInitialFetch) {
-      fetchMetrics();
+      // Force cache bypass on initial mount so soft navigation gets fresh data
+      fetchMetrics(true);
     }
   }, [fetchMetrics, skipInitialFetch]);
 

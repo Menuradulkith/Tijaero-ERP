@@ -4,71 +4,71 @@
  * Uses Tijaero component library for consistent ERP UI.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  MenuItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from "@mui/material";
-import {
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Receipt as ReceiptIcon,
-  CheckCircle as ApproveIcon,
-  Cancel as RejectIcon,
-  Verified as VerifyIcon,
-  Payment as PaymentIcon,
-} from "@mui/icons-material";
 import { formatDateTimeReadable } from "@/utils/formatters";
+import {
+    Add as AddIcon,
+    CheckCircle as ApproveIcon,
+    Delete as DeleteIcon,
+    Payment as PaymentIcon,
+    Receipt as ReceiptIcon,
+    Cancel as RejectIcon,
+    Verified as VerifyIcon,
+} from "@mui/icons-material";
+import {
+    Box,
+    Button,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    IconButton,
+    MenuItem,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+    TextField,
+    Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 // Tijaero components
 import {
-  DetailPanelHeader,
-  EmptyState,
-  fmtLKR,
-  FormSection,
-  getStatusProps,
-  MasterDetailLayout,
-  REIMBURSEMENT_EXPENSE_TYPES,
-  REIMBURSEMENT_PAYMENT_METHODS,
-  REIMBURSEMENT_STATUS_FILTER_OPTIONS,
-  REIMBURSEMENT_TYPES,
-  SearchableList,
-  SelectableListItem,
-  type SortOption,
-  TBranchFilter,
-  TCurrency,
-  TFilterPanel,
-  TStatCard,
-  TStatusChip,
-  handleApiError,
-  modernTableStyles,
-  showErrorToast,
-  showSuccessToast,
-  TConfirmDialog,
-  useConfirmDialog,
-  useMasterDetailState,
+    DetailPanelHeader,
+    EmptyState,
+    fmtLKR,
+    FormSection,
+    getStatusProps,
+    handleApiError,
+    MasterDetailLayout,
+    modernTableStyles,
+    REIMBURSEMENT_EXPENSE_TYPES,
+    REIMBURSEMENT_PAYMENT_METHODS,
+    REIMBURSEMENT_STATUS_FILTER_OPTIONS,
+    REIMBURSEMENT_TYPES,
+    SearchableList,
+    SelectableListItem,
+    showErrorToast,
+    showSuccessToast,
+    type SortOption,
+    TBranchFilter,
+    TConfirmDialog,
+    TCurrency,
+    TFilterPanel,
+    TStatCard,
+    TStatusChip,
+    useConfirmDialog,
+    useMasterDetailState,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
 import { reimbursementsApi } from "@/modules/hr/api";
 import type {
-  Reimbursement,
-  ReimbursementCreate,
-  ReimbursementItemCreate,
+    Reimbursement,
+    ReimbursementCreate,
+    ReimbursementItemCreate,
 } from "@/modules/hr/types";
 
 // ---------------------------------------------------------------------------
@@ -146,7 +146,11 @@ export default function ReimbursementsPage() {
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
 
   // Reference data
-  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["branches", "employees"]);
+  const {
+    data: refData,
+    filteredBranches,
+    defaultBranchCode,
+  } = useReferenceData(["branches", "employees"]);
   const branches = filteredBranches || [];
   const employees = refData?.employees || [];
 
@@ -177,15 +181,27 @@ export default function ReimbursementsPage() {
         confirmColor: "warning",
       }),
     extraDirty: lineItems.length > 0,
-    onDiscard: () => { setLineItems([]); },
+    onDiscard: () => {
+      setLineItems([]);
+    },
   });
 
   // Set default branch when creating new reimbursement
   useEffect(() => {
     if (isCreating && defaultBranchCode && !formData.branch_code) {
-      setFormData(prev => ({ ...prev, branch_code: defaultBranchCode }));
+      setFormData((prev) => ({ ...prev, branch_code: defaultBranchCode }));
     }
   }, [isCreating, defaultBranchCode, formData.branch_code, setFormData]);
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved =
+    defaultBranchCode === undefined || filterBranch !== null;
 
   // Data query
   const { data: reimbursements, isLoading } = useQuery({
@@ -264,13 +280,8 @@ export default function ReimbursementsPage() {
   });
 
   const verifyMutation = useMutation({
-    mutationFn: ({
-      id,
-      data,
-    }: {
-      id: number;
-      data: { remarks?: string };
-    }) => reimbursementsApi.verify(id, data),
+    mutationFn: ({ id, data }: { id: number; data: { remarks?: string } }) =>
+      reimbursementsApi.verify(id, data),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["reimbursements"] });
       showSuccessToast("Reimbursement verified by finance");
@@ -312,7 +323,7 @@ export default function ReimbursementsPage() {
       handleCancelBase(items);
       setLineItems([]);
     },
-    [handleCancelBase]
+    [handleCancelBase],
   );
 
   const handleSelectReimbursement = useCallback(
@@ -330,13 +341,13 @@ export default function ReimbursementsPage() {
             amount: i.amount,
             receipt_date: i.receipt_date || "",
             receipt_number: i.receipt_number || "",
-          }))
+          })),
         );
       } catch {
         setLineItems([]);
       }
     },
-    [handleSelectItem, setSelectedItem]
+    [handleSelectItem, setSelectedItem],
   );
 
   // Line item management
@@ -361,18 +372,18 @@ export default function ReimbursementsPage() {
   const updateLineItem = (
     id: string,
     field: keyof ReimbursementItemCreate,
-    value: string | number
+    value: string | number,
   ) => {
     setLineItems((prev) =>
       prev.map((item) =>
-        item._id === id ? { ...item, [field]: value } : item
-      )
+        item._id === id ? { ...item, [field]: value } : item,
+      ),
     );
   };
 
   const lineItemsTotal = useMemo(
     () => lineItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
-    [lineItems]
+    [lineItems],
   );
 
   // Submit handler
@@ -402,7 +413,7 @@ export default function ReimbursementsPage() {
     confirmDialog.open(
       "Delete Reimbursement",
       `Delete ${selectedItem.reimbursement_no}? This cannot be undone.`,
-      () => deleteMutation.mutate(selectedItem.id)
+      () => deleteMutation.mutate(selectedItem.id),
     );
   };
 
@@ -424,9 +435,7 @@ export default function ReimbursementsPage() {
     setPaymentMethod("bank_transfer");
     setPaymentReference("");
     setPaymentAmount(
-      String(
-        selectedItem?.approved_amount || selectedItem?.total_amount || 0
-      )
+      String(selectedItem?.approved_amount || selectedItem?.total_amount || 0),
     );
     setPaymentRemarks("");
     setPaymentDialogOpen(true);
@@ -437,13 +446,9 @@ export default function ReimbursementsPage() {
     if (!reimbursements) return [];
     let filtered = reimbursements.filter(
       (r) =>
-        r.reimbursement_no
-          ?.toLowerCase()
-          .includes(searchQuery.toLowerCase()) ||
-        r.employee_name
-          ?.toLowerCase()
-          .includes(searchQuery.toLowerCase()) ||
-        r.employee_id?.toLowerCase().includes(searchQuery.toLowerCase())
+        r.reimbursement_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.employee_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.employee_id?.toLowerCase().includes(searchQuery.toLowerCase()),
     );
     if (filterBranch)
       filtered = filtered.filter((r) => r.branch_code === filterBranch);
@@ -472,7 +477,7 @@ export default function ReimbursementsPage() {
       total: all.length,
       pending: all.filter((r) => r.status === "pending").length,
       approved: all.filter((r) =>
-        ["approved", "partial_approved"].includes(r.status)
+        ["approved", "partial_approved"].includes(r.status),
       ).length,
       completed: all.filter((r) => r.status === "completed").length,
       totalAmount: all.reduce((s, r) => s + (r.total_amount || 0), 0),
@@ -493,25 +498,10 @@ export default function ReimbursementsPage() {
     <Box sx={{ height: "100%" }}>
       {/* Stat Cards */}
       <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap" }}>
-        <TStatCard
-          title="Total Claims"
-          value={stats.total}
-        />
-        <TStatCard
-          title="Pending"
-          value={stats.pending}
-          color="warning"
-        />
-        <TStatCard
-          title="Approved"
-          value={stats.approved}
-          color="info"
-        />
-        <TStatCard
-          title="Completed"
-          value={stats.completed}
-          color="success"
-        />
+        <TStatCard title="Total Claims" value={stats.total} />
+        <TStatCard title="Pending" value={stats.pending} color="warning" />
+        <TStatCard title="Approved" value={stats.approved} color="info" />
+        <TStatCard title="Completed" value={stats.completed} color="success" />
       </Box>
 
       {/* Filters */}
@@ -596,7 +586,7 @@ export default function ReimbursementsPage() {
 
     const canApprove = selectedItem.status === "pending";
     const canVerify = ["approved", "partial_approved"].includes(
-      selectedItem.status
+      selectedItem.status,
     );
     const canPay = selectedItem.status === "verified";
     const canDelete = ["pending", "rejected"].includes(selectedItem.status);
@@ -613,8 +603,11 @@ export default function ReimbursementsPage() {
           titleIcon={<ReceiptIcon color="primary" />}
           chips={[
             {
-              label: selectedItem.status.charAt(0).toUpperCase() + selectedItem.status.slice(1),
-              color: getStatusProps(selectedItem.status, "reimbursementStatus").color,
+              label:
+                selectedItem.status.charAt(0).toUpperCase() +
+                selectedItem.status.slice(1),
+              color: getStatusProps(selectedItem.status, "reimbursementStatus")
+                .color,
             },
           ]}
         />
@@ -735,12 +728,9 @@ export default function ReimbursementsPage() {
               <Typography variant="caption" color="text.secondary">
                 Type
               </Typography>
-              <Typography
-                variant="body2"
-                sx={{ textTransform: "capitalize" }}
-              >
+              <Typography variant="body2" sx={{ textTransform: "capitalize" }}>
                 {REIMBURSEMENT_TYPES.find(
-                  (t) => t.value === selectedItem.reimbursement_type
+                  (t) => t.value === selectedItem.reimbursement_type,
                 )?.label || selectedItem.reimbursement_type}
               </Typography>
             </Box>
@@ -826,7 +816,7 @@ export default function ReimbursementsPage() {
                   <TableCell>{idx + 1}</TableCell>
                   <TableCell sx={{ textTransform: "capitalize" }}>
                     {REIMBURSEMENT_EXPENSE_TYPES.find(
-                      (t) => t.value === item.expense_type
+                      (t) => t.value === item.expense_type,
                     )?.label || item.expense_type}
                   </TableCell>
                   <TableCell>{item.item_description || "-"}</TableCell>
@@ -916,7 +906,7 @@ export default function ReimbursementsPage() {
                       sx={{ textTransform: "capitalize" }}
                     >
                       {REIMBURSEMENT_PAYMENT_METHODS.find(
-                        (m) => m.value === selectedItem.payment_method
+                        (m) => m.value === selectedItem.payment_method,
                       )?.label || selectedItem.payment_method}
                     </Typography>
                   </Box>
@@ -945,12 +935,20 @@ export default function ReimbursementsPage() {
         {/* Record Information */}
         <FormSection title="Record Information" columns={2}>
           <Box>
-            <Typography variant="caption" color="text.secondary">Created</Typography>
-            <Typography variant="body2">{formatDateTimeReadable(selectedItem.created_at) || "-"}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Created
+            </Typography>
+            <Typography variant="body2">
+              {formatDateTimeReadable(selectedItem.created_at) || "-"}
+            </Typography>
           </Box>
           <Box>
-            <Typography variant="caption" color="text.secondary">Last Modified</Typography>
-            <Typography variant="body2">{formatDateTimeReadable(selectedItem.updated_at) || "-"}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Last Modified
+            </Typography>
+            <Typography variant="body2">
+              {formatDateTimeReadable(selectedItem.updated_at) || "-"}
+            </Typography>
           </Box>
         </FormSection>
       </Box>
@@ -1084,164 +1082,165 @@ export default function ReimbursementsPage() {
 
       {/* Line Items */}
       <Box sx={{ mb: 2 }}>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            mb: 1,
+          }}
+        >
           <Typography variant="subtitle2">Expense Items</Typography>
           <Button size="small" startIcon={<AddIcon />} onClick={addLineItem}>
             Add Item
           </Button>
         </Box>
         <FormSection title="">
-        <Table size="small" sx={modernTableStyles}>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ width: 40 }}>#</TableCell>
-              <TableCell sx={{ width: 160 }}>Type</TableCell>
-              <TableCell>Description</TableCell>
-              <TableCell sx={{ width: 120 }} align="right">
-                Amount
-              </TableCell>
-              <TableCell sx={{ width: 130 }}>Receipt No</TableCell>
-              <TableCell sx={{ width: 140 }}>Receipt Date</TableCell>
-              <TableCell sx={{ width: 50 }}></TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {lineItems.map((item, idx) => (
-              <TableRow key={item._id}>
-                <TableCell>{idx + 1}</TableCell>
-                <TableCell>
-                  <TextField
-                    select
-                    size="small"
-                    value={item.expense_type}
-                    onChange={(e) =>
-                      updateLineItem(item._id, "expense_type", e.target.value)
-                    }
-                    fullWidth
-                    variant="standard"
-                  >
-                    {REIMBURSEMENT_EXPENSE_TYPES.map((t) => (
-                      <MenuItem key={t.value} value={t.value}>
-                        {t.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                </TableCell>
-                <TableCell>
-                  <TextField
-                    size="small"
-                    value={item.item_description}
-                    onChange={(e) =>
-                      updateLineItem(
-                        item._id,
-                        "item_description",
-                        e.target.value
-                      )
-                    }
-                    fullWidth
-                    variant="standard"
-                    placeholder="Description..."
-                  />
-                </TableCell>
-                <TableCell>
-                  <TextField
-                    size="small"
-                    type="number"
-                    value={item.amount}
-                    onChange={(e) =>
-                      updateLineItem(
-                        item._id,
-                        "amount",
-                        Number(e.target.value)
-                      )
-                    }
-                    fullWidth
-                    variant="standard"
-                    inputProps={{ step: "0.01", min: 0 }}
-                  />
-                </TableCell>
-                <TableCell>
-                  <TextField
-                    size="small"
-                    value={item.receipt_number}
-                    onChange={(e) =>
-                      updateLineItem(
-                        item._id,
-                        "receipt_number",
-                        e.target.value
-                      )
-                    }
-                    fullWidth
-                    variant="standard"
-                    placeholder="Receipt #"
-                  />
-                </TableCell>
-                <TableCell>
-                  <TextField
-                    size="small"
-                    type="date"
-                    value={item.receipt_date}
-                    onChange={(e) =>
-                      updateLineItem(
-                        item._id,
-                        "receipt_date",
-                        e.target.value
-                      )
-                    }
-                    fullWidth
-                    variant="standard"
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </TableCell>
-                <TableCell>
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={() => removeLineItem(item._id)}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-            {lineItems.length === 0 && (
+          <Table size="small" sx={modernTableStyles}>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={7} align="center">
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ py: 2 }}
-                  >
-                    No items yet. Click &ldquo;Add Item&rdquo; to add expense
-                    items.
-                  </Typography>
+                <TableCell sx={{ width: 40 }}>#</TableCell>
+                <TableCell sx={{ width: 160 }}>Type</TableCell>
+                <TableCell>Description</TableCell>
+                <TableCell sx={{ width: 120 }} align="right">
+                  Amount
                 </TableCell>
+                <TableCell sx={{ width: 130 }}>Receipt No</TableCell>
+                <TableCell sx={{ width: 140 }}>Receipt Date</TableCell>
+                <TableCell sx={{ width: 50 }}></TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {lineItems.map((item, idx) => (
+                <TableRow key={item._id}>
+                  <TableCell>{idx + 1}</TableCell>
+                  <TableCell>
+                    <TextField
+                      select
+                      size="small"
+                      value={item.expense_type}
+                      onChange={(e) =>
+                        updateLineItem(item._id, "expense_type", e.target.value)
+                      }
+                      fullWidth
+                      variant="standard"
+                    >
+                      {REIMBURSEMENT_EXPENSE_TYPES.map((t) => (
+                        <MenuItem key={t.value} value={t.value}>
+                          {t.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </TableCell>
+                  <TableCell>
+                    <TextField
+                      size="small"
+                      value={item.item_description}
+                      onChange={(e) =>
+                        updateLineItem(
+                          item._id,
+                          "item_description",
+                          e.target.value,
+                        )
+                      }
+                      fullWidth
+                      variant="standard"
+                      placeholder="Description..."
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField
+                      size="small"
+                      type="number"
+                      value={item.amount}
+                      onChange={(e) =>
+                        updateLineItem(
+                          item._id,
+                          "amount",
+                          Number(e.target.value),
+                        )
+                      }
+                      fullWidth
+                      variant="standard"
+                      inputProps={{ step: "0.01", min: 0 }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField
+                      size="small"
+                      value={item.receipt_number}
+                      onChange={(e) =>
+                        updateLineItem(
+                          item._id,
+                          "receipt_number",
+                          e.target.value,
+                        )
+                      }
+                      fullWidth
+                      variant="standard"
+                      placeholder="Receipt #"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField
+                      size="small"
+                      type="date"
+                      value={item.receipt_date}
+                      onChange={(e) =>
+                        updateLineItem(item._id, "receipt_date", e.target.value)
+                      }
+                      fullWidth
+                      variant="standard"
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => removeLineItem(item._id)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {lineItems.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} align="center">
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ py: 2 }}
+                    >
+                      No items yet. Click &ldquo;Add Item&rdquo; to add expense
+                      items.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
 
-        {lineItems.length > 0 && (
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "flex-end",
-              mt: 1,
-              pr: 1,
-            }}
-          >
-            <Typography variant="subtitle1" fontWeight="bold">
-              Total: <TCurrency value={lineItemsTotal} />
-            </Typography>
-          </Box>
-        )}
-      </FormSection>
+          {lineItems.length > 0 && (
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "flex-end",
+                mt: 1,
+                pr: 1,
+              }}
+            >
+              <Typography variant="subtitle1" fontWeight="bold">
+                Total: <TCurrency value={lineItemsTotal} />
+              </Typography>
+            </Box>
+          )}
+        </FormSection>
       </Box>
 
       {/* Form Actions */}
-      <Box
-        sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mt: 2 }}
-      >
+      <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mt: 2 }}>
         <Button
           variant="outlined"
           onClick={() => handleCancel(reimbursements || [])}
@@ -1285,10 +1284,9 @@ export default function ReimbursementsPage() {
             Claimed amount:{" "}
             <strong>
               Rs.{" "}
-              {Number(selectedItem?.total_amount || 0).toLocaleString(
-                "en-LK",
-                { minimumFractionDigits: 2 }
-              )}
+              {Number(selectedItem?.total_amount || 0).toLocaleString("en-LK", {
+                minimumFractionDigits: 2,
+              })}
             </strong>
           </Typography>
           <TextField
@@ -1388,8 +1386,7 @@ export default function ReimbursementsPage() {
         <DialogTitle>Finance Verification</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Verify receipts and amounts for{" "}
-            {selectedItem?.reimbursement_no}
+            Verify receipts and amounts for {selectedItem?.reimbursement_no}
           </Typography>
           <TextField
             label="Verification Remarks (optional)"
@@ -1513,4 +1510,3 @@ export default function ReimbursementsPage() {
     </>
   );
 }
-
