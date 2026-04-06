@@ -6,27 +6,27 @@ export const settingsApi = {
   getNotifications: async (
     unreadOnly: boolean = false,
     skip: number = 0,
-    limit: number = 50
+    limit: number = 50,
   ) => {
     const response = await apiClient.get<types.Notification[]>(
       "/settings/notifications",
       {
         params: { unread_only: unreadOnly, skip, limit },
-      }
+      },
     );
     return response.data;
   },
 
   getNotificationStats: async () => {
     const response = await apiClient.get<types.NotificationStats>(
-      "/settings/notifications/stats"
+      "/settings/notifications/stats",
     );
     return response.data;
   },
 
   markAsRead: async (notificationId: number) => {
     const response = await apiClient.put<types.Notification>(
-      `/settings/notifications/${notificationId}/read`
+      `/settings/notifications/${notificationId}/read`,
     );
     return response.data;
   },
@@ -43,7 +43,7 @@ export const settingsApi = {
   // Preferences
   getPreferences: async () => {
     const response = await apiClient.get<types.UserPreferences>(
-      "/settings/preferences"
+      "/settings/preferences",
     );
     return response.data;
   },
@@ -51,7 +51,7 @@ export const settingsApi = {
   updatePreferences: async (preferences: types.UserPreferencesUpdate) => {
     const response = await apiClient.put<types.UserPreferences>(
       "/settings/preferences",
-      preferences
+      preferences,
     );
     return response.data;
   },
@@ -65,7 +65,22 @@ export const settingsApi = {
   changePassword: async (passwordChange: types.PasswordChange) => {
     const response = await apiClient.post(
       "/settings/change-password",
-      passwordChange
+      passwordChange,
+    );
+    return response.data;
+  },
+
+  // Company Settings
+  getCompanySettings: async () => {
+    const response =
+      await apiClient.get<types.CompanySettings>("/settings/company");
+    return response.data;
+  },
+
+  updateCompanySettings: async (settings: types.CompanySettingsUpdate) => {
+    const response = await apiClient.put<types.CompanySettings>(
+      "/settings/company",
+      settings,
     );
     return response.data;
   },

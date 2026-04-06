@@ -1,4 +1,6 @@
+import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { useAuthStore } from "@/state/authStore";
+import { useFormGuardStore } from "@/state/formGuardStore";
 import { useThemeStore } from "@/state/themeStore";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import Brightness4Icon from "@mui/icons-material/Brightness4";
@@ -21,8 +23,6 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useFormGuardStore } from "@/state/formGuardStore";
-import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -30,7 +30,11 @@ interface HeaderProps {
   iconNavWidth?: number;
 }
 
-export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: HeaderProps) {
+export default function Header({
+  onMenuClick,
+  drawerWidth,
+  iconNavWidth = 0,
+}: HeaderProps) {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const { mode, toggleTheme } = useThemeStore();
@@ -51,7 +55,8 @@ export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: H
     if (isDirty) {
       const confirmed = await discardDialog.confirm({
         title: "Discard Changes",
-        message: "You have unsaved changes. Are you sure you want to logout? All changes will be lost.",
+        message:
+          "You have unsaved changes. Are you sure you want to logout? All changes will be lost.",
         confirmText: "Discard & Logout",
         cancelText: "Cancel",
         danger: true,
@@ -106,17 +111,36 @@ export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: H
             gap: { xs: 0.5, sm: 1 },
           }}
         >
+          {/* Display Current User Details / Branch */}
+          <Box
+            sx={{
+              display: { xs: "none", md: "flex" },
+              flexDirection: "column",
+              alignItems: "flex-end",
+              mr: 1,
+            }}
+          >
+            <Typography variant="body2" fontWeight={600} color="text.primary">
+              {user?.first_name
+                ? `${user.first_name} ${user.last_name || ""}`.trim()
+                : user?.username}
+            </Typography>
+            {user?.branches && user.branches.length > 0 ? (
+              <Typography variant="caption" color="text.secondary">
+                {user.branches[0].branch_name}
+              </Typography>
+            ) : user?.is_superuser ? (
+              <Typography variant="caption" color="error.main" fontWeight={500}>
+                Superuser
+              </Typography>
+            ) : null}
+          </Box>
+
           <IconButton
             color="inherit"
             sx={{ display: { xs: "none", sm: "inline-flex" } }}
           >
             <NotificationsIcon />
-          </IconButton>
-          <IconButton
-            color="inherit"
-            sx={{ display: { xs: "none", sm: "inline-flex" } }}
-          >
-            <SettingsIcon />
           </IconButton>
           <IconButton onClick={handleMenu} sx={{ ml: { xs: 0, sm: 1 } }}>
             <Avatar sx={{ width: 32, height: 32, bgcolor: "primary.main" }}>
@@ -133,13 +157,53 @@ export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: H
           anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
         >
           <Box sx={{ px: 2, py: 1 }}>
-            <Typography variant="subtitle2">{user?.username}</Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="subtitle1" fontWeight="600">
+              {user?.first_name
+                ? `${user.first_name} ${user.last_name || ""}`.trim()
+                : user?.username}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               {user?.email}
             </Typography>
+
+            {user?.groups && user.groups.length > 0 ? (
+              <Typography
+                variant="caption"
+                display="block"
+                color="primary.main"
+                fontWeight="medium"
+              >
+                Role: {user.groups.map((g) => g.name).join(", ")}
+              </Typography>
+            ) : user?.is_superuser ? (
+              <Typography
+                variant="caption"
+                display="block"
+                color="error.main"
+                fontWeight="medium"
+              >
+                Role: Superuser
+              </Typography>
+            ) : null}
+
+            {user?.branches && user.branches.length > 0 && (
+              <Typography
+                variant="caption"
+                display="block"
+                color="text.secondary"
+                sx={{ mt: 0.5 }}
+              >
+                Branch: {user.branches.map((b) => b.branch_name).join(", ")}
+              </Typography>
+            )}
           </Box>
           <Divider />
-          <MenuItem onClick={handleClose}>
+          <MenuItem
+            onClick={() => {
+              handleClose();
+              navigate("/settings");
+            }}
+          >
             <AccountCircleIcon sx={{ mr: 1 }} fontSize="small" />
             Profile
           </MenuItem>
@@ -153,9 +217,14 @@ export default function Header({ onMenuClick, drawerWidth, iconNavWidth = 0 }: H
             </ListItemIcon>
             {mode === "dark" ? "Light Mode" : "Dark Mode"}
           </MenuItem>
-          <MenuItem onClick={handleClose}>
+          <MenuItem
+            onClick={() => {
+              handleClose();
+              navigate("/settings");
+            }}
+          >
             <SettingsIcon sx={{ mr: 1 }} fontSize="small" />
-            Settings
+            My Preferences
           </MenuItem>
           <Divider />
           <MenuItem onClick={handleLogout}>

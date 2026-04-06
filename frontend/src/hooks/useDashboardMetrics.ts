@@ -1,9 +1,9 @@
 /**
  * Custom hook for fetching and managing dashboard metrics
  */
-import { useState, useEffect, useCallback, useRef } from "react";
-import { getDashboardMetrics, DashboardMetrics } from "@/api/reporting";
+import { DashboardMetrics, getDashboardMetrics } from "@/api/reporting";
 import { cache } from "@/utils/cache";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const CACHE_KEY = "dashboard_metrics";
 const DEFAULT_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -11,6 +11,7 @@ const DEFAULT_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 export interface UseDashboardMetricsOptions {
   autoRefresh?: boolean;
   refreshInterval?: number;
+  skipInitialFetch?: boolean;
 }
 
 export interface UseDashboardMetricsResult {
@@ -27,13 +28,16 @@ export interface UseDashboardMetricsResult {
  * @returns Dashboard metrics state and control functions
  */
 export function useDashboardMetrics(
-  options: UseDashboardMetricsOptions = {}
+  options: UseDashboardMetricsOptions = {},
 ): UseDashboardMetricsResult {
-  const { autoRefresh = true, refreshInterval = DEFAULT_REFRESH_INTERVAL } =
-    options;
+  const {
+    autoRefresh = true,
+    refreshInterval = DEFAULT_REFRESH_INTERVAL,
+    skipInitialFetch = false,
+  } = options;
 
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(!skipInitialFetch);
   const [error, setError] = useState<Error | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -92,8 +96,10 @@ export function useDashboardMetrics(
 
   // Initial fetch on mount
   useEffect(() => {
-    fetchMetrics();
-  }, [fetchMetrics]);
+    if (!skipInitialFetch) {
+      fetchMetrics();
+    }
+  }, [fetchMetrics, skipInitialFetch]);
 
   // Set up auto-refresh interval
   useEffect(() => {
@@ -113,6 +119,7 @@ export function useDashboardMetrics(
 
   // Cleanup on unmount
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       if (intervalRef.current) {

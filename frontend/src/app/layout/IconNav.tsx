@@ -1,25 +1,26 @@
+import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
+import { useFormGuardStore } from "@/state/formGuardStore";
 import HomeIcon from "@mui/icons-material/Home";
 import MenuIcon from "@mui/icons-material/Menu";
 import MenuOpenIcon from "@mui/icons-material/MenuOpen";
 import SearchIcon from "@mui/icons-material/Search";
 import {
-    Box,
-    ClickAwayListener,
-    IconButton,
-    InputAdornment,
-    List,
-    ListItemButton,
-    ListItemText,
-    Paper,
-    Popper,
-    TextField,
-    Tooltip,
-    Typography,
+  Box,
+  ClickAwayListener,
+  IconButton,
+  InputAdornment,
+  List,
+  ListItemButton,
+  ListItemText,
+  Paper,
+  Popper,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 import { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useFormGuardStore } from "@/state/formGuardStore";
-import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
+
 
 interface IconNavProps {
   width: number;
@@ -29,33 +30,111 @@ interface IconNavProps {
 
 // All searchable pages in the app
 const allPages = [
-  { text: "Dashboard", path: "/dashboard", keywords: ["home", "main", "overview"] },
-  { text: "Customers", path: "/sales/customers", keywords: ["clients", "people"] },
-  { text: "Sales Dashboard", path: "/sales/dashboard", keywords: ["revenue", "orders"] },
-  { text: "Sales Orders", path: "/sales/orders", keywords: ["invoices", "transactions"] },
+  {
+    text: "Dashboard",
+    path: "/dashboard",
+    keywords: ["home", "main", "overview"],
+  },
+  {
+    text: "Customers",
+    path: "/sales/customers",
+    keywords: ["clients", "people"],
+  },
+  {
+    text: "Sales Dashboard",
+    path: "/sales/dashboard",
+    keywords: ["revenue", "orders"],
+  },
+  {
+    text: "Sales Orders",
+    path: "/sales/orders",
+    keywords: ["invoices", "transactions"],
+  },
   { text: "Sales Returns", path: "/sales/returns", keywords: ["refunds"] },
   { text: "Suppliers", path: "/purchasing/suppliers", keywords: ["vendors"] },
-  { text: "Purchase Orders", path: "/purchasing/orders", keywords: ["PO", "buy"] },
-  { text: "PO Approvals", path: "/purchasing/approvals/po-approvals", keywords: ["approve", "authorize", "pending", "purchase order"] },
-  { text: "Good Received Notes", path: "/purchasing/grn", keywords: ["GRN", "receive"] },
-  { text: "Purchase Returns", path: "/purchasing/returns", keywords: ["return goods"] },
-  { text: "Purchase Return Approvals", path: "/purchasing/approvals/return-approvals", keywords: ["approve return", "return approval"] },
-  { text: "Supplier Payments", path: "/purchasing/payments", keywords: ["cash", "bank", "cheque", "pay supplier", "credits", "settlements", "credit settlement"] },
-  { text: "Payment Approvals", path: "/purchasing/payment-approvals", keywords: ["verify", "approve payment", "payment verification"] },
+  {
+    text: "Purchase Orders",
+    path: "/purchasing/orders",
+    keywords: ["PO", "buy"],
+  },
+  {
+    text: "PO Approvals",
+    path: "/purchasing/approvals/po-approvals",
+    keywords: ["approve", "authorize", "pending", "purchase order"],
+  },
+  {
+    text: "Good Received Notes",
+    path: "/purchasing/grn",
+    keywords: ["GRN", "receive"],
+  },
+  {
+    text: "Purchase Returns",
+    path: "/purchasing/returns",
+    keywords: ["return goods"],
+  },
+  {
+    text: "Purchase Return Approvals",
+    path: "/purchasing/approvals/return-approvals",
+    keywords: ["approve return", "return approval"],
+  },
+  {
+    text: "Supplier Payments",
+    path: "/purchasing/payments",
+    keywords: [
+      "cash",
+      "bank",
+      "cheque",
+      "pay supplier",
+      "credits",
+      "settlements",
+      "credit settlement",
+    ],
+  },
+  {
+    text: "Payment Approvals",
+    path: "/purchasing/payment-approvals",
+    keywords: ["verify", "approve payment", "payment verification"],
+  },
   { text: "Products", path: "/inventory", keywords: ["items", "stock"] },
   { text: "Categories", path: "/inventory/categories", keywords: ["groups"] },
   { text: "Brands", path: "/inventory/brands", keywords: ["manufacturers"] },
   { text: "Finance", path: "/finance", keywords: ["accounting", "money"] },
-  { text: "HR", path: "/hr", keywords: ["employees", "human resources", "staff"] },
-  { text: "Sales Stock", path: "/warehouse", keywords: ["warehouse", "storage", "logistics", "sales stock"] },
+  {
+    text: "HR",
+    path: "/hr",
+    keywords: ["employees", "human resources", "staff"],
+  },
+  {
+    text: "Sales Stock",
+    path: "/warehouse",
+    keywords: ["warehouse", "storage", "logistics", "sales stock"],
+  },
   { text: "Support", path: "/support", keywords: ["help", "tickets"] },
   { text: "Reporting", path: "/reporting", keywords: ["reports", "analytics"] },
   { text: "Branches", path: "/branches", keywords: ["locations", "offices"] },
   { text: "Users", path: "/users", keywords: ["accounts", "members"] },
-  { text: "Roles", path: "/roles", keywords: ["permissions", "groups", "security"] },
+  {
+    text: "Roles",
+    path: "/roles",
+    keywords: ["permissions", "groups", "security"],
+  },
+  {
+    text: "Settings",
+    path: "/company-settings",
+    keywords: ["company config", "settings"],
+  },
+  {
+    text: "My Preferences",
+    path: "/settings",
+    keywords: ["preferences", "configuration", "profile", "account"],
+  },
 ];
 
-export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNavProps) {
+export default function IconNav({
+  width,
+  sidebarOpen,
+  onToggleSidebar,
+}: IconNavProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const isDirty = useFormGuardStore((s) => s.isDirty);
@@ -89,7 +168,7 @@ export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNav
       (page) =>
         page.text.toLowerCase().includes(q) ||
         page.path.toLowerCase().includes(q) ||
-        page.keywords.some((k) => k.toLowerCase().includes(q))
+        page.keywords.some((k) => k.toLowerCase().includes(q)),
     );
   }, [searchQuery]);
 
@@ -139,7 +218,10 @@ export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNav
       </Tooltip>
 
       {/* Sidebar toggle */}
-      <Tooltip title={sidebarOpen ? "Hide Sidebar" : "Show Sidebar"} placement="right">
+      <Tooltip
+        title={sidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+        placement="right"
+      >
         <IconButton
           onClick={onToggleSidebar}
           sx={{

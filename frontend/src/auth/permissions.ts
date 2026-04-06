@@ -76,6 +76,7 @@ export const PERMISSIONS = {
   // Reporting permissions
   REPORTING_VIEW: { resource: "reporting", action: "view" },
   REPORTING_GENERATE: { resource: "reporting", action: "generate" },
+  DASHBOARD_VIEW: { resource: "dashboard", action: "view" },
 } as const;
 
 /**
@@ -84,7 +85,7 @@ export const PERMISSIONS = {
 export function hasPermission(
   user: User | null,
   resource: string,
-  action: string
+  action: string,
 ): boolean {
   if (!user) return false;
 
@@ -119,13 +120,13 @@ export function hasPermission(
  */
 export function hasAnyPermission(
   user: User | null,
-  permissions: Array<{ resource: string; action: string }>
+  permissions: Array<{ resource: string; action: string }>,
 ): boolean {
   if (!user) return false;
   if (user.is_superuser) return true;
 
   return permissions.some((perm) =>
-    hasPermission(user, perm.resource, perm.action)
+    hasPermission(user, perm.resource, perm.action),
   );
 }
 
@@ -134,13 +135,13 @@ export function hasAnyPermission(
  */
 export function hasAllPermissions(
   user: User | null,
-  permissions: Array<{ resource: string; action: string }>
+  permissions: Array<{ resource: string; action: string }>,
 ): boolean {
   if (!user) return false;
   if (user.is_superuser) return true;
 
   return permissions.every((perm) =>
-    hasPermission(user, perm.resource, perm.action)
+    hasPermission(user, perm.resource, perm.action),
   );
 }
 

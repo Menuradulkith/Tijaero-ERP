@@ -1,8 +1,9 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
 from datetime import date, datetime
+from typing import List, Optional
 
 from app.common.base_schemas import TijaeroBaseSchema
+from pydantic import BaseModel, EmailStr, Field
+
 
 class BranchBase(BaseModel):
     branch_name: str = Field(..., max_length=255)
@@ -11,10 +12,12 @@ class BranchBase(BaseModel):
     email: Optional[EmailStr] = None
     contact_number: Optional[str] = Field(None, max_length=255)
 
+
 class BranchSimple(TijaeroBaseSchema):
     id: int
     branch_name: str
     branch_code: str
+
 
 class PermissionBase(BaseModel):
     name: str = Field(..., max_length=255)
@@ -22,29 +25,37 @@ class PermissionBase(BaseModel):
     action: str
     description: Optional[str] = None
 
+
 class PermissionCreate(PermissionBase):
     pass
+
 
 class Permission(TijaeroBaseSchema, PermissionBase):
     id: int
 
+
 class GroupBase(BaseModel):
     name: str = Field(..., max_length=150)
+
 
 class GroupSimple(TijaeroBaseSchema):
     id: int
     name: str
 
+
 class GroupCreate(GroupBase):
     permission_ids: List[int] = []
+
 
 class GroupUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=150)
     permission_ids: Optional[List[int]] = None
 
+
 class Group(TijaeroBaseSchema, GroupBase):
     id: int
     permissions: List[Permission] = []
+
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -58,11 +69,13 @@ class UserBase(BaseModel):
     is_active: bool = True
     is_staff: bool = False
 
+
 class UserCreate(UserBase):
     password: str
     employee_id: str = Field(..., max_length=255)
     branch_ids: List[int] = []
     group_ids: List[int] = []
+
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
@@ -79,6 +92,7 @@ class UserUpdate(BaseModel):
     branch_ids: Optional[List[int]] = None
     group_ids: Optional[List[int]] = None
 
+
 class User(TijaeroBaseSchema, UserBase):
     id: int
     is_superuser: bool
@@ -88,8 +102,10 @@ class User(TijaeroBaseSchema, UserBase):
     date_joined: date
     branches: List[BranchSimple] = []
     groups: List[Group] = []
+    permissions: List[Permission] = []
     created_at: datetime
     updated_at: datetime
+
 
 class UserList(TijaeroBaseSchema):
     id: int
@@ -110,16 +126,20 @@ class UserList(TijaeroBaseSchema):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+
 class Token(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
 
+
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
+
 class TokenData(BaseModel):
     user_id: Optional[int] = None
+
 
 class PaginatedResponse(BaseModel):
     items: List

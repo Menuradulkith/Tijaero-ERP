@@ -1,5 +1,7 @@
 import { hasPermission, PERMISSIONS } from "@/auth/permissions";
+import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { useAuthStore } from "@/state/authStore";
+import { useFormGuardStore } from "@/state/formGuardStore";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
@@ -11,19 +13,21 @@ import BusinessIcon from "@mui/icons-material/Business";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CategoryIcon from "@mui/icons-material/Category";
 import DashboardIcon from "@mui/icons-material/Dashboard";
+import ExpandLess from "@mui/icons-material/ExpandLess";
+import ExpandMore from "@mui/icons-material/ExpandMore";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import GroupIcon from "@mui/icons-material/Group";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
+import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
-import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
-import ReceiptIcon from "@mui/icons-material/Receipt";
 import PaymentIcon from "@mui/icons-material/Payment";
 import PeopleIcon from "@mui/icons-material/People";
 import PersonIcon from "@mui/icons-material/Person";
 import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
+import ReceiptIcon from "@mui/icons-material/Receipt";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SecurityIcon from "@mui/icons-material/Security";
 import SellIcon from "@mui/icons-material/Sell";
@@ -35,25 +39,21 @@ import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
-import ExpandLess from "@mui/icons-material/ExpandLess";
-import ExpandMore from "@mui/icons-material/ExpandMore";
 import {
-  Box,
-  Collapse,
-  Divider,
-  Drawer,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Toolbar,
-  Typography,
+    Box,
+    Collapse,
+    Divider,
+    Drawer,
+    List,
+    ListItem,
+    ListItemButton,
+    ListItemIcon,
+    ListItemText,
+    Toolbar,
+    Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useFormGuardStore } from "@/state/formGuardStore";
-import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 
 interface SidebarProps {
   drawerWidth: number;
@@ -89,23 +89,55 @@ const menuItems: MenuItem[] = [
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/sales/dashboard" },
       { text: "Customers", icon: <PeopleIcon />, path: "/sales/customers" },
-      { text: "Quotations", icon: <ReceiptLongIcon />, path: "/sales/quotations" },
-      { text: "Proforma Invoices", icon: <ReceiptLongIcon />, path: "/sales/proforma" },
-      { text: "Sales Orders", icon: <PointOfSaleIcon />, path: "/sales/orders" },
-      { 
-        text: "Approvals", 
-        icon: <FactCheckIcon />, 
+      {
+        text: "Quotations",
+        icon: <ReceiptLongIcon />,
+        path: "/sales/quotations",
+      },
+      {
+        text: "Proforma Invoices",
+        icon: <ReceiptLongIcon />,
+        path: "/sales/proforma",
+      },
+      {
+        text: "Sales Orders",
+        icon: <PointOfSaleIcon />,
+        path: "/sales/orders",
+      },
+      {
+        text: "Approvals",
+        icon: <FactCheckIcon />,
         path: "/sales/approvals",
         subItems: [
-          { text: "SO Approvals", icon: <FactCheckIcon />, path: "/sales/approvals/so-approvals" },
-          { text: "Return Approvals", icon: <FactCheckIcon />, path: "/sales/approvals/return-approvals" },
-          { text: "Commission Approvals", icon: <FactCheckIcon />, path: "/sales/approvals/commission-approvals" },
+          {
+            text: "SO Approvals",
+            icon: <FactCheckIcon />,
+            path: "/sales/approvals/so-approvals",
+          },
+          {
+            text: "Return Approvals",
+            icon: <FactCheckIcon />,
+            path: "/sales/approvals/return-approvals",
+          },
+          {
+            text: "Commission Approvals",
+            icon: <FactCheckIcon />,
+            path: "/sales/approvals/commission-approvals",
+          },
         ],
       },
-      { text: "Sales Returns", icon: <AssignmentReturnIcon />, path: "/sales/returns" },
+      {
+        text: "Sales Returns",
+        icon: <AssignmentReturnIcon />,
+        path: "/sales/returns",
+      },
       { text: "Coupons", icon: <LocalOfferIcon />, path: "/sales/coupons" },
       { text: "Gift Vouchers", icon: <ReceiptIcon />, path: "/sales/vouchers" },
-      { text: "Agent Commissions", icon: <MonetizationOnIcon />, path: "/sales/agent-commissions" },
+      {
+        text: "Agent Commissions",
+        icon: <MonetizationOnIcon />,
+        path: "/sales/agent-commissions",
+      },
       { text: "Settings", icon: <SettingsIcon />, path: "/sales/settings" },
     ],
   },
@@ -117,18 +149,38 @@ const menuItems: MenuItem[] = [
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/purchasing" },
       { text: "Suppliers", icon: <StoreIcon />, path: "/purchasing/suppliers" },
-      { text: "Purchase Orders", icon: <ReceiptLongIcon />, path: "/purchasing/orders" },
-      { 
-        text: "Approvals", 
-        icon: <FactCheckIcon />, 
+      {
+        text: "Purchase Orders",
+        icon: <ReceiptLongIcon />,
+        path: "/purchasing/orders",
+      },
+      {
+        text: "Approvals",
+        icon: <FactCheckIcon />,
         path: "/purchasing/approvals",
         subItems: [
-          { text: "PO Approvals", icon: <FactCheckIcon />, path: "/purchasing/approvals/po-approvals" },
-          { text: "Return Approvals", icon: <FactCheckIcon />, path: "/purchasing/approvals/return-approvals" },
+          {
+            text: "PO Approvals",
+            icon: <FactCheckIcon />,
+            path: "/purchasing/approvals/po-approvals",
+          },
+          {
+            text: "Return Approvals",
+            icon: <FactCheckIcon />,
+            path: "/purchasing/approvals/return-approvals",
+          },
         ],
       },
-      { text: "Good Received Notes", icon: <LocalShippingOutlinedIcon />, path: "/purchasing/grn" },
-      { text: "Purchase Returns", icon: <AssignmentReturnIcon />, path: "/purchasing/returns" },
+      {
+        text: "Good Received Notes",
+        icon: <LocalShippingOutlinedIcon />,
+        path: "/purchasing/grn",
+      },
+      {
+        text: "Purchase Returns",
+        icon: <AssignmentReturnIcon />,
+        path: "/purchasing/returns",
+      },
     ],
   },
   {
@@ -138,7 +190,11 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.INVENTORY_VIEW,
     subItems: [
       { text: "Products", icon: <Inventory2Icon />, path: "/inventory" },
-      { text: "Categories", icon: <CategoryIcon />, path: "/inventory/categories" },
+      {
+        text: "Categories",
+        icon: <CategoryIcon />,
+        path: "/inventory/categories",
+      },
       { text: "Brands", icon: <SellIcon />, path: "/inventory/brands" },
     ],
   },
@@ -149,54 +205,134 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.FINANCE_VIEW,
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/finance" },
-      { text: "Cashbook", icon: <AccountBalanceWalletIcon />, path: "/finance/cashbook" },
-      { text: "Expenses", icon: <ReceiptLongIcon />, path: "/finance/expenses" },
-      { 
-        text: "Payment Methods", 
-        icon: <PaymentIcon />, 
+      {
+        text: "Cashbook",
+        icon: <AccountBalanceWalletIcon />,
+        path: "/finance/cashbook",
+      },
+      {
+        text: "Expenses",
+        icon: <ReceiptLongIcon />,
+        path: "/finance/expenses",
+      },
+      {
+        text: "Payment Methods",
+        icon: <PaymentIcon />,
         path: "/finance/payment-methods",
         subItems: [
-          { text: "Bank Deposits", icon: <AccountBalanceIcon />, path: "/finance/payment-methods/bank-deposits" },
-          { text: "Card Payments", icon: <PaymentIcon />, path: "/finance/payment-methods/card-payments" },
-          { text: "Cheque Payments", icon: <ReceiptIcon />, path: "/finance/payment-methods/cheque-payments" },
-          { text: "Credit Notes", icon: <ReceiptIcon />, path: "/finance/payment-methods/credit-notes" },
+          {
+            text: "Bank Deposits",
+            icon: <AccountBalanceIcon />,
+            path: "/finance/payment-methods/bank-deposits",
+          },
+          {
+            text: "Card Payments",
+            icon: <PaymentIcon />,
+            path: "/finance/payment-methods/card-payments",
+          },
+          {
+            text: "Cheque Payments",
+            icon: <ReceiptIcon />,
+            path: "/finance/payment-methods/cheque-payments",
+          },
+          {
+            text: "Credit Notes",
+            icon: <ReceiptIcon />,
+            path: "/finance/payment-methods/credit-notes",
+          },
         ],
       },
-      { 
-        text: "Advance Payments", 
-        icon: <PaymentIcon />, 
+      {
+        text: "Advance Payments",
+        icon: <PaymentIcon />,
         path: "/finance/advance-payments",
         subItems: [
-          { text: "Customer Advances", icon: <PaymentIcon />, path: "/finance/advance-payments/customer" },
-          { text: "Supplier Advances", icon: <PaymentIcon />, path: "/finance/advance-payments/supplier" },
+          {
+            text: "Customer Advances",
+            icon: <PaymentIcon />,
+            path: "/finance/advance-payments/customer",
+          },
+          {
+            text: "Supplier Advances",
+            icon: <PaymentIcon />,
+            path: "/finance/advance-payments/supplier",
+          },
         ],
       },
-      { text: "Supplier Payments", icon: <PaymentIcon />, path: "/finance/supplier-payments" },
-      { text: "Customer Payments", icon: <PaymentIcon />, path: "/finance/customer-payments" },
-      { 
-        text: "Accounting", 
-        icon: <BookIcon />, 
+      {
+        text: "Supplier Payments",
+        icon: <PaymentIcon />,
+        path: "/finance/supplier-payments",
+      },
+      {
+        text: "Customer Payments",
+        icon: <PaymentIcon />,
+        path: "/finance/customer-payments",
+      },
+      {
+        text: "Accounting",
+        icon: <BookIcon />,
         path: "/finance/chart-of-accounts",
         subItems: [
-          { text: "Chart of Accounts", icon: <AccountTreeIcon />, path: "/finance/chart-of-accounts" },
-          { text: "Journal Entries", icon: <ReceiptLongIcon />, path: "/finance/journal-entries" },
-          { text: "General Ledger", icon: <BalanceIcon />, path: "/finance/general-ledger" },
-          { text: "Accounting Periods", icon: <CalendarMonthIcon />, path: "/finance/accounting-periods" },
-          { text: "Cash Flow", icon: <TrendingUpIcon />, path: "/finance/cash-flow" },
+          {
+            text: "Chart of Accounts",
+            icon: <AccountTreeIcon />,
+            path: "/finance/chart-of-accounts",
+          },
+          {
+            text: "Journal Entries",
+            icon: <ReceiptLongIcon />,
+            path: "/finance/journal-entries",
+          },
+          {
+            text: "General Ledger",
+            icon: <BalanceIcon />,
+            path: "/finance/general-ledger",
+          },
+          {
+            text: "Accounting Periods",
+            icon: <CalendarMonthIcon />,
+            path: "/finance/accounting-periods",
+          },
+          {
+            text: "Cash Flow",
+            icon: <TrendingUpIcon />,
+            path: "/finance/cash-flow",
+          },
         ],
       },
-      { 
-        text: "Approvals", 
-        icon: <FactCheckIcon />, 
+      {
+        text: "Approvals",
+        icon: <FactCheckIcon />,
         path: "/finance/approvals",
         subItems: [
-          { text: "Payment Approvals", icon: <FactCheckIcon />, path: "/finance/approvals/payment-approvals" },
-          { text: "Expense Approvals", icon: <FactCheckIcon />, path: "/finance/approvals/expense-approvals" },
-          { text: "Bank Transfer Verify", icon: <AccountBalanceIcon />, path: "/finance/approvals/bank-transfer-verify" },
-          { text: "Commission Payment Approvals", icon: <FactCheckIcon />, path: "/finance/approvals/commission-payment-approvals" },
+          {
+            text: "Payment Approvals",
+            icon: <FactCheckIcon />,
+            path: "/finance/approvals/payment-approvals",
+          },
+          {
+            text: "Expense Approvals",
+            icon: <FactCheckIcon />,
+            path: "/finance/approvals/expense-approvals",
+          },
+          {
+            text: "Bank Transfer Verify",
+            icon: <AccountBalanceIcon />,
+            path: "/finance/approvals/bank-transfer-verify",
+          },
+          {
+            text: "Commission Payment Approvals",
+            icon: <FactCheckIcon />,
+            path: "/finance/approvals/commission-payment-approvals",
+          },
         ],
       },
-      { text: "Commission Payments", icon: <PaymentIcon />, path: "/finance/commission-payments" },
+      {
+        text: "Commission Payments",
+        icon: <PaymentIcon />,
+        path: "/finance/commission-payments",
+      },
     ],
   },
   {
@@ -206,12 +342,32 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.HR_VIEW,
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/hr" },
-      { text: "Salary Profiles", icon: <PersonIcon />, path: "/hr/salary-profiles" },
+      {
+        text: "Salary Profiles",
+        icon: <PersonIcon />,
+        path: "/hr/salary-profiles",
+      },
       { text: "Deductions", icon: <ReceiptIcon />, path: "/hr/deductions" },
-      { text: "Payroll Records", icon: <ReceiptLongIcon />, path: "/hr/payroll" },
-      { text: "Payroll Processing", icon: <PaymentIcon />, path: "/hr/payroll-processing" },
-      { text: "Sales Commissions", icon: <SellIcon />, path: "/hr/sales-commissions" },
-      { text: "Reimbursements", icon: <AccountBalanceWalletIcon />, path: "/hr/reimbursements" },
+      {
+        text: "Payroll Records",
+        icon: <ReceiptLongIcon />,
+        path: "/hr/payroll",
+      },
+      {
+        text: "Payroll Processing",
+        icon: <PaymentIcon />,
+        path: "/hr/payroll-processing",
+      },
+      {
+        text: "Sales Commissions",
+        icon: <SellIcon />,
+        path: "/hr/sales-commissions",
+      },
+      {
+        text: "Reimbursements",
+        icon: <AccountBalanceWalletIcon />,
+        path: "/hr/reimbursements",
+      },
       { text: "Promotions", icon: <SellIcon />, path: "/hr/promotions" },
       { text: "Assets", icon: <Inventory2Icon />, path: "/hr/assets" },
     ],
@@ -223,10 +379,26 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.WAREHOUSE_VIEW,
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse" },
-      { text: "Sales Track", icon: <ReceiptLongIcon />, path: "/warehouse/sales-track" },
-      { text: "Item Transfer Notes", icon: <SwapHorizIcon />, path: "/warehouse/item-transfer-notes" },
-      { text: "ITN Approvals", icon: <FactCheckIcon />, path: "/warehouse/itn-approvals" },
-      { text: "Receive Notes", icon: <InventoryIcon />, path: "/warehouse/receive-notes" },
+      {
+        text: "Sales Track",
+        icon: <ReceiptLongIcon />,
+        path: "/warehouse/sales-track",
+      },
+      {
+        text: "Item Transfer Notes",
+        icon: <SwapHorizIcon />,
+        path: "/warehouse/item-transfer-notes",
+      },
+      {
+        text: "ITN Approvals",
+        icon: <FactCheckIcon />,
+        path: "/warehouse/itn-approvals",
+      },
+      {
+        text: "Receive Notes",
+        icon: <InventoryIcon />,
+        path: "/warehouse/receive-notes",
+      },
     ],
   },
   {
@@ -259,6 +431,12 @@ const menuItems: MenuItem[] = [
     path: "/roles",
     permission: PERMISSIONS.GROUP_VIEW,
   },
+  {
+    text: "Settings",
+    icon: <SettingsIcon />,
+    path: "/company-settings",
+    permission: PERMISSIONS.GROUP_VIEW, // Temporary permission guard
+  },
 ];
 
 const bottomMenuItems: MenuItem[] = [];
@@ -283,18 +461,25 @@ export default function Sidebar({
     const newExpanded = new Set<string>();
     for (const item of menuItems) {
       if (item.subItems) {
-        const isInPath = location.pathname.startsWith(item.path) ||
-          item.subItems.some((sub) =>
-            location.pathname.startsWith(sub.path) ||
-            sub.subItems?.some((child) => location.pathname.startsWith(child.path))
+        const isInPath =
+          location.pathname.startsWith(item.path) ||
+          item.subItems.some(
+            (sub) =>
+              location.pathname.startsWith(sub.path) ||
+              sub.subItems?.some((child) =>
+                location.pathname.startsWith(child.path),
+              ),
           );
         if (isInPath) {
           newExpanded.add(item.text);
           // Also expand nested sub-menus
           for (const sub of item.subItems) {
             if (sub.subItems) {
-              const isNestedActive = location.pathname.startsWith(sub.path) ||
-                sub.subItems.some((child) => location.pathname.startsWith(child.path));
+              const isNestedActive =
+                location.pathname.startsWith(sub.path) ||
+                sub.subItems.some((child) =>
+                  location.pathname.startsWith(child.path),
+                );
               if (isNestedActive) {
                 newExpanded.add(sub.text);
               }
@@ -364,12 +549,22 @@ export default function Sidebar({
   // Filter menu items based on user permissions
   const visibleMenuItems = menuItems.filter((item) => {
     if (!item.permission) return true;
-    return hasPermission(user, item.permission.resource, item.permission.action);
+    return hasPermission(
+      user,
+      item.permission.resource,
+      item.permission.action,
+    );
   });
 
   const drawer = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <Toolbar sx={{ bgcolor: "primary.main", color: "white", minHeight: "var(--header-height)" }}>
+      <Toolbar
+        sx={{
+          bgcolor: "primary.main",
+          color: "white",
+          minHeight: "var(--header-height)",
+        }}
+      >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <AccountBalanceIcon fontSize="small" />
           <Typography variant="subtitle1" fontWeight={600} noWrap>
@@ -381,13 +576,17 @@ export default function Sidebar({
       <Box sx={{ flexGrow: 1, overflow: "auto" }}>
         <List disablePadding>
           {visibleMenuItems.map((item) => {
-            const isActive = location.pathname === item.path || 
+            const isActive =
+              location.pathname === item.path ||
               (!item.subItems && location.pathname.startsWith(item.path));
             const hasSubItems = item.subItems && item.subItems.length > 0;
             const isExpanded = expandedMenus.has(item.text);
             const isParentActive = item.subItems?.some(
-              (sub) => location.pathname.startsWith(sub.path) ||
-                sub.subItems?.some((child) => location.pathname.startsWith(child.path))
+              (sub) =>
+                location.pathname.startsWith(sub.path) ||
+                sub.subItems?.some((child) =>
+                  location.pathname.startsWith(child.path),
+                ),
             );
 
             return (
@@ -406,16 +605,27 @@ export default function Sidebar({
                       },
                     }}
                   >
-                    <ListItemIcon sx={{ color: isActive || (isParentActive && !isExpanded) ? "white" : "inherit", minWidth: 32 }}>
+                    <ListItemIcon
+                      sx={{
+                        color:
+                          isActive || (isParentActive && !isExpanded)
+                            ? "white"
+                            : "inherit",
+                        minWidth: 32,
+                      }}
+                    >
                       {item.icon}
                     </ListItemIcon>
                     <ListItemText
                       primary={item.text}
                       primaryTypographyProps={{ fontSize: "0.85rem" }}
                     />
-                    {hasSubItems && (
-                      isExpanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />
-                    )}
+                    {hasSubItems &&
+                      (isExpanded ? (
+                        <ExpandLess fontSize="small" />
+                      ) : (
+                        <ExpandMore fontSize="small" />
+                      ))}
                   </ListItemButton>
                 </ListItem>
 
@@ -430,10 +640,13 @@ export default function Sidebar({
                             (subItem.path === item.path
                               ? location.pathname === subItem.path
                               : true);
-                        const hasNestedSubItems = subItem.subItems && subItem.subItems.length > 0;
-                        const isNestedExpanded = expandedMenus.has(subItem.text);
+                        const hasNestedSubItems =
+                          subItem.subItems && subItem.subItems.length > 0;
+                        const isNestedExpanded = expandedMenus.has(
+                          subItem.text,
+                        );
                         const isNestedParentActive = subItem.subItems?.some(
-                          (child) => location.pathname.startsWith(child.path)
+                          (child) => location.pathname.startsWith(child.path),
                         );
 
                         return (
@@ -441,7 +654,10 @@ export default function Sidebar({
                             <ListItem disablePadding>
                               <ListItemButton
                                 onClick={() => handleSubMenuClick(subItem)}
-                                selected={isSubActive || (isNestedParentActive && !isNestedExpanded)}
+                                selected={
+                                  isSubActive ||
+                                  (isNestedParentActive && !isNestedExpanded)
+                                }
                                 sx={{
                                   py: 0.5,
                                   pl: 4,
@@ -449,39 +665,65 @@ export default function Sidebar({
                                     bgcolor: "primary.light",
                                     color: "white",
                                     "&:hover": { bgcolor: "primary.main" },
-                                    "& .MuiListItemIcon-root": { color: "white" },
+                                    "& .MuiListItemIcon-root": {
+                                      color: "white",
+                                    },
                                   },
                                 }}
                               >
                                 <ListItemIcon
                                   sx={{
-                                    color: isSubActive || (isNestedParentActive && !isNestedExpanded) ? "white" : "text.secondary",
+                                    color:
+                                      isSubActive ||
+                                      (isNestedParentActive &&
+                                        !isNestedExpanded)
+                                        ? "white"
+                                        : "text.secondary",
                                     minWidth: 28,
-                                    "& .MuiSvgIcon-root": { fontSize: "1.1rem" },
+                                    "& .MuiSvgIcon-root": {
+                                      fontSize: "1.1rem",
+                                    },
                                   }}
                                 >
                                   {subItem.icon}
                                 </ListItemIcon>
                                 <ListItemText
                                   primary={subItem.text}
-                                  primaryTypographyProps={{ fontSize: "0.8rem" }}
+                                  primaryTypographyProps={{
+                                    fontSize: "0.8rem",
+                                  }}
                                 />
-                                {hasNestedSubItems && (
-                                  isNestedExpanded ? <ExpandLess sx={{ fontSize: "1rem" }} /> : <ExpandMore sx={{ fontSize: "1rem" }} />
-                                )}
+                                {hasNestedSubItems &&
+                                  (isNestedExpanded ? (
+                                    <ExpandLess sx={{ fontSize: "1rem" }} />
+                                  ) : (
+                                    <ExpandMore sx={{ fontSize: "1rem" }} />
+                                  ))}
                               </ListItemButton>
                             </ListItem>
 
                             {/* Nested sub-items (3rd level) */}
                             {hasNestedSubItems && (
-                              <Collapse in={isNestedExpanded} timeout="auto" unmountOnExit>
+                              <Collapse
+                                in={isNestedExpanded}
+                                timeout="auto"
+                                unmountOnExit
+                              >
                                 <List disablePadding>
                                   {subItem.subItems!.map((nestedItem) => {
-                                    const isNestedActive = location.pathname.startsWith(nestedItem.path);
+                                    const isNestedActive =
+                                      location.pathname.startsWith(
+                                        nestedItem.path,
+                                      );
                                     return (
-                                      <ListItem key={nestedItem.path} disablePadding>
+                                      <ListItem
+                                        key={nestedItem.path}
+                                        disablePadding
+                                      >
                                         <ListItemButton
-                                          onClick={() => handleNavigation(nestedItem.path)}
+                                          onClick={() =>
+                                            handleNavigation(nestedItem.path)
+                                          }
                                           selected={isNestedActive}
                                           sx={{
                                             py: 0.4,
@@ -489,23 +731,33 @@ export default function Sidebar({
                                             "&.Mui-selected": {
                                               bgcolor: "primary.light",
                                               color: "white",
-                                              "&:hover": { bgcolor: "primary.main" },
-                                              "& .MuiListItemIcon-root": { color: "white" },
+                                              "&:hover": {
+                                                bgcolor: "primary.main",
+                                              },
+                                              "& .MuiListItemIcon-root": {
+                                                color: "white",
+                                              },
                                             },
                                           }}
                                         >
                                           <ListItemIcon
                                             sx={{
-                                              color: isNestedActive ? "white" : "text.secondary",
+                                              color: isNestedActive
+                                                ? "white"
+                                                : "text.secondary",
                                               minWidth: 24,
-                                              "& .MuiSvgIcon-root": { fontSize: "0.95rem" },
+                                              "& .MuiSvgIcon-root": {
+                                                fontSize: "0.95rem",
+                                              },
                                             }}
                                           >
                                             {nestedItem.icon}
                                           </ListItemIcon>
                                           <ListItemText
                                             primary={nestedItem.text}
-                                            primaryTypographyProps={{ fontSize: "0.78rem" }}
+                                            primaryTypographyProps={{
+                                              fontSize: "0.78rem",
+                                            }}
                                           />
                                         </ListItemButton>
                                       </ListItem>

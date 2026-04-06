@@ -1,8 +1,8 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, Optional
 
 from app.common.base_schemas import TijaeroBaseSchema
+from pydantic import BaseModel, Field
 
 
 # Notification Schemas
@@ -68,8 +68,8 @@ class ProfileUpdate(BaseModel):
     first_name: Optional[str] = None
     middle_name: Optional[str] = None
     last_name: Optional[str] = None
-    email: Optional[str] = None
-    occupation: Optional[str] = None
+    gender: Optional[str] = None
+    date_joined: Optional[str] = None
     birthdate: Optional[str] = None
 
 
@@ -77,6 +77,49 @@ class PasswordChange(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=8)
     confirm_password: str
+
+
+# Company Settings Schemas
+class CompanySettingsBase(BaseModel):
+    company_name: str
+    company_address: str
+    company_telephone_number: Optional[str] = None
+    company_fax_number: Optional[str] = None
+    company_email: str
+    company_logo_id: Optional[int] = None
+    depreciation_rate: float = 0.0
+    number_of_annual_leaves: int = 14
+    number_of_casual_leaves: int = 7
+    number_of_medical_leaves: int = 0
+    amex_card_surcharge: float = 3.0
+    visa_card_surcharge: float = 2.7
+    master_card_surcharge: float = 2.7
+    fiscal_year_start: str = "01-01"
+    default_currency: str = "LKR"
+    tax_registration_number: Optional[str] = None
+
+
+class CompanySettingsUpdate(BaseModel):
+    company_name: Optional[str] = None
+    company_address: Optional[str] = None
+    company_telephone_number: Optional[str] = None
+    company_fax_number: Optional[str] = None
+    company_email: Optional[str] = None
+    company_logo_id: Optional[int] = None
+    depreciation_rate: Optional[float] = None
+    number_of_annual_leaves: Optional[int] = None
+    number_of_casual_leaves: Optional[int] = None
+    number_of_medical_leaves: Optional[int] = None
+    amex_card_surcharge: Optional[float] = None
+    visa_card_surcharge: Optional[float] = None
+    master_card_surcharge: Optional[float] = None
+    fiscal_year_start: Optional[str] = None
+    default_currency: Optional[str] = None
+    tax_registration_number: Optional[str] = None
+
+
+class CompanySettings(CompanySettingsBase, TijaeroBaseSchema):
+    id: int
 
 
 # Notification Stats
