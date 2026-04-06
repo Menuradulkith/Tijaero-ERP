@@ -5,11 +5,13 @@ import StockTransferNotesPage from "./pages/StockTransferNotesPage";
 import ItemTransferNotesPage from "./pages/ItemTransferNotesPage";
 import ItemTransferNoteApprovalsPage from "./pages/ItemTransferNoteApprovalsPage";
 import ReceiveNotesPage from "./pages/ReceiveNotesPage";
+import CompanyAssetsDashboard from "./pages/CompanyAssetsDashboard";
 
 export default function WarehouseRoutes() {
   return (
     <Routes>
       <Route index element={<SalesStockDashboard />} />
+      <Route path="company-assets" element={<CompanyAssetsDashboard />} />
       <Route path="sales-track" element={<SalesTrackPage />} />
       <Route path="transfer-notes" element={<StockTransferNotesPage />} />
       <Route path="item-transfer-notes" element={<ItemTransferNotesPage />} />

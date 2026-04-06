@@ -174,9 +174,71 @@ export function getUserPermissions(user: User | null): string[] {
 }
 
 /**
+ * Module-to-permission mapping for route guards and sidebar visibility.
+ * Maps each route prefix to the permission required to access it.
+ */
+export const MODULE_PERMISSIONS: Record<string, { resource: string; action: string }> = {
+  "/sales": PERMISSIONS.SALES_VIEW,
+  "/purchasing": PERMISSIONS.PURCHASING_VIEW,
+  "/inventory": PERMISSIONS.INVENTORY_VIEW,
+  "/finance": PERMISSIONS.FINANCE_VIEW,
+  "/hr": PERMISSIONS.HR_VIEW,
+  "/warehouse": PERMISSIONS.WAREHOUSE_VIEW,
+  "/support": PERMISSIONS.SUPPORT_VIEW,
+  "/reporting": PERMISSIONS.REPORTING_VIEW,
+  "/branches": PERMISSIONS.BRANCH_VIEW,
+  "/users": PERMISSIONS.USER_VIEW,
+  "/roles": PERMISSIONS.GROUP_VIEW,
+};
+
+/**
+ * Check if a user has access to a specific module by its path prefix.
+ */
+export function hasModuleAccess(
+  user: User | null,
+  modulePath: string
+): boolean {
+  if (!user) return false;
+  if (user.is_superuser) return true;
+
+  const perm = MODULE_PERMISSIONS[modulePath];
+  if (!perm) return true; // No permission defined → public
+  return hasPermission(user, perm.resource, perm.action);
+}
+
+/**
+ * Check if user has access to ANY module at all.
+ * Used to decide whether to show the dashboard.
+ */
+export function hasAnyModuleAccess(user: User | null): boolean {
+  if (!user) return false;
+  if (user.is_superuser) return true;
+
+  return Object.values(MODULE_PERMISSIONS).some((perm) =>
+    hasPermission(user, perm.resource, perm.action)
+  );
+}
+
+/**
  * React hook to check if current user has a specific permission
  */
 export function usePermission(resource: string, action: string): boolean {
   const user = useAuthStore((state) => state.user);
   return hasPermission(user, resource, action);
+}
+
+/**
+ * React hook to check if the current user has access to ANY module.
+ */
+export function useHasAnyAccess(): boolean {
+  const user = useAuthStore((state) => state.user);
+  return hasAnyModuleAccess(user);
+}
+
+/**
+ * React hook to check if the current user has access to a specific module path.
+ */
+export function useModuleAccess(modulePath: string): boolean {
+  const user = useAuthStore((state) => state.user);
+  return hasModuleAccess(user, modulePath);
 }

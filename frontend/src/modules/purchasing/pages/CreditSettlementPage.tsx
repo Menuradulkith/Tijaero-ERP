@@ -140,10 +140,17 @@ export default function CreditSettlementPage() {
   const confirmDialog = useTConfirmDialog();
 
   // Load branches via useReferenceData
-  const { filteredBranches: branches = [] } = useReferenceData(["branches"]);
+  const { filteredBranches: branches = [], defaultBranchCode } = useReferenceData(["branches"]);
   
   // Filter state
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // Load suppliers
   useEffect(() => {

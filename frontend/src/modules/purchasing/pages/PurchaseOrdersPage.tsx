@@ -314,6 +314,13 @@ export default function PurchaseOrdersPage() {
   const products = refData?.products || [];
   const branches = filteredBranches || [];
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Check daily PO limit for a branch
   const checkDailyLimit = useCallback(
     async (branchCode: string): Promise<DailyPOLimitCheck | null> => {

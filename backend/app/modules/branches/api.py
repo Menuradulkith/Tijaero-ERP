@@ -25,9 +25,7 @@ def get_branches(
 ):
 
     skip = (page - 1) * size
-    branches = service.branch_service.get_all_branches(
-        db, skip=skip, limit=size, active_only=active_only
-    )
+    branches = service.branch_service.get_all_branches(db, skip=skip, limit=size, active_only=active_only)
     total = service.branch_service.get_total_count(db)
 
     branch_schemas = [schemas.Branch.model_validate(branch) for branch in branches]

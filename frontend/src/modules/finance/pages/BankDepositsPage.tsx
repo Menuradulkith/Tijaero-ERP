@@ -88,8 +88,17 @@ export default function BankDepositsPage() {
     defaultSortField: "created_date",
   });
 
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
   const { data: deposits = [], isLoading, refetch } = useQuery({
     queryKey: ["bank-deposits", filterBranch, filterVerified],
@@ -98,6 +107,8 @@ export default function BankDepositsPage() {
         branch_code: filterBranch || undefined,
         verified: filterVerified === null ? undefined : filterVerified === "verified",
       }),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   const filteredDeposits = useMemo(() => {

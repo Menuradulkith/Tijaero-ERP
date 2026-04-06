@@ -84,10 +84,19 @@ export default function ExpenseApprovalsPage() {
   const approveDialog = useTConfirmDialog();
 
   // Ref data
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
-  // ─── Data Fetching ─────────────────────────────────────────────────────────
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  // ─── Data Fetching ─────────────────────────────────────────────────────────────────
 
   const { data: expensesData, isLoading } = useQuery({
     queryKey: ["expense-approvals", filterStatus, filterBranch],
@@ -97,6 +106,8 @@ export default function ExpenseApprovalsPage() {
         branch_code: filterBranch ?? undefined,
         limit: 500,
       }),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   const expenses = expensesData?.items || [];

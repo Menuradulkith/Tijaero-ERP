@@ -263,6 +263,13 @@ export default function GoodReceivedNotesPage() {
   // OPTIMIZED: Fetch locations and branches in a single call
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["locations", "branches"]);
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load suppliers for filter
   useEffect(() => {
     const loadSuppliers = async () => {
@@ -1169,7 +1176,10 @@ export default function GoodReceivedNotesPage() {
   };
 
   // Step 1 validation: GRN Information, Supplier Invoice, Remarks
-  const isStep1Valid = formData.good_received_no &&
+  // When creating, the GRN number is auto-generated (nextGRNNumber) and never written
+  // into formData.good_received_no, so treat the preview number as valid instead.
+  const effectiveGRNNumber = isCreating ? nextGRNNumber : formData.good_received_no;
+  const isStep1Valid = effectiveGRNNumber &&
     formData.purchasingorders_id > 0 &&
     formData.supplier_invoice_no;
 

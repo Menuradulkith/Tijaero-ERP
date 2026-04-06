@@ -87,11 +87,27 @@ export default function BankTransferConfirmationPage() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
+  // Fetch products and branches — resolved BEFORE query fires
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
+  const products = (refData?.products || []) as Product[];
+  const branches = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Fetch pending bank transfers
   const { data: transfers = [], isLoading } = useQuery({
     queryKey: ["pendingBankTransfers", filterBranch],
     queryFn: () => bankTransferApi.getPending(filterBranch || undefined),
     refetchInterval: 30000, // Refresh every 30 seconds
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   // Fetch customers
@@ -99,11 +115,6 @@ export default function BankTransferConfirmationPage() {
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
   });
-
-  // Fetch products and branches
-  const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
-  const products = (refData?.products || []) as Product[];
-  const branches = filteredBranches || [];
 
   // Create lookup maps
   const customerMap = useMemo(() => {

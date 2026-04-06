@@ -1844,6 +1844,7 @@ class SalesService:
             )
         
         items_restocked = 0
+        items_to_company_assets = 0
         
         # Process each return item
         for item in sale_return.items:
@@ -1870,6 +1871,63 @@ class SalesService:
                         stock.returned_date = tz.now()
                         item.restocked = True
                         items_restocked += item.quantity
+            else:
+                # Non-restockable items → save to company assets
+                from app.modules.inventory.models import CompanyAssets
+                from app.modules.products.models import Product
+                
+                # Determine product info
+                product = None
+                product_id = item.product_id
+                if product_id:
+                    product = db.query(Product).filter(Product.id == product_id).first()
+                elif item.barcode:
+                    # Try to find product from sales stock
+                    stock = db.query(SalesStock).filter(SalesStock.barcode == item.barcode).first()
+                    if stock:
+                        product_id = stock.product_id
+                        product = db.query(Product).filter(Product.id == stock.product_id).first()
+                
+                # Build return reason description
+                condition_label = item.condition or "unknown"
+                return_reason = sale_return.return_reason or "Not specified"
+                reason_desc = f"{return_reason} - Condition: {condition_label}"
+                
+                # Generate inventory number
+                inv_no = f"CA-SR-{sale_return.sale_return_no}-{item.id}"
+                item_name = product.name if product else f"Returned Item ({item.barcode})"
+                
+                # Check if barcode already exists in company assets
+                existing_asset = db.query(CompanyAssets).filter(
+                    CompanyAssets.barcode == item.barcode
+                ).first() if item.barcode else None
+                
+                if not existing_asset:
+                    asset = CompanyAssets(
+                        product_id=product_id,
+                        inventory_no=inv_no,
+                        item=item_name,
+                        description=reason_desc,
+                        branch_code=item.branch_code or sale_return.branch_code,
+                        barcode=item.barcode,
+                        status="returned",
+                        return_reason=reason_desc,
+                        sale_return_id=sale_return.id,
+                        source="sale_return",
+                        added_date=tz.now(),
+                    )
+                    db.add(asset)
+                    items_to_company_assets += 1
+                    
+                    # Mark the sales stock item as no longer active
+                    if item.barcode:
+                        stock = db.query(SalesStock).filter(
+                            SalesStock.barcode == item.barcode
+                        ).with_for_update().first()
+                        if stock:
+                            stock.status = StockStatus.RETURNED
+                            stock.is_active = False
+                            stock.returned_date = tz.now()
         
         # Handle refund based on payment method
         refund_reference = None
@@ -1964,7 +2022,8 @@ class SalesService:
             "credit_note_id": credit_note_id,
             "refund_reference": refund_reference,
             "items_restocked": items_restocked,
-            "message": f"Sale return processed successfully. {items_restocked} items restocked."
+            "items_to_company_assets": items_to_company_assets,
+            "message": f"Sale return processed successfully. {items_restocked} items restocked. {items_to_company_assets} items saved to company assets."
         }
     
     def delete_sale_return(self, db: Session, return_id: int):

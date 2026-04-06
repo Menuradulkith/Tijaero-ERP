@@ -107,9 +107,16 @@ export default function ItemTransferNoteApprovalsPage() {
   const locations = locationsData || [];
 
   // OPTIMIZED: Single API call for branches and products (was 2 separate calls)
-  const { data: refData, filteredBranches } = useReferenceData(["branches", "products"]);
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["branches", "products"]);
   const branches = filteredBranches || [];
   const products = refData?.products || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create lookup maps
   const locationMap = useMemo(() => {

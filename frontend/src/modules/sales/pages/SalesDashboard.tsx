@@ -7,6 +7,7 @@ import {
   TStatusChip,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
+import { useEffect } from "react";
 import {
   AttachMoney as MoneyIcon,
   People as PeopleIcon,
@@ -50,16 +51,29 @@ export default function SalesDashboard() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const navigate = useNavigate();
 
+  // Branch list for filter dropdown — resolved BEFORE query fires
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Wait until the branch default is resolved before firing the stats query.
+  // If defaultBranchCode exists (branch user) we wait for it to be applied;
+  // if there is no defaultBranchCode (superuser / no branch) we fire immediately.
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // OPTIMIZED: Use statistics endpoint - single API call with SQL aggregations
   const { data: stats, isLoading, isError, refetch } = useQuery({
     queryKey: ["sales-statistics", filterBranch],
     queryFn: () => salesApi.getStatistics(filterBranch || undefined),
-    // No staleTime here — branch filter changes must always re-fetch immediately
+    enabled: branchResolved,
+    placeholderData: (prev) => prev, // keep showing previous data while re-fetching
   });
-
-  // Branch list for filter dropdown
-  const { filteredBranches } = useReferenceData(["branches"]);
-  const branches = filteredBranches || [];
 
   // Calculate trends from statistics
   const trends = useMemo(() => {

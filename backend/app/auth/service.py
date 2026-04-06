@@ -19,6 +19,8 @@ class AuthService:
             raise AuthenticationError("User account is inactive")
         if user.blocked:
             raise AuthenticationError("User account is blocked")
+        user.last_login = tz.now()
+        db.commit()
         return user
     
     def create_user(self, db: Session, user_in: schemas.UserCreate) -> models.User:
@@ -149,16 +151,15 @@ class AuthService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete superuser"
             )
-        
-        errors = []
-        
+
+        # Delete the auto-created Employee record first (always safe to remove with the user)
         try:
             from app.modules.employees.models import Employee
-            employee_count = db.query(Employee).filter(Employee.user_id == user_id).count()
-            if employee_count > 0:
-                errors.append(f"User is linked to {employee_count} employee record(s)")
+            db.query(Employee).filter(Employee.user_id == user_id).delete()
         except (ImportError, Exception):
             pass
+
+        errors = []
         
         try:
             from app.modules.support.models import SupportTicket

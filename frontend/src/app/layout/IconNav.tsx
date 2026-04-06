@@ -20,7 +20,10 @@ import {
 } from "@mui/material";
 import { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-
+import { useFormGuardStore } from "@/state/formGuardStore";
+import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
+import { hasModuleAccess, hasAnyModuleAccess } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 
 interface IconNavProps {
   width: number;
@@ -28,7 +31,7 @@ interface IconNavProps {
   onToggleSidebar: () => void;
 }
 
-// All searchable pages in the app
+// All searchable pages in the app — module field maps to MODULE_PERMISSIONS key
 const allPages = [
   {
     text: "Dashboard",
@@ -140,9 +143,19 @@ export default function IconNav({
   const isDirty = useFormGuardStore((s) => s.isDirty);
   const executeDiscard = useFormGuardStore((s) => s.executeDiscard);
   const discardDialog = useConfirmDialog();
+  const user = useAuthStore((s) => s.user);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Filter pages the user has access to
+  const accessiblePages = useMemo(() => {
+    return allPages.filter((page) => {
+      // Dashboard is only visible if the user can access at least one module
+      if (page.module === "/dashboard") return hasAnyModuleAccess(user);
+      return hasModuleAccess(user, page.module);
+    });
+  }, [user]);
 
   const guardedNavigate = async (path: string) => {
     if (location.pathname === path) return;
@@ -162,15 +175,15 @@ export default function IconNav({
   };
 
   const filteredPages = useMemo(() => {
-    if (!searchQuery.trim()) return allPages;
+    if (!searchQuery.trim()) return accessiblePages;
     const q = searchQuery.toLowerCase();
-    return allPages.filter(
+    return accessiblePages.filter(
       (page) =>
         page.text.toLowerCase().includes(q) ||
         page.path.toLowerCase().includes(q) ||
         page.keywords.some((k) => k.toLowerCase().includes(q)),
     );
-  }, [searchQuery]);
+  }, [searchQuery, accessiblePages]);
 
   const handleSearchSelect = (path: string) => {
     guardedNavigate(path);

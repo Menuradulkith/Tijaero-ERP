@@ -61,6 +61,7 @@ const INITIAL_FORM_DATA: Partial<UserCreate> = {
   last_name: "",
   gender: "m",
   birthdate: new Date().toISOString().split("T")[0],
+  date_joined: new Date().toISOString().split("T")[0],
   occupation: "",
   employee_id: "",
   is_active: true,
@@ -77,6 +78,7 @@ const resetFormFromUser = (user: UserList): Partial<UserCreate> => ({
   last_name: user.last_name,
   gender: user.gender || "m",
   birthdate: user.birthdate || new Date().toISOString().split("T")[0],
+  date_joined: user.date_joined || new Date().toISOString().split("T")[0],
   occupation: user.occupation || "",
   employee_id: user.employee_id || "",
   is_active: user.is_active,
@@ -706,6 +708,16 @@ export default function UsersPage() {
                 InputLabelProps={{ shrink: true }}
               />
               <TextField
+                label="Date Joined"
+                type="date"
+                value={formData.date_joined}
+                onChange={(e) => setFormData({ ...formData, date_joined: e.target.value })}
+                disabled={isDisabled}
+                size="small"
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
                 label="Occupation"
                 value={formData.occupation}
                 onChange={(e) => setFormData({ ...formData, occupation: e.target.value })}
@@ -824,6 +836,10 @@ export default function UsersPage() {
                 <Box>
                   <Typography variant="caption" color="text.secondary">Last Modified</Typography>
                   <Typography variant="body2">{formatDateTimeReadable(selectedUser.updated_at) || "-"}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Last Login</Typography>
+                  <Typography variant="body2">{selectedUser.last_login ? formatDateTimeReadable(selectedUser.last_login) : "Never"}</Typography>
                 </Box>
               </FormSection>
             )}

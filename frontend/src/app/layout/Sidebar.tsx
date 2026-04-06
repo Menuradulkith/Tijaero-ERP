@@ -1,5 +1,5 @@
-import { hasPermission, PERMISSIONS } from "@/auth/permissions";
 import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
+import { hasPermission, hasAnyModuleAccess, PERMISSIONS } from "@/auth/permissions";
 import { useAuthStore } from "@/state/authStore";
 import { useFormGuardStore } from "@/state/formGuardStore";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
@@ -10,6 +10,7 @@ import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import BalanceIcon from "@mui/icons-material/Balance";
 import BookIcon from "@mui/icons-material/Book";
 import BusinessIcon from "@mui/icons-material/Business";
+import BusinessCenterIcon from "@mui/icons-material/BusinessCenter";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CategoryIcon from "@mui/icons-material/Category";
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -402,6 +403,12 @@ const menuItems: MenuItem[] = [
     ],
   },
   {
+    text: "Company Assets",
+    icon: <BusinessCenterIcon />,
+    path: "/warehouse/company-assets",
+    permission: PERMISSIONS.WAREHOUSE_VIEW,
+  },
+  {
     text: "Support",
     icon: <SupportAgentIcon />,
     path: "/support",
@@ -548,6 +555,10 @@ export default function Sidebar({
 
   // Filter menu items based on user permissions
   const visibleMenuItems = menuItems.filter((item) => {
+    // Dashboard: only show if user has access to at least one module
+    if (item.path === "/dashboard") {
+      return hasAnyModuleAccess(user);
+    }
     if (!item.permission) return true;
     return hasPermission(
       user,

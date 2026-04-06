@@ -215,8 +215,17 @@ export interface CompanyAsset {
   warranty_month?: string;
   good_received_note_id?: number;
   purchasing_order_items_id?: number;
-  status: "available" | "in_use" | "retired" | "disposed";
+  status: "available" | "in_use" | "retired" | "disposed" | "returned";
+  return_reason?: string;
+  sale_return_id?: number;
+  source?: "grn" | "sale_return";
   added_date?: string;
+  // Enriched fields from backend
+  product_name?: string;
+  item_code?: string;
+  brand_id?: number;
+  cost_price?: number;
+  grn_no?: string;
 }
 
 export interface CompanyAssetCreate {
@@ -231,4 +240,7 @@ export interface CompanyAssetCreate {
   good_received_note_id?: number;
   purchasing_order_items_id?: number;
   status?: string;
+  return_reason?: string;
+  sale_return_id?: number;
+  source?: string;
 }

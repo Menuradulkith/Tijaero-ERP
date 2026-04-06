@@ -136,6 +136,15 @@ export default function CustomerAdvancePaymentsPage() {
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Fetch customers
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
@@ -153,6 +162,8 @@ export default function CustomerAdvancePaymentsPage() {
       advancePaymentsApi.getAll({
         branch_code: filterBranch ?? undefined,
       }),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   // Filtered & sorted list

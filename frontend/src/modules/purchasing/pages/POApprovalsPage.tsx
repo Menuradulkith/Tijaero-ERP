@@ -110,9 +110,16 @@ export default function POApprovalsPage() {
   });
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
-  const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = (refData?.products || []) as Product[];
   const branches = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create lookup maps
   const supplierMap = useMemo(() => {

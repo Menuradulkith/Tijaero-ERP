@@ -96,8 +96,17 @@ export default function CardPaymentsPage() {
     defaultSortField: "date_time",
   });
 
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
   const { data: payments = [], isLoading, refetch } = useQuery({
     queryKey: ["card-payments", filterBranch],
@@ -105,6 +114,8 @@ export default function CardPaymentsPage() {
       cardPaymentsApi.getAll({
         branch_code: filterBranch || undefined,
       }),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   const filteredPayments = useMemo(() => {

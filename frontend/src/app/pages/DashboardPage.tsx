@@ -10,6 +10,8 @@ import {
     TStatCard,
 } from "@/components/tijaero";
 import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
+import { hasPermission, hasAnyModuleAccess } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 import { calculatePercentageChange } from "@/utils/calculations";
 import { formatRelativeTime } from "@/utils/formatters";
 import {
@@ -163,6 +165,23 @@ export default function DashboardPage() {
           subtitle="Overview of your business performance and metrics"
         />
         <ErrorDisplay error={error} onRetry={refresh} />
+      </Box>
+    );
+  }
+
+  // Show no-access state for users with no roles/permissions assigned
+  if (!hasAnyAccess) {
+    return (
+      <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
+        <TPageHeader
+          title="Dashboard"
+          subtitle="Welcome to TijaeroERP"
+        />
+        <TEmptyState
+          title="No Access Assigned"
+          message="Your account does not have any roles or permissions assigned yet. Please contact your administrator to get access to the system modules."
+          size="large"
+        />
       </Box>
     );
   }

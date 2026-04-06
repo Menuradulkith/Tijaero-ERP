@@ -139,6 +139,15 @@ export default function AdvancePaymentsPage() {
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Fetch customers
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
@@ -163,7 +172,8 @@ export default function AdvancePaymentsPage() {
         branch_code: filterBranch || undefined,
         customer_id: advanceType === "customer" ? (filterEntity || undefined) : undefined,
       }),
-    enabled: advanceType === "customer",
+    enabled: branchResolved && advanceType === "customer",
+    placeholderData: (prev) => prev,
   });
 
   // Fetch supplier advance payments
@@ -178,7 +188,8 @@ export default function AdvancePaymentsPage() {
         branch_code: filterBranch || undefined,
         supplier_id: advanceType === "supplier" ? (filterEntity || undefined) : undefined,
       }),
-    enabled: advanceType === "supplier",
+    enabled: branchResolved && advanceType === "supplier",
+    placeholderData: (prev) => prev,
   });
 
   // Active dataset
