@@ -1925,7 +1925,7 @@ class SalesService:
                             SalesStock.barcode == item.barcode
                         ).with_for_update().first()
                         if stock:
-                            stock.status = "returned_non_restockable"
+                            stock.status = StockStatus.RETURNED
                             stock.is_active = False
                             stock.returned_date = tz.now()
         

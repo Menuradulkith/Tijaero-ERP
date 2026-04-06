@@ -108,6 +108,19 @@ export default function SalesTrackPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
+  // OPTIMIZED: Using aggregated endpoint for branches — resolved BEFORE query fires
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
+
+  // Set default branch filter from user's assigned branch
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Fetch paginated invoices
   const { data: ordersData, isLoading } = useQuery({
     queryKey: ["sales-track-list", page, searchQuery, filterBranch, filterStatus, sortField],
@@ -121,6 +134,8 @@ export default function SalesTrackPage() {
         sortBy: sortField,
         sortDesc: true,
       }),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   const orders = ordersData?.items || [];
@@ -137,17 +152,6 @@ export default function SalesTrackPage() {
     queryFn: () => productsApi.getAll(1, 1000),
   });
   const products = (productsResult as any)?.items || (Array.isArray(productsResult) ? productsResult : []) || [];
-
-  // OPTIMIZED: Using aggregated endpoint for branches
-  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
-  const branches = filteredBranches || [];
-
-  // Set default branch filter from user's assigned branch
-  useEffect(() => {
-    if (defaultBranchCode && filterBranch === null) {
-      setFilterBranch(defaultBranchCode);
-    }
-  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create lookup maps
   const customerMap = useMemo(() => {

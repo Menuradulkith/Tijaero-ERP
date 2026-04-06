@@ -1,4 +1,4 @@
-import { hasPermission, PERMISSIONS } from "@/auth/permissions";
+import { hasPermission, hasAnyModuleAccess, PERMISSIONS } from "@/auth/permissions";
 import { useAuthStore } from "@/state/authStore";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
@@ -370,6 +370,10 @@ export default function Sidebar({
 
   // Filter menu items based on user permissions
   const visibleMenuItems = menuItems.filter((item) => {
+    // Dashboard: only show if user has access to at least one module
+    if (item.path === "/dashboard") {
+      return hasAnyModuleAccess(user);
+    }
     if (!item.permission) return true;
     return hasPermission(user, item.permission.resource, item.permission.action);
   });

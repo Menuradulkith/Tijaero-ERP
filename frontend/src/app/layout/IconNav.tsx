@@ -20,6 +20,8 @@ import { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useFormGuardStore } from "@/state/formGuardStore";
 import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
+import { hasModuleAccess, hasAnyModuleAccess } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 
 interface IconNavProps {
   width: number;
@@ -27,32 +29,32 @@ interface IconNavProps {
   onToggleSidebar: () => void;
 }
 
-// All searchable pages in the app
+// All searchable pages in the app — module field maps to MODULE_PERMISSIONS key
 const allPages = [
-  { text: "Dashboard", path: "/dashboard", keywords: ["home", "main", "overview"] },
-  { text: "Customers", path: "/sales/customers", keywords: ["clients", "people"] },
-  { text: "Sales Dashboard", path: "/sales/dashboard", keywords: ["revenue", "orders"] },
-  { text: "Sales Orders", path: "/sales/orders", keywords: ["invoices", "transactions"] },
-  { text: "Sales Returns", path: "/sales/returns", keywords: ["refunds"] },
-  { text: "Suppliers", path: "/purchasing/suppliers", keywords: ["vendors"] },
-  { text: "Purchase Orders", path: "/purchasing/orders", keywords: ["PO", "buy"] },
-  { text: "PO Approvals", path: "/purchasing/approvals/po-approvals", keywords: ["approve", "authorize", "pending", "purchase order"] },
-  { text: "Good Received Notes", path: "/purchasing/grn", keywords: ["GRN", "receive"] },
-  { text: "Purchase Returns", path: "/purchasing/returns", keywords: ["return goods"] },
-  { text: "Purchase Return Approvals", path: "/purchasing/approvals/return-approvals", keywords: ["approve return", "return approval"] },
-  { text: "Supplier Payments", path: "/purchasing/payments", keywords: ["cash", "bank", "cheque", "pay supplier", "credits", "settlements", "credit settlement"] },
-  { text: "Payment Approvals", path: "/purchasing/payment-approvals", keywords: ["verify", "approve payment", "payment verification"] },
-  { text: "Products", path: "/inventory", keywords: ["items", "stock"] },
-  { text: "Categories", path: "/inventory/categories", keywords: ["groups"] },
-  { text: "Brands", path: "/inventory/brands", keywords: ["manufacturers"] },
-  { text: "Finance", path: "/finance", keywords: ["accounting", "money"] },
-  { text: "HR", path: "/hr", keywords: ["employees", "human resources", "staff"] },
-  { text: "Sales Stock", path: "/warehouse", keywords: ["warehouse", "storage", "logistics", "sales stock"] },
-  { text: "Support", path: "/support", keywords: ["help", "tickets"] },
-  { text: "Reporting", path: "/reporting", keywords: ["reports", "analytics"] },
-  { text: "Branches", path: "/branches", keywords: ["locations", "offices"] },
-  { text: "Users", path: "/users", keywords: ["accounts", "members"] },
-  { text: "Roles", path: "/roles", keywords: ["permissions", "groups", "security"] },
+  { text: "Dashboard", path: "/dashboard", keywords: ["home", "main", "overview"], module: "/dashboard" },
+  { text: "Customers", path: "/sales/customers", keywords: ["clients", "people"], module: "/sales" },
+  { text: "Sales Dashboard", path: "/sales/dashboard", keywords: ["revenue", "orders"], module: "/sales" },
+  { text: "Sales Orders", path: "/sales/orders", keywords: ["invoices", "transactions"], module: "/sales" },
+  { text: "Sales Returns", path: "/sales/returns", keywords: ["refunds"], module: "/sales" },
+  { text: "Suppliers", path: "/purchasing/suppliers", keywords: ["vendors"], module: "/purchasing" },
+  { text: "Purchase Orders", path: "/purchasing/orders", keywords: ["PO", "buy"], module: "/purchasing" },
+  { text: "PO Approvals", path: "/purchasing/approvals/po-approvals", keywords: ["approve", "authorize", "pending", "purchase order"], module: "/purchasing" },
+  { text: "Good Received Notes", path: "/purchasing/grn", keywords: ["GRN", "receive"], module: "/purchasing" },
+  { text: "Purchase Returns", path: "/purchasing/returns", keywords: ["return goods"], module: "/purchasing" },
+  { text: "Purchase Return Approvals", path: "/purchasing/approvals/return-approvals", keywords: ["approve return", "return approval"], module: "/purchasing" },
+  { text: "Supplier Payments", path: "/purchasing/payments", keywords: ["cash", "bank", "cheque", "pay supplier", "credits", "settlements", "credit settlement"], module: "/purchasing" },
+  { text: "Payment Approvals", path: "/purchasing/payment-approvals", keywords: ["verify", "approve payment", "payment verification"], module: "/purchasing" },
+  { text: "Products", path: "/inventory", keywords: ["items", "stock"], module: "/inventory" },
+  { text: "Categories", path: "/inventory/categories", keywords: ["groups"], module: "/inventory" },
+  { text: "Brands", path: "/inventory/brands", keywords: ["manufacturers"], module: "/inventory" },
+  { text: "Finance", path: "/finance", keywords: ["accounting", "money"], module: "/finance" },
+  { text: "HR", path: "/hr", keywords: ["employees", "human resources", "staff"], module: "/hr" },
+  { text: "Sales Stock", path: "/warehouse", keywords: ["warehouse", "storage", "logistics", "sales stock"], module: "/warehouse" },
+  { text: "Support", path: "/support", keywords: ["help", "tickets"], module: "/support" },
+  { text: "Reporting", path: "/reporting", keywords: ["reports", "analytics"], module: "/reporting" },
+  { text: "Branches", path: "/branches", keywords: ["locations", "offices"], module: "/branches" },
+  { text: "Users", path: "/users", keywords: ["accounts", "members"], module: "/users" },
+  { text: "Roles", path: "/roles", keywords: ["permissions", "groups", "security"], module: "/roles" },
 ];
 
 export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNavProps) {
@@ -61,9 +63,19 @@ export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNav
   const isDirty = useFormGuardStore((s) => s.isDirty);
   const executeDiscard = useFormGuardStore((s) => s.executeDiscard);
   const discardDialog = useConfirmDialog();
+  const user = useAuthStore((s) => s.user);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Filter pages the user has access to
+  const accessiblePages = useMemo(() => {
+    return allPages.filter((page) => {
+      // Dashboard is only visible if the user can access at least one module
+      if (page.module === "/dashboard") return hasAnyModuleAccess(user);
+      return hasModuleAccess(user, page.module);
+    });
+  }, [user]);
 
   const guardedNavigate = async (path: string) => {
     if (location.pathname === path) return;
@@ -83,15 +95,15 @@ export default function IconNav({ width, sidebarOpen, onToggleSidebar }: IconNav
   };
 
   const filteredPages = useMemo(() => {
-    if (!searchQuery.trim()) return allPages;
+    if (!searchQuery.trim()) return accessiblePages;
     const q = searchQuery.toLowerCase();
-    return allPages.filter(
+    return accessiblePages.filter(
       (page) =>
         page.text.toLowerCase().includes(q) ||
         page.path.toLowerCase().includes(q) ||
         page.keywords.some((k) => k.toLowerCase().includes(q))
     );
-  }, [searchQuery]);
+  }, [searchQuery, accessiblePages]);
 
   const handleSearchSelect = (path: string) => {
     guardedNavigate(path);

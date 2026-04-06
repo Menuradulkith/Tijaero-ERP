@@ -142,6 +142,15 @@ export default function SupplierAdvancePaymentsPage() {
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Fetch suppliers
   const { data: suppliers = [] } = useQuery({
     queryKey: ["suppliers"],
@@ -160,6 +169,8 @@ export default function SupplierAdvancePaymentsPage() {
         branch_code: filterBranch ?? undefined,
         supplier_id: filterSupplier ?? undefined,
       }),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   // Filtered & sorted list

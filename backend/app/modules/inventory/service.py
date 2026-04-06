@@ -28,6 +28,10 @@ class SalesStockService:
         query = self.db.query(models.SalesStock).options(
             joinedload(models.SalesStock.product),
             joinedload(models.SalesStock.good_received_note)
+        ).filter(
+            # Exclude items permanently removed from the sales cycle
+            # (non-restockable returns that moved to company assets)
+            models.SalesStock.status != StockStatus.RETURNED_NON_RESTOCKABLE
         )
         
         if branch_code:

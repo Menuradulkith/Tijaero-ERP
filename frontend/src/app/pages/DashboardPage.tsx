@@ -10,6 +10,8 @@ import {
   TStatCard,
 } from "@/components/tijaero";
 import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
+import { hasPermission, hasAnyModuleAccess } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 import { calculatePercentageChange } from "@/utils/calculations";
 import {
   formatRelativeTime,
@@ -64,6 +66,12 @@ function getActivityIcon(type: ActivityItem["type"]) {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const canViewSales = hasPermission(user, "sales", "view") || hasPermission(user, "customers", "view");
+  const canViewInventory = hasPermission(user, "inventory", "view");
+  const canViewFinance = hasPermission(user, "finance", "view");
+  const canViewSupport = hasPermission(user, "support", "view");
+  const hasAnyAccess = hasAnyModuleAccess(user);
   const { metrics, loading, error, refresh } = useDashboardMetrics();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [timePeriod, setTimePeriod] = useState<
@@ -148,6 +156,23 @@ export default function DashboardPage() {
     );
   }
 
+  // Show no-access state for users with no roles/permissions assigned
+  if (!hasAnyAccess) {
+    return (
+      <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
+        <TPageHeader
+          title="Dashboard"
+          subtitle="Welcome to TijaeroERP"
+        />
+        <TEmptyState
+          title="No Access Assigned"
+          message="Your account does not have any roles or permissions assigned yet. Please contact your administrator to get access to the system modules."
+          size="large"
+        />
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
       <TPageHeader
@@ -195,6 +220,7 @@ export default function DashboardPage() {
 
       {/* Stats Row */}
       <Grid container spacing={3} mb={4}>
+        {canViewSales && (
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Total Customers"
@@ -207,6 +233,8 @@ export default function DashboardPage() {
             tooltip="Click to view all customers"
           />
         </Grid>
+        )}
+        {canViewSales && (
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Sales This Month"
@@ -220,6 +248,8 @@ export default function DashboardPage() {
             tooltip="Click to view sales"
           />
         </Grid>
+        )}
+        {canViewInventory && (
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Inventory Items"
@@ -233,6 +263,8 @@ export default function DashboardPage() {
             badge={metrics && metrics.low_stock_items > 0 ? metrics.low_stock_items : undefined}
           />
         </Grid>
+        )}
+        {canViewFinance && (
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Revenue"
@@ -246,6 +278,7 @@ export default function DashboardPage() {
             tooltip="Click to view finance"
           />
         </Grid>
+        )}
       </Grid>
 
       {/* Charts Row */}
@@ -430,6 +463,7 @@ export default function DashboardPage() {
                 </Box>
 
                 {/* Support Tickets */}
+                {canViewSupport && (
                 <Box>
                   <Box
                     sx={{
@@ -469,6 +503,7 @@ export default function DashboardPage() {
                       : "Normal ticket volume"}
                   </Typography>
                 </Box>
+                )}
               </Box>
             )}
           </TSection>
@@ -527,6 +562,7 @@ export default function DashboardPage() {
       <Box mt={4}>
         <TSection title="Quick Actions" marginBottom={0}>
           <Grid container spacing={2}>
+            {canViewSales && (
             <Grid item xs={6} sm={3}>
               <Card
                 sx={{
@@ -544,6 +580,8 @@ export default function DashboardPage() {
                 </Typography>
               </Card>
             </Grid>
+            )}
+            {canViewSales && (
             <Grid item xs={6} sm={3}>
               <Card
                 sx={{
@@ -561,6 +599,8 @@ export default function DashboardPage() {
                 </Typography>
               </Card>
             </Grid>
+            )}
+            {canViewInventory && (
             <Grid item xs={6} sm={3}>
               <Card
                 sx={{
@@ -578,6 +618,8 @@ export default function DashboardPage() {
                 </Typography>
               </Card>
             </Grid>
+            )}
+            {canViewFinance && (
             <Grid item xs={6} sm={3}>
               <Card
                 sx={{
@@ -595,6 +637,7 @@ export default function DashboardPage() {
                 </Typography>
               </Card>
             </Grid>
+            )}
           </Grid>
         </TSection>
       </Box>

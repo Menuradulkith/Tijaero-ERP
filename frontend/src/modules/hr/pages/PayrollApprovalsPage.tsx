@@ -91,10 +91,19 @@ export default function PayrollApprovalsPage() {
   const approveDialog = useConfirmDialog();
 
   // Ref data
-  const { filteredBranches } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
-  // ─── Data Fetching ─────────────────────────────────────────────────────────
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  // ─── Data Fetching ─────────────────────────────────────────────────────────────────
 
   const { data: batches = [], isLoading } = useQuery({
     queryKey: ["payroll-approvals", filterStatus, filterBranch],
@@ -103,6 +112,8 @@ export default function PayrollApprovalsPage() {
         status: filterStatus || undefined,
         limit: 500,
       }),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
   // Fetch selected detail

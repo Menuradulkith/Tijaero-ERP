@@ -95,9 +95,16 @@ export default function PurchaseReturnApprovalsPage() {
   });
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
-  const { data: refData, filteredBranches } = useReferenceData(["products", "branches"]);
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
   const branches = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create lookup maps
   const grnMap = useMemo(() => {

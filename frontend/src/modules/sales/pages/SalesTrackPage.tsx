@@ -211,6 +211,19 @@ export default function SalesTrackPage() {
 
   // ─── Data Queries ────────────────────────────────────────────────────────
 
+  // OPTIMIZED: Using aggregated endpoint for branches — resolved BEFORE query fires
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Paginated invoice list
   const {
     data: invoicesData,
@@ -227,6 +240,7 @@ export default function SalesTrackPage() {
         sortBy: sortField,
         sortDesc: true,
       }),
+    enabled: branchResolved,
     placeholderData: (prev) => prev,
   });
 
@@ -248,10 +262,6 @@ export default function SalesTrackPage() {
   const products: Product[] =
     (productsResult as { items?: Product[] })?.items ||
     (Array.isArray(productsResult) ? productsResult : []);
-
-  // OPTIMIZED: Using aggregated endpoint for branches
-  const { filteredBranches } = useReferenceData(["branches"]);
-  const branches = filteredBranches || [];
 
   // Payment history for selected order
   const { data: paymentHistory = [], isLoading: historyLoading } = useQuery({

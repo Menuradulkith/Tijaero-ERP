@@ -10,7 +10,7 @@
  * 5. Commissions included in payroll
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -134,7 +134,7 @@ const getStatusConfig = (status: string): StatusChipConfig => {
 
 export default function SalesCommissionsPage() {
   const queryClient = useQueryClient();
-  const { filteredBranches } = useReferenceData();
+  const { filteredBranches, defaultBranchCode } = useReferenceData();
   const confirmDialog = useConfirmDialog();
 
   // Convert branches to the format expected by TBranchFilter
@@ -151,6 +151,13 @@ export default function SalesCommissionsPage() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && selectedBranch === null) {
+      setSelectedBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Generate Dialog State
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
