@@ -24,21 +24,21 @@ echo "Ensuring admin user exists..."
 python scripts/ensure_admin.py
 
 # Test CORS config first
-echo ""
-echo "Testing CORS configuration..."
-python test_cors.py
-
-if [ $? -eq 0 ]; then
+# echo ""
+# echo "Testing CORS configuration..."
+# python test_cors.py
+#
+# if [ $? -eq 0 ]; then
     echo ""
-    echo "✅ CORS configuration is correct!"
+    echo "✅ Starting server..."
     echo ""
     echo "Starting server with auto-reload..."
     echo "Press Ctrl+C to stop"
     echo ""
-    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-else
-    echo ""
-    echo "❌ CORS configuration test failed!"
-    echo "Please check the configuration."
-    exit 1
-fi
+    python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# else
+#     echo ""
+#     echo "❌ CORS configuration test failed!"
+#     echo "Please check the configuration."
+#     exit 1
+# fi

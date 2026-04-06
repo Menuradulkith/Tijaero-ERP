@@ -1,10 +1,11 @@
+from typing import List, Optional
+
+from app.auth.models import Group, User
+from app.core.security import decode_token
+from app.db.session import get_db
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional
-from app.db.session import get_db
-from app.auth.models import User
-from app.core.security import decode_token
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -27,32 +28,56 @@ def _resolve_token(request: Request, token: Optional[str] = None) -> str:
     )
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+def get_current_user(
+    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+) -> User:
     payload = decode_token(token)
     if not payload:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
     user_id = payload.get("sub")
     if user_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
     try:
         user_id = int(user_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    # Eager load branches relationship for branch-based access control
-    user = db.query(User).options(joinedload(User.branches)).filter(User.id == user_id).first()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
+    # Eager load relationships for access control and serialization
+    user = (
+        db.query(User)
+        .options(
+            joinedload(User.branches),
+            selectinload(User.groups).selectinload(Group.permissions),
+            selectinload(User.permissions),
+        )
+        .filter(User.id == user_id)
+        .first()
+    )
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
     return user
+
 
 def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
     if not current_user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user"
+        )
     return current_user
 
 
 def get_current_user_flexible(
     request: Request,
-    token: Optional[str] = Query(None, description="JWT token (for iframe/print preview)"),
+    token: Optional[str] = Query(
+        None, description="JWT token (for iframe/print preview)"
+    ),
     db: Session = Depends(get_db),
 ) -> User:
     """Authenticate via Authorization header OR ?token= query parameter.
@@ -60,19 +85,34 @@ def get_current_user_flexible(
     resolved = _resolve_token(request, token)
     payload = decode_token(resolved)
     if not payload:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
     user_id = payload.get("sub")
     if user_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
     try:
         user_id = int(user_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    user = db.query(User).options(joinedload(User.branches)).filter(User.id == user_id).first()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
+    user = (
+        db.query(User)
+        .options(joinedload(User.branches))
+        .filter(User.id == user_id)
+        .first()
+    )
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user"
+        )
     return user
 
 
@@ -86,7 +126,9 @@ def get_user_branch_codes(user: User) -> List[str]:
     return [branch.branch_code for branch in user.branches]
 
 
-def get_user_branch_filter(current_user: User = Depends(get_current_active_user)) -> Optional[List[str]]:
+def get_user_branch_filter(
+    current_user: User = Depends(get_current_active_user),
+) -> Optional[List[str]]:
     """
     Dependency that returns user's allowed branch codes for filtering.
     Returns None for superusers (no filtering needed).
@@ -98,7 +140,7 @@ def get_user_branch_filter(current_user: User = Depends(get_current_active_user)
     if not branch_codes:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User has no branch access. Please contact administrator."
+            detail="User has no branch access. Please contact administrator.",
         )
     return branch_codes
 
@@ -119,22 +161,25 @@ def require_branch_access(branch_code: str):
     Dependency factory to check if user has access to a specific branch.
     Usage: Depends(require_branch_access(branch_code))
     """
+
     def branch_checker(current_user: User = Depends(get_current_active_user)):
         if not validate_branch_access(current_user, branch_code):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied to branch: {branch_code}"
+                detail=f"Access denied to branch: {branch_code}",
             )
         return current_user
+
     return branch_checker
 
 
 def require_permission(resource: str, action: str):
     """Dependency factory that enforces RBAC permission checks.
-    
+
     Delegates to app.auth.rbac.require_permission which is the canonical
     implementation.  This wrapper exists so that modules that imported
     require_permission from dependencies.py continue to work correctly.
     """
     from app.auth.rbac import require_permission as _rbac_require_permission
+
     return _rbac_require_permission(resource, action)

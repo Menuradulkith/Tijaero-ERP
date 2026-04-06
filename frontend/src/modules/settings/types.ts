@@ -50,8 +50,8 @@ export interface ProfileUpdate {
   first_name?: string;
   middle_name?: string;
   last_name?: string;
-  email?: string;
-  occupation?: string;
+  gender?: string;
+  date_joined?: string;
   birthdate?: string;
 }
 
@@ -60,3 +60,27 @@ export interface PasswordChange {
   new_password: string;
   confirm_password: string;
 }
+
+export interface CompanySettings {
+  id: number;
+  company_name: string;
+  company_address: string;
+  company_telephone_number?: string;
+  company_fax_number?: string;
+  company_email: string;
+  company_logo_id?: number;
+  depreciation_rate: number;
+  number_of_annual_leaves: number;
+  number_of_casual_leaves: number;
+  number_of_medical_leaves: number;
+  amex_card_surcharge: number;
+  visa_card_surcharge: number;
+  master_card_surcharge: number;
+  fiscal_year_start: string;
+  default_currency: string;
+  tax_registration_number?: string;
+}
+
+export interface CompanySettingsUpdate extends Partial<
+  Omit<CompanySettings, "id">
+> {}

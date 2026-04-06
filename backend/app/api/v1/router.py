@@ -5,8 +5,8 @@ from app.modules.common.api import router as common_router
 from app.modules.customers.api import router as customers_router
 from app.modules.customers.commission_api import router as commissions_router
 from app.modules.employees.api import router as employees_router
-from app.modules.finance.api import router as finance_router
 from app.modules.finance.accounting_api import router as accounting_router
+from app.modules.finance.api import router as finance_router
 from app.modules.groups.api import router as groups_router
 from app.modules.hr.api import router as hr_router
 from app.modules.hr.sales_commission_api import router as sales_commissions_router
@@ -32,7 +32,9 @@ api_router.include_router(users_router)
 api_router.include_router(groups_router)
 api_router.include_router(permissions_router)
 
-api_router.include_router(commissions_router, prefix="/customers/commissions", tags=["agent-commissions"])
+api_router.include_router(
+    commissions_router, prefix="/customers/commissions", tags=["agent-commissions"]
+)
 api_router.include_router(customers_router, prefix="/customers", tags=["customers"])
 api_router.include_router(inventory_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(products_router, prefix="/inventory", tags=["inventory"])
@@ -44,13 +46,15 @@ api_router.include_router(purchasing_router)
 api_router.include_router(finance_router)
 api_router.include_router(accounting_router)
 api_router.include_router(hr_router)
-api_router.include_router(sales_commissions_router, prefix="/hr", tags=["sales-commissions"])
+api_router.include_router(
+    sales_commissions_router, prefix="/hr", tags=["sales-commissions"]
+)
 api_router.include_router(warehouse_router)
 api_router.include_router(support_router)
 api_router.include_router(reporting_router)
 api_router.include_router(settings_router)
 api_router.include_router(common_router)
 api_router.include_router(employees_router, prefix="/employees", tags=["employees"])
-api_router.include_router(branches_router, prefix="/branches", tags=["branches"])
+api_router.include_router(branches_router)
 
 api_router.include_router(health.router, prefix="/health", tags=["health"])

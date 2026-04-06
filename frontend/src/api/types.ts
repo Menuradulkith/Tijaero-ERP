@@ -33,9 +33,21 @@ export interface User {
   first_name: string;
   last_name: string;
   middle_name?: string;
+  gender: string;
+  date_joined: string;
+  birthdate: string;
+  employee_id: string;
+  verify: boolean;
+  blocked: boolean;
+  occupation: string;
+  country_id?: number;
+  profile_picture_id?: number;
+  created_at: string;
+  updated_at: string;
+  last_login?: string;
   groups: Group[];
   permissions?: Permission[];
-  branches?: Branch[];  // User's assigned branches for access control
+  branches?: Branch[]; // User's assigned branches for access control
 }
 
 // Branch types
