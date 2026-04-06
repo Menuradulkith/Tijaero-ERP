@@ -22,6 +22,7 @@ import {
   SupplierCreditsSettleCreate,
   SupplierCreditsSettleWithTransactions,
   DailyPOLimitCheck,
+  PurchasingStats,
 } from "./types";
 
 // Helper to clean empty strings to null/undefined for optional fields
@@ -42,6 +43,16 @@ const cleanSupplierData = (data: SupplierCreate | SupplierUpdate) => {
     email: data.email?.trim() || null,
     home_contact_number: data.home_contact_number?.trim() || null,
   };
+};
+
+// ── Statistics API ─────────────────────────────────────────────────────
+export const purchasingStatsApi = {
+  getStatistics: async (branchCode?: string) => {
+    const params: Record<string, string> = {};
+    if (branchCode) params.branch_code = branchCode;
+    const response = await apiClient.get<PurchasingStats>("/purchasing/statistics", { params });
+    return response.data;
+  },
 };
 
 // Supplier API

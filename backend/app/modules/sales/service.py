@@ -255,7 +255,7 @@ class SalesService:
         }
     
     def get_sales_statistics(self, db: Session, branch_codes: Optional[List[str]] = None):
-        """Get sales statistics for dashboard"""
+        """Get sales statistics for dashboard — enhanced with daily trends, customer insights & status breakdown"""
         today = tz.today()
         current_month_start = today.replace(day=1)
         last_month_start = (today - relativedelta(months=1)).replace(day=1)
@@ -268,21 +268,12 @@ class SalesService:
                 q = q.filter(Invoice.branch_code.in_(branch_codes))
             return q
         
-        # Total invoices count
-        total_invoices = base_query().with_entities(func.count(Invoice.id)).scalar() or 0
+        # Revenue expression helper
+        invoice_total_expr = (
+            Invoice.cash_amount + Invoice.card_visa_amount + Invoice.card_mastercard_amount +
+            Invoice.card_amex_amount + Invoice.cheque_amount + Invoice.bank_transfer_amount + Invoice.credit_amount
+        )
         
-        # Current month invoices
-        current_month_invoices = base_query().filter(
-            Invoice.created_date >= current_month_start
-        ).with_entities(func.count(Invoice.id)).scalar() or 0
-        
-        # Last month invoices
-        last_month_invoices = base_query().filter(
-            Invoice.created_date >= last_month_start,
-            Invoice.created_date <= last_month_end
-        ).with_entities(func.count(Invoice.id)).scalar() or 0
-        
-        # Revenue calculations
         def calc_revenue(query):
             return query.with_entities(
                 func.coalesce(func.sum(Invoice.cash_amount), 0) +
@@ -294,28 +285,44 @@ class SalesService:
                 func.coalesce(func.sum(Invoice.credit_amount), 0)
             ).scalar() or 0
         
+        # ── Core counts ───────────────────────────────────────────────
+        total_invoices = base_query().with_entities(func.count(Invoice.id)).scalar() or 0
+        current_month_invoices = base_query().filter(
+            Invoice.created_date >= current_month_start
+        ).with_entities(func.count(Invoice.id)).scalar() or 0
+        last_month_invoices = base_query().filter(
+            Invoice.created_date >= last_month_start,
+            Invoice.created_date <= last_month_end
+        ).with_entities(func.count(Invoice.id)).scalar() or 0
+        
         total_revenue = calc_revenue(base_query())
         current_month_revenue = calc_revenue(
             base_query().filter(Invoice.created_date >= current_month_start)
         )
+        last_month_revenue = calc_revenue(
+            base_query().filter(
+                Invoice.created_date >= last_month_start,
+                Invoice.created_date <= last_month_end,
+            )
+        )
         
-        # Pending approval count
-        pending_approval = base_query().filter(
-            Invoice.approval == False
-        ).with_entities(func.count(Invoice.id)).scalar() or 0
+        # Today's sales
+        today_revenue = calc_revenue(base_query().filter(Invoice.created_date == today))
+        today_orders = base_query().filter(Invoice.created_date == today).with_entities(func.count(Invoice.id)).scalar() or 0
         
-        # Approved count
-        approved = base_query().filter(
-            Invoice.approval == True
-        ).with_entities(func.count(Invoice.id)).scalar() or 0
+        pending_approval = base_query().filter(Invoice.approval == False).with_entities(func.count(Invoice.id)).scalar() or 0
+        approved = base_query().filter(Invoice.approval == True).with_entities(func.count(Invoice.id)).scalar() or 0
         
-        # Total sale returns (with branch filtering)
+        # Sale returns (with branch filtering)
         returns_query = db.query(SaleReturn)
         if branch_codes:
             returns_query = returns_query.filter(SaleReturn.branch_code.in_(branch_codes))
         sale_returns_count = returns_query.with_entities(func.count(SaleReturn.id)).scalar() or 0
         
-        # Payment breakdown (optimized SQL aggregation)
+        # ── Average order value ───────────────────────────────────────
+        avg_order_value = float(total_revenue) / total_invoices if total_invoices > 0 else 0
+        
+        # ── Payment breakdown ─────────────────────────────────────────
         payment_breakdown = base_query().with_entities(
             func.coalesce(func.sum(Invoice.cash_amount), 0).label('cash'),
             func.coalesce(func.sum(Invoice.card_visa_amount + Invoice.card_mastercard_amount + Invoice.card_amex_amount), 0).label('card'),
@@ -324,17 +331,73 @@ class SalesService:
             func.coalesce(func.sum(Invoice.credit_amount), 0).label('credit'),
         ).first()
         
-        # Top 5 invoices by value (SQL-side sorting)
-        invoice_total_expr = (
-            Invoice.cash_amount + Invoice.card_visa_amount + Invoice.card_mastercard_amount +
-            Invoice.card_amex_amount + Invoice.cheque_amount + Invoice.bank_transfer_amount + Invoice.credit_amount
-        )
-        top_invoices_raw = base_query().order_by(invoice_total_expr.desc()).limit(5).all()
+        # ── Daily sales – last 7 days ────────────────────────────────
+        daily_sales = []
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            day_rev = calc_revenue(base_query().filter(Invoice.created_date == d))
+            day_cnt = base_query().filter(Invoice.created_date == d).with_entities(func.count(Invoice.id)).scalar() or 0
+            daily_sales.append({
+                "date": d.strftime("%b %d"),
+                "revenue": float(day_rev),
+                "orders": day_cnt,
+            })
         
-        # Recent 5 invoices (SQL-side sorting)
+        # ── Monthly sales – last 6 months ────────────────────────────
+        monthly_sales = []
+        for i in range(5, -1, -1):
+            m_start = (today - relativedelta(months=i)).replace(day=1)
+            if i == 0:
+                m_end = today
+            else:
+                m_end = (today - relativedelta(months=i - 1)).replace(day=1) - timedelta(days=1)
+            m_rev = calc_revenue(
+                base_query().filter(Invoice.created_date >= m_start, Invoice.created_date <= m_end)
+            )
+            m_cnt = base_query().filter(
+                Invoice.created_date >= m_start, Invoice.created_date <= m_end
+            ).with_entities(func.count(Invoice.id)).scalar() or 0
+            monthly_sales.append({
+                "month": m_start.strftime("%b"),
+                "revenue": float(m_rev),
+                "orders": m_cnt,
+            })
+        
+        # ── Top 5 customers by revenue ────────────────────────────────
+        from app.modules.customers.models import Customer
+        top_customers_raw = (
+            base_query()
+            .join(Customer, Invoice.customer_id == Customer.id)
+            .with_entities(
+                Customer.customer_name,
+                func.count(Invoice.id).label("order_count"),
+                func.sum(invoice_total_expr).label("total_spent"),
+            )
+            .group_by(Customer.id, Customer.customer_name)
+            .order_by(func.sum(invoice_total_expr).desc())
+            .limit(5)
+            .all()
+        )
+        top_customers = [
+            {
+                "name": c.customer_name or "Unknown",
+                "orders": c.order_count,
+                "revenue": float(c.total_spent or 0),
+            }
+            for c in top_customers_raw
+        ]
+        
+        # ── Order status breakdown ────────────────────────────────────
+        status_breakdown = {
+            "approved": approved,
+            "pending": pending_approval,
+            "total": total_invoices,
+        }
+        
+        # ── Top 5 & Recent 5 invoices ─────────────────────────────────
+        top_invoices_raw = base_query().order_by(invoice_total_expr.desc()).limit(5).all()
         recent_invoices_raw = base_query().order_by(Invoice.created_date.desc()).limit(5).all()
         
-        # Convert Invoice models to dict for serialization
         def invoice_to_dict(inv):
             total = (inv.cash_amount + inv.card_visa_amount + inv.card_mastercard_amount +
                      inv.card_amex_amount + inv.cheque_amount + inv.bank_transfer_amount + inv.credit_amount)
@@ -344,7 +407,6 @@ class SalesService:
                 "created_date": inv.created_date.isoformat() if inv.created_date else None,
                 "total": float(total),
                 "approval": inv.approval,
-                #"customer_code": inv.customer_code,  # Field does not exist
             }
         
         return {
@@ -353,6 +415,10 @@ class SalesService:
             "last_month_orders": last_month_invoices,
             "total_revenue": float(total_revenue),
             "current_month_revenue": float(current_month_revenue),
+            "last_month_revenue": float(last_month_revenue),
+            "today_revenue": float(today_revenue),
+            "today_orders": today_orders,
+            "avg_order_value": round(avg_order_value, 2),
             "pending_approval": pending_approval,
             "approved": approved,
             "sale_returns_count": sale_returns_count,
@@ -363,6 +429,10 @@ class SalesService:
                 "bank_transfer": float(payment_breakdown.bank_transfer) if payment_breakdown else 0,
                 "credit": float(payment_breakdown.credit) if payment_breakdown else 0,
             },
+            "daily_sales": daily_sales,
+            "monthly_sales": monthly_sales,
+            "top_customers": top_customers,
+            "status_breakdown": status_breakdown,
             "top_invoices": [invoice_to_dict(inv) for inv in top_invoices_raw],
             "recent_invoices": [invoice_to_dict(inv) for inv in recent_invoices_raw],
         }

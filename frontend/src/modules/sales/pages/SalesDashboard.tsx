@@ -7,16 +7,19 @@ import {
   TStatusChip,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AttachMoney as MoneyIcon,
-  People as PeopleIcon,
   Receipt as ReceiptIcon,
   AssignmentReturn as ReturnIcon,
+  ShoppingCart as CartIcon,
+  People as PeopleIcon,
+  BarChart as BarChartIcon,
 } from "@mui/icons-material";
 import {
   Alert,
   Autocomplete,
+  Avatar,
   Box,
   Button,
   Card,
@@ -26,67 +29,71 @@ import {
   Grid,
   LinearProgress,
   List,
+  ListItem,
+  ListItemAvatar,
   ListItemButton,
   ListItemText,
   Paper,
+  Stack,
   TextField,
   Typography,
+  useTheme,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { salesApi } from "../api";
 
 /**
- * OPTIMIZED Sales Dashboard
- * 
- * Performance improvements:
- * - Uses `/sales/statistics` endpoint instead of fetching ALL invoices
- * - Backend performs SQL aggregations for KPIs, payment breakdown
- * - Top 5 and Recent 5 invoices fetched via SQL LIMIT (not client-side filter)
- * - Branch filtering available via URL params (TODO: implement when needed)
+ * Enhanced Sales Dashboard
+ *
+ * Uses `/sales/statistics` backend endpoint with SQL aggregations.
+ * Features: KPI cards, 7-day trend chart, monthly revenue bar chart,
+ * payment breakdown, top customers, order status, recent & top invoices.
  */
 export default function SalesDashboard() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const navigate = useNavigate();
+  const theme = useTheme();
 
-  // Branch list for filter dropdown — resolved BEFORE query fires
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
-  // Auto-default branch filter for non-superuser users
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Wait until the branch default is resolved before firing the stats query.
-  // If defaultBranchCode exists (branch user) we wait for it to be applied;
-  // if there is no defaultBranchCode (superuser / no branch) we fire immediately.
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  // OPTIMIZED: Use statistics endpoint - single API call with SQL aggregations
   const { data: stats, isLoading, isError, refetch } = useQuery({
     queryKey: ["sales-statistics", filterBranch],
     queryFn: () => salesApi.getStatistics(filterBranch || undefined),
     enabled: branchResolved,
-    placeholderData: (prev) => prev, // keep showing previous data while re-fetching
+    placeholderData: (prev) => prev,
   });
 
-  // Calculate trends from statistics
+  // Calculate trends
   const trends = useMemo(() => {
     if (!stats) return { revenue: 0, orders: 0 };
-    
-    const revenueTrend = stats.current_month_revenue > 0 && stats.total_revenue > 0
-      ? ((stats.current_month_revenue / stats.total_revenue) * 100)
+    const revenueTrend = stats.last_month_revenue > 0
+      ? ((stats.current_month_revenue - stats.last_month_revenue) / stats.last_month_revenue) * 100
       : 0;
-    
     const ordersTrend = stats.last_month_orders > 0
       ? ((stats.current_month_orders - stats.last_month_orders) / stats.last_month_orders) * 100
       : 0;
-    
     return { revenue: revenueTrend, orders: ordersTrend };
   }, [stats]);
 
@@ -96,11 +103,7 @@ export default function SalesDashboard() {
         <TPageHeader title="Sales Dashboard" subtitle="Overview of sales performance and statistics" />
         <Alert
           severity="error"
-          action={
-            <Button color="inherit" size="small" onClick={() => refetch()}>
-              Retry
-            </Button>
-          }
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>Retry</Button>}
           sx={{ mt: 2 }}
         >
           Failed to load dashboard statistics. Please try again.
@@ -113,14 +116,9 @@ export default function SalesDashboard() {
     return <TPageSkeleton variant="dashboard" />;
   }
 
-  // Format payment breakdown for display
-  const paymentBreakdownDisplay = {
-    cash: stats.payment_breakdown.cash,
-    card: stats.payment_breakdown.card,
-    cheque: stats.payment_breakdown.cheque,
-    "Bank Transfer": stats.payment_breakdown.bank_transfer,
-    credit: stats.payment_breakdown.credit,
-  };
+  const approvalRate = stats.total_orders > 0
+    ? ((stats.approved / stats.total_orders) * 100).toFixed(1)
+    : "0";
 
   return (
     <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
@@ -142,71 +140,215 @@ export default function SalesDashboard() {
         }
       />
 
+      {/* ── Row 1: KPI Stat Cards ─────────────────────────────────── */}
       <Grid container spacing={3}>
-        {/* Stat Cards */}
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
-            title="Total Revenue"
-            value={`Rs. ${fmtLKR(stats.total_revenue)}`}
-            subtitle={`This month: Rs. ${fmtLKR(stats.current_month_revenue)}`}
+            title="Today's Revenue"
+            value={`Rs. ${fmtLKR(stats.today_revenue)}`}
+            subtitle={`${stats.today_orders} order${stats.today_orders !== 1 ? "s" : ""} today`}
             icon={<MoneyIcon />}
             color="success"
-            trend={trends.revenue}
-            trendLabel="of total"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
-            title="Total Orders"
-            value={stats.total_orders}
-            subtitle={`This month: ${stats.current_month_orders}`}
-            icon={<ReceiptIcon />}
+            title="This Month Revenue"
+            value={`Rs. ${fmtLKR(stats.current_month_revenue)}`}
+            subtitle={`Last month: Rs. ${fmtLKR(stats.last_month_revenue)}`}
+            icon={<MoneyIcon />}
             color="primary"
-            trend={trends.orders}
-            trendLabel="from last month"
+            trend={trends.revenue}
+            trendLabel="vs last month"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
-            title="Pending Approval"
-            value={stats.pending_approval}
-            subtitle={`Approved: ${stats.approved}`}
-            icon={<PeopleIcon />}
+            title="Orders This Month"
+            value={stats.current_month_orders}
+            subtitle={`Last month: ${stats.last_month_orders}`}
+            icon={<CartIcon />}
+            color="info"
+            trend={trends.orders}
+            trendLabel="vs last month"
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <TStatCard
+            title="Avg. Order Value"
+            value={`Rs. ${fmtLKR(stats.avg_order_value)}`}
+            subtitle={`Total: ${stats.total_orders} orders`}
+            icon={<BarChartIcon />}
             color="warning"
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Sale Returns"
-            value={stats.sale_returns_count}
-            subtitle="Total returns processed"
-            icon={<ReturnIcon />}
-            color="error"
-          />
+
+        {/* ── Row 2: Daily Trend Chart + Order Status / Approvals ─── */}
+        <Grid item xs={12} md={8}>
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+              Sales Trend — Last 7 Days
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+            {stats.daily_sales.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 6, color: "text.secondary" }}>
+                <ReceiptIcon sx={{ fontSize: 48, mb: 1, opacity: 0.3 }} />
+                <Typography>No sales data available</Typography>
+              </Box>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <AreaChart data={stats.daily_sales}>
+                  <defs>
+                    <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={theme.palette.success.main} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={theme.palette.success.main} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <XAxis dataKey="date" fontSize={12} tick={{ fill: theme.palette.text.secondary }} />
+                  <YAxis
+                    fontSize={12}
+                    tick={{ fill: theme.palette.text.secondary }}
+                    tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)}
+                  />
+                  <RechartsTooltip
+                    formatter={(value: number | undefined) => [`Rs. ${fmtLKR(value ?? 0)}`, "Revenue"] as [string, string]}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: `1px solid ${theme.palette.divider}`,
+                      backgroundColor: theme.palette.background.paper,
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke={theme.palette.success.main}
+                    fill="url(#salesGrad)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </Paper>
         </Grid>
 
-        {/* Payment Breakdown */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, height: "100%" }}>
-            <Typography variant="h6" gutterBottom>
+        <Grid item xs={12} md={4}>
+          <Stack spacing={3} sx={{ height: "100%" }}>
+            {/* Order Status Breakdown */}
+            <Paper elevation={0} variant="outlined" sx={{ p: 2, flex: 1 }}>
+              <Typography variant="h6" fontWeight={700} gutterBottom>
+                Order Status
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">Approved</Typography>
+                  <Typography variant="body2" fontWeight={600} color="success.main">{stats.approved}</Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={stats.total_orders > 0 ? (stats.approved / stats.total_orders) * 100 : 0}
+                  color="success"
+                  sx={{ height: 8, borderRadius: 1 }}
+                />
+              </Box>
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">Pending Approval</Typography>
+                  <Typography variant="body2" fontWeight={600} color="warning.main">{stats.pending_approval}</Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={stats.total_orders > 0 ? (stats.pending_approval / stats.total_orders) * 100 : 0}
+                  color="warning"
+                  sx={{ height: 8, borderRadius: 1 }}
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                Approval Rate: {approvalRate}%
+              </Typography>
+            </Paper>
+
+            {/* Sale Returns */}
+            <Paper elevation={0} variant="outlined" sx={{ p: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Sale Returns</Typography>
+                  <Typography variant="h4" fontWeight={700} color="error.main">{stats.sale_returns_count}</Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: "error.light", width: 48, height: 48 }}>
+                  <ReturnIcon sx={{ color: "error.dark" }} />
+                </Avatar>
+              </Stack>
+            </Paper>
+          </Stack>
+        </Grid>
+
+        {/* ── Row 3: Monthly Revenue Chart + Payment Breakdown ───── */}
+        <Grid item xs={12} md={7}>
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+              Monthly Revenue — Last 6 Months
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+            {stats.monthly_sales.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 6, color: "text.secondary" }}>
+                <Typography>No monthly data</Typography>
+              </Box>
+            ) : (
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={stats.monthly_sales}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <XAxis dataKey="month" fontSize={12} tick={{ fill: theme.palette.text.secondary }} />
+                  <YAxis
+                    fontSize={12}
+                    tick={{ fill: theme.palette.text.secondary }}
+                    tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)}
+                  />
+                  <RechartsTooltip
+                    formatter={(value: number | undefined, name: string | undefined) => [
+                      name === "revenue" ? `Rs. ${fmtLKR(value ?? 0)}` : value,
+                      name === "revenue" ? "Revenue" : "Orders",
+                    ] as [string | number | undefined, string]}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: `1px solid ${theme.palette.divider}`,
+                      backgroundColor: theme.palette.background.paper,
+                    }}
+                  />
+                  <Bar dataKey="revenue" fill={theme.palette.primary.main} radius={[4, 4, 0, 0]} name="revenue" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={5}>
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
               Payment Methods
             </Typography>
             <Divider sx={{ mb: 2 }} />
-            {Object.entries(paymentBreakdownDisplay).map(([method, amount]) => {
-              const percentage = stats.total_revenue > 0 ? (amount / stats.total_revenue) * 100 : 0;
+            {[
+              { label: "Cash", amount: stats.payment_breakdown.cash, color: "success" as const },
+              { label: "Card", amount: stats.payment_breakdown.card, color: "primary" as const },
+              { label: "Bank Transfer", amount: stats.payment_breakdown.bank_transfer, color: "info" as const },
+              { label: "Credit", amount: stats.payment_breakdown.credit, color: "warning" as const },
+              { label: "Cheque", amount: stats.payment_breakdown.cheque, color: "secondary" as const },
+            ].map(({ label, amount, color }) => {
+              const pct = stats.total_revenue > 0 ? (amount / stats.total_revenue) * 100 : 0;
               return (
-                <Box key={method} sx={{ mb: 2 }}>
+                <Box key={label} sx={{ mb: 2 }}>
                   <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                    <Typography variant="body2" sx={{ textTransform: "capitalize" }}>
-                      {method.replace(/_/g, ' ')}
-                    </Typography>
+                    <Typography variant="body2">{label}</Typography>
                     <Typography variant="body2" fontWeight={500}>
-                      Rs. {fmtLKR(amount)} ({percentage.toFixed(1)}%)
+                      Rs. {fmtLKR(amount)} ({pct.toFixed(1)}%)
                     </Typography>
                   </Box>
                   <LinearProgress
                     variant="determinate"
-                    value={percentage}
+                    value={pct}
+                    color={color}
                     sx={{ height: 8, borderRadius: 1 }}
                   />
                 </Box>
@@ -215,47 +357,102 @@ export default function SalesDashboard() {
           </Paper>
         </Grid>
 
-        {/* Recent Invoices */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, height: "100%" }}>
-            <Typography variant="h6" gutterBottom>
-              Recent Orders
+        {/* ── Row 4: Top Customers + Recent Orders ────────────────── */}
+        <Grid item xs={12} md={5}>
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+              Top Customers
             </Typography>
             <Divider sx={{ mb: 1 }} />
-            {stats.recent_invoices.length === 0 ? (
-              <Box sx={{ textAlign: "center", py: 3 }}>
-                <ReceiptIcon sx={{ fontSize: 40, color: "text.disabled", mb: 1 }} />
-                <Typography variant="body2" color="text.secondary">No recent orders</Typography>
+            {stats.top_customers.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <PeopleIcon sx={{ fontSize: 40, color: "text.disabled", mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">No customer data</Typography>
               </Box>
             ) : (
-            <List dense>
-              {stats.recent_invoices.map((invoice) => (
-                <ListItemButton key={invoice.id} divider onClick={() => navigate(`/sales?invoice=${invoice.id}`)} sx={{ borderRadius: 1 }}>
-                  <ListItemText
-                    primary={invoice.invoice_no}
-                    secondary={format(new Date(invoice.created_date), "MMM dd, yyyy")}
-                  />
-                  <Box sx={{ textAlign: "right" }}>
-                    <Typography variant="body2" fontWeight={600} color="success.main">
-                      <TCurrency value={invoice.total} />
-                    </Typography>
-                    <TStatusChip
-                      status={invoice.approval ? "approved" : "pending"}
-                      statusMap="orderStatus"
-                      size="small"
+              <List dense disablePadding>
+                {stats.top_customers.map((customer, idx) => (
+                  <ListItem key={idx} disablePadding sx={{ py: 0.75 }}>
+                    <ListItemAvatar sx={{ minWidth: 40 }}>
+                      <Avatar
+                        sx={{
+                          width: 32,
+                          height: 32,
+                          fontSize: 14,
+                          fontWeight: 700,
+                          bgcolor: idx === 0 ? "warning.main" : idx === 1 ? "grey.400" : idx === 2 ? "#CD7F32" : "grey.200",
+                          color: idx < 3 ? "white" : "text.primary",
+                        }}
+                      >
+                        {idx + 1}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={customer.name}
+                      secondary={`${customer.orders} order${customer.orders !== 1 ? "s" : ""}`}
+                      primaryTypographyProps={{ variant: "body2", fontWeight: 500, noWrap: true }}
+                      secondaryTypographyProps={{ variant: "caption" }}
                     />
-                  </Box>
-                </ListItemButton>
-              ))}
-            </List>
+                    <Typography variant="body2" fontWeight={600} color="success.main" sx={{ whiteSpace: "nowrap" }}>
+                      Rs. {fmtLKR(customer.revenue)}
+                    </Typography>
+                  </ListItem>
+                ))}
+              </List>
             )}
           </Paper>
         </Grid>
 
-        {/* Top Invoices */}
+        <Grid item xs={12} md={7}>
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+              <Typography variant="h6" fontWeight={700}>
+                Recent Orders
+              </Typography>
+              <Chip label={`${stats.total_orders} total`} size="small" color="primary" variant="outlined" />
+            </Box>
+            <Divider sx={{ mb: 1 }} />
+            {stats.recent_invoices.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <ReceiptIcon sx={{ fontSize: 40, color: "text.disabled", mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">No recent orders</Typography>
+              </Box>
+            ) : (
+              <List dense disablePadding>
+                {stats.recent_invoices.map((invoice) => (
+                  <ListItemButton
+                    key={invoice.id}
+                    divider
+                    onClick={() => navigate(`/sales?invoice=${invoice.id}`)}
+                    sx={{ borderRadius: 1 }}
+                  >
+                    <ListItemText
+                      primary={invoice.invoice_no}
+                      secondary={format(new Date(invoice.created_date), "MMM dd, yyyy")}
+                      primaryTypographyProps={{ variant: "body2", fontWeight: 500 }}
+                      secondaryTypographyProps={{ variant: "caption" }}
+                    />
+                    <Box sx={{ textAlign: "right" }}>
+                      <Typography variant="body2" fontWeight={600} color="success.main">
+                        <TCurrency value={invoice.total} />
+                      </Typography>
+                      <TStatusChip
+                        status={invoice.approval ? "approved" : "pending"}
+                        statusMap="orderStatus"
+                        size="small"
+                      />
+                    </Box>
+                  </ListItemButton>
+                ))}
+              </List>
+            )}
+          </Paper>
+        </Grid>
+
+        {/* ── Row 5: Top Invoices by Value ────────────────────────── */}
         <Grid item xs={12}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
+          <Paper elevation={0} variant="outlined" sx={{ p: 2 }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
               Top Orders by Value
             </Typography>
             <Divider sx={{ mb: 2 }} />
@@ -265,26 +462,30 @@ export default function SalesDashboard() {
                 <Typography variant="body2" color="text.secondary">No orders yet</Typography>
               </Box>
             ) : (
-            <Grid container spacing={2}>
-              {stats.top_invoices.map((invoice, index) => (
-                <Grid item xs={12} sm={6} md={2} key={invoice.id}>
-                  <Card variant="outlined" sx={{ cursor: "pointer" }} onClick={() => navigate(`/sales?invoice=${invoice.id}`)}>
-                    <CardContent sx={{ textAlign: "center" }}>
-                      <Chip label={`#${index + 1}`} size="small" color="primary" sx={{ mb: 1 }} />
-                      <Typography variant="subtitle2" noWrap>
-                        {invoice.invoice_no}
-                      </Typography>
-                      <Typography variant="h6" color="success.main" fontWeight={700}>
-                        Rs. {fmtLKR(invoice.total)}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {format(new Date(invoice.created_date), "MMM dd, yyyy")}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
+              <Grid container spacing={2}>
+                {stats.top_invoices.map((invoice, index) => (
+                  <Grid item xs={12} sm={6} md={2.4} key={invoice.id}>
+                    <Card
+                      variant="outlined"
+                      sx={{ cursor: "pointer", transition: "all 0.2s", "&:hover": { transform: "translateY(-2px)", boxShadow: 2 } }}
+                      onClick={() => navigate(`/sales?invoice=${invoice.id}`)}
+                    >
+                      <CardContent sx={{ textAlign: "center" }}>
+                        <Chip label={`#${index + 1}`} size="small" color="primary" sx={{ mb: 1 }} />
+                        <Typography variant="subtitle2" noWrap>
+                          {invoice.invoice_no}
+                        </Typography>
+                        <Typography variant="h6" color="success.main" fontWeight={700}>
+                          Rs. {fmtLKR(invoice.total)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {format(new Date(invoice.created_date), "MMM dd, yyyy")}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
             )}
           </Paper>
         </Grid>

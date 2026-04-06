@@ -510,3 +510,29 @@ export interface SupplierAdvancePaymentListFilter {
   skip?: number;
   limit?: number;
 }
+
+// ── Dashboard Statistics ─────────────────────────────────────────────────
+export interface PurchasingStats {
+  total_suppliers: number;
+  active_suppliers: number;
+  total_pos: number;
+  current_month_pos: number;
+  last_month_pos: number;
+  total_po_value: number;
+  current_month_po_value: number;
+  last_month_po_value: number;
+  pending_pos: number;
+  approved_pos: number;
+  completed_pos: number;
+  rejected_pos: number;
+  total_grns: number;
+  current_month_grns: number;
+  total_returns: number;
+  pending_returns: number;
+  daily_orders: { date: string; orders: number }[];
+  monthly_spending: { month: string; value: number; orders: number }[];
+  top_suppliers: { name: string; orders: number; value: number }[];
+  payment_methods: Record<string, number>;
+  recent_pos: { id: number; po_no: string; date: string; status: string; supplier: string }[];
+  recent_grns: { id: number; grn_no: string; date: string; po_id: number }[];
+}

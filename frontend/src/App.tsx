@@ -176,7 +176,7 @@ function App() {
           <Route
             path="/settings"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute resource="settings" action="view">
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <SettingsPage />
                 </Suspense>
@@ -186,7 +186,7 @@ function App() {
           <Route
             path="/company-settings"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute resource="settings" action="view">
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <CompanySettingsPage />
                 </Suspense>

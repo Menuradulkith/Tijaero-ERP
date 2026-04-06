@@ -1,143 +1,115 @@
 /**
- * PurchasingDashboard - Overview dashboard for purchasing module
+ * Enhanced Purchasing Dashboard
+ *
+ * Uses `/purchasing/statistics` backend endpoint with SQL aggregations.
+ * Features: KPI cards, 7-day order trend, monthly spending bar chart,
+ * PO status breakdown, top suppliers, payment methods, recent POs & GRNs.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
+  Avatar,
   Box,
+  Card,
+  Chip,
+  Divider,
   Grid,
-  Typography,
+  LinearProgress,
   List,
+  ListItem,
+  ListItemAvatar,
   ListItemButton,
   ListItemText,
-  ListItemIcon,
-  Skeleton,
   Paper,
-  Divider,
+  Stack,
   Autocomplete,
   TextField,
-  Card,
+  Typography,
+  useTheme,
+  Alert,
+  Button,
 } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
+import CancelIcon from "@mui/icons-material/Cancel";
+import DoneAllIcon from "@mui/icons-material/DoneAll";
 
-import { suppliersApi, purchaseOrdersApi, goodReceivedNotesApi, purchaseReturnsApi } from "@/modules/purchasing/api";
+import { purchasingStatsApi } from "@/modules/purchasing/api";
 import { useReferenceData, BranchRef } from "@/hooks";
-// OPTIMIZED: Removed branchApi import - using aggregated endpoint
-import { TStatCard, TStatusChip, TPageHeader, TChip } from "@/components/tijaero";
-
-interface RecentItemProps {
-  primary: string;
-  secondary: string;
-  status: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-}
-
-function RecentItem({ primary, secondary, status, icon, onClick }: RecentItemProps) {
-  return (
-    <ListItemButton onClick={onClick} sx={{ borderRadius: 1 }}>
-      <ListItemIcon sx={{ minWidth: 40 }}>{icon}</ListItemIcon>
-      <ListItemText 
-        primary={primary} 
-        secondary={secondary}
-        primaryTypographyProps={{ variant: "body2", fontWeight: 500 }}
-        secondaryTypographyProps={{ variant: "caption" }}
-      />
-      <TStatusChip 
-        status={status} 
-        statusMap="purchaseOrder"
-        size="small"
-      />
-    </ListItemButton>
-  );
-}
+import { fmtLKR, TStatCard, TPageHeader, TPageSkeleton, TStatusChip } from "@/components/tijaero";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 export default function PurchasingDashboard() {
   const navigate = useNavigate();
+  const theme = useTheme();
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
-  // OPTIMIZED: Using aggregated endpoint for branches (was separate branchApi call)
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
-  // Auto-default branch filter for non-superuser users
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data: suppliers, isLoading: suppliersLoading } = useQuery({
-    queryKey: ["suppliers"],
-    queryFn: () => suppliersApi.getAll(),
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  const { data: stats, isLoading, isError, refetch } = useQuery({
+    queryKey: ["purchasing-statistics", filterBranch],
+    queryFn: () => purchasingStatsApi.getStatistics(filterBranch || undefined),
+    enabled: branchResolved,
+    placeholderData: (prev) => prev,
   });
 
-  const { data: orders, isLoading: ordersLoading } = useQuery({
-    queryKey: ["purchaseOrders"],
-    queryFn: () => purchaseOrdersApi.getAll(),
-  });
+  const trends = useMemo(() => {
+    if (!stats) return { poValue: 0, poCount: 0 };
+    const poValueTrend = stats.last_month_po_value > 0
+      ? ((stats.current_month_po_value - stats.last_month_po_value) / stats.last_month_po_value) * 100
+      : 0;
+    const poCountTrend = stats.last_month_pos > 0
+      ? ((stats.current_month_pos - stats.last_month_pos) / stats.last_month_pos) * 100
+      : 0;
+    return { poValue: poValueTrend, poCount: poCountTrend };
+  }, [stats]);
 
-  const { data: grns, isLoading: grnsLoading } = useQuery({
-    queryKey: ["goodReceivedNotes"],
-    queryFn: () => goodReceivedNotesApi.getAll(),
-  });
+  if (isError) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <TPageHeader title="Purchasing Dashboard" subtitle="Overview of purchasing activities" />
+        <Alert
+          severity="error"
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>Retry</Button>}
+          sx={{ mt: 2 }}
+        >
+          Failed to load purchasing statistics. Please try again.
+        </Alert>
+      </Box>
+    );
+  }
 
-  const { data: returns, isLoading: returnsLoading } = useQuery({
-    queryKey: ["purchaseReturns"],
-    queryFn: () => purchaseReturnsApi.getAll(),
-  });
+  if (isLoading || !stats) {
+    return <TPageSkeleton variant="dashboard" />;
+  }
 
-  // Filter data by branch
-  const filteredOrders = useMemo(() => {
-    if (!orders) return [];
-    if (!filterBranch) return orders;
-    return orders.filter((o) => o.branch_code === filterBranch);
-  }, [orders, filterBranch]);
-
-  const filteredGRNs = useMemo(() => {
-    if (!grns) return [];
-    if (!filterBranch) return grns;
-    return grns.filter((g) => g.branch_code === filterBranch);
-  }, [grns, filterBranch]);
-
-  const filteredReturns = useMemo(() => {
-    if (!returns) return [];
-    if (!filterBranch) return returns;
-    return returns.filter((r) => r.branch_code === filterBranch);
-  }, [returns, filterBranch]);
-
-  const stats = useMemo(() => {
-    const activeSuppliers = suppliers?.filter((s) => s.active).length || 0;
-    const pendingOrders = filteredOrders.filter((o) => o.status === "pending" || o.status === "draft").length || 0;
-    const totalGRNs = filteredGRNs.length;
-    const totalReturns = filteredReturns.length;
-
-    return { activeSuppliers, pendingOrders, totalGRNs, totalReturns };
-  }, [suppliers, filteredOrders, filteredGRNs, filteredReturns]);
-
-  const recentOrders = useMemo(() => {
-    if (!filteredOrders.length) return [];
-    return [...filteredOrders]
-      .sort((a, b) => new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime())
-      .slice(0, 5);
-  }, [filteredOrders]);
-
-  const recentGRNs = useMemo(() => {
-    if (!filteredGRNs.length) return [];
-    return [...filteredGRNs]
-      .sort((a, b) => new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime())
-      .slice(0, 5);
-  }, [filteredGRNs]);
-
-  const getSupplierName = (supplierId: number) => {
-    const supplier = suppliers?.find((s) => s.id === supplierId);
-    return supplier?.full_name || "Unknown";
-  };
+  const totalPOStatuses = stats.pending_pos + stats.approved_pos + stats.completed_pos + stats.rejected_pos;
 
   return (
     <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
@@ -145,8 +117,8 @@ export default function PurchasingDashboard() {
         title="Purchasing Dashboard"
         subtitle={
           filterBranch
-            ? `Overview of purchasing activities - ${branches.find((b) => b.branch_code === filterBranch)?.branch_name || filterBranch}`
-            : "Overview of purchasing activities and pending items"
+            ? `Overview of purchasing activities — ${branches.find((b) => b.branch_code === filterBranch)?.branch_name || filterBranch}`
+            : "Overview of purchasing activities and spending"
         }
         actions={
           <Autocomplete
@@ -156,95 +128,273 @@ export default function PurchasingDashboard() {
             value={branches.find((b) => b.branch_code === filterBranch) || null}
             onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
             renderInput={(params) => (
-              <TextField {...params} label="Filter by Branch" placeholder="All Branches" />
+              <TextField {...params} placeholder="Filter by Branch" size="small" />
             )}
             sx={{ minWidth: 250 }}
           />
         }
       />
 
-      {/* Stats Row */}
-      <Grid container spacing={3} mb={4}>
+      {/* ── Row 1: KPI Stat Cards ─────────────────────────────────── */}
+      <Grid container spacing={3}>
+        <Grid item xs={12} sm={6} md={3}>
+          <TStatCard
+            title="This Month Spending"
+            value={`Rs. ${fmtLKR(stats.current_month_po_value)}`}
+            subtitle={`Last month: Rs. ${fmtLKR(stats.last_month_po_value)}`}
+            icon={<TrendingUpIcon />}
+            color="primary"
+            trend={trends.poValue}
+            trendLabel="vs last month"
+            onClick={() => navigate("/purchasing/orders")}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <TStatCard
+            title="Purchase Orders"
+            value={stats.current_month_pos}
+            subtitle={`Last month: ${stats.last_month_pos} | Total: ${stats.total_pos}`}
+            icon={<ShoppingCartIcon />}
+            color="warning"
+            trend={trends.poCount}
+            trendLabel="vs last month"
+            onClick={() => navigate("/purchasing/orders")}
+          />
+        </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="Active Suppliers"
-            value={stats.activeSuppliers}
+            value={stats.active_suppliers}
+            subtitle={`Total: ${stats.total_suppliers}`}
             icon={<BusinessIcon />}
-            color="primary"
-            onClick={() => navigate("/purchasing/suppliers")}
-            loading={suppliersLoading}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Pending Orders"
-            value={stats.pendingOrders}
-            icon={<ShoppingCartIcon />}
-            color="warning"
-            onClick={() => navigate("/purchasing/orders")}
-            loading={ordersLoading}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Total GRNs"
-            value={stats.totalGRNs}
-            icon={<ReceiptLongIcon />}
             color="info"
-            onClick={() => navigate("/purchasing/grn")}
-            loading={grnsLoading}
+            onClick={() => navigate("/purchasing/suppliers")}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
-            title="Total Returns"
-            value={stats.totalReturns}
-            icon={<AssignmentReturnIcon />}
-            color="error"
-            onClick={() => navigate("/purchasing/returns")}
-            loading={returnsLoading}
+            title="Goods Received"
+            value={stats.current_month_grns}
+            subtitle={`Total GRNs: ${stats.total_grns}`}
+            icon={<ReceiptLongIcon />}
+            color="success"
+            onClick={() => navigate("/purchasing/grn")}
           />
         </Grid>
-      </Grid>
 
-      {/* Recent Items Row */}
-      <Grid container spacing={3}>
+        {/* ── Row 2: Daily Order Trend + PO Status Breakdown ──────── */}
+        <Grid item xs={12} md={8}>
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+              Purchase Orders — Last 7 Days
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+            {stats.daily_orders.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 6, color: "text.secondary" }}>
+                <ShoppingCartIcon sx={{ fontSize: 48, mb: 1, opacity: 0.3 }} />
+                <Typography>No order data available</Typography>
+              </Box>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <AreaChart data={stats.daily_orders}>
+                  <defs>
+                    <linearGradient id="poGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={theme.palette.warning.main} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={theme.palette.warning.main} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <XAxis dataKey="date" fontSize={12} tick={{ fill: theme.palette.text.secondary }} />
+                  <YAxis fontSize={12} tick={{ fill: theme.palette.text.secondary }} allowDecimals={false} />
+                  <RechartsTooltip
+                    formatter={(value: number | undefined) => [value, "Orders"] as [number | undefined, string]}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: `1px solid ${theme.palette.divider}`,
+                      backgroundColor: theme.palette.background.paper,
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="orders"
+                    stroke={theme.palette.warning.main}
+                    fill="url(#poGrad)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <Stack spacing={3} sx={{ height: "100%" }}>
+            {/* PO Status Breakdown */}
+            <Paper elevation={0} variant="outlined" sx={{ p: 2, flex: 1 }}>
+              <Typography variant="h6" fontWeight={700} gutterBottom>
+                PO Status
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              {[
+                { label: "Pending / Draft", count: stats.pending_pos, color: "warning", icon: <HourglassEmptyIcon sx={{ fontSize: 16 }} /> },
+                { label: "Approved", count: stats.approved_pos, color: "success", icon: <CheckCircleIcon sx={{ fontSize: 16 }} /> },
+                { label: "Completed", count: stats.completed_pos, color: "info", icon: <DoneAllIcon sx={{ fontSize: 16 }} /> },
+                { label: "Rejected", count: stats.rejected_pos, color: "error", icon: <CancelIcon sx={{ fontSize: 16 }} /> },
+              ].map(({ label, count, color }) => {
+                const pct = totalPOStatuses > 0 ? (count / totalPOStatuses) * 100 : 0;
+                return (
+                  <Box key={label} sx={{ mb: 1.5 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">{label}</Typography>
+                      <Typography variant="body2" fontWeight={600}>{count}</Typography>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={pct}
+                      color={color as "warning" | "success" | "info" | "error"}
+                      sx={{ height: 8, borderRadius: 1 }}
+                    />
+                  </Box>
+                );
+              })}
+            </Paper>
+
+            {/* Returns Quick Stat */}
+            <Paper elevation={0} variant="outlined" sx={{ p: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Purchase Returns</Typography>
+                  <Typography variant="h4" fontWeight={700} color="error.main">{stats.total_returns}</Typography>
+                  <Typography variant="caption" color="text.secondary">{stats.pending_returns} pending</Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: "error.light", width: 48, height: 48 }}>
+                  <AssignmentReturnIcon sx={{ color: "error.dark" }} />
+                </Avatar>
+              </Stack>
+            </Paper>
+          </Stack>
+        </Grid>
+
+        {/* ── Row 3: Monthly Spending Chart + Top Suppliers ────────── */}
+        <Grid item xs={12} md={7}>
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+              Monthly Spending — Last 6 Months
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+            {stats.monthly_spending.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 6, color: "text.secondary" }}>
+                <Typography>No spending data</Typography>
+              </Box>
+            ) : (
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={stats.monthly_spending}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <XAxis dataKey="month" fontSize={12} tick={{ fill: theme.palette.text.secondary }} />
+                  <YAxis
+                    fontSize={12}
+                    tick={{ fill: theme.palette.text.secondary }}
+                    tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)}
+                  />
+                  <RechartsTooltip
+                    formatter={(value: number | undefined, name: string | undefined) => [
+                      name === "value" ? `Rs. ${fmtLKR(value ?? 0)}` : value,
+                      name === "value" ? "Spending" : "Orders",
+                    ] as [string | number | undefined, string]}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: `1px solid ${theme.palette.divider}`,
+                      backgroundColor: theme.palette.background.paper,
+                    }}
+                  />
+                  <Bar dataKey="value" fill={theme.palette.primary.main} radius={[4, 4, 0, 0]} name="value" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={5}>
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+              Top Suppliers
+            </Typography>
+            <Divider sx={{ mb: 1 }} />
+            {stats.top_suppliers.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <BusinessIcon sx={{ fontSize: 40, color: "text.disabled", mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">No supplier data</Typography>
+              </Box>
+            ) : (
+              <List dense disablePadding>
+                {stats.top_suppliers.map((supplier, idx) => (
+                  <ListItem key={idx} disablePadding sx={{ py: 0.75 }}>
+                    <ListItemAvatar sx={{ minWidth: 40 }}>
+                      <Avatar
+                        sx={{
+                          width: 32,
+                          height: 32,
+                          fontSize: 14,
+                          fontWeight: 700,
+                          bgcolor: idx === 0 ? "warning.main" : idx === 1 ? "grey.400" : idx === 2 ? "#CD7F32" : "grey.200",
+                          color: idx < 3 ? "white" : "text.primary",
+                        }}
+                      >
+                        {idx + 1}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={supplier.name}
+                      secondary={`${supplier.orders} order${supplier.orders !== 1 ? "s" : ""}`}
+                      primaryTypographyProps={{ variant: "body2", fontWeight: 500, noWrap: true }}
+                      secondaryTypographyProps={{ variant: "caption" }}
+                    />
+                    <Typography variant="body2" fontWeight={600} color="primary.main" sx={{ whiteSpace: "nowrap" }}>
+                      Rs. {fmtLKR(supplier.value)}
+                    </Typography>
+                  </ListItem>
+                ))}
+              </List>
+            )}
+          </Paper>
+        </Grid>
+
+        {/* ── Row 4: Recent POs + Recent GRNs ─────────────────────── */}
         <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, height: "100%" }}>
-            <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-              <Typography variant="h6" fontWeight="bold">
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+              <Typography variant="h6" fontWeight={700}>
                 Recent Purchase Orders
               </Typography>
-              <TChip
-                label={`${filteredOrders.length} total`}
-                size="small"
-                color="primary"
-                variant="outlined"
-              />
+              <Chip label={`${stats.total_pos} total`} size="small" color="warning" variant="outlined" />
             </Box>
             <Divider sx={{ mb: 1 }} />
-            {ordersLoading ? (
-              <Box>
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} height={60} sx={{ my: 1 }} />
-                ))}
-              </Box>
-            ) : recentOrders.length === 0 ? (
-              <Box textAlign="center" py={4}>
-                <ShoppingCartIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
-                <Typography color="text.secondary">No purchase orders yet</Typography>
+            {stats.recent_pos.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <ShoppingCartIcon sx={{ fontSize: 40, color: "text.disabled", mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">No purchase orders yet</Typography>
               </Box>
             ) : (
-              <List disablePadding>
-                {recentOrders.map((order) => (
-                  <RecentItem
-                    key={order.id}
-                    primary={order.purchasing_order_no || `PO-${order.id}`}
-                    secondary={`${getSupplierName(order.first_suppliers_id)} • ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`}
-                    status={order.status}
-                    icon={<ShoppingCartIcon fontSize="small" color="action" />}
+              <List dense disablePadding>
+                {stats.recent_pos.map((po) => (
+                  <ListItemButton
+                    key={po.id}
+                    divider
                     onClick={() => navigate("/purchasing/orders")}
-                  />
+                    sx={{ borderRadius: 1 }}
+                  >
+                    <ListItemText
+                      primary={po.po_no}
+                      secondary={`${po.supplier} • ${po.date ? new Date(po.date).toLocaleDateString() : "—"}`}
+                      primaryTypographyProps={{ variant: "body2", fontWeight: 500 }}
+                      secondaryTypographyProps={{ variant: "caption" }}
+                    />
+                    <TStatusChip
+                      status={po.status}
+                      statusMap="purchaseOrder"
+                      size="small"
+                    />
+                  </ListItemButton>
                 ))}
               </List>
             )}
@@ -252,124 +402,76 @@ export default function PurchasingDashboard() {
         </Grid>
 
         <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, height: "100%" }}>
-            <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-              <Typography variant="h6" fontWeight="bold">
+          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+              <Typography variant="h6" fontWeight={700}>
                 Recent Good Received Notes
               </Typography>
-              <TChip
-                label={`${filteredGRNs.length} total`}
-                size="small"
-                color="info"
-                variant="outlined"
-              />
+              <Chip label={`${stats.total_grns} total`} size="small" color="info" variant="outlined" />
             </Box>
             <Divider sx={{ mb: 1 }} />
-            {grnsLoading ? (
-              <Box>
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} height={60} sx={{ my: 1 }} />
-                ))}
-              </Box>
-            ) : recentGRNs.length === 0 ? (
-              <Box textAlign="center" py={4}>
-                <ReceiptLongIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
-                <Typography color="text.secondary">No GRNs yet</Typography>
+            {stats.recent_grns.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <ReceiptLongIcon sx={{ fontSize: 40, color: "text.disabled", mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">No GRNs yet</Typography>
               </Box>
             ) : (
-              <List disablePadding>
-                {recentGRNs.map((grn) => (
-                  <RecentItem
+              <List dense disablePadding>
+                {stats.recent_grns.map((grn) => (
+                  <ListItemButton
                     key={grn.id}
-                    primary={grn.good_received_no || `GRN-${grn.id}`}
-                    secondary={`PO: ${grn.purchasingorders_id} • ${new Date(grn.good_received_date || "").toLocaleDateString()}`}
-                    status="received"
-                    icon={<ReceiptLongIcon fontSize="small" color="action" />}
+                    divider
                     onClick={() => navigate("/purchasing/grn")}
-                  />
+                    sx={{ borderRadius: 1 }}
+                  >
+                    <ListItemText
+                      primary={grn.grn_no}
+                      secondary={`PO #${grn.po_id} • ${grn.date ? new Date(grn.date).toLocaleDateString() : "—"}`}
+                      primaryTypographyProps={{ variant: "body2", fontWeight: 500 }}
+                      secondaryTypographyProps={{ variant: "caption" }}
+                    />
+                    <Chip label="Received" size="small" color="success" variant="outlined" />
+                  </ListItemButton>
                 ))}
               </List>
             )}
           </Paper>
         </Grid>
-      </Grid>
 
-      {/* Quick Actions */}
-      <Box mt={4}>
-        <Typography variant="h6" fontWeight="bold" gutterBottom>
-          Quick Actions
-        </Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={6} sm={3}>
-            <Card
-              sx={{
-                cursor: "pointer",
-                textAlign: "center",
-                p: 2,
-                transition: "all 0.2s",
-                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
-              }}
-              onClick={() => navigate("/purchasing/suppliers")}
-            >
-              <BusinessIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
-              <Typography variant="body2" fontWeight="500">
-                Manage Suppliers
-              </Typography>
-            </Card>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Card
-              sx={{
-                cursor: "pointer",
-                textAlign: "center",
-                p: 2,
-                transition: "all 0.2s",
-                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
-              }}
-              onClick={() => navigate("/purchasing/orders")}
-            >
-              <ShoppingCartIcon color="warning" sx={{ fontSize: 40, mb: 1 }} />
-              <Typography variant="body2" fontWeight="500">
-                New Purchase Order
-              </Typography>
-            </Card>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Card
-              sx={{
-                cursor: "pointer",
-                textAlign: "center",
-                p: 2,
-                transition: "all 0.2s",
-                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
-              }}
-              onClick={() => navigate("/purchasing/grn")}
-            >
-              <ReceiptLongIcon color="info" sx={{ fontSize: 40, mb: 1 }} />
-              <Typography variant="body2" fontWeight="500">
-                Receive Goods
-              </Typography>
-            </Card>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Card
-              sx={{
-                cursor: "pointer",
-                textAlign: "center",
-                p: 2,
-                transition: "all 0.2s",
-                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
-              }}
-              onClick={() => navigate("/purchasing/returns")}
-            >
-              <AssignmentReturnIcon color="error" sx={{ fontSize: 40, mb: 1 }} />
-              <Typography variant="body2" fontWeight="500">
-                Process Return
-              </Typography>
-            </Card>
+        {/* ── Row 5: Quick Actions ────────────────────────────────── */}
+        <Grid item xs={12}>
+          <Typography variant="h6" fontWeight={700} gutterBottom>
+            Quick Actions
+          </Typography>
+          <Grid container spacing={2}>
+            {[
+              { label: "Manage Suppliers", icon: <BusinessIcon color="primary" sx={{ fontSize: 40 }} />, path: "/purchasing/suppliers" },
+              { label: "New Purchase Order", icon: <ShoppingCartIcon color="warning" sx={{ fontSize: 40 }} />, path: "/purchasing/orders" },
+              { label: "Receive Goods", icon: <ReceiptLongIcon color="info" sx={{ fontSize: 40 }} />, path: "/purchasing/grn" },
+              { label: "Process Return", icon: <AssignmentReturnIcon color="error" sx={{ fontSize: 40 }} />, path: "/purchasing/returns" },
+            ].map((action) => (
+              <Grid item xs={6} sm={3} key={action.label}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    cursor: "pointer",
+                    textAlign: "center",
+                    p: 2,
+                    transition: "all 0.2s",
+                    "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)", boxShadow: 2 },
+                  }}
+                  onClick={() => navigate(action.path)}
+                >
+                  <Box sx={{ mb: 1 }}>{action.icon}</Box>
+                  <Typography variant="body2" fontWeight={500}>
+                    {action.label}
+                  </Typography>
+                </Card>
+              </Grid>
+            ))}
           </Grid>
         </Grid>
-      </Box>
+      </Grid>
     </Box>
   );
 }

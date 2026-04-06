@@ -226,6 +226,10 @@ export interface SalesStats {
   current_month_orders: number;
   current_month_revenue: number;
   last_month_orders: number;
+  last_month_revenue: number;
+  today_revenue: number;
+  today_orders: number;
+  avg_order_value: number;
   pending_approval: number;
   approved: number;
   sale_returns_count: number;
@@ -236,6 +240,10 @@ export interface SalesStats {
     bank_transfer: number;
     credit: number;
   };
+  daily_sales: { date: string; revenue: number; orders: number }[];
+  monthly_sales: { month: string; revenue: number; orders: number }[];
+  top_customers: { name: string; orders: number; revenue: number }[];
+  status_breakdown: { approved: number; pending: number; total: number };
   top_invoices: SalesStatsInvoice[];
   recent_invoices: SalesStatsInvoice[];
 }

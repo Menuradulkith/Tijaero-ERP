@@ -179,13 +179,31 @@ class PurchasingOrderRepository:
     def delete(self, order_id: int) -> bool:
         db_order = self.get_by_id(order_id)
         if db_order:
-            grn_count = self.db.query(models.GoodReceivedNote).filter(
+            # Check if order is approved or completed — those cannot be deleted
+            order_status = (db_order.status or "").lower()
+            if order_status in ("approved", "completed"):
+                raise ValueError(f"Cannot delete purchase order with status '{db_order.status}'")
+            
+            # Get PO item IDs for cascading
+            po_item_ids = [
+                item_id for (item_id,) in
+                self.db.query(models.PurchasingOrderItems.id).filter(
+                    models.PurchasingOrderItems.purchasingorders_id == order_id
+                ).all()
+            ]
+            
+            # Cascade-delete GRN items linked to this PO's items
+            if po_item_ids:
+                self.db.query(models.GoodReceivedItems).filter(
+                    models.GoodReceivedItems.purchasing_order_items_id.in_(po_item_ids)
+                ).delete(synchronize_session=False)
+            
+            # Delete GRNs linked to this PO
+            self.db.query(models.GoodReceivedNote).filter(
                 models.GoodReceivedNote.purchasingorders_id == order_id
-            ).count()
+            ).delete()
             
-            if grn_count > 0:
-                raise ValueError(f"Cannot delete purchase order: {grn_count} Good Received Note(s) are associated with this order")
-            
+            # Delete PO items
             self.db.query(models.PurchasingOrderItems).filter(
                 models.PurchasingOrderItems.purchasingorders_id == order_id
             ).delete()
