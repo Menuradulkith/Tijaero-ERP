@@ -1,4 +1,6 @@
+import { hasAnyModuleAccess, hasModuleAccess } from "@/auth/permissions";
 import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
+import { useAuthStore } from "@/state/authStore";
 import { useFormGuardStore } from "@/state/formGuardStore";
 import HomeIcon from "@mui/icons-material/Home";
 import MenuIcon from "@mui/icons-material/Menu";
@@ -20,10 +22,6 @@ import {
 } from "@mui/material";
 import { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useFormGuardStore } from "@/state/formGuardStore";
-import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
-import { hasModuleAccess, hasAnyModuleAccess } from "@/auth/permissions";
-import { useAuthStore } from "@/state/authStore";
 
 interface IconNavProps {
   width: number;
@@ -37,48 +35,67 @@ const allPages = [
     text: "Dashboard",
     path: "/dashboard",
     keywords: ["home", "main", "overview"],
+    module: "/dashboard",
   },
   {
     text: "Customers",
     path: "/sales/customers",
     keywords: ["clients", "people"],
+    module: "/sales",
   },
   {
     text: "Sales Dashboard",
     path: "/sales/dashboard",
     keywords: ["revenue", "orders"],
+    module: "/sales",
   },
   {
     text: "Sales Orders",
     path: "/sales/orders",
     keywords: ["invoices", "transactions"],
+    module: "/sales",
   },
-  { text: "Sales Returns", path: "/sales/returns", keywords: ["refunds"] },
-  { text: "Suppliers", path: "/purchasing/suppliers", keywords: ["vendors"] },
+  {
+    text: "Sales Returns",
+    path: "/sales/returns",
+    keywords: ["refunds"],
+    module: "/sales",
+  },
+  {
+    text: "Suppliers",
+    path: "/purchasing/suppliers",
+    keywords: ["vendors"],
+    module: "/purchasing",
+  },
   {
     text: "Purchase Orders",
     path: "/purchasing/orders",
     keywords: ["PO", "buy"],
+    module: "/purchasing",
   },
   {
     text: "PO Approvals",
     path: "/purchasing/approvals/po-approvals",
     keywords: ["approve", "authorize", "pending", "purchase order"],
+    module: "/purchasing",
   },
   {
     text: "Good Received Notes",
     path: "/purchasing/grn",
     keywords: ["GRN", "receive"],
+    module: "/purchasing",
   },
   {
     text: "Purchase Returns",
     path: "/purchasing/returns",
     keywords: ["return goods"],
+    module: "/purchasing",
   },
   {
     text: "Purchase Return Approvals",
     path: "/purchasing/approvals/return-approvals",
     keywords: ["approve return", "return approval"],
+    module: "/purchasing",
   },
   {
     text: "Supplier Payments",
@@ -92,44 +109,91 @@ const allPages = [
       "settlements",
       "credit settlement",
     ],
+    module: "/purchasing",
   },
   {
     text: "Payment Approvals",
     path: "/purchasing/payment-approvals",
     keywords: ["verify", "approve payment", "payment verification"],
+    module: "/purchasing",
   },
-  { text: "Products", path: "/inventory", keywords: ["items", "stock"] },
-  { text: "Categories", path: "/inventory/categories", keywords: ["groups"] },
-  { text: "Brands", path: "/inventory/brands", keywords: ["manufacturers"] },
-  { text: "Finance", path: "/finance", keywords: ["accounting", "money"] },
+  {
+    text: "Products",
+    path: "/inventory",
+    keywords: ["items", "stock"],
+    module: "/inventory",
+  },
+  {
+    text: "Categories",
+    path: "/inventory/categories",
+    keywords: ["groups"],
+    module: "/inventory",
+  },
+  {
+    text: "Brands",
+    path: "/inventory/brands",
+    keywords: ["manufacturers"],
+    module: "/inventory",
+  },
+  {
+    text: "Finance",
+    path: "/finance",
+    keywords: ["accounting", "money"],
+    module: "/finance",
+  },
   {
     text: "HR",
     path: "/hr",
     keywords: ["employees", "human resources", "staff"],
+    module: "/hr",
   },
   {
     text: "Sales Stock",
     path: "/warehouse",
     keywords: ["warehouse", "storage", "logistics", "sales stock"],
+    module: "/warehouse",
   },
-  { text: "Support", path: "/support", keywords: ["help", "tickets"] },
-  { text: "Reporting", path: "/reporting", keywords: ["reports", "analytics"] },
-  { text: "Branches", path: "/branches", keywords: ["locations", "offices"] },
-  { text: "Users", path: "/users", keywords: ["accounts", "members"] },
+  {
+    text: "Support",
+    path: "/support",
+    keywords: ["help", "tickets"],
+    module: "/support",
+  },
+  {
+    text: "Reporting",
+    path: "/reporting",
+    keywords: ["reports", "analytics"],
+    module: "/reporting",
+  },
+  {
+    text: "Branches",
+    path: "/branches",
+    keywords: ["locations", "offices"],
+    module: "/branches",
+  },
+  {
+    text: "Users",
+    path: "/users",
+    keywords: ["accounts", "members"],
+    module: "/users",
+  },
   {
     text: "Roles",
     path: "/roles",
     keywords: ["permissions", "groups", "security"],
+    module: "/roles",
   },
   {
     text: "Settings",
     path: "/company-settings",
     keywords: ["company config", "settings"],
+    module: "/company-settings",
   },
   {
     text: "My Preferences",
     path: "/settings",
     keywords: ["preferences", "configuration", "profile", "account"],
+    module: "/settings",
   },
 ];
 

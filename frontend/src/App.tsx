@@ -23,7 +23,7 @@ const SettingsPage = lazy(
   () => import("./modules/settings/pages/SettingsPage"),
 );
 const CompanySettingsPage = lazy(
-  () => import("./modules/settings/pages/CompanySettingsPage"),
+  () => import("@/modules/settings/pages/CompanySettingsPage"),
 );
 const GroupsPage = lazy(() => import("./modules/groups/pages/GroupsPage"));
 

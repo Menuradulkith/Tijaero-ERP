@@ -1,23 +1,27 @@
+import {
+  hasAnyModuleAccess,
+  hasPermission,
+  PERMISSIONS,
+} from "@/auth/permissions";
 import ErrorDisplay from "@/components/ErrorDisplay";
 import {
-    fmtLKR,
-    TEmptyState,
-    TIconButton,
-    TLoading,
-    TLoadingSkeleton,
-    TPageHeader,
-    TSection,
-    TStatCard,
+  fmtLKR,
+  TEmptyState,
+  TIconButton,
+  TLoading,
+  TLoadingSkeleton,
+  TPageHeader,
+  TSection,
+  TStatCard,
 } from "@/components/tijaero";
 import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
-import { hasPermission, hasAnyModuleAccess } from "@/auth/permissions";
 import { useAuthStore } from "@/state/authStore";
 import { calculatePercentageChange } from "@/utils/calculations";
 import { formatRelativeTime } from "@/utils/formatters";
 import {
-    getPreviousMetrics,
-    shouldUpdateStoredMetrics,
-    storePreviousMetrics,
+  getPreviousMetrics,
+  shouldUpdateStoredMetrics,
+  storePreviousMetrics,
 } from "@/utils/trendStorage";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import InventoryIcon from "@mui/icons-material/Inventory";
@@ -25,29 +29,26 @@ import PeopleIcon from "@mui/icons-material/People";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import {
-    Box,
-    Card,
-    Grid,
-    LinearProgress,
-    ToggleButton,
-    ToggleButtonGroup,
-    Typography,
+  Box,
+  Card,
+  Grid,
+  LinearProgress,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-    CartesianGrid,
-    Legend,
-    Line,
-    LineChart,
-    Tooltip as RechartsTooltip,
-    ResponsiveContainer,
-    XAxis,
-    YAxis,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
 } from "recharts";
-
-import { hasPermission, PERMISSIONS } from "@/auth/permissions";
-import { useAuthStore } from "@/state/authStore";
 
 interface ActivityItem {
   title: string;
@@ -170,13 +171,10 @@ export default function DashboardPage() {
   }
 
   // Show no-access state for users with no roles/permissions assigned
-  if (!hasAnyAccess) {
+  if (!hasAnyModuleAccess(user)) {
     return (
       <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
-        <TPageHeader
-          title="Dashboard"
-          subtitle="Welcome to TijaeroERP"
-        />
+        <TPageHeader title="Dashboard" subtitle="Welcome to TijaeroERP" />
         <TEmptyState
           title="No Access Assigned"
           message="Your account does not have any roles or permissions assigned yet. Please contact your administrator to get access to the system modules."
@@ -374,7 +372,10 @@ export default function DashboardPage() {
                         <YAxis yAxisId="left" />
                         <YAxis yAxisId="right" orientation="right" />
                         <RechartsTooltip
-                          formatter={(value: any, name: string | undefined) => {
+                          formatter={(
+                            value: number | string | undefined,
+                            name: string | undefined,
+                          ) => {
                             if (name === "sales") {
                               return [`Rs. ${fmtLKR(Number(value))}`, "Sales"];
                             }

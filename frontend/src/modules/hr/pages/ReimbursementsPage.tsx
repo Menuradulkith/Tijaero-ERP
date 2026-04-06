@@ -187,6 +187,15 @@ export default function ReimbursementsPage() {
     }
   }, [isCreating, defaultBranchCode, formData.branch_code, setFormData]);
 
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Data query
   const { data: reimbursements, isLoading } = useQuery({
     queryKey: ["reimbursements", filterBranch, filterStatus],
