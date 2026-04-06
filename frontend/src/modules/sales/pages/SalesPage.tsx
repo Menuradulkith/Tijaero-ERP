@@ -56,6 +56,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Grid,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -79,6 +80,8 @@ import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { salesApi } from "../api";
+import { salesStockApi } from "@/modules/inventory/api";
+import { Brand, SalesStock } from "@/modules/inventory/types";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate } from "../types";
 
@@ -172,6 +175,12 @@ export default function SalesPage() {
   const [isValidatingBarcode, setIsValidatingBarcode] = useState(false);
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  // Manual product picker state
+  const [manualBrandId, setManualBrandId] = useState<number | null>(null);
+  const [manualProductId, setManualProductId] = useState<number | null>(null);
+  const [manualStockItems, setManualStockItems] = useState<SalesStock[]>([]);
+  const [isLoadingManualStock, setIsLoadingManualStock] = useState(false);
 
   // Validated items tracking (for visual feedback on scanned items)
   const [validatedBarcodes, setValidatedBarcodes] = useState<string[]>([]);
@@ -319,9 +328,10 @@ export default function SalesPage() {
     enabled: !!selectedCustomerId && selectedCustomerId > 0 && (state.isCreating || state.isEditing),
   });
 
-  // OPTIMIZED: Single API call for products and branches (was 2 calls)
-  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
+  // OPTIMIZED: Single API call for products, brands and branches (was 2 calls)
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "brands", "branches"]);
   const products = refData?.products || [];
+  const brands = (refData?.brands || []) as Brand[];
   const branches = filteredBranches || [];
 
   // Auto-default branch filter for non-superuser users
@@ -686,6 +696,9 @@ export default function SalesPage() {
     setBarcodeInput("");
     setBarcodeError(null);
     setValidatedBarcodes([]);
+    setManualBrandId(null);
+    setManualProductId(null);
+    setManualStockItems([]);
     // Reset coupon state
     setCouponCode("");
     setCouponValidation(null);
@@ -747,6 +760,9 @@ export default function SalesPage() {
     setBarcodeInput("");
     setBarcodeError(null);
     setValidatedBarcodes([]);
+    setManualBrandId(null);
+    setManualProductId(null);
+    setManualStockItems([]);
     // Reset coupon state when editing
     setCouponCode("");
     setCouponValidation(null);
@@ -1094,6 +1110,9 @@ export default function SalesPage() {
     setLineItems([]);
     setFormStep(0);
     setValidatedBarcodes([]);
+    setManualBrandId(null);
+    setManualProductId(null);
+    setManualStockItems([]);
     // Reset coupon state
     setCouponCode("");
     setCouponValidation(null);
@@ -1129,6 +1148,55 @@ export default function SalesPage() {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
+  // Manual picker: load available stock when product or branch changes
+  useEffect(() => {
+    const branch = state.formData.branch_code;
+    if (!manualProductId || !branch) {
+      setManualStockItems([]);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingManualStock(true);
+    salesStockApi.getAll({ branch_code: branch, product_id: manualProductId, status: "available" })
+      .then((items) => { if (!cancelled) setManualStockItems(items); })
+      .catch(() => { if (!cancelled) setManualStockItems([]); })
+      .finally(() => { if (!cancelled) setIsLoadingManualStock(false); });
+    return () => { cancelled = true; };
+  }, [manualProductId, state.formData.branch_code]);
+
+  // Manual picker: reset product list when brand changes
+  useEffect(() => {
+    setManualProductId(null);
+    setManualStockItems([]);
+  }, [manualBrandId]);
+
+  // Manual picker: add a specific stock item to the line
+  const handleAddManualStockItem = useCallback((stockItem: SalesStock) => {
+    const alreadyAdded = lineItems.some(item => item.barcode === stockItem.barcode);
+    if (alreadyAdded) {
+      showErrorToast("This barcode is already in the order");
+      return;
+    }
+    const productObj = products.find((p: any) => p.id === stockItem.product_id);
+    const sellingPrice = stockItem.selling_price ?? productObj?.selling_price ?? 0;
+    const minimumPrice = (stockItem as any).minimum_price ?? (productObj as any)?.minimum_price ?? sellingPrice;
+    const newItem: ItemFormData = {
+      product_id: stockItem.product_id,
+      quantity: 1,
+      selling_price: sellingPrice,
+      minimum_selling_price: minimumPrice,
+      warrenty_month: stockItem.warranty_month ?? "0",
+      barcode: stockItem.barcode,
+      product_name: stockItem.product_name ?? productObj?.name ?? "",
+      branch_code: stockItem.branch_code,
+    };
+    setLineItems(prev => [...prev, newItem]);
+    setValidatedBarcodes(prev => [...prev, stockItem.barcode]);
+    // Remove from manual list so it can't be added twice
+    setManualStockItems(prev => prev.filter(s => s.barcode !== stockItem.barcode));
+    showSuccessToast(`Added: ${newItem.product_name || "Item"}`);
+  }, [lineItems, products]);
+
   // Step navigation functions
   const handleNextStep = () => {
     if (formStep < FORM_STEPS.length - 1) setFormStep(prev => prev + 1);
@@ -1139,7 +1207,9 @@ export default function SalesPage() {
   };
 
   // Step 1 validation - require customer and invoice number
-  const isStep1Valid = state.formData.invoice_no && state.formData.customer_id && state.formData.customer_id > 0;
+  // When creating, invoice_no is auto-generated (nextInvoiceNumber) and not stored in formData until submit
+  const effectiveInvoiceNo = state.isCreating ? nextInvoiceNumber : state.formData.invoice_no;
+  const isStep1Valid = effectiveInvoiceNo && state.formData.customer_id && state.formData.customer_id > 0;
 
   const updateLineItem = (index: number, field: keyof ItemFormData, value: number | string) => {
     const updated = [...lineItems];
@@ -1940,66 +2010,188 @@ export default function SalesPage() {
       {/* Step 2: Line Items */}
       {formStep === 1 && (
         <>
-          {/* Barcode Scanner Section */}
-          <Paper
-            variant="outlined"
-            sx={{
-              p: 2,
-              mb: 2,
-              bgcolor: "warning.50",
-              borderColor: "warning.main",
-              borderWidth: 2,
-            }}
-          >
-            <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
-              <QrCodeScannerIcon color="warning" />
-              Scan Barcode to Add Products
-            </Typography>
-            <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-              <TextField
-                inputRef={barcodeInputRef}
-                size="small"
-                fullWidth
-                placeholder="Scan or type barcode and press Enter..."
-                value={barcodeInput}
-                onChange={(e) => {
-                  setBarcodeInput(e.target.value);
-                  if (barcodeError) setBarcodeError(null);
+          {/* Two-column item picker: Barcode (left) | Manual Picker (right) */}
+          <Grid container spacing={2} sx={{ mb: 2 }}>
+            {/* LEFT: Barcode Scanner */}
+            <Grid item xs={12} md={5}>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  height: "100%",
+                  bgcolor: "warning.50",
+                  borderColor: "warning.main",
+                  borderWidth: 2,
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleValidateBarcode(barcodeInput);
-                  }
-                }}
-                disabled={isValidatingBarcode}
-                error={!!barcodeError}
-                helperText={barcodeError || "Press Enter to add item"}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <QrCodeScannerIcon fontSize="small" color="action" />
-                    </InputAdornment>
-                  ),
-                  endAdornment: isValidatingBarcode ? (
-                    <InputAdornment position="end">
-                      <CircularProgress size={20} />
-                    </InputAdornment>
-                  ) : null,
-                }}
-                autoFocus
-              />
-              <Button
-                variant="contained"
-                color="warning"
-                onClick={() => handleValidateBarcode(barcodeInput)}
-                disabled={isValidatingBarcode || !barcodeInput.trim()}
-                sx={{ minWidth: 100 }}
               >
-                {isValidatingBarcode ? <CircularProgress size={20} /> : "Add"}
-              </Button>
-            </Box>
-          </Paper>
+                <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
+                  <QrCodeScannerIcon color="warning" />
+                  Scan / Type Barcode
+                </Typography>
+                <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+                  <TextField
+                    inputRef={barcodeInputRef}
+                    size="small"
+                    fullWidth
+                    placeholder="Scan or type barcode and press Enter..."
+                    value={barcodeInput}
+                    onChange={(e) => {
+                      setBarcodeInput(e.target.value);
+                      if (barcodeError) setBarcodeError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleValidateBarcode(barcodeInput);
+                      }
+                    }}
+                    disabled={isValidatingBarcode}
+                    error={!!barcodeError}
+                    helperText={barcodeError || "Press Enter to add item"}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <QrCodeScannerIcon fontSize="small" color="action" />
+                        </InputAdornment>
+                      ),
+                      endAdornment: isValidatingBarcode ? (
+                        <InputAdornment position="end">
+                          <CircularProgress size={20} />
+                        </InputAdornment>
+                      ) : null,
+                    }}
+                    autoFocus
+                  />
+                  <Button
+                    variant="contained"
+                    color="warning"
+                    onClick={() => handleValidateBarcode(barcodeInput)}
+                    disabled={isValidatingBarcode || !barcodeInput.trim()}
+                    sx={{ minWidth: 80 }}
+                  >
+                    {isValidatingBarcode ? <CircularProgress size={20} /> : "Add"}
+                  </Button>
+                </Box>
+              </Paper>
+            </Grid>
+
+            {/* RIGHT: Manual Brand → Product → Stock Picker */}
+            <Grid item xs={12} md={7}>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  height: "100%",
+                  borderColor: "primary.main",
+                  borderWidth: 2,
+                }}
+              >
+                <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
+                  <MenuBookIcon color="primary" />
+                  Browse & Select Items
+                </Typography>
+
+                {/* Brand + Product dropdowns */}
+                <Box sx={{ display: "flex", gap: 1, mb: 1.5 }}>
+                  <Autocomplete
+                    size="small"
+                    sx={{ flex: 1 }}
+                    options={brands}
+                    getOptionLabel={(b: Brand) => b.brand_name}
+                    value={brands.find((b: Brand) => b.id === manualBrandId) || null}
+                    onChange={(_, v) => setManualBrandId(v?.id ?? null)}
+                    renderInput={(params) => <TextField {...params} label="Brand" placeholder="Filter by brand..." />}
+                    noOptionsText="No brands"
+                  />
+                  <Autocomplete
+                    size="small"
+                    sx={{ flex: 1 }}
+                    options={(products as any[]).filter((p: any) =>
+                      !manualBrandId || p.items_brand_id === manualBrandId
+                    )}
+                    getOptionLabel={(p: any) => p.name}
+                    value={(products as any[]).find((p: any) => p.id === manualProductId) || null}
+                    onChange={(_, v) => setManualProductId(v?.id ?? null)}
+                    renderInput={(params) => <TextField {...params} label="Product" placeholder="Select product..." />}
+                    noOptionsText="No products"
+                  />
+                </Box>
+
+                {/* Available stock list for selected product */}
+                <Box
+                  sx={{
+                    border: "1px solid",
+                    borderColor: "divider",
+                    borderRadius: 1,
+                    maxHeight: 220,
+                    overflow: "auto",
+                    bgcolor: "background.paper",
+                  }}
+                >
+                  {!manualProductId ? (
+                    <Box sx={{ p: 2, textAlign: "center" }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Select a product to see available stock
+                      </Typography>
+                    </Box>
+                  ) : isLoadingManualStock ? (
+                    <Box sx={{ p: 2, display: "flex", justifyContent: "center" }}>
+                      <CircularProgress size={24} />
+                    </Box>
+                  ) : manualStockItems.length === 0 ? (
+                    <Box sx={{ p: 2, textAlign: "center" }}>
+                      <Typography variant="body2" color="text.secondary">
+                        No available stock for this product in {state.formData.branch_code || "selected branch"}
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: "grey.50" }}>
+                          <TableCell sx={{ py: 0.5, fontWeight: 600, fontSize: "0.75rem" }}>Barcode</TableCell>
+                          <TableCell sx={{ py: 0.5, fontWeight: 600, fontSize: "0.75rem" }}>Price</TableCell>
+                          <TableCell sx={{ py: 0.5, width: 64 }} />
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {manualStockItems.map((s) => {
+                          const alreadyInOrder = lineItems.some(li => li.barcode === s.barcode);
+                          return (
+                            <TableRow
+                              key={s.id}
+                              sx={{
+                                opacity: alreadyInOrder ? 0.4 : 1,
+                                "&:hover": { bgcolor: alreadyInOrder ? undefined : "primary.50" },
+                              }}
+                            >
+                              <TableCell sx={{ py: 0.5, fontFamily: "monospace", fontSize: "0.8rem" }}>
+                                {s.barcode}
+                              </TableCell>
+                              <TableCell sx={{ py: 0.5, fontSize: "0.8rem" }}>
+                                Rs. {fmtLKR(s.selling_price ?? 0)}
+                              </TableCell>
+                              <TableCell sx={{ py: 0.5 }}>
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  color="primary"
+                                  disabled={alreadyInOrder}
+                                  onClick={() => handleAddManualStockItem(s)}
+                                  sx={{ minWidth: 0, px: 1, py: 0.25, fontSize: "0.7rem" }}
+                                >
+                                  {alreadyInOrder ? "✓" : "Add"}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  )}
+                </Box>
+              </Paper>
+            </Grid>
+          </Grid>
 
           {/* Proforma Mode: Show assignment progress */}
           {!!(state.formData as any).source_quote_id && lineItems.length > 0 && (
