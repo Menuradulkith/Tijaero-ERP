@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from app.db.session import get_db
 from app.auth.dependencies import get_current_user, get_user_branch_filter, validate_branch_access
 from app.auth.rbac import require_permission, Permissions
@@ -8,6 +8,30 @@ from app.auth.models import User
 from . import schemas, service
 
 router = APIRouter(prefix="/purchasing", tags=["purchasing"])
+
+
+# ── Statistics endpoint ────────────────────────────────────────────────────
+@router.get(
+    "/statistics",
+    response_model=Dict[str, Any],
+    summary="Get Purchasing Statistics",
+    dependencies=[Depends(require_permission(*Permissions.PURCHASING_VIEW))],
+)
+def get_purchasing_statistics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PURCHASING_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+    branch_code: Optional[str] = Query(None, description="Filter statistics by a specific branch"),
+):
+    """Get purchasing statistics for dashboard."""
+    if branch_code:
+        if user_branches and branch_code not in user_branches:
+            effective_branches = ["__none__"]
+        else:
+            effective_branches = [branch_code]
+    else:
+        effective_branches = user_branches
+    return service.get_purchasing_statistics(db, effective_branches)
 
 
 @router.post("/suppliers", response_model=schemas.Supplier, status_code=status.HTTP_201_CREATED)
