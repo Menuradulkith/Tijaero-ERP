@@ -1817,3 +1817,210 @@ class SupplierAdvancePaymentService:
         """Get total advance applications applied to a GRN"""
         return self.application_repo.get_total_by_grn(grn_id)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Purchasing Statistics (dashboard)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_purchasing_statistics(db: Session, branch_codes: Optional[List[str]] = None):
+    """Return aggregated purchasing statistics for the dashboard."""
+    from dateutil.relativedelta import relativedelta
+    from datetime import timedelta
+
+    today = tz.today()
+    current_month_start = today.replace(day=1)
+    last_month_start = (today - relativedelta(months=1)).replace(day=1)
+    last_month_end = current_month_start - timedelta(days=1)
+
+    # ── helpers ────────────────────────────────────────────────────────
+    def po_base():
+        q = db.query(models.PurchasingOrder)
+        if branch_codes:
+            q = q.filter(models.PurchasingOrder.branch_code.in_(branch_codes))
+        return q
+
+    def grn_base():
+        q = db.query(models.GoodReceivedNote)
+        if branch_codes:
+            q = q.filter(models.GoodReceivedNote.branch_code.in_(branch_codes))
+        return q
+
+    def ret_base():
+        q = db.query(models.PurchasingReturn)
+        if branch_codes:
+            q = q.filter(models.PurchasingReturn.branch_code.in_(branch_codes))
+        return q
+
+    # ── Suppliers ──────────────────────────────────────────────────────
+    total_suppliers = db.query(func.count(models.Supplier.id)).scalar() or 0
+    active_suppliers = db.query(func.count(models.Supplier.id)).filter(models.Supplier.active == True).scalar() or 0
+
+    # ── Purchase Orders – counts ──────────────────────────────────────
+    total_pos = po_base().with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+    current_month_pos = po_base().filter(
+        models.PurchasingOrder.purchasing_order_date >= current_month_start
+    ).with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+    last_month_pos = po_base().filter(
+        models.PurchasingOrder.purchasing_order_date >= last_month_start,
+        models.PurchasingOrder.purchasing_order_date <= last_month_end,
+    ).with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+
+    # PO status breakdown
+    pending_pos = po_base().filter(models.PurchasingOrder.status.in_(["pending", "draft"])).with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+    approved_pos = po_base().filter(models.PurchasingOrder.status == "approved").with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+    completed_pos = po_base().filter(models.PurchasingOrder.status == "completed").with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+    rejected_pos = po_base().filter(models.PurchasingOrder.status == "rejected").with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+
+    # ── Purchase Order value (sum of items) ───────────────────────────
+    po_items_q = db.query(
+        func.coalesce(func.sum(models.PurchasingOrderItems.unit_price * models.PurchasingOrderItems.quantity), 0)
+    ).join(models.PurchasingOrder, models.PurchasingOrderItems.purchasingorders_id == models.PurchasingOrder.id)
+    if branch_codes:
+        po_items_q = po_items_q.filter(models.PurchasingOrder.branch_code.in_(branch_codes))
+    total_po_value = float(po_items_q.scalar() or 0)
+
+    # Current month PO value
+    cm_po_val_q = po_items_q.filter(models.PurchasingOrder.purchasing_order_date >= current_month_start)
+    current_month_po_value = float(cm_po_val_q.scalar() or 0)
+
+    # Last month PO value
+    lm_po_val_q = db.query(
+        func.coalesce(func.sum(models.PurchasingOrderItems.unit_price * models.PurchasingOrderItems.quantity), 0)
+    ).join(models.PurchasingOrder, models.PurchasingOrderItems.purchasingorders_id == models.PurchasingOrder.id)
+    if branch_codes:
+        lm_po_val_q = lm_po_val_q.filter(models.PurchasingOrder.branch_code.in_(branch_codes))
+    lm_po_val_q = lm_po_val_q.filter(
+        models.PurchasingOrder.purchasing_order_date >= last_month_start,
+        models.PurchasingOrder.purchasing_order_date <= last_month_end,
+    )
+    last_month_po_value = float(lm_po_val_q.scalar() or 0)
+
+    # ── GRNs ──────────────────────────────────────────────────────────
+    total_grns = grn_base().with_entities(func.count(models.GoodReceivedNote.id)).scalar() or 0
+    current_month_grns = grn_base().filter(
+        models.GoodReceivedNote.good_received_date >= current_month_start
+    ).with_entities(func.count(models.GoodReceivedNote.id)).scalar() or 0
+
+    # ── Returns ───────────────────────────────────────────────────────
+    total_returns = ret_base().with_entities(func.count(models.PurchasingReturn.id)).scalar() or 0
+    pending_returns = ret_base().filter(
+        models.PurchasingReturn.status.in_(["draft", "pending"])
+    ).with_entities(func.count(models.PurchasingReturn.id)).scalar() or 0
+
+    # ── Daily PO count – last 7 days ──────────────────────────────────
+    daily_orders = []
+    for i in range(6, -1, -1):
+        d = today - timedelta(days=i)
+        cnt = po_base().filter(models.PurchasingOrder.purchasing_order_date == d).with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+        daily_orders.append({"date": d.strftime("%b %d"), "orders": cnt})
+
+    # ── Monthly spending – last 6 months ──────────────────────────────
+    monthly_spending = []
+    for i in range(5, -1, -1):
+        m_start = (today - relativedelta(months=i)).replace(day=1)
+        if i == 0:
+            m_end = today
+        else:
+            m_end = (today - relativedelta(months=i - 1)).replace(day=1) - timedelta(days=1)
+        m_val_q = db.query(
+            func.coalesce(func.sum(models.PurchasingOrderItems.unit_price * models.PurchasingOrderItems.quantity), 0)
+        ).join(models.PurchasingOrder, models.PurchasingOrderItems.purchasingorders_id == models.PurchasingOrder.id)
+        if branch_codes:
+            m_val_q = m_val_q.filter(models.PurchasingOrder.branch_code.in_(branch_codes))
+        m_val_q = m_val_q.filter(
+            models.PurchasingOrder.purchasing_order_date >= m_start,
+            models.PurchasingOrder.purchasing_order_date <= m_end,
+        )
+        m_cnt = po_base().filter(
+            models.PurchasingOrder.purchasing_order_date >= m_start,
+            models.PurchasingOrder.purchasing_order_date <= m_end,
+        ).with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+        monthly_spending.append({
+            "month": m_start.strftime("%b"),
+            "value": float(m_val_q.scalar() or 0),
+            "orders": m_cnt,
+        })
+
+    # ── Top 5 suppliers by PO value ───────────────────────────────────
+    top_suppliers_raw = (
+        db.query(
+            models.Supplier.full_name,
+            func.count(models.PurchasingOrder.id).label("order_count"),
+            func.coalesce(func.sum(models.PurchasingOrderItems.unit_price * models.PurchasingOrderItems.quantity), 0).label("total_value"),
+        )
+        .join(models.PurchasingOrder, models.PurchasingOrder.first_suppliers_id == models.Supplier.id)
+        .join(models.PurchasingOrderItems, models.PurchasingOrderItems.purchasingorders_id == models.PurchasingOrder.id)
+    )
+    if branch_codes:
+        top_suppliers_raw = top_suppliers_raw.filter(models.PurchasingOrder.branch_code.in_(branch_codes))
+    top_suppliers_raw = (
+        top_suppliers_raw.group_by(models.Supplier.id, models.Supplier.full_name)
+        .order_by(func.sum(models.PurchasingOrderItems.unit_price * models.PurchasingOrderItems.quantity).desc())
+        .limit(5)
+        .all()
+    )
+    top_suppliers = [
+        {"name": s.full_name or "Unknown", "orders": s.order_count, "value": float(s.total_value or 0)}
+        for s in top_suppliers_raw
+    ]
+
+    # ── Payment method breakdown ──────────────────────────────────────
+    payment_methods_raw = (
+        po_base()
+        .with_entities(
+            models.PurchasingOrder.payment_method,
+            func.count(models.PurchasingOrder.id).label("count"),
+        )
+        .group_by(models.PurchasingOrder.payment_method)
+        .all()
+    )
+    payment_methods = {r.payment_method: r.count for r in payment_methods_raw}
+
+    # ── Recent 5 POs ──────────────────────────────────────────────────
+    recent_pos_raw = po_base().order_by(models.PurchasingOrder.added_date.desc()).limit(5).all()
+    recent_pos = []
+    for po in recent_pos_raw:
+        supplier = db.query(models.Supplier.full_name).filter(models.Supplier.id == po.first_suppliers_id).scalar()
+        recent_pos.append({
+            "id": po.id,
+            "po_no": po.purchasing_order_no,
+            "date": po.purchasing_order_date.isoformat() if po.purchasing_order_date else None,
+            "status": po.status,
+            "supplier": supplier or "Unknown",
+        })
+
+    # ── Recent 5 GRNs ─────────────────────────────────────────────────
+    recent_grns_raw = grn_base().order_by(models.GoodReceivedNote.added_date.desc()).limit(5).all()
+    recent_grns = []
+    for grn in recent_grns_raw:
+        recent_grns.append({
+            "id": grn.id,
+            "grn_no": grn.good_received_no,
+            "date": grn.good_received_date.isoformat() if grn.good_received_date else None,
+            "po_id": grn.purchasingorders_id,
+        })
+
+    return {
+        "total_suppliers": total_suppliers,
+        "active_suppliers": active_suppliers,
+        "total_pos": total_pos,
+        "current_month_pos": current_month_pos,
+        "last_month_pos": last_month_pos,
+        "total_po_value": total_po_value,
+        "current_month_po_value": current_month_po_value,
+        "last_month_po_value": last_month_po_value,
+        "pending_pos": pending_pos,
+        "approved_pos": approved_pos,
+        "completed_pos": completed_pos,
+        "rejected_pos": rejected_pos,
+        "total_grns": total_grns,
+        "current_month_grns": current_month_grns,
+        "total_returns": total_returns,
+        "pending_returns": pending_returns,
+        "daily_orders": daily_orders,
+        "monthly_spending": monthly_spending,
+        "top_suppliers": top_suppliers,
+        "payment_methods": payment_methods,
+        "recent_pos": recent_pos,
+        "recent_grns": recent_grns,
+    }
+

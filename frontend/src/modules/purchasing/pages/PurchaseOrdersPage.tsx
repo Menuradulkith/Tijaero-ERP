@@ -739,9 +739,11 @@ export default function PurchaseOrdersPage() {
   };
 
   // Step 1 validation: Order Information, Dates & Payments, Remarks
+  // When creating, purchasing_order_no is auto-generated (nextPONumber) and not stored in formData until submit
+  const effectivePONumber = isCreating ? nextPONumber : formData.purchasing_order_no;
   const isStep1Valid = formData.first_suppliers_id > 0 &&
     formData.second_suppliers_id > 0 &&
-    formData.purchasing_order_no &&
+    effectivePONumber &&
     formData.branch_code;
 
   // Full form validation (both steps)

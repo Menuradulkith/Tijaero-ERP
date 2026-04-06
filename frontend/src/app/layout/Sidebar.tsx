@@ -446,7 +446,7 @@ const menuItems: MenuItem[] = [
     text: "Settings",
     icon: <SettingsIcon />,
     path: "/company-settings",
-    permission: PERMISSIONS.GROUP_VIEW, // Temporary permission guard
+    permission: PERMISSIONS.SETTINGS_VIEW,
   },
 ];
 
