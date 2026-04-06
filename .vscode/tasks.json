@@ -14,6 +14,76 @@
 			"command": "git add .vscode/tasks.json && GIT_EDITOR=true git rebase --continue",
 			"isBackground": false,
 			"group": "test"
+		},
+		{
+			"label": "Check Markers",
+			"type": "shell",
+			"command": "python3 -c \"import re; f = open('frontend/src/app/pages/DashboardPage.tsx').read(); res = re.findall(r'<<<<<<< HEAD.*?=======\\n(.*?)\\n>>>>>>> [0-9a-f]+.*?\\n', f, re.DOTALL); print(len(res))\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Mergers",
+			"type": "shell",
+			"command": "grep -n -C 5 \"<<<<<<< HEAD\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Dashboard",
+			"type": "shell",
+			"command": "sed -n '345,700p' frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Mergers 2",
+			"type": "shell",
+			"command": "grep -n -C 5 \"<<<<<<< HEAD\" frontend/src/app/pages/DashboardPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Git Status",
+			"type": "shell",
+			"command": "git status",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Git Continue",
+			"type": "shell",
+			"command": "git add frontend/src/app/pages/DashboardPage.tsx && GIT_EDITOR=true git rebase --continue",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Diff Check",
+			"type": "shell",
+			"command": "git diff --check",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Git Status",
+			"type": "shell",
+			"command": "git status",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Git Continue",
+			"type": "shell",
+			"command": "GIT_EDITOR=true git rebase --continue",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Force Continue",
+			"type": "shell",
+			"command": "git commit -a --no-edit && GIT_EDITOR=true git rebase --continue",
+			"isBackground": false,
+			"group": "test"
 		}
 	]
 }

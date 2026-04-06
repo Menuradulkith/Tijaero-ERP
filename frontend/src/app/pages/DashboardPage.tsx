@@ -11,6 +11,7 @@ import {
   TLoading,
   TLoadingSkeleton,
   TPageHeader,
+  TSection,
   TStatCard,
 } from "@/components/tijaero";
 import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
@@ -31,8 +32,6 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
-import TrendingDownIcon from "@mui/icons-material/TrendingDown";
-import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import {
   Avatar,
@@ -55,9 +54,10 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
   XAxis,
@@ -152,7 +152,6 @@ export default function DashboardPage() {
     PERMISSIONS.DASHBOARD_VIEW.resource,
     PERMISSIONS.DASHBOARD_VIEW.action,
   );
-  const hasAnyAccess = hasAnyModuleAccess(user);
   const canViewSales = hasPermission(
     user,
     PERMISSIONS.SALES_VIEW.resource,
@@ -242,8 +241,8 @@ export default function DashboardPage() {
     );
   }
 
-  // ── No-access ──────────────────────────────────────────────────────────────
-  if (!hasAnyAccess) {
+  // Show no-access state for users with no roles/permissions assigned
+  if (!hasAnyModuleAccess(user)) {
     return (
       <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
         <TPageHeader title="Dashboard" subtitle="Welcome to TijaeroERP" />
@@ -348,126 +347,201 @@ export default function DashboardPage() {
             />
           </Grid>
 
-          {/* ═══════ ROW 2 — Sales Chart + Pending Approvals ═══════ */}
-          <Grid item xs={12} lg={8}>
-            <Paper
-              sx={{ p: 2.5, height: "100%", borderRadius: 2 }}
-              elevation={0}
-              variant="outlined"
-            >
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  mb: 2,
-                }}
-              >
-                <Box>
-                  <Typography variant="h6" fontWeight={600}>
-                    Sales Trend
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Last 7 days
-                  </Typography>
-                </Box>
-                {metrics && (
-                  <Chip
-                    icon={
-                      trends.sales >= 0 ? (
-                        <TrendingUpIcon fontSize="small" />
-                      ) : (
-                        <TrendingDownIcon fontSize="small" />
-                      )
-                    }
-                    label={`${trends.sales >= 0 ? "+" : ""}${trends.sales.toFixed(1)}% vs last month`}
-                    color={trends.sales >= 0 ? "success" : "error"}
-                    size="small"
-                    variant="outlined"
-                  />
-                )}
-              </Box>
-              {loading ? (
-                <TLoadingSkeleton type="card" />
-              ) : chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280} minWidth={0}>
-                  <AreaChart
-                    data={chartData}
-                    margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient
-                        id="salesGrad"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
+          {/* Charts Row */}
+          <Grid container spacing={3}>
+            {/* Sales Trend Chart */}
+            <Grid item xs={12} lg={8}>
+              <TSection title="Sales Trend" paper>
+                {loading ? (
+                  <TLoadingSkeleton type="card" />
+                ) : (
+                  <Box sx={{ height: 300 }}>
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                      minWidth={0}
+                    >
+                      <LineChart
+                        data={chartData}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                       >
-                        <stop
-                          offset="5%"
-                          stopColor={theme.palette.success.main}
-                          stopOpacity={0.3}
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis yAxisId="left" />
+                        <YAxis yAxisId="right" orientation="right" />
+                        <RechartsTooltip
+                          formatter={(
+                            value: number | string | undefined,
+                            name: string | undefined,
+                          ) => {
+                            if (name === "sales") {
+                              return [`Rs. ${fmtLKR(Number(value))}`, "Sales"];
+                            }
+                            return [value, "Orders"];
+                          }}
                         />
-                        <stop
-                          offset="95%"
-                          stopColor={theme.palette.success.main}
-                          stopOpacity={0}
+                        <Legend />
+                        <Line
+                          yAxisId="left"
+                          type="monotone"
+                          dataKey="sales"
+                          stroke="#2e7d32"
+                          strokeWidth={2}
+                          name="Sales"
                         />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={theme.palette.divider}
-                    />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fontSize: 11 }}
-                      stroke={theme.palette.text.secondary}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      stroke={theme.palette.text.secondary}
-                      tickFormatter={(v) =>
-                        v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)
-                      }
-                    />
-                    <RechartsTooltip
-                      contentStyle={{
-                        backgroundColor: theme.palette.background.paper,
-                        border: `1px solid ${theme.palette.divider}`,
-                        borderRadius: 8,
-                        fontSize: 12,
-                      }}
-                      formatter={(
-                        value: number | string | undefined,
-                        name: string | undefined,
-                      ) =>
-                        [
-                          name === "sales"
-                            ? `Rs. ${fmtLKR(Number(value))}`
-                            : value,
-                          name === "sales" ? "Revenue" : "Orders",
-                        ] as [number | string | undefined, string]
-                      }
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="sales"
-                      stroke={theme.palette.success.main}
-                      strokeWidth={2.5}
-                      fill="url(#salesGrad)"
-                      name="sales"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <TEmptyState
-                  title="No sales data"
-                  message="Sales data will appear here as orders are placed"
-                  size="small"
-                />
-              )}
-            </Paper>
+                        <Line
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="orders"
+                          stroke="#1976d2"
+                          strokeWidth={2}
+                          name="Orders"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </Box>
+                )}
+              </TSection>
+            </Grid>
+
+            {/* Performance Metrics */}
+            <Grid item xs={12} lg={4}>
+              <TSection title="Performance Metrics" paper>
+                {loading ? (
+                  <TLoadingSkeleton type="list" count={3} />
+                ) : (
+                  <Box>
+                    {/* Sales Today */}
+                    <Box sx={{ mb: 3 }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          mb: 1,
+                        }}
+                      >
+                        <Typography variant="body2">Today's Sales</Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          Rs. {fmtLKR(metrics?.total_sales_today || 0)}
+                        </Typography>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={
+                          metrics?.total_sales_month
+                            ? Math.min(
+                                (metrics.total_sales_today /
+                                  metrics.total_sales_month) *
+                                  100,
+                                100,
+                              )
+                            : 0
+                        }
+                        sx={{ height: 8, borderRadius: 1 }}
+                      />
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ mt: 0.5, display: "block" }}
+                      >
+                        {metrics?.total_sales_month
+                          ? `${(
+                              (metrics.total_sales_today /
+                                metrics.total_sales_month) *
+                              100
+                            ).toFixed(1)}% of monthly sales`
+                          : "No data"}
+                      </Typography>
+                    </Box>
+
+                    {/* Orders Today */}
+                    <Box sx={{ mb: 3 }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          mb: 1,
+                        }}
+                      >
+                        <Typography variant="body2">Orders Today</Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {metrics?.total_orders_today || 0}
+                        </Typography>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={
+                          metrics?.total_orders_month
+                            ? Math.min(
+                                (metrics.total_orders_today /
+                                  metrics.total_orders_month) *
+                                  100,
+                                100,
+                              )
+                            : 0
+                        }
+                        sx={{ height: 8, borderRadius: 1 }}
+                        color="success"
+                      />
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ mt: 0.5, display: "block" }}
+                      >
+                        {metrics?.total_orders_month
+                          ? `${(
+                              (metrics.total_orders_today /
+                                metrics.total_orders_month) *
+                              100
+                            ).toFixed(1)}% of monthly orders`
+                          : "No data"}
+                      </Typography>
+                    </Box>
+
+                    {/* Support Tickets */}
+                    <Box>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          mb: 1,
+                        }}
+                      >
+                        <Typography variant="body2">
+                          Open Support Tickets
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {metrics?.open_support_tickets || 0}
+                        </Typography>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={
+                          metrics?.open_support_tickets
+                            ? Math.min(metrics.open_support_tickets * 10, 100)
+                            : 0
+                        }
+                        sx={{ height: 8, borderRadius: 1 }}
+                        color={
+                          (metrics?.open_support_tickets || 0) > 5
+                            ? "warning"
+                            : "info"
+                        }
+                      />
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ mt: 0.5, display: "block" }}
+                      >
+                        {(metrics?.open_support_tickets || 0) > 5
+                          ? "High ticket volume"
+                          : "Normal ticket volume"}
+                      </Typography>
+                    </Box>
+                  </Box>
+                )}
+              </TSection>
+            </Grid>
           </Grid>
 
           {/* Pending Approvals */}
