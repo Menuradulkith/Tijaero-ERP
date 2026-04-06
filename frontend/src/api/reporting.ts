@@ -16,15 +16,44 @@ export interface RecentActivity {
  * Dashboard metrics response from the API
  */
 export interface DashboardMetrics {
+  // Core KPI
   total_sales_today: number;
   total_sales_month: number;
+  total_sales_last_month: number;
   total_orders_today: number;
   total_orders_month: number;
+  total_orders_last_month: number;
   total_customers: number;
+  new_customers_month: number;
   total_products: number;
   low_stock_items: number;
+
+  // Purchasing
+  total_purchases_month: number;
+  pending_po_count: number;
+
+  // Receivables / payables
+  total_credit_outstanding: number;
+  total_supplier_credit: number;
+
+  // Pending approvals breakdown
   pending_approvals: number;
+  pending_sales_approvals: number;
+  pending_purchase_approvals: number;
+  pending_return_approvals: number;
+  pending_expense_approvals: number;
+  pending_transfer_approvals: number;
+
+  // Support
   open_support_tickets: number;
+
+  // Daily sales trend (last 7 days)
+  daily_sales: Array<{ date: string; sales: number; orders: number }>;
+
+  // Top 5 selling products this month
+  top_products: Array<{ name: string; item_code: string; quantity: number; revenue: number }>;
+
+  // Recent activities
   recent_activities: RecentActivity[];
 }
 

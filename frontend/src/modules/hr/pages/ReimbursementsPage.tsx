@@ -204,7 +204,7 @@ export default function ReimbursementsPage() {
         branch_code: filterBranch ?? undefined,
         status: filterStatus ?? undefined,
       }),
-    enabled: branchResolved,
+    enabled: true,
     placeholderData: (prev) => prev,
   });
 

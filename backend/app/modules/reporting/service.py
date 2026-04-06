@@ -360,27 +360,35 @@ class ReportingService:
         )
 
     def get_dashboard_metrics(self) -> schemas.DashboardMetrics:
-        """Get overall dashboard metrics"""
+        """Get overall dashboard metrics – comprehensive data for the main ERP dashboard."""
+        from app.modules.purchasing.models import PurchasingOrder, PurchasingReturn
+        from app.modules.warehouse.models import ItemTransferNote
+        from app.modules.sales.models import SaleReturn
+
         today = tz.today()
         month_start = date(today.year, today.month, 1)
+        # Last month range
+        last_month_end = month_start - timedelta(days=1)
+        last_month_start = date(last_month_end.year, last_month_end.month, 1)
 
-        # Sales today
-        sales_today = self.db.query(
-            func.sum(
-                Invoice.cash_amount + Invoice.card_amex_amount +
-                Invoice.card_mastercard_amount + Invoice.card_visa_amount +
-                Invoice.cheque_amount + Invoice.bank_transfer_amount + Invoice.credit_amount
-            )
-        ).filter(Invoice.created_date == today).scalar() or 0
+        # ── Sales ────────────────────────────────────────────────────────
+        _sales_sum_expr = (
+            Invoice.cash_amount + Invoice.card_amex_amount +
+            Invoice.card_mastercard_amount + Invoice.card_visa_amount +
+            Invoice.cheque_amount + Invoice.bank_transfer_amount + Invoice.credit_amount
+        )
 
-        # Sales this month
-        sales_month = self.db.query(
-            func.sum(
-                Invoice.cash_amount + Invoice.card_amex_amount +
-                Invoice.card_mastercard_amount + Invoice.card_visa_amount +
-                Invoice.cheque_amount + Invoice.bank_transfer_amount + Invoice.credit_amount
-            )
-        ).filter(Invoice.created_date >= month_start).scalar() or 0
+        sales_today = self.db.query(func.coalesce(func.sum(_sales_sum_expr), 0)).filter(
+            Invoice.created_date == today
+        ).scalar()
+
+        sales_month = self.db.query(func.coalesce(func.sum(_sales_sum_expr), 0)).filter(
+            Invoice.created_date >= month_start
+        ).scalar()
+
+        sales_last_month = self.db.query(func.coalesce(func.sum(_sales_sum_expr), 0)).filter(
+            and_(Invoice.created_date >= last_month_start, Invoice.created_date <= last_month_end)
+        ).scalar()
 
         # Orders
         orders_today = self.db.query(func.count(Invoice.id)).filter(
@@ -391,28 +399,218 @@ class ReportingService:
             Invoice.created_date >= month_start
         ).scalar() or 0
 
-        # Customers
+        orders_last_month = self.db.query(func.count(Invoice.id)).filter(
+            and_(Invoice.created_date >= last_month_start, Invoice.created_date <= last_month_end)
+        ).scalar() or 0
+
+        # ── Customers ────────────────────────────────────────────────────
         total_customers = self.db.query(func.count(Customer.id)).filter(
             Customer.active == True
         ).scalar() or 0
 
-        # Products
+        new_customers_month = self.db.query(func.count(Customer.id)).filter(
+            and_(Customer.active == True, Customer.created_at >= month_start)
+        ).scalar() or 0
+
+        # ── Products ─────────────────────────────────────────────────────
         total_products = self.db.query(func.count(Product.id)).filter(
             Product.active == True
         ).scalar() or 0
 
-        # Support tickets
+        # ── Purchasing ───────────────────────────────────────────────────
+        try:
+            from app.modules.purchasing.models import PurchasingOrderItems
+            total_purchases_month = self.db.query(
+                func.coalesce(func.sum(PurchasingOrderItems.unit_price * PurchasingOrderItems.quantity), 0)
+            ).join(PurchasingOrder, PurchasingOrder.id == PurchasingOrderItems.purchasingorders_id
+            ).filter(
+                and_(
+                    PurchasingOrder.created_date >= month_start,
+                    PurchasingOrder.status.in_(["approved", "completed", "partially_completed"])
+                )
+            ).scalar()
+        except Exception:
+            total_purchases_month = 0
+
+        try:
+            pending_po_count = self.db.query(func.count(PurchasingOrder.id)).filter(
+                PurchasingOrder.status == "pending"
+            ).scalar() or 0
+        except Exception:
+            pending_po_count = 0
+
+        # ── Receivables / Payables ───────────────────────────────────────
+        total_credit_outstanding = self.db.query(
+            func.coalesce(func.sum(Invoice.credit_amount), 0)
+        ).filter(
+            and_(Invoice.credit_amount > 0, Invoice.payment_status != "paid")
+        ).scalar()
+
+        try:
+            from app.modules.purchasing.models import Supplier
+            total_supplier_credit = self.db.query(
+                func.coalesce(func.sum(Supplier.left_credit_amount), 0)
+            ).filter(Supplier.active == True).scalar()
+        except Exception:
+            total_supplier_credit = 0
+
+        # ── Pending Approvals ────────────────────────────────────────────
+        try:
+            pending_sales = self.db.query(func.count(Invoice.id)).filter(
+                Invoice.approval_status == "pending_approval"
+            ).scalar() or 0
+        except Exception:
+            pending_sales = 0
+
+        try:
+            pending_purchases = self.db.query(func.count(PurchasingOrder.id)).filter(
+                PurchasingOrder.status == "pending"
+            ).scalar() or 0
+        except Exception:
+            pending_purchases = 0
+
+        try:
+            pending_sale_returns = self.db.query(func.count(SaleReturn.id)).filter(
+                SaleReturn.status == "pending"
+            ).scalar() or 0
+            pending_purchase_returns = self.db.query(func.count(PurchasingReturn.id)).filter(
+                PurchasingReturn.status == "pending"
+            ).scalar() or 0
+            pending_returns = pending_sale_returns + pending_purchase_returns
+        except Exception:
+            pending_returns = 0
+
+        try:
+            pending_expenses = self.db.query(func.count(Expenses.id)).filter(
+                Expenses.status == "submitted"
+            ).scalar() or 0
+        except Exception:
+            pending_expenses = 0
+
+        try:
+            pending_transfers = self.db.query(func.count(ItemTransferNote.id)).filter(
+                ItemTransferNote.status == "pending"
+            ).scalar() or 0
+        except Exception:
+            pending_transfers = 0
+
+        total_pending = pending_sales + pending_purchases + pending_returns + pending_expenses + pending_transfers
+
+        # ── Support ──────────────────────────────────────────────────────
         open_tickets = self.db.query(func.count(CustomerSupport.id)).scalar() or 0
+
+        # ── Daily sales trend (last 7 days) ──────────────────────────────
+        daily_sales = []
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            day_sales = self.db.query(func.coalesce(func.sum(_sales_sum_expr), 0)).filter(
+                Invoice.created_date == d
+            ).scalar()
+            day_orders = self.db.query(func.count(Invoice.id)).filter(
+                Invoice.created_date == d
+            ).scalar() or 0
+            daily_sales.append({
+                "date": d.isoformat(),
+                "sales": float(day_sales),
+                "orders": day_orders,
+            })
+
+        # ── Top 5 products this month ────────────────────────────────────
+        try:
+            top_rows = self.db.query(
+                Product.name,
+                Product.item_code,
+                func.sum(InvoiceItems.quantity).label("total_qty"),
+                func.sum(InvoiceItems.selling_price * InvoiceItems.quantity).label("revenue"),
+            ).join(InvoiceItems, InvoiceItems.product_id == Product.id
+            ).join(Invoice, Invoice.id == InvoiceItems.invoice_id
+            ).filter(
+                Invoice.created_date >= month_start
+            ).group_by(Product.id, Product.name, Product.item_code
+            ).order_by(desc("total_qty")
+            ).limit(5).all()
+
+            top_products = [
+                {
+                    "name": row.name,
+                    "item_code": row.item_code or "",
+                    "quantity": int(row.total_qty or 0),
+                    "revenue": float(row.revenue or 0),
+                }
+                for row in top_rows
+            ]
+        except Exception:
+            top_products = []
+
+        # ── Recent activities (real data) ────────────────────────────────
+        recent_activities = []
+        try:
+            recent_invoices = self.db.query(Invoice).order_by(
+                desc(Invoice.created_date)
+            ).limit(3).all()
+            for inv in recent_invoices:
+                recent_activities.append({
+                    "title": f"Sale #{inv.invoice_no} — Rs. {float(inv.grand_total):,.2f}",
+                    "time": inv.created_date.isoformat() if inv.created_date else "",
+                    "type": "sale",
+                })
+        except Exception:
+            pass
+
+        try:
+            from app.modules.purchasing.models import GoodReceivedNote
+            recent_grns = self.db.query(GoodReceivedNote).order_by(
+                desc(GoodReceivedNote.good_received_date)
+            ).limit(2).all()
+            for grn in recent_grns:
+                recent_activities.append({
+                    "title": f"GRN #{grn.good_received_no} received",
+                    "time": grn.good_received_date.isoformat() if grn.good_received_date else "",
+                    "type": "inventory",
+                })
+        except Exception:
+            pass
+
+        try:
+            recent_customers = self.db.query(Customer).filter(
+                Customer.active == True
+            ).order_by(desc(Customer.created_at)).limit(2).all()
+            for cust in recent_customers:
+                recent_activities.append({
+                    "title": f"New customer: {cust.name}",
+                    "time": cust.created_at.isoformat() if cust.created_at else "",
+                    "type": "customer",
+                })
+        except Exception:
+            pass
+
+        # Sort by time descending and keep latest 8
+        recent_activities.sort(key=lambda a: a.get("time", ""), reverse=True)
+        recent_activities = recent_activities[:8]
 
         return schemas.DashboardMetrics(
             total_sales_today=float(sales_today),
             total_sales_month=float(sales_month),
+            total_sales_last_month=float(sales_last_month),
             total_orders_today=orders_today,
             total_orders_month=orders_month,
+            total_orders_last_month=orders_last_month,
             total_customers=total_customers,
+            new_customers_month=new_customers_month,
             total_products=total_products,
             low_stock_items=0,
-            pending_approvals=0,
+            total_purchases_month=float(total_purchases_month),
+            pending_po_count=pending_po_count,
+            total_credit_outstanding=float(total_credit_outstanding),
+            total_supplier_credit=float(total_supplier_credit),
+            pending_approvals=total_pending,
+            pending_sales_approvals=pending_sales,
+            pending_purchase_approvals=pending_purchases,
+            pending_return_approvals=pending_returns,
+            pending_expense_approvals=pending_expenses,
+            pending_transfer_approvals=pending_transfers,
             open_support_tickets=open_tickets,
-            recent_activities=[]
+            daily_sales=daily_sales,
+            top_products=top_products,
+            recent_activities=recent_activities,
         )

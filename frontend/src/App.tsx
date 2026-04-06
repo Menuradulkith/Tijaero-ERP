@@ -5,7 +5,6 @@ import MainLayout from "./app/layout/MainLayout";
 import ProtectedRoute from "./auth/components/ProtectedRoute";
 import LoginPage from "./auth/pages/LoginPage";
 import { TPageSkeleton } from "./components/tijaero";
-import PermissionGuard from "./auth/components/PermissionGuard";
 
 // Lazy load route modules for better initial load performance
 const DashboardPage = lazy(() => import("./app/pages/DashboardPage"));

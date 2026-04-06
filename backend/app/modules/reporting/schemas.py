@@ -150,13 +150,42 @@ class SupportReportResponse(BaseModel):
 
 class DashboardMetrics(BaseModel):
     """Overall system metrics for dashboard"""
+    # Core KPI
     total_sales_today: float
     total_sales_month: float
+    total_sales_last_month: float  # for trend calculation
     total_orders_today: int
     total_orders_month: int
+    total_orders_last_month: int  # for trend calculation
     total_customers: int
+    new_customers_month: int  # new customers this month
     total_products: int
     low_stock_items: int
-    pending_approvals: int
+
+    # Purchasing
+    total_purchases_month: float
+    pending_po_count: int
+
+    # Receivables / payables
+    total_credit_outstanding: float  # unpaid credit from invoices
+    total_supplier_credit: float  # what we owe suppliers
+
+    # Pending approvals breakdown
+    pending_approvals: int  # total
+    pending_sales_approvals: int
+    pending_purchase_approvals: int
+    pending_return_approvals: int
+    pending_expense_approvals: int
+    pending_transfer_approvals: int
+
+    # Support
     open_support_tickets: int
+
+    # Daily sales trend (last 7 days)
+    daily_sales: List[Dict[str, Any]]  # [{date, sales, orders}]
+
+    # Top 5 selling products (this month)
+    top_products: List[Dict[str, Any]]  # [{name, item_code, quantity, revenue}]
+
+    # Recent activities (real data)
     recent_activities: List[Dict[str, Any]]

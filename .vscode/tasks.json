@@ -2,32 +2,18 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Fix conflict",
+			"label": "Git Status",
 			"type": "shell",
-			"command": "python3 fix_conflict.py",
+			"command": "git status",
 			"isBackground": false,
-			"group": "build"
+			"group": "test"
 		},
 		{
-			"label": "Fix Dashboard Vars",
+			"label": "Continue Rebase",
 			"type": "shell",
-			"command": "python3 fix_dashboard_vars.py",
+			"command": "git add .vscode/tasks.json && GIT_EDITOR=true git rebase --continue",
 			"isBackground": false,
-			"group": "build"
-		},
-		{
-			"label": "Git Add Resolved Files",
-			"type": "shell",
-			"command": "git add frontend/src/App.tsx frontend/src/app/layout/IconNav.tsx frontend/src/app/layout/Sidebar.tsx frontend/src/app/pages/DashboardPage.tsx",
-			"isBackground": false,
-			"group": "build"
-		},
-		{
-			"label": "Git Rebase Continue",
-			"type": "shell",
-			"command": "git rebase --continue",
-			"isBackground": false,
-			"group": "build"
+			"group": "test"
 		}
 	]
 }
