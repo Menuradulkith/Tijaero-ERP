@@ -379,10 +379,10 @@ export default function SalesPage() {
 
       setIsLoadingCreditBalance(true);
       try {
-        const response = await fetch(
-          `/api/v1/finance/customers/${selectedCustomerId}/credit-balance`,
-        );
-        const data = await response.json();
+        const response = await apiClient.get<{
+          available_credit_balance: number;
+        }>(`/finance/customers/${selectedCustomerId}/credit-balance`);
+        const data = response.data;
         setAvailableCreditBalance(data.available_credit_balance || 0);
       } catch (error) {
         setAvailableCreditBalance(0);
