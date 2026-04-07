@@ -82,18 +82,6 @@ export default function PurchaseReturnApprovalsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
 
-  // Fetch returns
-  const { data: returns = [], isLoading, refetch } = useQuery({
-    queryKey: ["purchase-returns"],
-    queryFn: () => purchaseReturnsApi.getAll(),
-  });
-
-  // Fetch GRNs
-  const { data: grns = [] } = useQuery({
-    queryKey: ["good-received-notes"],
-    queryFn: () => goodReceivedNotesApi.getAll(),
-  });
-
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
@@ -105,6 +93,22 @@ export default function PurchaseReturnApprovalsPage() {
       setFilterBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  // Fetch returns
+  const { data: returns = [], isLoading, refetch } = useQuery({
+    queryKey: ["purchaseReturns"],
+    queryFn: () => purchaseReturnsApi.getAll(),
+    enabled: branchResolved,
+  });
+
+  // Fetch GRNs
+  const { data: grns = [] } = useQuery({
+    queryKey: ["good-received-notes"],
+    queryFn: () => goodReceivedNotesApi.getAll(),
+  });
 
   // Create lookup maps
   const grnMap = useMemo(() => {

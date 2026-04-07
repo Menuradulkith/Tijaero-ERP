@@ -234,6 +234,9 @@ export default function SaleReturnsPage() {
       }
     }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+    const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
     const handleNewReturn = useCallback(() => {
         handleNewReturnBase();
         setFormData(prev => ({
@@ -311,6 +314,7 @@ export default function SaleReturnsPage() {
     const { data: returns, isLoading } = useQuery({
         queryKey: ["sale-returns"],
         queryFn: () => saleReturnsApi.getAll(),
+        enabled: branchResolved,
     });
 
     const nextSRNumber = useMemo(() =>
@@ -690,7 +694,18 @@ export default function SaleReturnsPage() {
                     }
                 }}
                 endActions={
-                    selectedReturn && !isCreating && !isEditing ? (
+                    isCreating && formStep === 0 ? (
+                        <Button
+                            size="small"
+                            variant="contained"
+                            color="warning"
+                            onClick={handleNextStep}
+                            disabled={!isStep1Valid}
+                            endIcon={<ArrowForwardIcon />}
+                        >
+                            Next
+                        </Button>
+                    ) : selectedReturn && !isCreating && !isEditing ? (
                         <TPrintButton
                             documentType="credit-note"
                             documentId={selectedReturn.id}
@@ -899,26 +914,7 @@ export default function SaleReturnsPage() {
                                     </>
                                 )}
 
-                                {/* Next/Cancel buttons for step 1 in create mode */}
-                                {isCreating && (
-                                    <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
-                                        <Button
-                                            variant="outlined"
-                                            onClick={() => handleCancel(filteredReturns)}
-                                        >
-                                            Cancel
-                                        </Button>
-                                        <Button
-                                            variant="contained"
-                                            color="warning"
-                                            onClick={handleNextStep}
-                                            disabled={!isStep1Valid}
-                                            endIcon={<ArrowForwardIcon />}
-                                        >
-                                            Next
-                                        </Button>
-                                    </Box>
-                                )}
+
                             </>
                         )}
 

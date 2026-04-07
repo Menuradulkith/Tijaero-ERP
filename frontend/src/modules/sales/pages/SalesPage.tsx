@@ -311,10 +311,27 @@ export default function SalesPage() {
     },
   });
 
+  // OPTIMIZED: Single API call for products, brands and branches (was 2 calls)
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "brands", "branches"]);
+  const products = refData?.products || [];
+  const brands = (refData?.brands || []) as Brand[];
+  const branches = filteredBranches || [];
+
+  // Auto-default branch filter for non-superuser users
+  useEffect(() => {
+    if (defaultBranchCode && filterBranch === null) {
+      setFilterBranch(defaultBranchCode);
+    }
+  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   // Queries
   const { data: invoices, isLoading } = useQuery({
     queryKey: ["sales"],
     queryFn: () => salesApi.getAll(),
+    enabled: branchResolved,
   });
 
   const nextInvoiceNumber = useMemo(
@@ -389,23 +406,6 @@ export default function SalesPage() {
         (state.isCreating || state.isEditing),
     },
   );
-
-  // OPTIMIZED: Single API call for products, brands and branches (was 2 calls)
-  const {
-    data: refData,
-    filteredBranches,
-    defaultBranchCode,
-  } = useReferenceData(["products", "brands", "branches"]);
-  const products = refData?.products || [];
-  const brands = (refData?.brands || []) as Brand[];
-  const branches = filteredBranches || [];
-
-  // Auto-default branch filter for non-superuser users
-  useEffect(() => {
-    if (defaultBranchCode && filterBranch === null) {
-      setFilterBranch(defaultBranchCode);
-    }
-  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load full invoice with items when viewing
   const { data: fullInvoice } = useQuery({
@@ -2509,18 +2509,7 @@ export default function SalesPage() {
             />
           </FormSection>
 
-          {/* Step 1 Navigation */}
-          <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleNextStep}
-              disabled={!isStep1Valid}
-              endIcon={<ArrowForwardIcon />}
-            >
-              Next: Line Items
-            </Button>
-          </Box>
+
         </>
       )}
 
@@ -4341,30 +4330,7 @@ export default function SalesPage() {
             </Box>
           </Paper>
 
-          {/* Step 2 Navigation */}
-          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
-            <Button
-              variant="outlined"
-              onClick={handlePreviousStep}
-              startIcon={<ArrowBackIcon />}
-            >
-              Back
-            </Button>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleNextStep}
-              disabled={
-                lineItems.length === 0 ||
-                lineItems.some(
-                  (item) => item.selling_price < item.minimum_selling_price,
-                )
-              }
-              endIcon={<ArrowForwardIcon />}
-            >
-              Next: Payment Details
-            </Button>
-          </Box>
+
         </>
       )}
 
@@ -5256,7 +5222,31 @@ export default function SalesPage() {
               onCancel={handleCancel}
               isSaving={createMutation.isPending || updateMutation.isPending}
               saveDisabled={lineItems.length === 0 || formStep !== 2}
-              customActions={customActions}
+              customActions={
+                state.isCreating && formStep === 0 ? (
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="primary"
+                    onClick={handleNextStep}
+                    disabled={!isStep1Valid}
+                    endIcon={<ArrowForwardIcon />}
+                  >
+                    Next: Line Items
+                  </Button>
+                ) : state.isCreating && formStep === 1 ? (
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="primary"
+                    onClick={handleNextStep}
+                    disabled={lineItems.length === 0 || lineItems.some(item => item.selling_price < item.minimum_selling_price)}
+                    endIcon={<ArrowForwardIcon />}
+                  >
+                    Next: Payment Details
+                  </Button>
+                ) : customActions
+              }
             />
 
             <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>

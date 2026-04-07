@@ -225,6 +225,9 @@ export default function PurchaseReturnsPage() {
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
   const handleNewReturn = useCallback(() => {
     handleNewReturnBase();
     setFormData(prev => ({
@@ -305,6 +308,7 @@ export default function PurchaseReturnsPage() {
   const { data: returns, isLoading } = useQuery({
     queryKey: ["purchaseReturns"],
     queryFn: () => purchaseReturnsApi.getAll(),
+    enabled: branchResolved,
   });
 
   const nextReturnNumber = useMemo(() =>
@@ -614,7 +618,9 @@ export default function PurchaseReturnsPage() {
   };
 
   // Step 1 validation
-  const isStep1Valid = formData.purchasing_return_no && formData.goodreceivednote_id > 0;
+  // When creating, purchasing_return_no is auto-generated (nextReturnNumber) and not stored in formData until submit
+  const effectiveReturnNumber = isCreating ? nextReturnNumber : formData.purchasing_return_no;
+  const isStep1Valid = effectiveReturnNumber && formData.goodreceivednote_id > 0;
 
   // Full form validation
   const isFormValid = isStep1Valid && lineItems.length > 0;
@@ -769,7 +775,17 @@ export default function PurchaseReturnsPage() {
         onCancel={() => handleCancel(filteredReturns)}
         onEdit={handleStartEdit}
         endActions={
-          selectedReturn && !isCreating && !isEditing ? (
+          isCreating && formStep === 0 ? (
+            <Button
+              size="small"
+              variant="contained"
+              onClick={handleNextStep}
+              disabled={!isStep1Valid}
+              endIcon={<ArrowForwardIcon />}
+            >
+              Next
+            </Button>
+          ) : selectedReturn && !isCreating && !isEditing ? (
             <TPrintButton
               documentType="purchase-return"
               documentId={selectedReturn.id}
@@ -864,25 +880,7 @@ export default function PurchaseReturnsPage() {
                   />
                 </FormSection>
 
-                {/* Next/Cancel buttons for step 1 in create mode */}
-                {isCreating && (
-                  <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
-                    <Button
-                      variant="outlined"
-                      onClick={() => handleCancel(filteredReturns)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="contained"
-                      onClick={handleNextStep}
-                      disabled={!isStep1Valid}
-                      endIcon={<ArrowForwardIcon />}
-                    >
-                      Next
-                    </Button>
-                  </Box>
-                )}
+
               </>
             )}
 

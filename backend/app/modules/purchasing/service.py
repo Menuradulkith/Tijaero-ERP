@@ -372,7 +372,8 @@ class PurchasingOrderService:
             ).scalar() or Decimal("0")
             
             credit_check = supplier_credit_service.check_po_credit(
-                self.db, order.first_suppliers_id, po_total, order.payment_method
+                self.db, order.first_suppliers_id, po_total, order.payment_method,
+                exclude_po_id=order_id
             )
             
             if credit_check["requires_approval"]:
@@ -878,6 +879,73 @@ class GoodReceivedNoteService:
         credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
         
         # ═══════════════════════════════════════════════════════════════
+        # Gap P2: Auto-record supplier payment when PO payment_method
+        # is "Cash". Cash payments are immediate at delivery time, so
+        # a verified SupplierPayment is created automatically on GRN.
+        # ═══════════════════════════════════════════════════════════════
+        if po.payment_method and po.payment_method.lower() == "cash":
+            import logging as _logging
+            try:
+                po_items_cash = self.db.query(models.PurchasingOrderItems).filter(
+                    models.PurchasingOrderItems.purchasingorders_id == po.id
+                ).all()
+                grn_total_cash = sum(
+                    Decimal(str(item.quantity)) * item.unit_price
+                    for item in po_items_cash
+                ) if po_items_cash else Decimal("0")
+
+                if grn_total_cash > 0:
+                    # Check if a payment already exists for this PO (avoid duplicates on partial GRNs)
+                    already_paid = self.db.query(
+                        func.coalesce(func.sum(models.SupplierPayment.payment_amount), 0)
+                    ).filter(
+                        models.SupplierPayment.purchasing_order_id == po.id,
+                        models.SupplierPayment.status.in_(["verified", "pending"])
+                    ).scalar() or Decimal("0")
+
+                    remaining_cash = grn_total_cash - Decimal(str(already_paid))
+                    if remaining_cash > Decimal("0"):
+                        # Generate a unique payment number inline (avoid repo commit inside GRN transaction)
+                        today_str = tz.today().strftime('%Y%m%d')
+                        prefix = f"SP-{today_str}"
+                        last_sp = self.db.query(models.SupplierPayment).filter(
+                            models.SupplierPayment.payment_no.like(f"{prefix}%")
+                        ).order_by(models.SupplierPayment.payment_no.desc()).first()
+                        sp_num = 1
+                        if last_sp:
+                            try:
+                                sp_num = int(last_sp.payment_no.split("-")[-1]) + 1
+                            except (ValueError, IndexError):
+                                sp_num = 1
+                        cash_payment_no = f"{prefix}-{sp_num:03d}"
+
+                        cash_payment = models.SupplierPayment(
+                            payment_no=cash_payment_no,
+                            supplier_id=po.first_suppliers_id,
+                            purchasing_order_id=po.id,
+                            payment_date=tz.today(),
+                            payment_method="Cash",
+                            payment_amount=remaining_cash,
+                            branch_code=po.branch_code,
+                            payment_for="Purchase",
+                            invoice_reference=created_grn.good_received_no,
+                            remarks=f"Auto-recorded cash payment on GRN {created_grn.good_received_no}",
+                            status="verified",
+                            verified_date=tz.now(),
+                            created_date=tz.now(),
+                            created_by=grn.created_by,
+                        )
+                        self.db.add(cash_payment)
+                        self.db.flush()
+                        _logging.getLogger(__name__).info(
+                            f"Auto-recorded cash payment Rs. {remaining_cash:,.2f} for GRN {created_grn.good_received_no}"
+                        )
+            except Exception as cash_pay_err:
+                _logging.getLogger(__name__).warning(
+                    f"Auto cash payment for GRN {created_grn.good_received_no} failed (non-blocking): {cash_pay_err}"
+                )
+
+        # ═══════════════════════════════════════════════════════════════
         # Gap P1: Auto-deduct supplier advance when PO payment_method
         # is "advance". Finds active advances for the supplier and
         # auto-applies them against this GRN.
@@ -938,6 +1006,19 @@ class GoodReceivedNoteService:
                     logging.getLogger(__name__).info(
                         f"Auto-applied Rs. {applied_total:,.2f} from supplier advances to GRN {created_grn.good_received_no}"
                     )
+                    # GL Auto-Posting for each auto-applied advance application
+                    try:
+                        from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                        gl_adv_service = PurchaseExpensePayrollGL(self.db)
+                        auto_apps = self.db.query(models.SupplierAdvanceApplication).filter(
+                            models.SupplierAdvanceApplication.grn_id == created_grn.id
+                        ).all()
+                        for app_record in auto_apps:
+                            gl_adv_service.post_advance_application_to_gl(app_record, user_id=grn.created_by or 0)
+                    except Exception as gl_adv_err:
+                        logging.getLogger(__name__).warning(
+                            f"GL posting for auto advance applications on GRN {created_grn.good_received_no} failed (non-blocking): {gl_adv_err}"
+                        )
         
         self.db.commit()
         self.db.refresh(created_grn)

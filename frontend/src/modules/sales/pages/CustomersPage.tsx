@@ -153,12 +153,6 @@ export default function CustomersPage() {
     defaultSortField: "customer_name",
   });
 
-  // Data fetching
-  const { data: customers, isLoading } = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(),
-  });
-
   // OPTIMIZED: Using aggregated endpoint for branches
   const { filteredBranches, defaultBranchCode } = useReferenceData([
     "branches",
@@ -171,6 +165,16 @@ export default function CustomersPage() {
       setFilterBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
+  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  // Data fetching
+  const { data: customers, isLoading } = useQuery({
+    queryKey: ["customers"],
+    queryFn: () => customersApi.getAll(),
+    enabled: branchResolved,
+  });
 
   // Filter and sort
   const filteredCustomers = useMemo(() => {
