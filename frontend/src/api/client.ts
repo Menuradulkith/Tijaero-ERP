@@ -1,5 +1,6 @@
 import { useAuthStore } from "@/state/authStore";
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
+import { toast } from "react-hot-toast";
 
 // Create axios instance with performance-optimized configuration
 const apiClient = axios.create({
@@ -7,6 +8,7 @@ const apiClient = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  withCredentials: true, // Crucial for sending and receiving HttpOnly cookies
   timeout: 30000,
 });
 
@@ -37,35 +39,34 @@ apiClient.interceptors.request.use(
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
 // Response interceptor — auto-refresh on 401
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Optionally handle generic success messages here if desired mapped by custom headers
+    return response;
+  },
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
+      headers?: Record<string, string>;
     };
 
     // Skip refresh logic for the refresh endpoint itself, or if already retried
     const isRefreshCall =
       originalRequest?.headers?.["X-Skip-Auth-Intercept"] === "true";
 
+    // Hide default toast if requested
+    const hideErrorToast =
+      originalRequest?.headers?.["X-Hide-Error-Toast"] === "true";
+
     if (
       error.response?.status === 401 &&
       !originalRequest?._retry &&
       !isRefreshCall
     ) {
-      const refreshToken = useAuthStore.getState().refreshToken;
-
-      if (!refreshToken) {
-        // No refresh token — force logout
-        useAuthStore.getState().logout();
-        window.location.href = "/login";
-        return Promise.reject(error);
-      }
-
       if (isRefreshing) {
         // Another refresh is in progress — queue this request
         return new Promise<string>((resolve, reject) => {
@@ -82,14 +83,18 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
+        // The HttpOnly cookie will automatically be sent by the browser
         const response = await axios.post(
           `${apiClient.defaults.baseURL}/auth/refresh`,
-          { refresh_token: refreshToken },
-          { headers: { "Content-Type": "application/json" } }
+          {},
+          {
+            withCredentials: true,
+            headers: { "Content-Type": "application/json" },
+          },
         );
 
-        const { access_token, refresh_token: newRefreshToken } = response.data;
-        useAuthStore.getState().updateTokens(access_token, newRefreshToken);
+        const { access_token } = response.data;
+        useAuthStore.getState().updateTokens(access_token);
 
         // Retry all queued requests with the new token
         processQueue(null, access_token);
@@ -99,7 +104,8 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        useAuthStore.getState().logout();
+        // Do not call full logout() to avoid infinite loops, but just reset local state
+        useAuthStore.getState().updateTokens("");
         window.location.href = "/login";
         return Promise.reject(refreshError);
       } finally {
@@ -110,15 +116,34 @@ apiClient.interceptors.response.use(
     // Handle timeout errors
     if (error.code === "ECONNABORTED") {
       console.error("Request timeout - the server took too long to respond");
+      if (!hideErrorToast)
+        toast.error("Request timeout - the server took too long to respond");
     }
 
     // Handle network errors
-    if (!error.response) {
+    if (!error.response && error.code !== "ECONNABORTED") {
       console.error("Network error - please check your internet connection");
+      if (!hideErrorToast)
+        toast.error("Network error - please check your internet connection");
+    }
+
+    // Capture standard API error responses to display
+    if (error.response && !hideErrorToast && error.response.status !== 401) {
+      const data: any = error.response.data;
+      if (data?.detail) {
+        // FastAPI default throws 'detail' string or array
+        const message =
+          typeof data.detail === "string" ? data.detail : "API Error Occurred";
+        toast.error(message);
+      } else if (data?.message) {
+        toast.error(data.message);
+      } else if (error.response.status >= 500) {
+        toast.error("Internal Server Error occurred. Please try again later.");
+      }
     }
 
     return Promise.reject(error);
-  }
+  },
 );
 
 export default apiClient;

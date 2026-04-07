@@ -1,19 +1,20 @@
-import React, { useMemo } from "react";
-import ReactDOM from "react-dom/client";
+import CssBaseline from "@mui/material/CssBaseline";
+import { ThemeProvider } from "@mui/material/styles";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { BrowserRouter } from "react-router-dom";
-import { ThemeProvider } from "@mui/material/styles";
-import CssBaseline from "@mui/material/CssBaseline";
+import React, { useMemo } from "react";
+import ReactDOM from "react-dom/client";
 import { Toaster } from "react-hot-toast";
+import { BrowserRouter } from "react-router-dom";
 import App from "./App";
-import { createAppTheme } from "./styles/theme";
+import { ErrorBoundary } from "./components/tijaero/ErrorBoundary";
 import { useThemeStore } from "./state/themeStore";
 import "./styles/global.css"; // Import global styles for required fields
+import { createAppTheme } from "./styles/theme";
 
 /**
  * OPTIMIZED QueryClient Configuration
- * 
+ *
  * - Increased staleTime: Reduces unnecessary refetches
  * - gcTime (cacheTime): Keeps data in cache longer
  * - refetchOnWindowFocus: Disabled to reduce API calls
@@ -46,11 +47,13 @@ function ThemedApp() {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <ThemedApp />
-      </BrowserRouter>
-      <ReactQueryDevtools initialIsOpen={false} />
-    </QueryClientProvider>
-  </React.StrictMode>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <ThemedApp />
+        </BrowserRouter>
+        <ReactQueryDevtools initialIsOpen={false} />
+      </QueryClientProvider>
+    </ErrorBoundary>
+  </React.StrictMode>,
 );

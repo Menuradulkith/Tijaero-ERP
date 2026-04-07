@@ -7,22 +7,22 @@ import Brightness4Icon from "@mui/icons-material/Brightness4";
 import Brightness7Icon from "@mui/icons-material/Brightness7";
 import LogoutIcon from "@mui/icons-material/Logout";
 import MenuIcon from "@mui/icons-material/Menu";
-import NotificationsIcon from "@mui/icons-material/Notifications";
 import SettingsIcon from "@mui/icons-material/Settings";
 import {
-    AppBar,
-    Avatar,
-    Box,
-    Divider,
-    IconButton,
-    ListItemIcon,
-    Menu,
-    MenuItem,
-    Toolbar,
-    Typography,
+  AppBar,
+  Avatar,
+  Box,
+  Divider,
+  IconButton,
+  ListItemIcon,
+  Menu,
+  MenuItem,
+  Toolbar,
+  Typography,
 } from "@mui/material";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import NotificationDropdown from "./NotificationDropdown";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -136,12 +136,7 @@ export default function Header({
             ) : null}
           </Box>
 
-          <IconButton
-            color="inherit"
-            sx={{ display: { xs: "none", sm: "inline-flex" } }}
-          >
-            <NotificationsIcon />
-          </IconButton>
+          <NotificationDropdown />
           <IconButton onClick={handleMenu} sx={{ ml: { xs: 0, sm: 1 } }}>
             <Avatar sx={{ width: 32, height: 32, bgcolor: "primary.main" }}>
               {user?.username?.[0]?.toUpperCase() || "U"}

@@ -1,19 +1,36 @@
-from sqlalchemy.orm import Session
+from datetime import date
+from typing import List, Optional
+
+from app.auth import models, schemas
+from app.core import timezone as tz
+from app.core.exceptions import AuthenticationError
+from app.core.security import (
+    DUMMY_PASSWORD_HASH,
+    create_access_token,
+    get_password_hash,
+    verify_password,
+)
+from app.modules.employees.models import Employee
+from app.modules.settings.schemas import NotificationCreate
+from app.modules.settings.service import NotificationService
+from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from fastapi import HTTPException, status
-from typing import List, Optional
-from datetime import date
-from app.core import timezone as tz
-from app.auth import models, schemas
-from app.core.security import get_password_hash, verify_password, create_access_token
-from app.core.exceptions import AuthenticationError
-from app.modules.employees.models import Employee
+from sqlalchemy.orm import Session
+
 
 class AuthService:
-    def authenticate_user(self, db: Session, username: str, password: str) -> models.User:
+    def authenticate_user(
+        self, db: Session, username: str, password: str
+    ) -> models.User:
         user = db.query(models.User).filter(models.User.username == username).first()
-        if not user or not verify_password(password, user.hashed_password):
+
+        # Defend against timing attacks: always compute a hash even if user ignores
+        if not user:
+            verify_password(password, DUMMY_PASSWORD_HASH)
+            raise AuthenticationError("Invalid credentials")
+
+        if not verify_password(password, user.hashed_password):
             raise AuthenticationError("Invalid credentials")
         if not user.is_active:
             raise AuthenticationError("User account is inactive")
@@ -22,26 +39,33 @@ class AuthService:
         user.last_login = tz.now()
         db.commit()
         return user
-    
+
     def create_user(self, db: Session, user_in: schemas.UserCreate) -> models.User:
 
-        if db.query(models.User).filter(models.User.username == user_in.username).first():
+        if (
+            db.query(models.User)
+            .filter(models.User.username == user_in.username)
+            .first()
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username already exists"
+                detail="Username already exists",
             )
 
         if db.query(models.User).filter(models.User.email == user_in.email).first():
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already exists"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists"
             )
 
-        existing_employee = db.query(Employee).filter(Employee.employee_id == user_in.employee_id).first()
+        existing_employee = (
+            db.query(Employee)
+            .filter(Employee.employee_id == user_in.employee_id)
+            .first()
+        )
         if existing_employee:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Employee ID already exists"
+                detail="Employee ID already exists",
             )
 
         user = models.User(
@@ -60,118 +84,168 @@ class AuthService:
             is_superuser=False,
             verify=True,
             blocked=False,
-            date_joined=tz.today()
+            date_joined=tz.today(),
         )
         db.add(user)
         db.flush()
 
-        existing_emp_for_user = db.query(Employee).filter(Employee.user_id == user.id).first()
+        existing_emp_for_user = (
+            db.query(Employee).filter(Employee.user_id == user.id).first()
+        )
         if not existing_emp_for_user:
-            employee = Employee(
-                user_id=user.id,
-                employee_id=user_in.employee_id
-            )
+            employee = Employee(user_id=user.id, employee_id=user_in.employee_id)
             db.add(employee)
             db.flush()
 
         if user_in.branch_ids:
-            branches = db.query(models.Branch).filter(models.Branch.id.in_(user_in.branch_ids)).all()
+            branches = (
+                db.query(models.Branch)
+                .filter(models.Branch.id.in_(user_in.branch_ids))
+                .all()
+            )
             user.branches = branches
         if user_in.group_ids:
-            groups = db.query(models.Group).filter(models.Group.id.in_(user_in.group_ids)).all()
+            groups = (
+                db.query(models.Group)
+                .filter(models.Group.id.in_(user_in.group_ids))
+                .all()
+            )
             user.groups = groups
-        
+
         try:
             db.commit()
             db.refresh(user)
+
+            # Notify the new user
+            try:
+                NotificationService(db).create_notification(
+                    NotificationCreate(
+                        user_id=user.id,
+                        title="Welcome to TijaeroERP",
+                        message="Your account has been successfully created and configured.",
+                        notification_type="info",
+                    )
+                )
+            except Exception as e:
+                print(f"Failed to send welcome notification: {str(e)}")
+
             return user
         except IntegrityError:
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username, email, or employee ID already exists. Please use different values."
+                detail="Username, email, or employee ID already exists. Please use different values.",
             )
-    
-    def get_users(self, db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
+
+    def get_users(
+        self, db: Session, skip: int = 0, limit: int = 100
+    ) -> List[models.User]:
         return db.query(models.User).offset(skip).limit(limit).all()
-    
+
     def check_username_exists(self, db: Session, username: str) -> bool:
         user = db.query(models.User).filter(models.User.username == username).first()
         return user is not None
-    
+
     def check_employee_id_exists(self, db: Session, employee_id: str) -> bool:
         try:
             from app.modules.employees.models import Employee
-            employee = db.query(Employee).filter(Employee.employee_id == employee_id).first()
+
+            employee = (
+                db.query(Employee).filter(Employee.employee_id == employee_id).first()
+            )
             return employee is not None
         except (ImportError, Exception):
-            user = db.query(models.User).filter(models.User.employee_id == employee_id).first()
+            user = (
+                db.query(models.User)
+                .filter(models.User.employee_id == employee_id)
+                .first()
+            )
             return user is not None
-    
+
     def get_user(self, db: Session, user_id: int) -> Optional[models.User]:
         user = db.query(models.User).filter(models.User.id == user_id).first()
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
             )
         return user
-    
-    def update_user(self, db: Session, user_id: int, user_in: schemas.UserUpdate) -> models.User:
+
+    def update_user(
+        self, db: Session, user_id: int, user_in: schemas.UserUpdate
+    ) -> models.User:
         user = self.get_user(db, user_id)
-        
+
         update_data = user_in.model_dump(exclude_unset=True)
-        
+
         if "password" in update_data and update_data["password"]:
-            update_data["hashed_password"] = get_password_hash(update_data.pop("password"))
-        
+            update_data["hashed_password"] = get_password_hash(
+                update_data.pop("password")
+            )
+
         if "branch_ids" in update_data:
             branch_ids = update_data.pop("branch_ids")
             if branch_ids is not None:
-                branches = db.query(models.Branch).filter(models.Branch.id.in_(branch_ids)).all()
+                branches = (
+                    db.query(models.Branch)
+                    .filter(models.Branch.id.in_(branch_ids))
+                    .all()
+                )
                 user.branches = branches
-        
+
         if "group_ids" in update_data:
             group_ids = update_data.pop("group_ids")
             if group_ids is not None:
-                groups = db.query(models.Group).filter(models.Group.id.in_(group_ids)).all()
+                groups = (
+                    db.query(models.Group).filter(models.Group.id.in_(group_ids)).all()
+                )
                 user.groups = groups
-        
+
         for field, value in update_data.items():
             setattr(user, field, value)
-        
+
         db.commit()
         db.refresh(user)
         return user
-    
+
     def delete_user(self, db: Session, user_id: int):
         user = self.get_user(db, user_id)
         if user.is_superuser:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete superuser"
+                detail="Cannot delete superuser",
             )
 
         # Delete the auto-created Employee record first (always safe to remove with the user)
         try:
             from app.modules.employees.models import Employee
+
             db.query(Employee).filter(Employee.user_id == user_id).delete()
         except (ImportError, Exception):
             pass
 
         errors = []
-        
+
         try:
             from app.modules.support.models import SupportTicket
-            ticket_count = db.query(SupportTicket).filter(SupportTicket.assigned_user_id == user_id).count()
+
+            ticket_count = (
+                db.query(SupportTicket)
+                .filter(SupportTicket.assigned_user_id == user_id)
+                .count()
+            )
             if ticket_count > 0:
                 errors.append(f"User is assigned to {ticket_count} support ticket(s)")
         except (ImportError, Exception):
             pass
-        
+
         try:
             from app.modules.warehouse.models import GoodReceiveNote
-            grn_count = db.query(GoodReceiveNote).filter(GoodReceiveNote.approved_user_id == user_id).count()
+
+            grn_count = (
+                db.query(GoodReceiveNote)
+                .filter(GoodReceiveNote.approved_user_id == user_id)
+                .count()
+            )
             if grn_count > 0:
                 errors.append(f"User has approved {grn_count} warehouse transaction(s)")
         except (ImportError, Exception):
@@ -179,10 +253,21 @@ class AuthService:
 
         try:
             from app.modules.reporting.models import ReportDefinition, ReportExecution
-            report_def_count = db.query(ReportDefinition).filter(ReportDefinition.created_by == user_id).count()
-            report_exec_count = db.query(ReportExecution).filter(ReportExecution.executed_by == user_id).count()
+
+            report_def_count = (
+                db.query(ReportDefinition)
+                .filter(ReportDefinition.created_by == user_id)
+                .count()
+            )
+            report_exec_count = (
+                db.query(ReportExecution)
+                .filter(ReportExecution.executed_by == user_id)
+                .count()
+            )
             if report_def_count > 0:
-                errors.append(f"User has created {report_def_count} report definition(s)")
+                errors.append(
+                    f"User has created {report_def_count} report definition(s)"
+                )
             if report_exec_count > 0:
                 errors.append(f"User has {report_exec_count} report execution(s)")
         except (ImportError, Exception):
@@ -190,15 +275,23 @@ class AuthService:
 
         try:
             from app.modules.marketing.models import Campaign
-            campaign_count = db.query(Campaign).filter(Campaign.author_id == user_id).count()
+
+            campaign_count = (
+                db.query(Campaign).filter(Campaign.author_id == user_id).count()
+            )
             if campaign_count > 0:
-                errors.append(f"User is author of {campaign_count} marketing campaign(s)")
+                errors.append(
+                    f"User is author of {campaign_count} marketing campaign(s)"
+                )
         except (ImportError, Exception):
             pass
 
         try:
             from app.common.attachments import Attachment
-            attachment_count = db.query(Attachment).filter(Attachment.uploaded_by == user_id).count()
+
+            attachment_count = (
+                db.query(Attachment).filter(Attachment.uploaded_by == user_id).count()
+            )
             if attachment_count > 0:
                 errors.append(f"User has uploaded {attachment_count} attachment(s)")
         except (ImportError, Exception):
@@ -206,109 +299,130 @@ class AuthService:
 
         try:
             from app.common.workflow import WorkflowStep
-            workflow_count = db.query(WorkflowStep).filter(WorkflowStep.approver_id == user_id).count()
+
+            workflow_count = (
+                db.query(WorkflowStep)
+                .filter(WorkflowStep.approver_id == user_id)
+                .count()
+            )
             if workflow_count > 0:
                 errors.append(f"User is approver in {workflow_count} workflow step(s)")
         except (ImportError, Exception):
             pass
-        
+
         if errors:
             error_message = "Cannot delete user. " + "; ".join(errors) + "."
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_message
+                status_code=status.HTTP_400_BAD_REQUEST, detail=error_message
             )
-        
+
         db.delete(user)
         db.commit()
         return {"message": "User deleted successfully"}
 
+
 class GroupService:
-    def get_groups(self, db: Session, skip: int = 0, limit: int = 100) -> List[models.Group]:
+    def get_groups(
+        self, db: Session, skip: int = 0, limit: int = 100
+    ) -> List[models.Group]:
         return db.query(models.Group).offset(skip).limit(limit).all()
-    
+
     def get_group(self, db: Session, group_id: int) -> Optional[models.Group]:
         group = db.query(models.Group).filter(models.Group.id == group_id).first()
         if not group:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Group not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
             )
         return group
-    
+
     def create_group(self, db: Session, group_in: schemas.GroupCreate) -> models.Group:
 
         if db.query(models.Group).filter(models.Group.name == group_in.name).first():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Group name already exists"
+                detail="Group name already exists",
             )
-        
+
         group = models.Group(name=group_in.name)
 
         if group_in.permission_ids:
-            permissions = db.query(models.Permission).filter(
-                models.Permission.id.in_(group_in.permission_ids)
-            ).all()
+            permissions = (
+                db.query(models.Permission)
+                .filter(models.Permission.id.in_(group_in.permission_ids))
+                .all()
+            )
             group.permissions = permissions
-        
+
         db.add(group)
         db.commit()
         db.refresh(group)
         return group
-    
-    def update_group(self, db: Session, group_id: int, group_in: schemas.GroupUpdate) -> models.Group:
+
+    def update_group(
+        self, db: Session, group_id: int, group_in: schemas.GroupUpdate
+    ) -> models.Group:
         group = self.get_group(db, group_id)
-        
+
         if group_in.name:
 
-            existing = db.query(models.Group).filter(
-                models.Group.name == group_in.name,
-                models.Group.id != group_id
-            ).first()
+            existing = (
+                db.query(models.Group)
+                .filter(models.Group.name == group_in.name, models.Group.id != group_id)
+                .first()
+            )
             if existing:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Group name already exists"
+                    detail="Group name already exists",
                 )
             group.name = group_in.name
 
         if group_in.permission_ids is not None:
-            permissions = db.query(models.Permission).filter(
-                models.Permission.id.in_(group_in.permission_ids)
-            ).all()
+            permissions = (
+                db.query(models.Permission)
+                .filter(models.Permission.id.in_(group_in.permission_ids))
+                .all()
+            )
             group.permissions = permissions
-        
+
         db.commit()
         db.refresh(group)
         return group
-    
+
     def delete_group(self, db: Session, group_id: int):
         group = self.get_group(db, group_id)
         db.delete(group)
         db.commit()
         return {"message": "Group deleted successfully"}
 
+
 class PermissionService:
     def get_permissions(self, db: Session) -> List[models.Permission]:
         return db.query(models.Permission).all()
-    
-    def create_permission(self, db: Session, permission_in: schemas.PermissionCreate) -> models.Permission:
-        existing = db.query(models.Permission).filter(
-            models.Permission.resource == permission_in.resource,
-            models.Permission.action == permission_in.action
-        ).first()
+
+    def create_permission(
+        self, db: Session, permission_in: schemas.PermissionCreate
+    ) -> models.Permission:
+        existing = (
+            db.query(models.Permission)
+            .filter(
+                models.Permission.resource == permission_in.resource,
+                models.Permission.action == permission_in.action,
+            )
+            .first()
+        )
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Permission already exists"
+                detail="Permission already exists",
             )
-        
+
         permission = models.Permission(**permission_in.model_dump())
         db.add(permission)
         db.commit()
         db.refresh(permission)
         return permission
+
 
 auth_service = AuthService()
 group_service = GroupService()
