@@ -71,7 +71,9 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(
+        ..., min_length=8, description="Password must be at least 8 characters long"
+    )
     employee_id: str = Field(..., max_length=255)
     branch_ids: List[int] = []
     group_ids: List[int] = []
@@ -132,12 +134,12 @@ class UserList(TijaeroBaseSchema):
 
 class Token(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
+    refresh_token: Optional[str] = None  # Deprecated: now sent via HttpOnly cookie
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    pass  # Deprecated due to HttpOnly cookie approach
 
 
 class TokenData(BaseModel):

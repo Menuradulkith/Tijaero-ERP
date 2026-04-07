@@ -1,19 +1,21 @@
+import logging
+from datetime import date, datetime
+
+# Import all models to register them with SQLAlchemy
+import app.models  # noqa: F401
+import orjson
+from app.api.v1.router import api_router
+from app.core.config import settings
+from app.core.exceptions import AppException
+from app.core.middleware import setup_middleware
+from app.core.swagger import swagger_ui_parameters, tags_metadata
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
-import orjson
-from datetime import datetime, date
-
-from app.core.config import settings
-from app.core.exceptions import AppException
-from app.core.middleware import setup_middleware
-from app.core.swagger import tags_metadata, swagger_ui_parameters
-from app.api.v1.router import api_router
-
-# Import all models to register them with SQLAlchemy
-import app.models  # noqa: F401
+from sqlalchemy.exc import SQLAlchemyError
 
 
 # ── Fast ORJSONResponse ───────────────────────────────────────────────
@@ -31,6 +33,7 @@ class ORJSONResponse(JSONResponse):
     """Drop-in JSONResponse replacement using orjson (≈10x faster than stdlib json).
     Handles datetime formatting via a single-pass default callback rather than
     recursively walking the entire response tree."""
+
     media_type = "application/json"
 
     def render(self, content) -> bytes:
@@ -60,10 +63,11 @@ app = FastAPI(
     },
 )
 
+
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
-    
+
     openapi_schema = get_openapi(
         title=settings.PROJECT_NAME,
         version=settings.VERSION,
@@ -104,21 +108,16 @@ API calls are rate-limited to ensure fair usage.
             "name": "MIT",
         },
     )
-    
+
     # Add security scheme with OAuth2 password flow
     openapi_schema["components"]["securitySchemes"] = {
         "OAuth2PasswordBearer": {
             "type": "oauth2",
-            "flows": {
-                "password": {
-                    "tokenUrl": "/api/v1/auth/login",
-                    "scopes": {}
-                }
-            },
-            "description": "Enter your username and password to get a JWT token"
+            "flows": {"password": {"tokenUrl": "/api/v1/auth/login", "scopes": {}}},
+            "description": "Enter your username and password to get a JWT token",
         }
     }
-    
+
     # Add tags metadata
     openapi_schema["tags"] = [
         {"name": "auth", "description": "Authentication and authorization operations"},
@@ -134,9 +133,10 @@ API calls are rate-limited to ensure fair usage.
         {"name": "reporting", "description": "Reports and analytics"},
         {"name": "health", "description": "Health check endpoints"},
     ]
-    
+
     app.openapi_schema = openapi_schema
     return app.openapi_schema
+
 
 app.openapi = custom_openapi
 
@@ -162,6 +162,57 @@ async def app_exception_handler(request: Request, exc: AppException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail, **({"extra": exc.extra} if exc.extra else {})},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Normalize Pydantic validation errors for the frontend."""
+    errors = []
+    for err in exc.errors():
+        field = " -> ".join(str(loc) for loc in err.get("loc", []))
+        errors.append({"field": field, "message": err.get("msg")})
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Data validation failed",
+            "messages": errors,
+            "raw": exc.errors(),
+        },
+    )
+
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
+    """Log DB exceptions but return generic error to client to avoid exposing query details."""
+    logging.error(f"Database Error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "A secure database error occurred. Your transaction has been rolled back."
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Last resort catch-all global error handler to prevent stack traces from crashing the API structure."""
+    # Don't override FastAPIs built in HTTPExceptions
+    from fastapi import HTTPException
+
+    if isinstance(exc, HTTPException):
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    logging.error(
+        f"Unhandled Server Error on {request.method} {request.url.path}: {exc}",
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An internal server application error occurred. System administrators have been notified."
+        },
     )
 
 

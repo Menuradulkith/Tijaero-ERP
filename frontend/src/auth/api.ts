@@ -12,19 +12,20 @@ export const authApi = {
       formData,
       {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      }
+      },
     );
     return response.data;
   },
 
-  refreshToken: async (refreshToken: string): Promise<LoginResponse> => {
+  refreshToken: async (): Promise<LoginResponse> => {
     const response = await apiClient.post<LoginResponse>(
       "/auth/refresh",
-      { refresh_token: refreshToken },
+      {},
       {
+        withCredentials: true,
         // Skip the interceptor for refresh calls to avoid infinite loops
         headers: { "X-Skip-Auth-Intercept": "true" },
-      }
+      },
     );
     return response.data;
   },

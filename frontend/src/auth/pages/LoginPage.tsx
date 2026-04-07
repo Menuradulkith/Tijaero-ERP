@@ -1,5 +1,9 @@
+import {
+    handleApiError,
+    showErrorToast,
+    showSuccessToast,
+} from "@/components/tijaero";
 import { useAuthStore } from "@/state/authStore";
-import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import LockIcon from "@mui/icons-material/Lock";
 import PersonIcon from "@mui/icons-material/Person";
@@ -30,12 +34,13 @@ export default function LoginPage() {
     mutationFn: authApi.login,
     onSuccess: async (data) => {
       // First, store the tokens temporarily so the next request can use them
-      login(data.access_token, data.refresh_token, null as any);
+      // Refresh token is now stored securely in HttpOnly cookies by the browser.
+      login(data.access_token, null as any);
 
       // Then get the user data
       try {
         const user = await authApi.getCurrentUser();
-        login(data.access_token, data.refresh_token, user);
+        login(data.access_token, user);
         showSuccessToast("Login successful");
         navigate("/dashboard");
       } catch (error: unknown) {
