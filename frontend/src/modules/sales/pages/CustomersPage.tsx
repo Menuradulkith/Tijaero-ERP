@@ -2,9 +2,12 @@
  * CustomersPage - Refactored to use Tijaero-style reusable components
  */
 
+import { formatDateTimeReadable } from "@/utils/formatters";
+import { FileDownload as DownloadIcon } from "@mui/icons-material";
 import PersonIcon from "@mui/icons-material/Person";
 import {
   Box,
+  Button,
   Chip,
   FormControlLabel,
   MenuItem,
@@ -14,7 +17,6 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatDateTimeReadable } from "@/utils/formatters";
 
 import {
   ActionToolbar,
@@ -35,10 +37,11 @@ import {
   TITLE_CHOICES,
   TStatusFilter,
   useMasterDetailState,
-  useTConfirmDialog
+  useTConfirmDialog,
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
+import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
 import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
@@ -157,7 +160,9 @@ export default function CustomersPage() {
   });
 
   // OPTIMIZED: Using aggregated endpoint for branches
-  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
+  const { filteredBranches, defaultBranchCode } = useReferenceData([
+    "branches",
+  ]);
   const branches = filteredBranches || [];
 
   // Auto-default branch filter for non-superuser users
@@ -173,27 +178,36 @@ export default function CustomersPage() {
 
     let filtered = customers.filter(
       (customer) =>
-        customer.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        customer.customer_name
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase()) ||
         customer.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         customer.mobile_contact_number?.includes(searchQuery) ||
-        customer.company_name?.toLowerCase().includes(searchQuery.toLowerCase())
+        customer.company_name
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase()),
     );
 
     // Apply status filter
     if (filterStatus) {
       const isActive = filterStatus === "active";
-      filtered = filtered.filter(customer => customer.active === isActive);
+      filtered = filtered.filter((customer) => customer.active === isActive);
     }
 
     // Apply agent filter
     if (filterAgent) {
       const isAgent = filterAgent === "agent";
-      filtered = filtered.filter(customer => customer.is_customer_agent === isAgent);
+      filtered = filtered.filter(
+        (customer) => customer.is_customer_agent === isAgent,
+      );
     }
 
     // Apply branch filter
     if (filterBranch) {
-      filtered = filtered.filter(customer => (customer as { branch_code?: string }).branch_code === filterBranch);
+      filtered = filtered.filter(
+        (customer) =>
+          (customer as { branch_code?: string }).branch_code === filterBranch,
+      );
     }
 
     filtered.sort((a, b) => {
@@ -206,7 +220,14 @@ export default function CustomersPage() {
     });
 
     return filtered;
-  }, [customers, searchQuery, sortField, filterStatus, filterAgent, filterBranch]);
+  }, [
+    customers,
+    searchQuery,
+    sortField,
+    filterStatus,
+    filterAgent,
+    filterBranch,
+  ]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -226,7 +247,8 @@ export default function CustomersPage() {
       setIsEditing(false);
       setTimeout(() => handleSelectCustomer(newCustomer), 0);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create customer")),
+    onError: (error: unknown) =>
+      showErrorToast(handleApiError(error, "Failed to create customer")),
   });
 
   const updateMutation = useMutation({
@@ -237,7 +259,8 @@ export default function CustomersPage() {
       showSuccessToast("Customer updated successfully");
       setIsEditing(false);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update customer")),
+    onError: (error: unknown) =>
+      showErrorToast(handleApiError(error, "Failed to update customer")),
   });
 
   const deleteMutation = useMutation({
@@ -247,7 +270,8 @@ export default function CustomersPage() {
       showSuccessToast("Customer deleted successfully");
       baseHandleCancel(filteredCustomers);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to delete customer")),
+    onError: (error: unknown) =>
+      showErrorToast(handleApiError(error, "Failed to delete customer")),
   });
 
   const confirmDialog = useTConfirmDialog();
@@ -289,6 +313,34 @@ export default function CustomersPage() {
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
 
+  // CSV Export
+  const handleExportCSV = async () => {
+    try {
+      const branchParam = filterBranch ? `&branch_code=${filterBranch}` : "";
+      const activeParam = filterStatus === "active" ? "&active_only=true" : "";
+
+      const response = await apiClient.get<Blob>(
+        `/customers/export-csv?limit=100000${branchParam}${activeParam}`,
+        {
+          responseType: "blob",
+        },
+      );
+
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const dateStr = new Date().toISOString().split("T")[0];
+      const branchStr = filterBranch || "all_branches";
+      link.download = `customers_${branchStr}_${dateStr}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error(error);
+      // Fallback or show error mechanism
+    }
+  };
+
   // Master Panel
   const masterPanel = (
     <SearchableList<Customer>
@@ -304,21 +356,31 @@ export default function CustomersPage() {
       onSelectItem={handleSelectCustomer}
       emptyMessage="No customers found"
       listHeader={
-        <SalesFilterPanel
-          statusOptions={CUSTOMER_STATUS_OPTIONS}
-          statusValue={filterStatus}
-          onStatusChange={setFilterStatus}
-          branches={branches}
-          branchValue={filterBranch}
-          onBranchChange={setFilterBranch}
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 1,
+            padding: 1.5,
+            paddingBottom: 0,
+          }}
         >
-          <TStatusFilter
-            options={AGENT_FILTER_OPTIONS}
-            value={filterAgent}
-            onChange={setFilterAgent}
-            label="Type"
-          />
-        </SalesFilterPanel>
+          <SalesFilterPanel
+            statusOptions={CUSTOMER_STATUS_OPTIONS}
+            statusValue={filterStatus}
+            onStatusChange={setFilterStatus}
+            branches={branches}
+            branchValue={filterBranch}
+            onBranchChange={setFilterBranch}
+          >
+            <TStatusFilter
+              options={AGENT_FILTER_OPTIONS}
+              value={filterAgent}
+              onChange={setFilterAgent}
+              label="Type"
+            />
+          </SalesFilterPanel>
+        </Box>
       }
       renderItem={(customer, isSelected) => (
         <SelectableListItem
@@ -327,12 +389,29 @@ export default function CustomersPage() {
           isSelected={isSelected}
           onClick={() => handleSelectCustomer(customer)}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                width: "100%",
+                gap: 0.5,
+              }}
+            >
               {/* Customer Name */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
                 <span>{customer.customer_name}</span>
                 {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                  <Typography
+                    component="span"
+                    variant="caption"
+                    sx={{ color: "inherit", opacity: 0.7 }}
+                  >
                     (Name)
                   </Typography>
                 )}
@@ -341,25 +420,52 @@ export default function CustomersPage() {
               {isSelected && (
                 <>
                   {customer.company_name && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
                       <Typography component="span" variant="caption">
                         {customer.company_name}
                       </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        sx={{ color: "inherit", opacity: 0.7 }}
+                      >
                         (Company)
                       </Typography>
                     </Box>
                   )}
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <Typography component="span" variant="caption">
                       {customer.mobile_contact_number}
                     </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    <Typography
+                      component="span"
+                      variant="caption"
+                      sx={{ color: "inherit", opacity: 0.7 }}
+                    >
                       (Mobile)
                     </Typography>
                   </Box>
                   {/* Status Chips - shown below all fields when selected */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      gap: 0.5,
+                      mt: 0.5,
+                      flexWrap: "wrap",
+                    }}
+                  >
                     <Chip
                       label={customer.active ? "Active" : "Inactive"}
                       size="small"
@@ -368,7 +474,10 @@ export default function CustomersPage() {
                     />
                     {customer.title && (
                       <Chip
-                        label={customer.title.charAt(0).toUpperCase() + customer.title.slice(1)}
+                        label={
+                          customer.title.charAt(0).toUpperCase() +
+                          customer.title.slice(1)
+                        }
                         size="small"
                         color="secondary"
                         variant="outlined"
@@ -388,15 +497,25 @@ export default function CustomersPage() {
               )}
             </Box>
           }
-          secondaryText={!isSelected ? (customer.company_name || customer.mobile_contact_number) : undefined}
+          secondaryText={
+            !isSelected
+              ? customer.company_name || customer.mobile_contact_number
+              : undefined
+          }
           isFavorite={favorites.includes(customer.id)}
           onToggleFavorite={(e) => toggleFavorite(customer.id, e)}
-          statusChip={!isSelected ? (
-            customer.active
-              ? { label: "Active", color: "success" }
-              : { label: "Inactive", color: "default" }
-          ) : undefined}
-          chips={!isSelected && customer.is_customer_agent ? [{ label: "Agent", color: "info" }] : undefined}
+          statusChip={
+            !isSelected
+              ? customer.active
+                ? { label: "Active", color: "success" }
+                : { label: "Inactive", color: "default" }
+              : undefined
+          }
+          chips={
+            !isSelected && customer.is_customer_agent
+              ? [{ label: "Agent", color: "info" }]
+              : undefined
+          }
         />
       )}
     />
@@ -404,26 +523,60 @@ export default function CustomersPage() {
 
   // Detail Panel
   const detailPanel = (
-    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <Box
+      sx={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Sales", href: "/sales" },
           { label: "Customers", href: "/sales/customers" },
           ...(selectedCustomer || isCreating
-            ? [{ label: isCreating ? "New Customer" : selectedCustomer?.customer_name || "" }]
+            ? [
+                {
+                  label: isCreating
+                    ? "New Customer"
+                    : selectedCustomer?.customer_name || "",
+                },
+              ]
             : []),
         ]}
-        title={selectedCustomer ? `${selectedCustomer.title} ${selectedCustomer.customer_name}` : ""}
+        title={
+          selectedCustomer
+            ? `${selectedCustomer.title} ${selectedCustomer.customer_name}`
+            : ""
+        }
         titleIcon={<PersonIcon color="primary" />}
         isCreating={isCreating}
         createTitle="New Customer"
         noSelectionTitle="Select a Customer"
-        chips={selectedCustomer ? [
-          { label: selectedCustomer.active ? "Active" : "Inactive", color: selectedCustomer.active ? "success" : "default" as const },
-          ...(selectedCustomer.is_customer_agent ? [{ label: "Agent", color: "info" as const }] : [])
-        ] : []}
-        isFavorite={selectedCustomer ? favorites.includes(selectedCustomer.id) : false}
-        onToggleFavorite={selectedCustomer ? (e) => toggleFavorite(selectedCustomer.id, e) : undefined}
+        chips={
+          selectedCustomer
+            ? [
+                {
+                  label: selectedCustomer.active ? "Active" : "Inactive",
+                  color: selectedCustomer.active
+                    ? "success"
+                    : ("default" as const),
+                },
+                ...(selectedCustomer.is_customer_agent
+                  ? [{ label: "Agent", color: "info" as const }]
+                  : []),
+              ]
+            : []
+        }
+        isFavorite={
+          selectedCustomer ? favorites.includes(selectedCustomer.id) : false
+        }
+        onToggleFavorite={
+          selectedCustomer
+            ? (e) => toggleFavorite(selectedCustomer.id, e)
+            : undefined
+        }
       />
 
       <ActionToolbar
@@ -447,7 +600,12 @@ export default function CustomersPage() {
         {!selectedCustomer && !isCreating ? (
           <EmptyState message="Select a customer from the list or create a new one" />
         ) : isSaving || isLoading ? (
-          <TDetailSkeleton sections={3} fieldsPerSection={4} showHeader={false} showToolbar={false} />
+          <TDetailSkeleton
+            sections={3}
+            fieldsPerSection={4}
+            showHeader={false}
+            showToolbar={false}
+          />
         ) : (
           <>
             {/* Basic Information */}
@@ -457,18 +615,24 @@ export default function CustomersPage() {
                 size="small"
                 select
                 value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, title: e.target.value })
+                }
                 disabled={isDisabled}
               >
                 {TITLE_CHOICES.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
                 ))}
               </TextField>
               <TextField
                 label="Customer Name"
                 size="small"
                 value={formData.customer_name}
-                onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, customer_name: e.target.value })
+                }
                 disabled={isDisabled}
                 required
               />
@@ -477,14 +641,21 @@ export default function CustomersPage() {
                 size="small"
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
                 disabled={isDisabled}
               />
               <TextField
                 label="Mobile Contact"
                 size="small"
                 value={formData.mobile_contact_number}
-                onChange={(e) => setFormData({ ...formData, mobile_contact_number: e.target.value })}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    mobile_contact_number: e.target.value,
+                  })
+                }
                 disabled={isDisabled}
                 required
               />
@@ -492,21 +663,30 @@ export default function CustomersPage() {
                 label="Home Contact"
                 size="small"
                 value={formData.home_contact_number}
-                onChange={(e) => setFormData({ ...formData, home_contact_number: e.target.value })}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    home_contact_number: e.target.value,
+                  })
+                }
                 disabled={isDisabled}
               />
               <TextField
                 label="Company Name"
                 size="small"
                 value={formData.company_name}
-                onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, company_name: e.target.value })
+                }
                 disabled={isDisabled}
               />
               <TextField
                 label="Occupation"
                 size="small"
                 value={formData.occupation}
-                onChange={(e) => setFormData({ ...formData, occupation: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, occupation: e.target.value })
+                }
                 disabled={isDisabled}
               />
               <TextField
@@ -514,11 +694,15 @@ export default function CustomersPage() {
                 size="small"
                 select
                 value={formData.gender}
-                onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, gender: e.target.value })
+                }
                 disabled={isDisabled}
               >
                 {GENDER_CHOICES.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
                 ))}
               </TextField>
               <TextField
@@ -526,18 +710,24 @@ export default function CustomersPage() {
                 size="small"
                 select
                 value={formData.civil_status}
-                onChange={(e) => setFormData({ ...formData, civil_status: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, civil_status: e.target.value })
+                }
                 disabled={isDisabled}
               >
                 {CIVIL_CHOICES.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
                 ))}
               </TextField>
               <TextField
                 label="No. of Kids"
                 size="small"
                 value={formData.no_of_kids}
-                onChange={(e) => setFormData({ ...formData, no_of_kids: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, no_of_kids: e.target.value })
+                }
                 disabled={isDisabled}
               />
               <TextField
@@ -545,7 +735,9 @@ export default function CustomersPage() {
                 size="small"
                 type="date"
                 value={formData.birthdate}
-                onChange={(e) => setFormData({ ...formData, birthdate: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, birthdate: e.target.value })
+                }
                 disabled={isDisabled}
                 InputLabelProps={{ shrink: true }}
               />
@@ -557,14 +749,18 @@ export default function CustomersPage() {
                 label="ID Card Number"
                 size="small"
                 value={formData.id_card_number}
-                onChange={(e) => setFormData({ ...formData, id_card_number: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, id_card_number: e.target.value })
+                }
                 disabled={isDisabled}
               />
               <TextField
                 label="Passport No"
                 size="small"
                 value={formData.passport_no}
-                onChange={(e) => setFormData({ ...formData, passport_no: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, passport_no: e.target.value })
+                }
                 disabled={isDisabled}
               />
             </FormSection>
@@ -575,7 +771,9 @@ export default function CustomersPage() {
                 label="Payment Address"
                 size="small"
                 value={formData.payment_address}
-                onChange={(e) => setFormData({ ...formData, payment_address: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, payment_address: e.target.value })
+                }
                 disabled={isDisabled}
                 multiline
                 rows={2}
@@ -584,7 +782,9 @@ export default function CustomersPage() {
                 label="Delivery Address"
                 size="small"
                 value={formData.delivery_address}
-                onChange={(e) => setFormData({ ...formData, delivery_address: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, delivery_address: e.target.value })
+                }
                 disabled={isDisabled}
                 multiline
                 rows={2}
@@ -593,14 +793,21 @@ export default function CustomersPage() {
                 label="Bank Details"
                 size="small"
                 value={formData.bank_details}
-                onChange={(e) => setFormData({ ...formData, bank_details: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, bank_details: e.target.value })
+                }
                 disabled={isDisabled}
               />
               <TextField
                 label="Name in Cheque/Card"
                 size="small"
                 value={formData.name_in_cheque_card}
-                onChange={(e) => setFormData({ ...formData, name_in_cheque_card: e.target.value })}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    name_in_cheque_card: e.target.value,
+                  })
+                }
                 disabled={isDisabled}
               />
             </FormSection>
@@ -612,7 +819,12 @@ export default function CustomersPage() {
                 size="small"
                 type="number"
                 value={formData.credit_days}
-                onChange={(e) => setFormData({ ...formData, credit_days: parseInt(e.target.value) || 0 })}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    credit_days: parseInt(e.target.value) || 0,
+                  })
+                }
                 disabled={isDisabled}
               />
               <TextField
@@ -620,7 +832,12 @@ export default function CustomersPage() {
                 size="small"
                 type="number"
                 value={formData.max_credit_limit}
-                onChange={(e) => setFormData({ ...formData, max_credit_limit: parseFloat(e.target.value) || 0 })}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    max_credit_limit: parseFloat(e.target.value) || 0,
+                  })
+                }
                 disabled={isDisabled}
               />
               <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
@@ -628,7 +845,9 @@ export default function CustomersPage() {
                   control={
                     <Switch
                       checked={formData.active}
-                      onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, active: e.target.checked })
+                      }
                       disabled={isDisabled}
                     />
                   }
@@ -638,7 +857,12 @@ export default function CustomersPage() {
                   control={
                     <Switch
                       checked={formData.is_customer_agent}
-                      onChange={(e) => setFormData({ ...formData, is_customer_agent: e.target.checked })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          is_customer_agent: e.target.checked,
+                        })
+                      }
                       disabled={isDisabled}
                     />
                   }
@@ -651,7 +875,12 @@ export default function CustomersPage() {
                   size="small"
                   type="number"
                   value={formData.commission_rate || 0}
-                  onChange={(e) => setFormData({ ...formData, commission_rate: parseFloat(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      commission_rate: parseFloat(e.target.value) || 0,
+                    })
+                  }
                   disabled={isDisabled}
                   inputProps={{ min: 0, max: 100, step: 0.01 }}
                   helperText="Default commission percentage for this agent"
@@ -664,12 +893,20 @@ export default function CustomersPage() {
             {selectedCustomer && !isCreating && !isEditing && (
               <FormSection title="Record Information" columns={2}>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Created</Typography>
-                  <Typography variant="body2">{formatDateTimeReadable(selectedCustomer.created_at) || "-"}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Created
+                  </Typography>
+                  <Typography variant="body2">
+                    {formatDateTimeReadable(selectedCustomer.created_at) || "-"}
+                  </Typography>
                 </Box>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Last Modified</Typography>
-                  <Typography variant="body2">{formatDateTimeReadable(selectedCustomer.updated_at) || "-"}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Last Modified
+                  </Typography>
+                  <Typography variant="body2">
+                    {formatDateTimeReadable(selectedCustomer.updated_at) || "-"}
+                  </Typography>
                 </Box>
               </FormSection>
             )}
@@ -683,6 +920,18 @@ export default function CustomersPage() {
     <>
       <MasterDetailLayout
         title="Customers"
+        headerActions={
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            disabled={filteredCustomers.length === 0}
+            sx={{ mr: 1 }}
+          >
+            Export CSV
+          </Button>
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["customers"] });
           queryClient.invalidateQueries({ queryKey: ["branches"] });

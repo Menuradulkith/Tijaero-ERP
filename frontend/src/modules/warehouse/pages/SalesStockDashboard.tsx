@@ -1,52 +1,59 @@
 /**
  * SalesStockDashboard - Comprehensive Sales Stock Management
- * 
+ *
  * OPTIMIZED: Uses aggregated reference data endpoint to reduce API calls
  * BEFORE: 6 separate API calls (branches, brands, categories, locations, products, salesStock)
  * AFTER: 2 API calls (reference-data, salesStock)
  */
 
-import { useState, useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import {
-  Autocomplete,
-  Box,
-  Grid,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
-  TextField,
-  InputAdornment,
-  IconButton,
-  Chip,
-  Typography,
-  Drawer,
-  Button,
-  Collapse,
-  Stack,
-  CircularProgress,
-} from "@mui/material";
-import {
-  Search as SearchIcon,
-  Inventory as PackageIcon,
-  Warning as AlertIcon,
-  Refresh as RefreshIcon,
-  Close as CloseIcon,
-  ExpandMore as ExpandIcon,
-  ExpandLess as CollapseIcon,
-  AssignmentReturn as ReturnIcon,
-  FileDownload as DownloadIcon,
-} from "@mui/icons-material";
-import { salesStockApi } from "@/modules/inventory/api";
+import apiClient from "@/api/client";
 import { fmtLKR } from "@/components/tijaero";
-import { useReferenceData, REFERENCE_DATA_PRESETS, LocationRef } from "@/hooks";
-import { SalesStock, Product, Brand, Category, StockTrackingEvent } from "@/modules/inventory/types";
+import { LocationRef, REFERENCE_DATA_PRESETS, useReferenceData } from "@/hooks";
+import { salesStockApi } from "@/modules/inventory/api";
+import {
+    Brand,
+    Category,
+    Product,
+    SalesStock,
+    StockTrackingEvent,
+} from "@/modules/inventory/types";
+import {
+    Warning as AlertIcon,
+    Close as CloseIcon,
+    ExpandLess as CollapseIcon,
+    FileDownload as DownloadIcon,
+    ExpandMore as ExpandIcon,
+    Inventory as PackageIcon,
+    Refresh as RefreshIcon,
+    AssignmentReturn as ReturnIcon,
+    Search as SearchIcon,
+} from "@mui/icons-material";
+import {
+    Autocomplete,
+    Box,
+    Button,
+    Chip,
+    CircularProgress,
+    Collapse,
+    Drawer,
+    Grid,
+    IconButton,
+    InputAdornment,
+    Paper,
+    Stack,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TablePagination,
+    TableRow,
+    TextField,
+    Typography,
+} from "@mui/material";
+import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
+import { useEffect, useMemo, useState } from "react";
 
 // Summary Card Component
 interface SummaryCardProps {
@@ -57,7 +64,13 @@ interface SummaryCardProps {
   bgColor: string;
 }
 
-const SummaryCard = ({ title, value, icon, color, bgColor }: SummaryCardProps) => (
+const SummaryCard = ({
+  title,
+  value,
+  icon,
+  color,
+  bgColor,
+}: SummaryCardProps) => (
   <Paper
     elevation={0}
     sx={{
@@ -68,7 +81,13 @@ const SummaryCard = ({ title, value, icon, color, bgColor }: SummaryCardProps) =
       borderLeft: `4px solid ${color}`,
     }}
   >
-    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+      }}
+    >
       <Box>
         <Typography variant="body2" color="text.secondary">
           {title}
@@ -97,7 +116,13 @@ const SummaryCard = ({ title, value, icon, color, bgColor }: SummaryCardProps) =
 
 // Status Chip Component
 const StatusChip = ({ status }: { status: string }) => {
-  const statusConfig: Record<string, { label: string; color: "success" | "warning" | "info" | "error" | "default" }> = {
+  const statusConfig: Record<
+    string,
+    {
+      label: string;
+      color: "success" | "warning" | "info" | "error" | "default";
+    }
+  > = {
     available: { label: "Available", color: "success" },
     reserved: { label: "Reserved", color: "warning" },
     sold: { label: "Sold", color: "info" },
@@ -107,8 +132,11 @@ const StatusChip = ({ status }: { status: string }) => {
     damaged: { label: "Damaged", color: "error" },
   };
 
-  const config = statusConfig[status?.toLowerCase()] || { label: status || "Unknown", color: "default" as const };
-  
+  const config = statusConfig[status?.toLowerCase()] || {
+    label: status || "Unknown",
+    color: "default" as const,
+  };
+
   return (
     <Chip
       label={config.label}
@@ -129,9 +157,18 @@ interface StockDetailsPanelProps {
   onClose: () => void;
 }
 
-const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, onClose }: StockDetailsPanelProps) => {
+const StockDetailsPanel = ({
+  stock,
+  product,
+  brandName,
+  categoryName,
+  isOpen,
+  onClose,
+}: StockDetailsPanelProps) => {
   // Fetch real tracking data from API when panel is open
-  const { data: trackingEvents, isLoading: trackingLoading } = useQuery<StockTrackingEvent[]>({
+  const { data: trackingEvents, isLoading: trackingLoading } = useQuery<
+    StockTrackingEvent[]
+  >({
     queryKey: ["stock-tracking", stock?.id],
     queryFn: () => salesStockApi.getTracking(stock!.id),
     enabled: isOpen && !!stock,
@@ -144,10 +181,17 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
       open={isOpen}
       onClose={onClose}
       PaperProps={{
-        sx: { width: { xs: "100%", sm: 450 }, p: 3 }
+        sx: { width: { xs: "100%", sm: 450 }, p: 3 },
       }}
     >
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 3 }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          mb: 3,
+        }}
+      >
         <Typography variant="h6">Stock Details</Typography>
         <IconButton onClick={onClose} size="small">
           <CloseIcon />
@@ -184,12 +228,20 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
                         component="img"
                         src={product.image_url}
                         alt={product.name}
-                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                        onError={(
+                          e: React.SyntheticEvent<HTMLImageElement>,
+                        ) => {
                           e.currentTarget.style.display = "none";
-                          const fallback = document.getElementById(`img-fallback-${stock.id}`);
+                          const fallback = document.getElementById(
+                            `img-fallback-${stock.id}`,
+                          );
                           if (fallback) fallback.style.display = "flex";
                         }}
-                        sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                        sx={{
+                          maxWidth: "100%",
+                          maxHeight: "100%",
+                          objectFit: "contain",
+                        }}
                       />
                     ) : null}
                     <Box
@@ -208,7 +260,9 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
                 </Grid>
                 {/* Image URL */}
                 <Grid item xs={12}>
-                  <Typography variant="caption" color="text.secondary">Image URL</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Image URL
+                  </Typography>
                   {product.image_url ? (
                     <Typography
                       variant="body2"
@@ -227,24 +281,42 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
                       {product.image_url}
                     </Typography>
                   ) : (
-                    <Typography variant="body2" color="text.disabled">Not set</Typography>
+                    <Typography variant="body2" color="text.disabled">
+                      Not set
+                    </Typography>
                   )}
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Product Name</Typography>
-                  <Typography variant="body2" fontWeight={500}>{product.name}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Product Name
+                  </Typography>
+                  <Typography variant="body2" fontWeight={500}>
+                    {product.name}
+                  </Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Item Code</Typography>
-                  <Typography variant="body2" fontWeight={500}>{product.item_code || "N/A"}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Item Code
+                  </Typography>
+                  <Typography variant="body2" fontWeight={500}>
+                    {product.item_code || "N/A"}
+                  </Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Brand</Typography>
-                  <Typography variant="body2" fontWeight={500}>{brandName || "N/A"}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Brand
+                  </Typography>
+                  <Typography variant="body2" fontWeight={500}>
+                    {brandName || "N/A"}
+                  </Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Category</Typography>
-                  <Typography variant="body2" fontWeight={500}>{categoryName || "N/A"}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Category
+                  </Typography>
+                  <Typography variant="body2" fontWeight={500}>
+                    {categoryName || "N/A"}
+                  </Typography>
                 </Grid>
               </Grid>
             </Paper>
@@ -258,31 +330,55 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Grid container spacing={2}>
                 <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Barcode</Typography>
-                  <Typography variant="body2" fontWeight={500} fontFamily="monospace">{stock.barcode}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Barcode
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    fontWeight={500}
+                    fontFamily="monospace"
+                  >
+                    {stock.barcode}
+                  </Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Status</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Status
+                  </Typography>
                   <Box sx={{ mt: 0.5 }}>
                     <StatusChip status={stock.status} />
                   </Box>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Branch</Typography>
-                  <Typography variant="body2" fontWeight={500}>{stock.branch_code}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">GRN No</Typography>
-                  <Typography variant="body2" fontWeight={500}>{stock.grn_no || stock.good_received_note_id || "N/A"}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Warranty</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Branch
+                  </Typography>
                   <Typography variant="body2" fontWeight={500}>
-                    {stock.warranty_month ? `${stock.warranty_month} months` : "N/A"}
+                    {stock.branch_code}
                   </Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Received Date</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    GRN No
+                  </Typography>
+                  <Typography variant="body2" fontWeight={500}>
+                    {stock.grn_no || stock.good_received_note_id || "N/A"}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">
+                    Warranty
+                  </Typography>
+                  <Typography variant="body2" fontWeight={500}>
+                    {stock.warranty_month
+                      ? `${stock.warranty_month} months`
+                      : "N/A"}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">
+                    Received Date
+                  </Typography>
                   <Typography variant="body2" fontWeight={500}>
                     {format(parseISO(stock.added_date), "dd MMM yyyy")}
                   </Typography>
@@ -302,14 +398,32 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
                   <CircularProgress size={24} />
                 </Box>
               ) : !trackingEvents || trackingEvents.length === 0 ? (
-                <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", py: 1 }}>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ textAlign: "center", py: 1 }}
+                >
                   No tracking events found
                 </Typography>
               ) : (
                 trackingEvents.map((evt, index) => (
-                  <Box key={index} sx={{ display: "flex", gap: 2, mb: index < trackingEvents.length - 1 ? 2 : 0 }}>
+                  <Box
+                    key={index}
+                    sx={{
+                      display: "flex",
+                      gap: 2,
+                      mb: index < trackingEvents.length - 1 ? 2 : 0,
+                    }}
+                  >
                     {/* Timeline connector */}
-                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", pt: 0.5 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        pt: 0.5,
+                      }}
+                    >
                       <Box
                         sx={{
                           width: 10,
@@ -320,44 +434,114 @@ const StockDetailsPanel = ({ stock, product, brandName, categoryName, isOpen, on
                         }}
                       />
                       {index < trackingEvents.length - 1 && (
-                        <Box sx={{ width: 2, flex: 1, bgcolor: "divider", mt: 0.5 }} />
+                        <Box
+                          sx={{
+                            width: 2,
+                            flex: 1,
+                            bgcolor: "divider",
+                            mt: 0.5,
+                          }}
+                        />
                       )}
                     </Box>
                     {/* Event content */}
-                    <Box sx={{ flex: 1, pb: index < trackingEvents.length - 1 ? 1 : 0 }}>
-                      <Typography variant="body2" fontWeight={600}>{evt.action}</Typography>
-                      <Typography variant="caption" color="text.secondary">{evt.details}</Typography>
+                    <Box
+                      sx={{
+                        flex: 1,
+                        pb: index < trackingEvents.length - 1 ? 1 : 0,
+                      }}
+                    >
+                      <Typography variant="body2" fontWeight={600}>
+                        {evt.action}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {evt.details}
+                      </Typography>
                       {evt.date && (
-                        <Typography variant="caption" display="block" color="text.secondary">
+                        <Typography
+                          variant="caption"
+                          display="block"
+                          color="text.secondary"
+                        >
                           {format(parseISO(evt.date), "dd MMM yyyy HH:mm")}
                         </Typography>
                       )}
                       {/* Extra details */}
                       {evt.extra && Object.keys(evt.extra).length > 0 && (
-                        <Box sx={{ mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                        <Box
+                          sx={{
+                            mt: 0.5,
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 0.5,
+                          }}
+                        >
                           {evt.extra.po_no && (
-                            <Chip label={`PO: ${evt.extra.po_no}`} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                            <Chip
+                              label={`PO: ${evt.extra.po_no}`}
+                              size="small"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.65rem" }}
+                            />
                           )}
                           {evt.extra.location && (
-                            <Chip label={`Location: ${evt.extra.location}`} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                            <Chip
+                              label={`Location: ${evt.extra.location}`}
+                              size="small"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.65rem" }}
+                            />
                           )}
                           {evt.extra.branch && (
-                            <Chip label={`Branch: ${evt.extra.branch}`} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                            <Chip
+                              label={`Branch: ${evt.extra.branch}`}
+                              size="small"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.65rem" }}
+                            />
                           )}
                           {evt.extra.selling_price != null && (
-                            <Chip label={`Rs. ${Number(evt.extra.selling_price).toFixed(2)}`} size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                            <Chip
+                              label={`Rs. ${Number(evt.extra.selling_price).toFixed(2)}`}
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.65rem" }}
+                            />
                           )}
                           {evt.extra.return_price != null && (
-                            <Chip label={`Return: Rs. ${Number(evt.extra.return_price).toFixed(2)}`} size="small" color="warning" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                            <Chip
+                              label={`Return: Rs. ${Number(evt.extra.return_price).toFixed(2)}`}
+                              size="small"
+                              color="warning"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.65rem" }}
+                            />
                           )}
                           {evt.extra.condition && (
-                            <Chip label={`Condition: ${evt.extra.condition}`} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                            <Chip
+                              label={`Condition: ${evt.extra.condition}`}
+                              size="small"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.65rem" }}
+                            />
                           )}
                           {evt.extra.from_location && evt.extra.to_location && (
-                            <Chip label={`${evt.extra.from_location} → ${evt.extra.to_location}`} size="small" color="secondary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                            <Chip
+                              label={`${evt.extra.from_location} → ${evt.extra.to_location}`}
+                              size="small"
+                              color="secondary"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.65rem" }}
+                            />
                           )}
                           {evt.extra.status && (
-                            <Chip label={String(evt.extra.status)} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                            <Chip
+                              label={String(evt.extra.status)}
+                              size="small"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.65rem" }}
+                            />
                           )}
                         </Box>
                       )}
@@ -395,10 +579,14 @@ export default function SalesStockDashboard() {
   const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(false);
 
   // OPTIMIZED: Fetch all reference data in a single API call
-  const { data: refData, isLoading: isLoadingRefData, filteredBranches, defaultBranchCode } = useReferenceData(
-    REFERENCE_DATA_PRESETS.DASHBOARD,
-    { productsLimit: 1000 }
-  );
+  const {
+    data: refData,
+    isLoading: isLoadingRefData,
+    filteredBranches,
+    defaultBranchCode,
+  } = useReferenceData(REFERENCE_DATA_PRESETS.DASHBOARD, {
+    productsLimit: 1000,
+  });
 
   // Set default branch filter from user's assigned branch
   useEffect(() => {
@@ -408,10 +596,15 @@ export default function SalesStockDashboard() {
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wait until branch default is resolved before firing the query
-  const branchResolved = defaultBranchCode === undefined || selectedBranch !== "";
+  const branchResolved =
+    defaultBranchCode === undefined || selectedBranch !== "";
 
   // Fetch sales stock data (still separate as it depends on branch filter)
-  const { data: salesStockData, isLoading: isLoadingStock, refetch: refetchStock } = useQuery({
+  const {
+    data: salesStockData,
+    isLoading: isLoadingStock,
+    refetch: refetchStock,
+  } = useQuery({
     queryKey: ["salesStock", selectedBranch],
     queryFn: async () => {
       const params: { branch_code?: string } = {};
@@ -432,7 +625,7 @@ export default function SalesStockDashboard() {
   const locations = refData?.locations || [];
   const products = (refData?.products || []) as Product[];
   const salesStock = salesStockData || [];
-  
+
   // Loading state combines reference data and stock loading
   const isLoadingBranches = isLoadingRefData;
   const isLoadingLocations = isLoadingRefData;
@@ -489,8 +682,10 @@ export default function SalesStockDashboard() {
     if (selectedBrand !== "all") {
       filtered = filtered.filter((stock: SalesStock) => {
         const product = getProduct(stock.product_id);
-        return product?.items_brand_id?.toString() === selectedBrand || 
-               (product as any)?.brand_id?.toString() === selectedBrand;
+        return (
+          product?.items_brand_id?.toString() === selectedBrand ||
+          (product as any)?.brand_id?.toString() === selectedBrand
+        );
       });
     }
 
@@ -503,46 +698,69 @@ export default function SalesStockDashboard() {
 
     // Status filter
     if (selectedStatus !== "all") {
-      filtered = filtered.filter((stock: SalesStock) => 
-        stock.status?.toLowerCase() === selectedStatus.toLowerCase()
+      filtered = filtered.filter(
+        (stock: SalesStock) =>
+          stock.status?.toLowerCase() === selectedStatus.toLowerCase(),
       );
     }
 
     // Date range filter
     if (dateFrom) {
-      filtered = filtered.filter((stock: SalesStock) => stock.added_date >= dateFrom);
+      filtered = filtered.filter(
+        (stock: SalesStock) => stock.added_date >= dateFrom,
+      );
     }
     if (dateTo) {
-      filtered = filtered.filter((stock: SalesStock) => stock.added_date <= dateTo);
+      filtered = filtered.filter(
+        (stock: SalesStock) => stock.added_date <= dateTo,
+      );
     }
 
     // Location filter - now working with location_name from backend
     if (selectedLocation !== "all") {
-      filtered = filtered.filter((stock: SalesStock) => 
-        (stock as any).location_name === selectedLocation
+      filtered = filtered.filter(
+        (stock: SalesStock) =>
+          (stock as any).location_name === selectedLocation,
       );
     }
 
     return filtered;
-  }, [salesStock, searchQuery, selectedBrand, selectedProduct, selectedStatus, dateFrom, dateTo, selectedLocation, products]);
+  }, [
+    salesStock,
+    searchQuery,
+    selectedBrand,
+    selectedProduct,
+    selectedStatus,
+    dateFrom,
+    dateTo,
+    selectedLocation,
+    products,
+  ]);
 
   // Calculate summary stats
   const summaryStats = useMemo(() => {
-    const inStock = filteredStock.filter((s: SalesStock) => 
-      s.status?.toLowerCase() === "in_stock" || s.status?.toLowerCase() === "available"
+    const inStock = filteredStock.filter(
+      (s: SalesStock) =>
+        s.status?.toLowerCase() === "in_stock" ||
+        s.status?.toLowerCase() === "available",
     ).length;
-    const reserved = filteredStock.filter((s: SalesStock) => 
-      s.status?.toLowerCase() === "reserved"
+    const reserved = filteredStock.filter(
+      (s: SalesStock) => s.status?.toLowerCase() === "reserved",
     ).length;
     const soldToday = filteredStock.filter((s: SalesStock) => {
       if (s.status?.toLowerCase() !== "sold") return false;
       const today = new Date().toISOString().split("T")[0];
-      return (s as any).updated_at?.startsWith(today) || s.added_date?.startsWith(today);
+      return (
+        (s as any).updated_at?.startsWith(today) ||
+        s.added_date?.startsWith(today)
+      );
     }).length;
-    
+
     // Returned items calculation (returned_to_supplier + return_pending)
-    const returnedItems = filteredStock.filter((s: SalesStock) => 
-      s.status?.toLowerCase() === "returned_to_supplier" || s.status?.toLowerCase() === "return_pending"
+    const returnedItems = filteredStock.filter(
+      (s: SalesStock) =>
+        s.status?.toLowerCase() === "returned_to_supplier" ||
+        s.status?.toLowerCase() === "return_pending",
     ).length;
 
     return { inStock, reserved, soldToday, returnedItems };
@@ -551,51 +769,45 @@ export default function SalesStockDashboard() {
   // Reset page when filters change
   useEffect(() => {
     setPage(0);
-  }, [searchQuery, selectedBrand, selectedProduct, selectedStatus, dateFrom, dateTo, selectedLocation, selectedBranch]);
+  }, [
+    searchQuery,
+    selectedBrand,
+    selectedProduct,
+    selectedStatus,
+    dateFrom,
+    dateTo,
+    selectedLocation,
+    selectedBranch,
+  ]);
 
   // ─── CSV Export ─────────────────────────────────────────────────────────
-  const exportToCSV = () => {
-    const headers = [
-      "Barcode", "Product", "Item Code", "Brand", "Category", "Branch",
-      "Location", "Status", "GRN No", "Received Date", "Cost Price", "Selling Price",
-    ];
-    const rows = filteredStock.map((stock: SalesStock) => {
-      const product = getProduct(stock.product_id);
-      const brandName = stock.brand_id ? getBrand(stock.brand_id)?.brand_name : getProductBrandName(product);
-      const categoryName = getProductCategoryName(product);
-      return [
-        stock.barcode,
-        stock.product_name || product?.name || "",
-        stock.item_code || product?.item_code || "",
-        brandName || "",
-        categoryName || "",
-        stock.branch_code,
-        stock.location_name || "",
-        stock.status,
-        stock.grn_no || "",
-        stock.added_date ? format(parseISO(stock.added_date), "yyyy-MM-dd") : "",
-        stock.cost_price ?? "",
-        stock.selling_price ?? "",
-      ];
-    });
+  const exportToCSV = async () => {
+    try {
+      const branchParam = selectedBranch
+        ? `&branch_code=${selectedBranch}`
+        : "";
+      const statusParam = selectedStatus ? `&status=${selectedStatus}` : "";
+      const productParam = selectedProduct
+        ? `&product_id=${selectedProduct}`
+        : "";
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map((row) =>
-        row.map((cell) => {
-          const str = String(cell).replace(/"/g, '""');
-          return str.includes(",") || str.includes('"') || str.includes("\n") ? `"${str}"` : str;
-        }).join(",")
-      ),
-    ].join("\n");
+      const response = await apiClient.get<Blob>(
+        `/inventory/sales-stock/export-csv?limit=100000${branchParam}${statusParam}${productParam}`,
+        {
+          responseType: "blob",
+        },
+      );
 
-    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `sales_stock_${selectedBranch || "all"}_${format(new Date(), "yyyy-MM-dd_HHmmss")}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `sales_stock_${selectedBranch || "all"}_${format(new Date(), "yyyy-MM-dd_HHmmss")}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   // Clear all filters
@@ -610,13 +822,32 @@ export default function SalesStockDashboard() {
   };
 
   // Get paginated data
-  const paginatedStock = filteredStock.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const paginatedStock = filteredStock.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage,
+  );
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", gap: 2, p: 2 }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        gap: 2,
+        p: 2,
+      }}
+    >
       {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Typography variant="h5" fontWeight={600}>Sales Stock</Typography>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <Typography variant="h5" fontWeight={600}>
+          Sales Stock
+        </Typography>
         <Stack direction="row" spacing={1}>
           <Button
             variant="outlined"
@@ -696,8 +927,14 @@ export default function SalesStockDashboard() {
                 size="small"
                 options={branches}
                 getOptionLabel={(option: any) => option.branch_name || ""}
-                value={branches.find((branch: any) => branch.branch_code === selectedBranch) || null}
-                onChange={(_, value: any) => setSelectedBranch(value?.branch_code || "")}
+                value={
+                  branches.find(
+                    (branch: any) => branch.branch_code === selectedBranch,
+                  ) || null
+                }
+                onChange={(_, value: any) =>
+                  setSelectedBranch(value?.branch_code || "")
+                }
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -705,7 +942,9 @@ export default function SalesStockDashboard() {
                     placeholder="Search branches..."
                   />
                 )}
-                noOptionsText={isLoadingBranches ? "Loading..." : "No branches found"}
+                noOptionsText={
+                  isLoadingBranches ? "Loading..." : "No branches found"
+                }
               />
             </Grid>
 
@@ -715,8 +954,15 @@ export default function SalesStockDashboard() {
                 size="small"
                 options={locations}
                 getOptionLabel={(option: LocationRef) => option.name || ""}
-                value={locations.find((location: LocationRef) => location.name === selectedLocation) || null}
-                onChange={(_, value: LocationRef | null) => setSelectedLocation(value?.name || "all")}
+                value={
+                  locations.find(
+                    (location: LocationRef) =>
+                      location.name === selectedLocation,
+                  ) || null
+                }
+                onChange={(_, value: LocationRef | null) =>
+                  setSelectedLocation(value?.name || "all")
+                }
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -724,7 +970,9 @@ export default function SalesStockDashboard() {
                     placeholder="Search locations..."
                   />
                 )}
-                noOptionsText={isLoadingLocations ? "Loading..." : "No locations found"}
+                noOptionsText={
+                  isLoadingLocations ? "Loading..." : "No locations found"
+                }
               />
             </Grid>
 
@@ -753,8 +1001,14 @@ export default function SalesStockDashboard() {
                 size="small"
                 options={brands}
                 getOptionLabel={(option: Brand) => option.brand_name || ""}
-                value={brands.find((brand: Brand) => brand.id.toString() === selectedBrand) || null}
-                onChange={(_, value: Brand | null) => setSelectedBrand(value?.id.toString() || "all")}
+                value={
+                  brands.find(
+                    (brand: Brand) => brand.id.toString() === selectedBrand,
+                  ) || null
+                }
+                onChange={(_, value: Brand | null) =>
+                  setSelectedBrand(value?.id.toString() || "all")
+                }
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -772,8 +1026,15 @@ export default function SalesStockDashboard() {
                 size="small"
                 options={products}
                 getOptionLabel={(option: Product) => option.name || ""}
-                value={products.find((product: Product) => product.id.toString() === selectedProduct) || null}
-                onChange={(_, value: Product | null) => setSelectedProduct(value?.id.toString() || "all")}
+                value={
+                  products.find(
+                    (product: Product) =>
+                      product.id.toString() === selectedProduct,
+                  ) || null
+                }
+                onChange={(_, value: Product | null) =>
+                  setSelectedProduct(value?.id.toString() || "all")
+                }
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -793,22 +1054,32 @@ export default function SalesStockDashboard() {
                   { value: "available", label: "Available" },
                   { value: "sold", label: "Sold" },
                   { value: "reserved", label: "Reserved" },
-                  { value: "returned_to_supplier", label: "Returned to Supplier" },
+                  {
+                    value: "returned_to_supplier",
+                    label: "Returned to Supplier",
+                  },
                   { value: "return_pending", label: "Return Pending" },
                   { value: "transferred", label: "Transferred" },
                   { value: "damaged", label: "Damaged" },
                 ]}
                 getOptionLabel={(option) => option.label}
-                value={[
-                  { value: "available", label: "Available" },
-                  { value: "sold", label: "Sold" },
-                  { value: "reserved", label: "Reserved" },
-                  { value: "returned_to_supplier", label: "Returned to Supplier" },
-                  { value: "return_pending", label: "Return Pending" },
-                  { value: "transferred", label: "Transferred" },
-                  { value: "damaged", label: "Damaged" },
-                ].find(s => s.value === selectedStatus) || null}
-                onChange={(_, value) => setSelectedStatus(value?.value || "all")}
+                value={
+                  [
+                    { value: "available", label: "Available" },
+                    { value: "sold", label: "Sold" },
+                    { value: "reserved", label: "Reserved" },
+                    {
+                      value: "returned_to_supplier",
+                      label: "Returned to Supplier",
+                    },
+                    { value: "return_pending", label: "Return Pending" },
+                    { value: "transferred", label: "Transferred" },
+                    { value: "damaged", label: "Damaged" },
+                  ].find((s) => s.value === selectedStatus) || null
+                }
+                onChange={(_, value) =>
+                  setSelectedStatus(value?.value || "all")
+                }
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -852,9 +1123,9 @@ export default function SalesStockDashboard() {
 
             {/* Clear Filters */}
             <Grid item xs={12} sm={6} md={4} lg={2}>
-              <Button 
-                variant="outlined" 
-                fullWidth 
+              <Button
+                variant="outlined"
+                fullWidth
                 onClick={clearFilters}
                 sx={{ height: 40 }}
               >
@@ -866,9 +1137,28 @@ export default function SalesStockDashboard() {
       </Collapse>
 
       {/* Data Table */}
-      <Paper variant="outlined" sx={{ flex: 1, display: "flex", flexDirection: "column", borderRadius: 2, overflow: "hidden" }}>
+      <Paper
+        variant="outlined"
+        sx={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          borderRadius: 2,
+          overflow: "hidden",
+        }}
+      >
         {/* Table Header */}
-        <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <Box
+          sx={{
+            px: 2,
+            py: 1.5,
+            borderBottom: 1,
+            borderColor: "divider",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
           <Typography variant="subtitle1" fontWeight={500}>
             Stock Items ({filteredStock.length.toLocaleString()})
           </Typography>
@@ -876,16 +1166,33 @@ export default function SalesStockDashboard() {
 
         {/* Table Content */}
         {isLoadingStock ? (
-          <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Box
+            sx={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
             <CircularProgress />
           </Box>
         ) : paginatedStock.length === 0 ? (
-          <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 2, py: 8 }}>
+          <Box
+            sx={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexDirection: "column",
+              gap: 2,
+              py: 8,
+            }}
+          >
             <PackageIcon sx={{ fontSize: 64, opacity: 0.3 }} />
             <Typography color="text.secondary">No stock items found</Typography>
             <Typography variant="body2" color="text.secondary">
-              {salesStock.length === 0 
-                ? "Sales stock is created when Goods Received Notes (GRN) are approved. Add inventory through the Purchasing → GRN workflow." 
+              {salesStock.length === 0
+                ? "Sales stock is created when Goods Received Notes (GRN) are approved. Add inventory through the Purchasing → GRN workflow."
                 : "Try adjusting your filters"}
             </Typography>
           </Box>
@@ -910,10 +1217,12 @@ export default function SalesStockDashboard() {
               <TableBody>
                 {paginatedStock.map((stock: SalesStock) => {
                   const product = getProduct(stock.product_id);
-                  const brandName = stock.brand_id ? getBrand(stock.brand_id)?.brand_name : null;
-                  
+                  const brandName = stock.brand_id
+                    ? getBrand(stock.brand_id)?.brand_name
+                    : null;
+
                   return (
-                    <TableRow 
+                    <TableRow
                       key={stock.id}
                       hover
                       sx={{ cursor: "pointer" }}
@@ -922,37 +1231,61 @@ export default function SalesStockDashboard() {
                         setIsDetailsPanelOpen(true);
                       }}
                     >
-                      <TableCell sx={{ fontFamily: "monospace", fontSize: "0.85rem" }}>{stock.barcode}</TableCell>
+                      <TableCell
+                        sx={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+                      >
+                        {stock.barcode}
+                      </TableCell>
                       <TableCell sx={{ fontWeight: 500 }}>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Box
+                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        >
                           {product?.image_url && (
                             <Box
                               component="img"
                               src={product.image_url}
                               alt={product.name}
-                              onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                              onError={(
+                                e: React.SyntheticEvent<HTMLImageElement>,
+                              ) => {
                                 e.currentTarget.style.display = "none";
                               }}
-                              sx={{ width: 32, height: 32, objectFit: "contain", borderRadius: 0.5, border: "1px solid", borderColor: "divider", flexShrink: 0 }}
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                objectFit: "contain",
+                                borderRadius: 0.5,
+                                border: "1px solid",
+                                borderColor: "divider",
+                                flexShrink: 0,
+                              }}
                             />
                           )}
                           {stock.product_name || product?.name || "Unknown"}
                         </Box>
                       </TableCell>
-                      <TableCell>{stock.item_code || product?.item_code || "-"}</TableCell>
-                      <TableCell>{brandName || getProductBrandName(product) || "-"}</TableCell>
+                      <TableCell>
+                        {stock.item_code || product?.item_code || "-"}
+                      </TableCell>
+                      <TableCell>
+                        {brandName || getProductBrandName(product) || "-"}
+                      </TableCell>
                       <TableCell>{stock.branch_code}</TableCell>
                       <TableCell>{stock.location_name || "-"}</TableCell>
                       <TableCell>
                         <StatusChip status={stock.status} />
                       </TableCell>
                       <TableCell>{stock.grn_no || "-"}</TableCell>
-                      <TableCell>{format(parseISO(stock.added_date), "dd MMM yyyy")}</TableCell>
+                      <TableCell>
+                        {format(parseISO(stock.added_date), "dd MMM yyyy")}
+                      </TableCell>
                       <TableCell align="right">
                         {stock.cost_price ? fmtLKR(stock.cost_price) : "-"}
                       </TableCell>
                       <TableCell align="right">
-                        {stock.selling_price ? fmtLKR(stock.selling_price) : "-"}
+                        {stock.selling_price
+                          ? fmtLKR(stock.selling_price)
+                          : "-"}
                       </TableCell>
                     </TableRow>
                   );
@@ -982,9 +1315,19 @@ export default function SalesStockDashboard() {
       {/* Stock Details Panel */}
       <StockDetailsPanel
         stock={selectedStock}
-        product={selectedStock ? getProduct(selectedStock.product_id) || null : null}
-        brandName={selectedStock ? getProductBrandName(getProduct(selectedStock.product_id)) : ""}
-        categoryName={selectedStock ? getProductCategoryName(getProduct(selectedStock.product_id)) : ""}
+        product={
+          selectedStock ? getProduct(selectedStock.product_id) || null : null
+        }
+        brandName={
+          selectedStock
+            ? getProductBrandName(getProduct(selectedStock.product_id))
+            : ""
+        }
+        categoryName={
+          selectedStock
+            ? getProductCategoryName(getProduct(selectedStock.product_id))
+            : ""
+        }
         isOpen={isDetailsPanelOpen}
         onClose={() => setIsDetailsPanelOpen(false)}
       />

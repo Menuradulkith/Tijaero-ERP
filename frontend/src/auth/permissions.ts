@@ -203,11 +203,14 @@ export function getUserPermissions(user: User | null): string[] {
  * Module-to-permission mapping for route guards and sidebar visibility.
  * Maps each route prefix to the VIEW permission required to access it.
  */
-export const MODULE_PERMISSIONS: Record<string, { resource: string; action: string }> = {
+export const MODULE_PERMISSIONS: Record<
+  string,
+  { resource: string; action: string }
+> = {
   "/dashboard": PERMISSIONS.DASHBOARD_VIEW,
   "/sales": PERMISSIONS.SALES_VIEW,
   "/purchasing": PERMISSIONS.PURCHASING_VIEW,
-  "/inventory": PERMISSIONS.INVENTORY_VIEW,
+  "/product-catalogs": PERMISSIONS.INVENTORY_VIEW,
   "/finance": PERMISSIONS.FINANCE_VIEW,
   "/hr": PERMISSIONS.HR_VIEW,
   "/warehouse": PERMISSIONS.WAREHOUSE_VIEW,
@@ -225,7 +228,7 @@ export const MODULE_PERMISSIONS: Record<string, { resource: string; action: stri
  */
 export function hasModuleAccess(
   user: User | null,
-  modulePath: string
+  modulePath: string,
 ): boolean {
   if (!user) return false;
   if (user.is_superuser) return true;
@@ -244,7 +247,7 @@ export function hasAnyModuleAccess(user: User | null): boolean {
   if (user.is_superuser) return true;
 
   return Object.values(MODULE_PERMISSIONS).some((perm) =>
-    hasPermission(user, perm.resource, perm.action)
+    hasPermission(user, perm.resource, perm.action),
   );
 }
 
