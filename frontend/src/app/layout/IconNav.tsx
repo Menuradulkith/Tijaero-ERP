@@ -119,21 +119,21 @@ const allPages = [
   },
   {
     text: "Products",
-    path: "/inventory",
+    path: "/product-catalogs",
     keywords: ["items", "stock"],
-    module: "/inventory",
+    module: "/product-catalogs",
   },
   {
     text: "Categories",
-    path: "/inventory/categories",
+    path: "/product-catalogs/categories",
     keywords: ["groups"],
-    module: "/inventory",
+    module: "/product-catalogs",
   },
   {
     text: "Brands",
-    path: "/inventory/brands",
+    path: "/product-catalogs/brands",
     keywords: ["manufacturers"],
-    module: "/inventory",
+    module: "/product-catalogs",
   },
   {
     text: "Finance",

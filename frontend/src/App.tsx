@@ -74,7 +74,7 @@ function App() {
             }
           />
           <Route
-            path="/inventory/*"
+            path="/product-catalogs/*"
             element={
               <ProtectedRoute resource="inventory" action="view">
                 <Suspense fallback={<RouteLoadingFallback />}>

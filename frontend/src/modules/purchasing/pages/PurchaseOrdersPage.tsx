@@ -4,6 +4,8 @@
  */
 
 // Confirm dialog now uses TConfirmDialog from tijaero
+import apiClient from "@/api/client";
+import { FileDownload as DownloadIcon } from "@mui/icons-material";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -12,72 +14,72 @@ import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import {
-  Alert,
-  Autocomplete,
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  MenuItem,
-  Paper,
-  Step,
-  StepLabel,
-  Stepper,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Tooltip,
-  Typography,
+    Alert,
+    Autocomplete,
+    Box,
+    Button,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    IconButton,
+    MenuItem,
+    Paper,
+    Step,
+    StepLabel,
+    Stepper,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+    TextField,
+    Tooltip,
+    Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 // Import tijaero components
 import {
-  ActionToolbar,
-  DetailPanelHeader,
-  EmptyState,
-  fmtLKR,
-  FormSection,
-  handleApiError,
-  MasterDetailLayout,
-  PURCHASING_PAYMENT_METHOD,
-  SearchableList,
-  SelectableListItem,
-  SortOption,
-  TBranchFilter,
-  TConfirmDialog,
-  TFilterPanel,
-  TPrintButton,
-  TPrintPreviewDialog,
-  TStatusChip,
-  TSupplierFilter,
-  canPrintDocument,
-  getStatusProps,
-  modernTableStyles,
-  showErrorToast,
-  showSuccessToast,
-  showWarningToast,
-  useMasterDetailState,
-  useTConfirmDialog,
+    ActionToolbar,
+    canPrintDocument,
+    DetailPanelHeader,
+    EmptyState,
+    fmtLKR,
+    FormSection,
+    getStatusProps,
+    handleApiError,
+    MasterDetailLayout,
+    modernTableStyles,
+    PURCHASING_PAYMENT_METHOD,
+    SearchableList,
+    SelectableListItem,
+    showErrorToast,
+    showSuccessToast,
+    showWarningToast,
+    SortOption,
+    TBranchFilter,
+    TConfirmDialog,
+    TFilterPanel,
+    TPrintButton,
+    TPrintPreviewDialog,
+    TStatusChip,
+    TSupplierFilter,
+    useMasterDetailState,
+    useTConfirmDialog,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 // OPTIMIZED: Removed individual imports for productsApi, branchApi - using aggregated endpoint
 import {
-  DailyPOLimitCheck,
-  PurchasingOrder,
-  PurchasingOrderCreate,
-  PurchasingOrderItemCreate,
-  PurchasingOrderWithItems,
-  Supplier,
+    DailyPOLimitCheck,
+    PurchasingOrder,
+    PurchasingOrderCreate,
+    PurchasingOrderItemCreate,
+    PurchasingOrderWithItems,
+    Supplier,
 } from "@/modules/purchasing/types";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -100,7 +102,7 @@ const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
       if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
     }
   }
-  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, "0")}`;
 };
 
 // Extended form type to include editable status fields
@@ -126,7 +128,9 @@ interface OrderLineItem extends PurchasingOrderItemCreate {
   _id: string;
 }
 
-const resetFormFromOrder = (order: PurchasingOrder | PurchasingOrderWithItems): PurchaseOrderFormData => ({
+const resetFormFromOrder = (
+  order: PurchasingOrder | PurchasingOrderWithItems,
+): PurchaseOrderFormData => ({
   purchasing_order_no: order.purchasing_order_no,
   branch_code: order.branch_code,
   payment_method: order.payment_method,
@@ -137,13 +141,16 @@ const resetFormFromOrder = (order: PurchasingOrder | PurchasingOrderWithItems): 
   first_suppliers_id: order.first_suppliers_id,
   second_suppliers_id: order.second_suppliers_id,
   status: order.status || "draft",
-  items: "items" in order && order.items ? order.items.map(item => ({
-    product_id: item.product_id,
-    quantity: item.quantity,
-    unit_price: item.unit_price,
-    warrenty_month: item.warrenty_month || "0",
-    remark: item.remark || "",
-  })) : [],
+  items:
+    "items" in order && order.items
+      ? order.items.map((item) => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          warrenty_month: item.warrenty_month || "0",
+          remark: item.remark || "",
+        }))
+      : [],
 });
 
 export default function PurchaseOrdersPage() {
@@ -161,7 +168,8 @@ export default function PurchaseOrdersPage() {
 
   // Daily PO limit warning dialog state
   const [dailyLimitWarningOpen, setDailyLimitWarningOpen] = useState(false);
-  const [dailyLimitInfo, setDailyLimitInfo] = useState<DailyPOLimitCheck | null>(null);
+  const [dailyLimitInfo, setDailyLimitInfo] =
+    useState<DailyPOLimitCheck | null>(null);
   const [isDailyLimitExceeded, setIsDailyLimitExceeded] = useState(false);
 
   // Credit warning state
@@ -174,7 +182,7 @@ export default function PurchaseOrdersPage() {
 
   // Mark field as touched when user leaves it
   const handleBlur = (fieldName: string) => {
-    setTouched(prev => ({ ...prev, [fieldName]: true }));
+    setTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
 
   // Filter states
@@ -183,7 +191,8 @@ export default function PurchaseOrdersPage() {
 
   // Item remarks modal state
   const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
-  const [selectedItemForRemark, setSelectedItemForRemark] = useState<OrderLineItem | null>(null);
+  const [selectedItemForRemark, setSelectedItemForRemark] =
+    useState<OrderLineItem | null>(null);
   const [tempItemRemark, setTempItemRemark] = useState("");
 
   const handleOpenItemRemarkModal = (item: OrderLineItem) => {
@@ -194,7 +203,9 @@ export default function PurchaseOrdersPage() {
 
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
-  const [selectedPoIdForPrint, setSelectedPoIdForPrint] = useState<number | null>(null);
+  const [selectedPoIdForPrint, setSelectedPoIdForPrint] = useState<
+    number | null
+  >(null);
 
   const handlePrint = (poId: number) => {
     setSelectedPoIdForPrint(poId);
@@ -233,15 +244,19 @@ export default function PurchaseOrdersPage() {
     resetFormFromItem: resetFormFromOrder,
     favoritesKey: "purchase_orders_favorites",
     defaultSortField: "added_date",
-    confirmUnsavedChanges: () => confirmDialog.confirm({
-      title: "Discard Changes",
-      message: "You have unsaved changes. Discard them?",
-      confirmText: "Discard",
-      cancelText: "Keep Editing",
-      confirmColor: "warning",
-    }),
+    confirmUnsavedChanges: () =>
+      confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      }),
     extraDirty: lineItems.length > 0,
-    onDiscard: () => { setLineItems([]); setFormStep(0); },
+    onDiscard: () => {
+      setLineItems([]);
+      setFormStep(0);
+    },
   });
 
   const handleStartEdit = useCallback(() => {
@@ -251,50 +266,65 @@ export default function PurchaseOrdersPage() {
     // @ts-ignore - selectedOrder might have items from detailed fetch
     if (selectedOrder?.items) {
       // @ts-ignore
-      setLineItems(selectedOrder.items.map((item: any, idx: number) => ({
-        _id: `existing-${idx}`,
-        product_id: item.product_id,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        warrenty_month: item.warrenty_month || "0",
-        remark: item.remark || "",
-      })));
-    }
-  }, [handleStartEditBase, selectedOrder]);
-
-  const handleCancel = useCallback((items: PurchasingOrder[]) => {
-    handleCancelBase(items);
-    setLineItems([]);
-    setFormStep(0);
-    setTouched({}); // Reset validation state
-    setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false }); // Clear credit warning
-  }, [handleCancelBase]);
-
-  // Handler that wraps hook's handler (which already handles unsaved changes confirm)
-  const handleSelectOrderWithItems = useCallback(async (order: PurchasingOrder) => {
-    const selected = await handleSelectOrder(order);
-    if (!selected) return; // User cancelled
-
-    // Load detailed items after selection
-    setTouched({});
-    try {
-      const detailedOrder = await purchaseOrdersApi.getById(order.id);
-      if (detailedOrder.items) {
-        setLineItems(detailedOrder.items.map((item, idx) => ({
+      setLineItems(
+        (selectedOrder as any).items.map((item: any, idx: number) => ({
           _id: `existing-${idx}`,
           product_id: item.product_id,
           quantity: item.quantity,
           unit_price: item.unit_price,
           warrenty_month: item.warrenty_month || "0",
           remark: item.remark || "",
-        })));
-      } else {
+        })),
+      );
+    }
+  }, [handleStartEditBase, selectedOrder]);
+
+  const handleCancel = useCallback(
+    (items: PurchasingOrder[]) => {
+      handleCancelBase(items);
+      setLineItems([]);
+      setFormStep(0);
+      setTouched({}); // Reset validation state
+      setCreditWarning({
+        show: false,
+        message: "",
+        breakdown: "",
+        requiresApproval: false,
+      }); // Clear credit warning
+    },
+    [handleCancelBase],
+  );
+
+  // Handler that wraps hook's handler (which already handles unsaved changes confirm)
+  const handleSelectOrderWithItems = useCallback(
+    async (order: PurchasingOrder) => {
+      const selected = await handleSelectOrder(order);
+      if (!selected) return; // User cancelled
+
+      // Load detailed items after selection
+      setTouched({});
+      try {
+        const detailedOrder = await purchaseOrdersApi.getById(order.id);
+        if (detailedOrder.items) {
+          setLineItems(
+            detailedOrder.items.map((item, idx) => ({
+              _id: `existing-${idx}`,
+              product_id: item.product_id,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              warrenty_month: item.warrenty_month || "0",
+              remark: item.remark || "",
+            })),
+          );
+        } else {
+          setLineItems([]);
+        }
+      } catch {
         setLineItems([]);
       }
-    } catch {
-      setLineItems([]);
-    }
-  }, [handleSelectOrder]);
+    },
+    [handleSelectOrder],
+  );
 
   // OPTIMIZED: Fetch suppliers separately (has complex filters) but use aggregated endpoint for products/branches
   const { data: suppliers } = useQuery({
@@ -303,7 +333,11 @@ export default function PurchaseOrdersPage() {
   });
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
-  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
+  const {
+    data: refData,
+    filteredBranches,
+    defaultBranchCode,
+  } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
   const branches = filteredBranches || [];
 
@@ -335,7 +369,7 @@ export default function PurchaseOrdersPage() {
         return null;
       }
     },
-    []
+    [],
   );
 
   // Start new order (internal, after limit check)
@@ -349,7 +383,12 @@ export default function PurchaseOrdersPage() {
     setLineItems([]);
     setFormStep(0);
     setTouched({}); // Reset validation state
-    setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false }); // Clear credit warning
+    setCreditWarning({
+      show: false,
+      message: "",
+      breakdown: "",
+      requiresApproval: false,
+    }); // Clear credit warning
   }, [handleNewOrderBase, setFormData, defaultBranchCode]);
 
   // Handle new order - don't check daily limit here, check when branch is selected
@@ -367,26 +406,32 @@ export default function PurchaseOrdersPage() {
 
     let filtered = orders.filter(
       (order) =>
-        order.purchasing_order_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        String(order.id).includes(searchQuery)
+        order.purchasing_order_no
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase()) ||
+        String(order.id).includes(searchQuery),
     );
 
     // Apply branch filter
     if (filterBranch) {
-      filtered = filtered.filter(order => order.branch_code === filterBranch);
+      filtered = filtered.filter((order) => order.branch_code === filterBranch);
     }
 
     // Apply supplier filter (matches either primary or secondary supplier)
     if (filterSupplier) {
-      filtered = filtered.filter(order =>
-        order.first_suppliers_id === filterSupplier ||
-        order.second_suppliers_id === filterSupplier
+      filtered = filtered.filter(
+        (order) =>
+          order.first_suppliers_id === filterSupplier ||
+          order.second_suppliers_id === filterSupplier,
       );
     }
 
     filtered.sort((a, b) => {
       if (sortField === "added_date") {
-        return new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
+        return (
+          new Date(b.added_date || "").getTime() -
+          new Date(a.added_date || "").getTime()
+        );
       }
       const fieldA = a[sortField as keyof PurchasingOrder] || "";
       const fieldB = b[sortField as keyof PurchasingOrder] || "";
@@ -406,8 +451,16 @@ export default function PurchaseOrdersPage() {
   // Handle navigation state from Quotation page (auto-select PO created from quotation)
   const navStateHandled = useRef(false);
   useEffect(() => {
-    const navState = location.state as { fromQuotation?: boolean; purchaseOrderId?: number; purchaseOrderNo?: string } | null;
-    if (navState?.fromQuotation && navState.purchaseOrderId && !navStateHandled.current) {
+    const navState = location.state as {
+      fromQuotation?: boolean;
+      purchaseOrderId?: number;
+      purchaseOrderNo?: string;
+    } | null;
+    if (
+      navState?.fromQuotation &&
+      navState.purchaseOrderId &&
+      !navStateHandled.current
+    ) {
       navStateHandled.current = true;
       // Invalidate and refetch to ensure the newly created PO appears
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
@@ -417,13 +470,26 @@ export default function PurchaseOrdersPage() {
   // After orders are (re)loaded, select the PO from navigation state
   const navSelectHandled = useRef(false);
   useEffect(() => {
-    const navState = location.state as { fromQuotation?: boolean; purchaseOrderId?: number; purchaseOrderNo?: string } | null;
-    if (navState?.fromQuotation && navState.purchaseOrderId && orders && !navSelectHandled.current) {
-      const createdPO = orders.find((o: PurchasingOrder) => o.id === navState.purchaseOrderId);
+    const navState = location.state as {
+      fromQuotation?: boolean;
+      purchaseOrderId?: number;
+      purchaseOrderNo?: string;
+    } | null;
+    if (
+      navState?.fromQuotation &&
+      navState.purchaseOrderId &&
+      orders &&
+      !navSelectHandled.current
+    ) {
+      const createdPO = orders.find(
+        (o: PurchasingOrder) => o.id === navState.purchaseOrderId,
+      );
       if (createdPO) {
         navSelectHandled.current = true;
         handleSelectOrderWithItems(createdPO);
-        showSuccessToast(`Navigated to PO ${navState.purchaseOrderNo || createdPO.purchasing_order_no} created from quotation`);
+        showSuccessToast(
+          `Navigated to PO ${navState.purchaseOrderNo || createdPO.purchasing_order_no} created from quotation`,
+        );
         // Clear navigation state to prevent re-triggering
         window.history.replaceState({}, document.title);
       }
@@ -448,7 +514,11 @@ export default function PurchaseOrdersPage() {
       }>;
     }
     const navState = location.state as ProformaNavState | null;
-    if (navState?.fromProforma && navState.items && !proformaNavHandled.current) {
+    if (
+      navState?.fromProforma &&
+      navState.items &&
+      !proformaNavHandled.current
+    ) {
       proformaNavHandled.current = true;
 
       // Enter create mode
@@ -463,17 +533,21 @@ export default function PurchaseOrdersPage() {
       }));
 
       // Pre-fill line items from proforma
-      const prefilledItems: OrderLineItem[] = navState.items.map((item, idx) => ({
-        _id: `proforma-${idx}-${Date.now()}`,
-        product_id: item.product_id,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        warrenty_month: item.warrenty_month || "0",
-        remark: item.remark || "",
-      }));
+      const prefilledItems: OrderLineItem[] = navState.items.map(
+        (item, idx) => ({
+          _id: `proforma-${idx}-${Date.now()}`,
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          warrenty_month: item.warrenty_month || "0",
+          remark: item.remark || "",
+        }),
+      );
       setLineItems(prefilledItems);
 
-      showSuccessToast(`Creating PO from Proforma ${navState.proformaNo || ""}. Fill in supplier details and save.`);
+      showSuccessToast(
+        `Creating PO from Proforma ${navState.proformaNo || ""}. Fill in supplier details and save.`,
+      );
 
       // Clear navigation state to prevent re-triggering
       window.history.replaceState({}, document.title);
@@ -481,40 +555,78 @@ export default function PurchaseOrdersPage() {
   }, [location.state, startNewOrderInternal, setFormData]);
 
   // Check credit limit when supplier or amount changes
-  const checkCreditLimit = useCallback(async (supplierId: number, amount: number, paymentMethod: string) => {
-    if (paymentMethod?.toLowerCase() === "credit" && supplierId > 0 && amount > 0) {
-      try {
-        const creditCheck = await purchaseOrdersApi.checkCredit(supplierId, amount);
+  const checkCreditLimit = useCallback(
+    async (supplierId: number, amount: number, paymentMethod: string) => {
+      if (
+        paymentMethod?.toLowerCase() === "credit" &&
+        supplierId > 0 &&
+        amount > 0
+      ) {
+        try {
+          const creditCheck = await purchaseOrdersApi.checkCredit(
+            supplierId,
+            amount,
+          );
 
-        if (creditCheck.requires_approval) {
+          if (creditCheck.requires_approval) {
+            setCreditWarning({
+              show: true,
+              message: creditCheck.credit_check.message,
+              breakdown: creditCheck.credit_check?.breakdown || "",
+              requiresApproval: true,
+            });
+          } else {
+            setCreditWarning({
+              show: false,
+              message: "",
+              breakdown: "",
+              requiresApproval: false,
+            });
+          }
+        } catch {
           setCreditWarning({
-            show: true,
-            message: creditCheck.credit_check.message,
-            breakdown: creditCheck.credit_check?.breakdown || "",
-            requiresApproval: true,
+            show: false,
+            message: "",
+            breakdown: "",
+            requiresApproval: false,
           });
-        } else {
-          setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
         }
-      } catch {
-        setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
+      } else {
+        setCreditWarning({
+          show: false,
+          message: "",
+          breakdown: "",
+          requiresApproval: false,
+        });
       }
-    } else {
-      setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
-    }
-  }, []);
+    },
+    [],
+  );
 
   // Calculate total amount from line items
   const totalAmount = useMemo(() => {
-    return lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+    return lineItems.reduce(
+      (sum, item) => sum + item.quantity * item.unit_price,
+      0,
+    );
   }, [lineItems]);
 
   // Check credit limit when supplier, payment method, or total amount changes
   useEffect(() => {
     if (isCreating && formData.first_suppliers_id && formData.payment_method) {
-      checkCreditLimit(formData.first_suppliers_id, totalAmount, formData.payment_method);
+      checkCreditLimit(
+        formData.first_suppliers_id,
+        totalAmount,
+        formData.payment_method,
+      );
     }
-  }, [isCreating, formData.first_suppliers_id, formData.payment_method, totalAmount, checkCreditLimit]);
+  }, [
+    isCreating,
+    formData.first_suppliers_id,
+    formData.payment_method,
+    totalAmount,
+    checkCreditLimit,
+  ]);
 
   const createMutation = useMutation({
     mutationFn: purchaseOrdersApi.create,
@@ -523,12 +635,17 @@ export default function PurchaseOrdersPage() {
 
       // All orders are created with pending_approval status
       showSuccessToast(
-        "Purchase order created successfully. Status set to 'Pending Approval' - requires manager approval."
+        "Purchase order created successfully. Status set to 'Pending Approval' - requires manager approval.",
       );
 
       setIsCreating(false);
       setIsEditing(false);
-      setCreditWarning({ show: false, message: "", breakdown: "", requiresApproval: false });
+      setCreditWarning({
+        show: false,
+        message: "",
+        breakdown: "",
+        requiresApproval: false,
+      });
       setTimeout(() => handleSelectOrderWithItems(newOrder), 0);
     },
     onError: (error: unknown) => {
@@ -562,7 +679,11 @@ export default function PurchaseOrdersPage() {
   });
 
   const handleDelete = useCallback(async () => {
-    if (selectedOrder && selectedOrder.status?.toLowerCase() !== "approved" && selectedOrder.status?.toLowerCase() !== "completed") {
+    if (
+      selectedOrder &&
+      selectedOrder.status?.toLowerCase() !== "approved" &&
+      selectedOrder.status?.toLowerCase() !== "completed"
+    ) {
       const confirmed = await confirmDialog.confirm({
         title: "Delete Purchase Order",
         message: `Are you sure you want to delete purchase order "${selectedOrder.purchasing_order_no}"?`,
@@ -578,10 +699,16 @@ export default function PurchaseOrdersPage() {
   }, [selectedOrder, deleteMutation, confirmDialog]);
 
   // Check if order can be deleted (not approved or completed)
-  const canDelete = !!(selectedOrder && selectedOrder.status?.toLowerCase() !== "approved" && selectedOrder.status?.toLowerCase() !== "completed");
+  const canDelete = !!(
+    selectedOrder &&
+    selectedOrder.status?.toLowerCase() !== "approved" &&
+    selectedOrder.status?.toLowerCase() !== "completed"
+  );
 
   // Check if order can be edited (any status except completed)
-  const canEdit = !!(selectedOrder && selectedOrder.status?.toLowerCase() !== "completed");
+  const canEdit = !!(
+    selectedOrder && selectedOrder.status?.toLowerCase() !== "completed"
+  );
 
   const handleAddLineItem = () => {
     const newItem: OrderLineItem = {
@@ -596,13 +723,19 @@ export default function PurchaseOrdersPage() {
   };
 
   const handleRemoveLineItem = (id: string) => {
-    setLineItems(lineItems.filter(item => item._id !== id));
+    setLineItems(lineItems.filter((item) => item._id !== id));
   };
 
-  const handleUpdateLineItem = (id: string, field: keyof OrderLineItem, value: any) => {
-    setLineItems(lineItems.map(item =>
-      item._id === id ? { ...item, [field]: value } : item
-    ));
+  const handleUpdateLineItem = (
+    id: string,
+    field: keyof OrderLineItem,
+    value: any,
+  ) => {
+    setLineItems(
+      lineItems.map((item) =>
+        item._id === id ? { ...item, [field]: value } : item,
+      ),
+    );
   };
 
   const handleSave = useCallback(async () => {
@@ -615,15 +748,24 @@ export default function PurchaseOrdersPage() {
     const isCreditPayment = formData.payment_method?.toLowerCase() === "credit";
 
     if (isCreditPayment && formData.first_suppliers_id) {
-      const totalAmount = lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+      const totalAmount = lineItems.reduce(
+        (sum, item) => sum + item.quantity * item.unit_price,
+        0,
+      );
 
       try {
-        const creditCheck = await purchaseOrdersApi.checkCredit(formData.first_suppliers_id, totalAmount);
+        const creditCheck = await purchaseOrdersApi.checkCredit(
+          formData.first_suppliers_id,
+          totalAmount,
+        );
 
         // Show warning modal if requires approval
         if (creditCheck.requires_approval) {
-          const supplier = suppliers?.find(s => s.id === formData.first_suppliers_id);
-          const supplierName = supplier?.company_name || supplier?.full_name || 'Unknown';
+          const supplier = suppliers?.find(
+            (s) => s.id === formData.first_suppliers_id,
+          );
+          const supplierName =
+            supplier?.company_name || supplier?.full_name || "Unknown";
 
           const confirmed = await creditWarningDialog.confirm({
             title: "⚠️ Credit Limit Warning",
@@ -659,7 +801,7 @@ export default function PurchaseOrdersPage() {
         credit_date: formData.credit_date,
         first_suppliers_id: formData.first_suppliers_id,
         second_suppliers_id: formData.second_suppliers_id,
-        items: lineItems.map(item => ({
+        items: lineItems.map((item) => ({
           product_id: item.product_id,
           quantity: item.quantity,
           unit_price: item.unit_price,
@@ -671,15 +813,25 @@ export default function PurchaseOrdersPage() {
       // Reset to pending_approval if was approved
       if (wasApproved) {
         updateData.status = "pending_approval";
-        showWarningToast("Order was previously approved. It will need re-approval after this edit.");
+        showWarningToast(
+          "Order was previously approved. It will need re-approval after this edit.",
+        );
       }
 
       updateMutation.mutate({
         id: selectedOrder.id,
-        data: updateData
+        data: updateData,
       });
     }
-  }, [isCreating, selectedOrder, formData, lineItems, createMutation, updateMutation, suppliers]);
+  }, [
+    isCreating,
+    selectedOrder,
+    formData,
+    lineItems,
+    createMutation,
+    updateMutation,
+    suppliers,
+  ]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedOrder) {
@@ -702,7 +854,10 @@ export default function PurchaseOrdersPage() {
   // getStatusColor is now imported from common components
 
   const calculateTotal = () => {
-    return lineItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+    return lineItems.reduce(
+      (sum, item) => sum + item.quantity * item.unit_price,
+      0,
+    );
   };
 
   // Validation error messages
@@ -710,28 +865,31 @@ export default function PurchaseOrdersPage() {
     if (!touched[fieldName] && !isCreating) return undefined;
 
     switch (fieldName) {
-      case 'purchasing_order_no':
+      case "purchasing_order_no":
         break;
-      case 'branch_code':
-        if (!formData.branch_code) return 'Branch is required';
+      case "branch_code":
+        if (!formData.branch_code) return "Branch is required";
         break;
-      case 'first_suppliers_id':
-        if (!formData.first_suppliers_id || formData.first_suppliers_id === 0) return 'Primary supplier is required';
+      case "first_suppliers_id":
+        if (!formData.first_suppliers_id || formData.first_suppliers_id === 0)
+          return "Primary supplier is required";
         break;
-      case 'second_suppliers_id':
-        if (!formData.second_suppliers_id || formData.second_suppliers_id === 0) return 'Secondary supplier is required';
+      case "second_suppliers_id":
+        if (!formData.second_suppliers_id || formData.second_suppliers_id === 0)
+          return "Secondary supplier is required";
         break;
-      case 'purchasing_order_date':
-        if (!formData.purchasing_order_date) return 'Order date is required';
+      case "purchasing_order_date":
+        if (!formData.purchasing_order_date) return "Order date is required";
         break;
-      case 'good_received_note_date':
-        if (!formData.good_received_note_date) return 'GRN date is required';
+      case "good_received_note_date":
+        if (!formData.good_received_note_date) return "GRN date is required";
         break;
-      case 'credit_date':
-        if ((formData.credit_date ?? 0) < 0) return 'Credit days cannot be negative';
+      case "credit_date":
+        if ((formData.credit_date ?? 0) < 0)
+          return "Credit days cannot be negative";
         break;
-      case 'lineItems':
-        if (lineItems.length === 0) return 'At least one item is required';
+      case "lineItems":
+        if (lineItems.length === 0) return "At least one item is required";
         break;
     }
     return undefined;
@@ -744,8 +902,11 @@ export default function PurchaseOrdersPage() {
 
   // Step 1 validation: Order Information, Dates & Payments, Remarks
   // When creating, purchasing_order_no is auto-generated (nextPONumber) and not stored in formData until submit
-  const effectivePONumber = isCreating ? nextPONumber : formData.purchasing_order_no;
-  const isStep1Valid = formData.first_suppliers_id > 0 &&
+  const effectivePONumber = isCreating
+    ? nextPONumber
+    : formData.purchasing_order_no;
+  const isStep1Valid =
+    formData.first_suppliers_id > 0 &&
     formData.second_suppliers_id > 0 &&
     effectivePONumber &&
     formData.branch_code;
@@ -755,17 +916,42 @@ export default function PurchaseOrdersPage() {
 
   const handleNextStep = useCallback(() => {
     if (formStep < FORM_STEPS.length - 1) {
-      setFormStep(prev => prev + 1);
+      setFormStep((prev) => prev + 1);
     }
   }, [formStep]);
 
   const handlePreviousStep = useCallback(() => {
     if (formStep > 0) {
-      setFormStep(prev => prev - 1);
+      setFormStep((prev) => prev - 1);
     }
   }, [formStep]);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  const handleExportCSV = async () => {
+    try {
+      const branchParam = filterBranch ? `&branch_codes=${filterBranch}` : "";
+
+      const response = await apiClient.get<Blob>(
+        `/purchasing/export-csv?limit=100000${branchParam}`,
+        {
+          responseType: "blob",
+        },
+      );
+
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const dateStr = new Date().toISOString().split("T")[0];
+      const branchStr = filterBranch || "all_branches";
+      link.download = `purchase_orders_${branchStr}_${dateStr}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   const masterPanel = (
     <SearchableList<PurchasingOrder>
@@ -801,12 +987,29 @@ export default function PurchaseOrdersPage() {
           isSelected={isSelected}
           onClick={() => handleSelectOrderWithItems(order)}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                width: "100%",
+                gap: 0.5,
+              }}
+            >
               {/* PO Number */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
                 <span>{order.purchasing_order_no || `PO-${order.id}`}</span>
                 {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                  <Typography
+                    component="span"
+                    variant="caption"
+                    sx={{ color: "inherit", opacity: 0.7 }}
+                  >
                     (PO No)
                   </Typography>
                 )}
@@ -814,24 +1017,53 @@ export default function PurchaseOrdersPage() {
               {/* Additional fields when selected */}
               {isSelected && (
                 <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <Typography component="span" variant="caption">
                       {getSupplierName(order.first_suppliers_id)}
                     </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    <Typography
+                      component="span"
+                      variant="caption"
+                      sx={{ color: "inherit", opacity: 0.7 }}
+                    >
                       (Supplier)
                     </Typography>
                   </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <Typography component="span" variant="caption">
-                      {new Date(order.purchasing_order_date || "").toLocaleDateString()}
+                      {new Date(
+                        order.purchasing_order_date || "",
+                      ).toLocaleDateString()}
                     </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    <Typography
+                      component="span"
+                      variant="caption"
+                      sx={{ color: "inherit", opacity: 0.7 }}
+                    >
                       (Date)
                     </Typography>
                   </Box>
                   {/* Status Chips - shown below all fields when selected */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      gap: 0.5,
+                      mt: 0.5,
+                      flexWrap: "wrap",
+                    }}
+                  >
                     <TStatusChip
                       status={order.status || "draft"}
                       statusMap="purchaseOrder"
@@ -842,32 +1074,71 @@ export default function PurchaseOrdersPage() {
               )}
             </Box>
           }
-          secondaryText={!isSelected ? `${getSupplierName(order.first_suppliers_id)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}` : undefined}
+          secondaryText={
+            !isSelected
+              ? `${getSupplierName(order.first_suppliers_id)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`
+              : undefined
+          }
           isFavorite={favorites.includes(order.id)}
           onToggleFavorite={(e) => toggleFavorite(order.id, e)}
-          statusChip={!isSelected ? { label: getStatusProps(order.status || "draft", "purchaseOrder").label, color: getStatusProps(order.status || "draft", "purchaseOrder").color } : undefined}
+          statusChip={
+            !isSelected
+              ? {
+                  label: getStatusProps(
+                    order.status || "draft",
+                    "purchaseOrder",
+                  ).label,
+                  color: getStatusProps(
+                    order.status || "draft",
+                    "purchaseOrder",
+                  ).color,
+                }
+              : undefined
+          }
         />
       )}
     />
   );
 
   const detailPanel = (
-    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <Box
+      sx={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Purchasing", href: "/purchasing" },
           { label: "Purchase Orders", href: "/purchasing/orders" },
           ...(selectedOrder || isCreating
-            ? [{ label: isCreating ? "New Order" : selectedOrder?.purchasing_order_no || `PO-${selectedOrder?.id}` }]
+            ? [
+                {
+                  label: isCreating
+                    ? "New Order"
+                    : selectedOrder?.purchasing_order_no ||
+                      `PO-${selectedOrder?.id}`,
+                },
+              ]
             : []),
         ]}
-        title={selectedOrder ? (selectedOrder.purchasing_order_no || `PO-${selectedOrder.id}`) : ""}
+        title={
+          selectedOrder
+            ? selectedOrder.purchasing_order_no || `PO-${selectedOrder.id}`
+            : ""
+        }
         titleIcon={<ShoppingCartIcon color="primary" />}
         isCreating={isCreating}
         createTitle="New Purchase Order"
         noSelectionTitle="Select an Order"
-        isFavorite={selectedOrder ? favorites.includes(selectedOrder.id) : false}
-        onToggleFavorite={selectedOrder ? (e) => toggleFavorite(selectedOrder.id, e) : undefined}
+        isFavorite={
+          selectedOrder ? favorites.includes(selectedOrder.id) : false
+        }
+        onToggleFavorite={
+          selectedOrder ? (e) => toggleFavorite(selectedOrder.id, e) : undefined
+        }
       />
 
       <ActionToolbar
@@ -930,19 +1201,27 @@ export default function PurchaseOrdersPage() {
                   <TextField
                     label="Order Number"
                     size="small"
-                    value={isCreating ? nextPONumber : formData.purchasing_order_no}
+                    value={
+                      isCreating ? nextPONumber : formData.purchasing_order_no
+                    }
                     disabled
                   />
                   {/* Searchable Branch Dropdown */}
                   <Autocomplete
                     size="small"
                     options={branches}
-                    getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-                    value={branches.find(b => b.branch_code === formData.branch_code) || null}
+                    getOptionLabel={(option) =>
+                      `${option.branch_code} - ${option.branch_name}`
+                    }
+                    value={
+                      branches.find(
+                        (b) => b.branch_code === formData.branch_code,
+                      ) || null
+                    }
                     onChange={async (_, newValue) => {
                       const newBranchCode = newValue?.branch_code || "";
                       setFormData({ ...formData, branch_code: newBranchCode });
-                      handleBlur('branch_code');
+                      handleBlur("branch_code");
 
                       // Check daily limit for the selected branch when creating a new order
                       if (isCreating && newBranchCode) {
@@ -953,9 +1232,15 @@ export default function PurchaseOrdersPage() {
                           setIsDailyLimitExceeded(true);
                         } else {
                           setIsDailyLimitExceeded(false);
-                          if (limitInfo && limitInfo.can_create && limitInfo.remaining <= 2) {
+                          if (
+                            limitInfo &&
+                            limitInfo.can_create &&
+                            limitInfo.remaining <= 2
+                          ) {
                             // Warn if only 1-2 POs remaining
-                            showWarningToast(`Only ${limitInfo.remaining} PO(s) remaining for today in this branch`);
+                            showWarningToast(
+                              `Only ${limitInfo.remaining} PO(s) remaining for today in this branch`,
+                            );
                           }
                         }
                       }
@@ -966,8 +1251,8 @@ export default function PurchaseOrdersPage() {
                         {...params}
                         label="Branch"
                         required
-                        error={hasError('branch_code')}
-                        helperText={getFieldError('branch_code')}
+                        error={hasError("branch_code")}
+                        helperText={getFieldError("branch_code")}
                       />
                     )}
                   />
@@ -982,14 +1267,19 @@ export default function PurchaseOrdersPage() {
                       return option.active ? name : `${name} (Inactive)`;
                     }}
                     getOptionDisabled={(option: Supplier) => !option.active}
-                    value={suppliers?.find((s: Supplier) => s.id === formData.first_suppliers_id) || null}
+                    value={
+                      suppliers?.find(
+                        (s: Supplier) => s.id === formData.first_suppliers_id,
+                      ) || null
+                    }
                     onChange={(_, newValue: Supplier | null) => {
                       setFormData({
                         ...formData,
                         first_suppliers_id: newValue?.id || 0,
-                        credit_date: newValue?.credit_days ?? formData.credit_date
+                        credit_date:
+                          newValue?.credit_days ?? formData.credit_date,
                       });
-                      handleBlur('first_suppliers_id');
+                      handleBlur("first_suppliers_id");
                     }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
@@ -997,8 +1287,8 @@ export default function PurchaseOrdersPage() {
                         {...params}
                         label="Primary Supplier"
                         required
-                        error={hasError('first_suppliers_id')}
-                        helperText={getFieldError('first_suppliers_id')}
+                        error={hasError("first_suppliers_id")}
+                        helperText={getFieldError("first_suppliers_id")}
                       />
                     )}
                   />
@@ -1013,10 +1303,17 @@ export default function PurchaseOrdersPage() {
                       return option.active ? name : `${name} (Inactive)`;
                     }}
                     getOptionDisabled={(option: Supplier) => !option.active}
-                    value={suppliers?.find((s: Supplier) => s.id === formData.second_suppliers_id) || null}
+                    value={
+                      suppliers?.find(
+                        (s: Supplier) => s.id === formData.second_suppliers_id,
+                      ) || null
+                    }
                     onChange={(_, newValue: Supplier | null) => {
-                      setFormData({ ...formData, second_suppliers_id: newValue?.id || 0 });
-                      handleBlur('second_suppliers_id');
+                      setFormData({
+                        ...formData,
+                        second_suppliers_id: newValue?.id || 0,
+                      });
+                      handleBlur("second_suppliers_id");
                     }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
@@ -1024,8 +1321,8 @@ export default function PurchaseOrdersPage() {
                         {...params}
                         label="Secondary Supplier"
                         required
-                        error={hasError('second_suppliers_id')}
-                        helperText={getFieldError('second_suppliers_id')}
+                        error={hasError("second_suppliers_id")}
+                        helperText={getFieldError("second_suppliers_id")}
                       />
                     )}
                   />
@@ -1034,7 +1331,12 @@ export default function PurchaseOrdersPage() {
                     label="Payment Method"
                     size="small"
                     value={formData.payment_method}
-                    onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        payment_method: e.target.value,
+                      })
+                    }
                     disabled={!isEditing && !isCreating}
                   >
                     {PURCHASING_PAYMENT_METHOD.map((option) => (
@@ -1051,38 +1353,58 @@ export default function PurchaseOrdersPage() {
                     size="small"
                     type="date"
                     value={formData.purchasing_order_date}
-                    onChange={(e) => setFormData({ ...formData, purchasing_order_date: e.target.value })}
-                    onBlur={() => handleBlur('purchasing_order_date')}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        purchasing_order_date: e.target.value,
+                      })
+                    }
+                    onBlur={() => handleBlur("purchasing_order_date")}
                     disabled={!isEditing && !isCreating}
                     InputLabelProps={{ shrink: true }}
                     required
-                    error={hasError('purchasing_order_date')}
-                    helperText={getFieldError('purchasing_order_date')}
+                    error={hasError("purchasing_order_date")}
+                    helperText={getFieldError("purchasing_order_date")}
                   />
                   <TextField
                     label="GRN Date"
                     size="small"
                     type="date"
                     value={formData.good_received_note_date}
-                    onChange={(e) => setFormData({ ...formData, good_received_note_date: e.target.value })}
-                    onBlur={() => handleBlur('good_received_note_date')}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        good_received_note_date: e.target.value,
+                      })
+                    }
+                    onBlur={() => handleBlur("good_received_note_date")}
                     disabled={!isEditing && !isCreating}
                     InputLabelProps={{ shrink: true }}
                     required
-                    error={hasError('good_received_note_date')}
-                    helperText={getFieldError('good_received_note_date')}
+                    error={hasError("good_received_note_date")}
+                    helperText={getFieldError("good_received_note_date")}
                   />
                   <TextField
                     label="Credit Days"
                     size="small"
                     type="number"
                     value={formData.credit_date}
-                    onChange={(e) => setFormData({ ...formData, credit_date: parseInt(e.target.value) || 0 })}
-                    onBlur={() => handleBlur('credit_date')}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        credit_date: parseInt(e.target.value) || 0,
+                      })
+                    }
+                    onBlur={() => handleBlur("credit_date")}
                     disabled={!isEditing && !isCreating}
                     inputProps={{ min: 0 }}
-                    error={hasError('credit_date')}
-                    helperText={getFieldError('credit_date') || (isCreating || isEditing ? "Auto-filled from supplier" : "")}
+                    error={hasError("credit_date")}
+                    helperText={
+                      getFieldError("credit_date") ||
+                      (isCreating || isEditing
+                        ? "Auto-filled from supplier"
+                        : "")
+                    }
                   />
                 </FormSection>
 
@@ -1100,13 +1422,24 @@ export default function PurchaseOrdersPage() {
                       {creditWarning.message}
                     </Typography>
                     {creditWarning.breakdown && (
-                      <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic', color: 'text.secondary' }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          mt: 1,
+                          fontStyle: "italic",
+                          color: "text.secondary",
+                        }}
+                      >
                         {creditWarning.breakdown}
                       </Typography>
                     )}
                     {creditWarning.requiresApproval && (
-                      <Typography variant="body2" sx={{ mt: 1, fontWeight: 500 }}>
-                        This purchase order will be set to "Pending Approval" status and require manager approval.
+                      <Typography
+                        variant="body2"
+                        sx={{ mt: 1, fontWeight: 500 }}
+                      >
+                        This purchase order will be set to "Pending Approval"
+                        status and require manager approval.
                       </Typography>
                     )}
                   </Alert>
@@ -1115,23 +1448,42 @@ export default function PurchaseOrdersPage() {
                 {selectedOrder && !isCreating && (
                   <>
                     <FormSection title="Order Status" columns={4}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <Typography variant="body2" color="text.secondary">Status:</Typography>
-                        <TStatusChip status={selectedOrder.status || "draft"} statusMap="purchaseOrder" />
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
+                        <Typography variant="body2" color="text.secondary">
+                          Status:
+                        </Typography>
+                        <TStatusChip
+                          status={selectedOrder.status || "draft"}
+                          statusMap="purchaseOrder"
+                        />
                       </Box>
                     </FormSection>
                     <FormSection title="Tracking" columns={2}>
                       <TextField
                         label="Created Date"
                         size="small"
-                        value={selectedOrder.added_date ? new Date(selectedOrder.added_date).toLocaleString() : ""}
+                        value={
+                          selectedOrder.added_date
+                            ? new Date(
+                                selectedOrder.added_date,
+                              ).toLocaleString()
+                            : ""
+                        }
                         disabled
                         InputProps={{ readOnly: true }}
                       />
                       <TextField
                         label="Order Date"
                         size="small"
-                        value={selectedOrder.created_date ? new Date(selectedOrder.created_date).toLocaleDateString() : ""}
+                        value={
+                          selectedOrder.created_date
+                            ? new Date(
+                                selectedOrder.created_date,
+                              ).toLocaleDateString()
+                            : ""
+                        }
                         disabled
                         InputProps={{ readOnly: true }}
                       />
@@ -1144,7 +1496,9 @@ export default function PurchaseOrdersPage() {
                     label="Remarks"
                     size="small"
                     value={formData.remarks}
-                    onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, remarks: e.target.value })
+                    }
                     disabled={!isEditing && !isCreating}
                     multiline
                     rows={2}
@@ -1170,10 +1524,24 @@ export default function PurchaseOrdersPage() {
                   </Button>
                 )}
 
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: isCreating ? 0 : 2 }}>
-                  <Typography variant="subtitle1" fontWeight="bold">Order Items</Typography>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    mb: 1,
+                    mt: isCreating ? 0 : 2,
+                  }}
+                >
+                  <Typography variant="subtitle1" fontWeight="bold">
+                    Order Items
+                  </Typography>
                   {(isEditing || isCreating) && (
-                    <IconButton size="small" onClick={handleAddLineItem} color="primary">
+                    <IconButton
+                      size="small"
+                      onClick={handleAddLineItem}
+                      color="primary"
+                    >
                       <AddIcon />
                     </IconButton>
                   )}
@@ -1187,7 +1555,15 @@ export default function PurchaseOrdersPage() {
                 )}
 
                 <Box>
-                  <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      overflow: "hidden",
+                      borderRadius: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  >
                     <Table size="small">
                       <TableHead>
                         <TableRow sx={modernTableStyles.headerRow}>
@@ -1195,8 +1571,12 @@ export default function PurchaseOrdersPage() {
                           <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
                           <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
                           <TableCell sx={{ width: 150 }}>Remark</TableCell>
-                          <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
-                          {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
+                          <TableCell align="right" sx={{ width: 120 }}>
+                            Amount (Rs.)
+                          </TableCell>
+                          {(isEditing || isCreating) && (
+                            <TableCell sx={{ width: 50 }} />
+                          )}
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -1208,28 +1588,47 @@ export default function PurchaseOrdersPage() {
                           </TableRow>
                         ) : (
                           lineItems.map((item, index) => (
-                            <TableRow key={item._id} sx={{
-                              ...modernTableStyles.bodyRow,
-                              ...(index % 2 === 1 && { bgcolor: "grey.25" }),
-                            }}>
+                            <TableRow
+                              key={item._id}
+                              sx={{
+                                ...modernTableStyles.bodyRow,
+                                ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                              }}
+                            >
                               <TableCell>
-                                {(isEditing || isCreating) ? (
+                                {isEditing || isCreating ? (
                                   <Autocomplete
                                     size="small"
                                     options={products || []}
-                                    getOptionLabel={(option: any) => option.name || ""}
-                                    value={products?.find((p: any) => p.id === item.product_id) || null}
+                                    getOptionLabel={(option: any) =>
+                                      option.name || ""
+                                    }
+                                    value={
+                                      products?.find(
+                                        (p: any) => p.id === item.product_id,
+                                      ) || null
+                                    }
                                     onChange={(_, newValue: any) => {
                                       // Set product_id and automatically populate unit_price from cost_price
-                                      const updatedItems = lineItems.map(lineItem =>
-                                        lineItem._id === item._id
-                                          ? { ...lineItem, product_id: newValue?.id || 0, unit_price: newValue?.cost_price || 0 }
-                                          : lineItem
+                                      const updatedItems = lineItems.map(
+                                        (lineItem) =>
+                                          lineItem._id === item._id
+                                            ? {
+                                                ...lineItem,
+                                                product_id: newValue?.id || 0,
+                                                unit_price:
+                                                  newValue?.cost_price || 0,
+                                              }
+                                            : lineItem,
                                       );
                                       setLineItems(updatedItems);
                                     }}
                                     renderInput={(params) => (
-                                      <TextField {...params} placeholder="Select Product" size="small" />
+                                      <TextField
+                                        {...params}
+                                        placeholder="Select Product"
+                                        size="small"
+                                      />
                                     )}
                                     sx={{ minWidth: 180 }}
                                   />
@@ -1238,12 +1637,18 @@ export default function PurchaseOrdersPage() {
                                 )}
                               </TableCell>
                               <TableCell align="right">
-                                {(isEditing || isCreating) ? (
+                                {isEditing || isCreating ? (
                                   <TextField
                                     size="small"
                                     type="number"
                                     value={item.quantity}
-                                    onChange={(e) => handleUpdateLineItem(item._id, "quantity", parseInt(e.target.value) || 0)}
+                                    onChange={(e) =>
+                                      handleUpdateLineItem(
+                                        item._id,
+                                        "quantity",
+                                        parseInt(e.target.value) || 0,
+                                      )
+                                    }
                                     sx={{ width: 80 }}
                                     inputProps={{ min: 0 }}
                                   />
@@ -1252,7 +1657,7 @@ export default function PurchaseOrdersPage() {
                                 )}
                               </TableCell>
                               <TableCell align="right">
-                                {(isEditing || isCreating) ? (
+                                {isEditing || isCreating ? (
                                   <TextField
                                     size="small"
                                     type="number"
@@ -1260,10 +1665,11 @@ export default function PurchaseOrdersPage() {
                                     disabled
                                     sx={{
                                       width: 100,
-                                      '& .MuiInputBase-input.Mui-disabled': {
-                                        WebkitTextFillColor: 'rgba(0, 0, 0, 0.87)',
-                                        color: 'rgba(0, 0, 0, 0.87)'
-                                      }
+                                      "& .MuiInputBase-input.Mui-disabled": {
+                                        WebkitTextFillColor:
+                                          "rgba(0, 0, 0, 0.87)",
+                                        color: "rgba(0, 0, 0, 0.87)",
+                                      },
                                     }}
                                     inputProps={{ min: 0, step: 0.01 }}
                                   />
@@ -1277,19 +1683,35 @@ export default function PurchaseOrdersPage() {
                                     <TextField
                                       size="small"
                                       value={item.remark || ""}
-                                      onChange={(e) => handleUpdateLineItem(item._id, "remark", e.target.value)}
+                                      onChange={(e) =>
+                                        handleUpdateLineItem(
+                                          item._id,
+                                          "remark",
+                                          e.target.value,
+                                        )
+                                      }
                                       sx={{ width: 100 }}
                                       placeholder="Remark"
                                     />
                                   ) : (
-                                    <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    <Typography
+                                      variant="body2"
+                                      sx={{
+                                        maxWidth: 100,
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
                                       {item.remark || "-"}
                                     </Typography>
                                   )}
                                   <Tooltip title="View/Edit Remark">
                                     <IconButton
                                       size="small"
-                                      onClick={() => handleOpenItemRemarkModal(item)}
+                                      onClick={() =>
+                                        handleOpenItemRemarkModal(item)
+                                      }
                                       sx={{ ml: 0.5 }}
                                     >
                                       <MenuBookIcon fontSize="small" />
@@ -1302,7 +1724,13 @@ export default function PurchaseOrdersPage() {
                               </TableCell>
                               {(isEditing || isCreating) && (
                                 <TableCell>
-                                  <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      handleRemoveLineItem(item._id)
+                                    }
+                                    color="error"
+                                  >
                                     <DeleteIcon fontSize="small" />
                                   </IconButton>
                                 </TableCell>
@@ -1311,11 +1739,16 @@ export default function PurchaseOrdersPage() {
                           ))
                         )}
                         <TableRow sx={modernTableStyles.footerRow}>
-                          <TableCell colSpan={isEditing || isCreating ? 5 : 5} align="right">
+                          <TableCell
+                            colSpan={isEditing || isCreating ? 5 : 5}
+                            align="right"
+                          >
                             <Typography fontWeight="bold">Total:</Typography>
                           </TableCell>
                           <TableCell align="right">
-                            <Typography fontWeight="bold">{fmtLKR(calculateTotal())}</Typography>
+                            <Typography fontWeight="bold">
+                              {fmtLKR(calculateTotal())}
+                            </Typography>
                           </TableCell>
                           {(isEditing || isCreating) && <TableCell />}
                         </TableRow>
@@ -1335,6 +1768,18 @@ export default function PurchaseOrdersPage() {
     <>
       <MasterDetailLayout
         title="Purchase Orders"
+        headerActions={
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            disabled={filteredOrders.length === 0}
+            sx={{ mr: 1 }}
+          >
+            Export CSV
+          </Button>
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
           queryClient.invalidateQueries({ queryKey: ["suppliers"] });
@@ -1387,34 +1832,50 @@ export default function PurchaseOrdersPage() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, color: "error.main" }}>
+        <DialogTitle
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            color: "error.main",
+          }}
+        >
           <WarningAmberIcon color="error" />
           Daily PO Limit Reached
         </DialogTitle>
         <DialogContent>
           <Alert severity="error" sx={{ mb: 2 }}>
-            {dailyLimitInfo?.message || "You have reached the daily limit for purchase orders in this branch."}
+            {dailyLimitInfo?.message ||
+              "You have reached the daily limit for purchase orders in this branch."}
           </Alert>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mt: 2 }}>
             <Typography variant="body2">
               <strong>Branch:</strong> {dailyLimitInfo?.branch_code}
             </Typography>
             <Typography variant="body2">
-              <strong>Date:</strong> {dailyLimitInfo?.date ? new Date(dailyLimitInfo.date).toLocaleDateString() : "Today"}
+              <strong>Date:</strong>{" "}
+              {dailyLimitInfo?.date
+                ? new Date(dailyLimitInfo.date).toLocaleDateString()
+                : "Today"}
             </Typography>
             <Typography variant="body2">
-              <strong>POs Created Today:</strong> {dailyLimitInfo?.count} / {dailyLimitInfo?.limit}
+              <strong>POs Created Today:</strong> {dailyLimitInfo?.count} /{" "}
+              {dailyLimitInfo?.limit}
             </Typography>
             <Typography variant="body2">
               <strong>Remaining:</strong> {dailyLimitInfo?.remaining}
             </Typography>
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Please try again tomorrow or contact your manager if you need to create additional purchase orders.
+            Please try again tomorrow or contact your manager if you need to
+            create additional purchase orders.
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" onClick={() => setDailyLimitWarningOpen(false)}>
+          <Button
+            variant="contained"
+            onClick={() => setDailyLimitWarningOpen(false)}
+          >
             OK
           </Button>
         </DialogActions>
@@ -1422,7 +1883,10 @@ export default function PurchaseOrdersPage() {
 
       {/* Confirm Dialogs */}
       <TConfirmDialog {...confirmDialog.dialogProps} />
-      <TConfirmDialog {...creditWarningDialog.dialogProps} confirmColor="warning" />
+      <TConfirmDialog
+        {...creditWarningDialog.dialogProps}
+        confirmColor="warning"
+      />
 
       {/* Print Preview Dialog */}
       {selectedPoIdForPrint && (
@@ -1434,7 +1898,7 @@ export default function PurchaseOrdersPage() {
           }}
           documentType="purchase-order"
           documentId={selectedPoIdForPrint}
-          title={`Print Purchase Order: ${selectedOrder?.purchasing_order_no || ''}`}
+          title={`Print Purchase Order: ${selectedOrder?.purchasing_order_no || ""}`}
         />
       )}
     </>

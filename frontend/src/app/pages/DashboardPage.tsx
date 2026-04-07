@@ -336,7 +336,7 @@ export default function DashboardPage() {
               icon={<InventoryIcon />}
               color="warning"
               loading={loading}
-              onClick={() => navigate("/inventory")}
+              onClick={() => navigate("/product-catalogs")}
               tooltip="Click to view products"
               badge={
                 metrics && metrics.low_stock_items > 0

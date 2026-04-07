@@ -1,50 +1,61 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import apiClient from "@/api/client";
+import { usePermission } from "@/auth/permissions";
 import {
-  Box,
-  TextField,
-  MenuItem,
-  FormControlLabel,
-  Switch,
-  InputAdornment,
-  Chip,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Typography,
-  Alert,
-  Autocomplete,
-} from "@mui/material";
+    ActionToolbar,
+    DetailPanelHeader,
+    EmptyState,
+    fmtLKR,
+    FormSection,
+    handleApiError,
+    MasterDetailLayout,
+    PRODUCT_ITEM_TYPE,
+    SearchableList,
+    SelectableListItem,
+    showErrorToast,
+    showSuccessToast,
+    SortOption,
+    TabConfig,
+    TConfirmDialog,
+    useConfirmDialog,
+    useMasterDetailState,
+} from "@/components/tijaero";
+import { formatDateTimeReadable } from "@/utils/formatters";
 import {
-  Inventory as InventoryIcon,
-  Category as CategoryIcon,
-  Sell as BrandIcon,
+    Sell as BrandIcon,
+    Category as CategoryIcon,
+    FileDownload as DownloadIcon,
+    Inventory as InventoryIcon,
 } from "@mui/icons-material";
 import {
-  MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  DetailPanelHeader,
-  ActionToolbar,
-  fmtLKR,
-  FormSection,
-  EmptyState,
-  useMasterDetailState,
-  SortOption,
-  TabConfig,
-  TConfirmDialog,
-  useConfirmDialog,
-  showSuccessToast,
-  showErrorToast,
-  handleApiError,
-  PRODUCT_ITEM_TYPE,
-} from "@/components/tijaero";
-import { productsApi, categoriesApi, brandsApi, minimumPriceApi } from "../api";
-import { Product, ProductCreate, Category, CategoryCreate, CategoryUpdate, Brand, BrandCreate, BrandUpdate } from "../types";
-import { usePermission } from "@/auth/permissions";
-import { formatDateTimeReadable } from "@/utils/formatters";
+    Alert,
+    Autocomplete,
+    Box,
+    Button,
+    Chip,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    FormControlLabel,
+    InputAdornment,
+    MenuItem,
+    Switch,
+    TextField,
+    Typography,
+} from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { brandsApi, categoriesApi, minimumPriceApi, productsApi } from "../api";
+import {
+    Brand,
+    BrandCreate,
+    BrandUpdate,
+    Category,
+    CategoryCreate,
+    CategoryUpdate,
+    Product,
+    ProductCreate,
+} from "../types";
 
 // Sort options for each tab
 const productSortOptions: SortOption[] = [
@@ -101,9 +112,13 @@ interface ProductsPageProps {
   hideTabs?: boolean;
 }
 
-export default function ProductsPage({ view = "products", hideTabs = false }: ProductsPageProps) {
+export default function ProductsPage({
+  view = "products",
+  hideTabs = false,
+}: ProductsPageProps) {
   const queryClient = useQueryClient();
-  const viewToTab = (v: InventoryView) => (v === "products" ? 0 : v === "categories" ? 1 : 2);
+  const viewToTab = (v: InventoryView) =>
+    v === "products" ? 0 : v === "categories" ? 1 : 2;
   const [activeTab, setActiveTab] = useState<number>(viewToTab(view));
 
   useEffect(() => {
@@ -122,19 +137,23 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   const confirmDialog = useConfirmDialog();
 
   // Validation state - track which fields have been touched/blurred
-  const [productTouched, setProductTouched] = useState<Record<string, boolean>>({});
-  const [categoryTouched, setCategoryTouched] = useState<Record<string, boolean>>({});
+  const [productTouched, setProductTouched] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [categoryTouched, setCategoryTouched] = useState<
+    Record<string, boolean>
+  >({});
   const [brandTouched, setBrandTouched] = useState<Record<string, boolean>>({});
 
   // Mark field as touched when user leaves it
   const handleProductBlur = (fieldName: string) => {
-    setProductTouched(prev => ({ ...prev, [fieldName]: true }));
+    setProductTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
   const handleCategoryBlur = (fieldName: string) => {
-    setCategoryTouched(prev => ({ ...prev, [fieldName]: true }));
+    setCategoryTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
   const handleBrandBlur = (fieldName: string) => {
-    setBrandTouched(prev => ({ ...prev, [fieldName]: true }));
+    setBrandTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
 
   // Minimum selling price dialog state
@@ -146,60 +165,78 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   const productState = useMasterDetailState<Product, ProductCreate>({
     initialFormData: emptyProductForm,
     initialSortField: "item_code",
-    confirmUnsavedChanges: () => confirmDialog.confirm({
-      title: "Discard Changes",
-      message: "You have unsaved changes. Discard them?",
-      confirmText: "Discard",
-      cancelText: "Keep Editing",
-      confirmColor: "warning",
-    }),
+    confirmUnsavedChanges: () =>
+      confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      }),
   });
 
   // Categories state
   const categoryState = useMasterDetailState<Category, CategoryCreate>({
     initialFormData: emptyCategoryForm,
     initialSortField: "name",
-    confirmUnsavedChanges: () => confirmDialog.confirm({
-      title: "Discard Changes",
-      message: "You have unsaved changes. Discard them?",
-      confirmText: "Discard",
-      cancelText: "Keep Editing",
-      confirmColor: "warning",
-    }),
+    confirmUnsavedChanges: () =>
+      confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      }),
   });
 
   // Brands state
   const brandState = useMasterDetailState<Brand, BrandCreate>({
     initialFormData: emptyBrandForm,
     initialSortField: "brand_name",
-    confirmUnsavedChanges: () => confirmDialog.confirm({
-      title: "Discard Changes",
-      message: "You have unsaved changes. Discard them?",
-      confirmText: "Discard",
-      cancelText: "Keep Editing",
-      confirmColor: "warning",
-    }),
+    confirmUnsavedChanges: () =>
+      confirmDialog.confirm({
+        title: "Discard Changes",
+        message: "You have unsaved changes. Discard them?",
+        confirmText: "Discard",
+        cancelText: "Keep Editing",
+        confirmColor: "warning",
+      }),
   });
 
   // Queries - get all items including inactive so they can be viewed and reactivated
-  const { data: products, isLoading: productsLoading, refetch: refetchProducts } = useQuery({
+  const {
+    data: products,
+    isLoading: productsLoading,
+    refetch: refetchProducts,
+  } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.getAll(0, 1000, false), // Get all including inactive
     enabled: activeTab === 0,
   });
 
-  const { data: categories, isLoading: categoriesLoading, refetch: refetchCategories } = useQuery({
+  const {
+    data: categories,
+    isLoading: categoriesLoading,
+    refetch: refetchCategories,
+  } = useQuery({
     queryKey: ["categories"],
     queryFn: () => categoriesApi.getAll(0, 1000), // Get all including inactive
   });
 
-  const { data: brands, isLoading: brandsLoading, refetch: refetchBrands } = useQuery({
+  const {
+    data: brands,
+    isLoading: brandsLoading,
+    refetch: refetchBrands,
+  } = useQuery({
     queryKey: ["brands"],
     queryFn: () => brandsApi.getAll(),
   });
 
-  // Active categories and brands for dropdowns (only active items can be selected for new products)
-  const activeCategories = useMemo(() => categories?.filter(c => c.active) || [], [categories]);
+  //consctive categories and brands for dropdowns (only active items can be selected for new products)
+  const activeCategories = useMemo(
+    () => categories?.filter((c) => c.active) || [],
+    [categories],
+  );
   const activeBrands = useMemo(() => brands || [], [brands]);
 
   // Fetch current minimum selling price for selected product
@@ -210,19 +247,24 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     retry: false,
   });
 
-  // Filtered and sorted data
+  //consiltered and sorted data
   const filteredProducts = useMemo(() => {
     if (!products) return [];
-    let filtered = products.filter(
+    const filtered = products.filter(
       (p) =>
-        p.item_code.toLowerCase().includes(productState.searchQuery.toLowerCase()) ||
+        p.item_code
+          .toLowerCase()
+          .includes(productState.searchQuery.toLowerCase()) ||
         p.name.toLowerCase().includes(productState.searchQuery.toLowerCase()) ||
-        p.model?.toLowerCase().includes(productState.searchQuery.toLowerCase())
+        p.model?.toLowerCase().includes(productState.searchQuery.toLowerCase()),
     );
     filtered.sort((a, b) => {
-      if (productState.sortField === "item_code") return a.item_code.localeCompare(b.item_code);
-      if (productState.sortField === "name") return a.name.localeCompare(b.name);
-      if (productState.sortField === "cost_price") return b.cost_price - a.cost_price;
+      if (productState.sortField === "item_code")
+        return a.item_code.localeCompare(b.item_code);
+      if (productState.sortField === "name")
+        return a.name.localeCompare(b.name);
+      if (productState.sortField === "cost_price")
+        return b.cost_price - a.cost_price;
       return 0;
     });
     return filtered;
@@ -230,14 +272,20 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   const filteredCategories = useMemo(() => {
     if (!categories) return [];
-    let filtered = categories.filter(
+    const filtered = categories.filter(
       (c) =>
-        c.name.toLowerCase().includes(categoryState.searchQuery.toLowerCase()) ||
-        c.category_code.toLowerCase().includes(categoryState.searchQuery.toLowerCase())
+        c.name
+          .toLowerCase()
+          .includes(categoryState.searchQuery.toLowerCase()) ||
+        c.category_code
+          .toLowerCase()
+          .includes(categoryState.searchQuery.toLowerCase()),
     );
     filtered.sort((a, b) => {
-      if (categoryState.sortField === "name") return a.name.localeCompare(b.name);
-      if (categoryState.sortField === "category_code") return a.category_code.localeCompare(b.category_code);
+      if (categoryState.sortField === "name")
+        return a.name.localeCompare(b.name);
+      if (categoryState.sortField === "category_code")
+        return a.category_code.localeCompare(b.category_code);
       return 0;
     });
     return filtered;
@@ -245,14 +293,20 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   const filteredBrands = useMemo(() => {
     if (!brands) return [];
-    let filtered = brands.filter(
+    const filtered = brands.filter(
       (b) =>
-        b.brand_name.toLowerCase().includes(brandState.searchQuery.toLowerCase()) ||
-        b.brand_code.toLowerCase().includes(brandState.searchQuery.toLowerCase())
+        b.brand_name
+          .toLowerCase()
+          .includes(brandState.searchQuery.toLowerCase()) ||
+        b.brand_code
+          .toLowerCase()
+          .includes(brandState.searchQuery.toLowerCase()),
     );
     filtered.sort((a, b) => {
-      if (brandState.sortField === "brand_name") return a.brand_name.localeCompare(b.brand_name);
-      if (brandState.sortField === "brand_code") return a.brand_code.localeCompare(b.brand_code);
+      if (brandState.sortField === "brand_name")
+        return a.brand_name.localeCompare(b.brand_name);
+      if (brandState.sortField === "brand_code")
+        return a.brand_code.localeCompare(b.brand_code);
       return 0;
     });
     return filtered;
@@ -268,23 +322,30 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       productState.setIsEditing(false);
       productState.setSelectedItem(newProduct);
 
-      const priceToSet = typeof createMinPrice === "number" ? createMinPrice : 0;
+      const priceToSet =
+        typeof createMinPrice === "number" ? createMinPrice : 0;
       if (priceToSet > 0 && canUpdate) {
-        setMinimumPriceForProductMutation.mutate({ productId: newProduct.id, price: priceToSet });
+        setMinimumPriceForProductMutation.mutate({
+          productId: newProduct.id,
+          price: priceToSet,
+        });
       }
       setCreateMinPrice("");
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create product")),
+    onError: (error: unknown) =>
+      showErrorToast(handleApiError(error, "Failed to create product")),
   });
 
   const updateProductMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<ProductCreate> }) => productsApi.update(id, data),
+    mutationFn: ({ id, data }: { id: number; data: Partial<ProductCreate> }) =>
+      productsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       showSuccessToast("Product updated successfully");
       productState.setIsEditing(false);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update product")),
+    onError: (error: unknown) =>
+      showErrorToast(handleApiError(error, "Failed to update product")),
   });
 
   const deleteProductMutation = useMutation({
@@ -309,17 +370,20 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       categoryState.setIsEditing(false);
       categoryState.setSelectedItem(newCategory);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create category")),
+    onError: (error: unknown) =>
+      showErrorToast(handleApiError(error, "Failed to create category")),
   });
 
   const updateCategoryMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: CategoryUpdate }) => categoriesApi.update(id, data),
+    mutationFn: ({ id, data }: { id: number; data: CategoryUpdate }) =>
+      categoriesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
       showSuccessToast("Category updated successfully");
       categoryState.setIsEditing(false);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update category")),
+    onError: (error: unknown) =>
+      showErrorToast(handleApiError(error, "Failed to update category")),
   });
 
   const deleteCategoryMutation = useMutation({
@@ -344,17 +408,20 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       brandState.setIsEditing(false);
       brandState.setSelectedItem(newBrand);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create brand")),
+    onError: (error: unknown) =>
+      showErrorToast(handleApiError(error, "Failed to create brand")),
   });
 
   const updateBrandMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: BrandUpdate }) => brandsApi.update(id, data),
+    mutationFn: ({ id, data }: { id: number; data: BrandUpdate }) =>
+      brandsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["brands"] });
       showSuccessToast("Brand updated successfully");
       brandState.setIsEditing(false);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update brand")),
+    onError: (error: unknown) =>
+      showErrorToast(handleApiError(error, "Failed to update brand")),
   });
 
   const deleteBrandMutation = useMutation({
@@ -375,37 +442,53 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     mutationFn: ({ productId, price }: { productId: number; price: number }) =>
       minimumPriceApi.set(productId, { minimum_price: price }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["minimum-price", variables.productId] });
+      queryClient.invalidateQueries({
+        queryKey: ["minimum-price", variables.productId],
+      });
       showSuccessToast("Minimum selling price set successfully");
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to set minimum selling price")),
+    onError: (error: unknown) =>
+      showErrorToast(
+        handleApiError(error, "Failed to set minimum selling price"),
+      ),
   });
 
   const setMinimumPriceMutation = useMutation({
-    mutationFn: (price: number) => minimumPriceApi.set(productState.selectedItem!.id, { minimum_price: price }),
+    mutationFn: (price: number) =>
+      minimumPriceApi.set(productState.selectedItem!.id, {
+        minimum_price: price,
+      }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["minimum-price", productState.selectedItem?.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["minimum-price", productState.selectedItem?.id],
+      });
       showSuccessToast("Minimum selling price set successfully");
       setMinPriceDialogOpen(false);
       setNewMinPrice(0);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to set minimum selling price")),
+    onError: (error: unknown) =>
+      showErrorToast(
+        handleApiError(error, "Failed to set minimum selling price"),
+      ),
   });
 
   // Product handlers
-  const handleSelectProduct = useCallback(async (product: Product) => {
-    if (productState.isEditing || productState.isCreating) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Discard Changes",
-        message: "You have unsaved changes. Discard them?",
-        confirmText: "Discard",
-        cancelText: "Keep Editing",
-        confirmColor: "warning",
-      });
-      if (!confirmed) return;
-    }
-    selectProductInternal(product);
-  }, [productState.isEditing, productState.isCreating, confirmDialog]);
+  const handleSelectProduct = useCallback(
+    async (product: Product) => {
+      if (productState.isEditing || productState.isCreating) {
+        const confirmed = await confirmDialog.confirm({
+          title: "Discard Changes",
+          message: "You have unsaved changes. Discard them?",
+          confirmText: "Discard",
+          cancelText: "Keep Editing",
+          confirmColor: "warning",
+        });
+        if (!confirmed) return;
+      }
+      selectProductInternal(product);
+    },
+    [productState.isEditing, productState.isCreating, confirmDialog],
+  );
 
   const selectProductInternal = (product: Product) => {
     productState.setSelectedItem(product);
@@ -432,7 +515,7 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     // Only allow selecting active categories and brands
     const defaultCategory = activeCategories?.[0]?.id || 0;
     const defaultBrand = activeBrands?.[0]?.id || 0;
-    
+
     productState.setSelectedItem(null);
     productState.setFormData({
       ...emptyProductForm,
@@ -460,11 +543,21 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   const handleSaveProduct = () => {
     // Validate required fields
-    if (!productState.formData.item_code || !productState.formData.name || 
-        productState.formData.cost_price === undefined || productState.formData.cost_price === null ||
-        productState.formData.selling_price === undefined || productState.formData.selling_price === null) {
+    if (
+      !productState.formData.item_code ||
+      !productState.formData.name ||
+      productState.formData.cost_price === undefined ||
+      productState.formData.cost_price === null ||
+      productState.formData.selling_price === undefined ||
+      productState.formData.selling_price === null
+    ) {
       showErrorToast("Please fill in all required fields");
-      setProductTouched({ item_code: true, name: true, cost_price: true, selling_price: true });
+      setProductTouched({
+        item_code: true,
+        name: true,
+        cost_price: true,
+        selling_price: true,
+      });
       return;
     }
     // Ensure website_active is false if product is inactive
@@ -472,11 +565,14 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     if (!dataToSave.active) {
       dataToSave.website_active = false;
     }
-    
+
     if (productState.isCreating) {
       createProductMutation.mutate(dataToSave);
     } else if (productState.selectedItem) {
-      updateProductMutation.mutate({ id: productState.selectedItem.id, data: dataToSave });
+      updateProductMutation.mutate({
+        id: productState.selectedItem.id,
+        data: dataToSave,
+      });
     }
   };
 
@@ -486,7 +582,8 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       productState.setIsEditing(false);
       setCreateMinPrice("");
       setProductTouched({});
-      if (filteredProducts.length > 0) selectProductInternal(filteredProducts[0]);
+      if (filteredProducts.length > 0)
+        selectProductInternal(filteredProducts[0]);
     } else if (productState.selectedItem) {
       selectProductInternal(productState.selectedItem);
       productState.setIsEditing(false);
@@ -498,7 +595,8 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     if (productState.selectedItem) {
       const confirmed = await confirmDialog.confirm({
         title: "Delete Product",
-        message: "Are you sure you want to permanently delete this product? This action cannot be undone.",
+        message:
+          "Are you sure you want to permanently delete this product? This action cannot be undone.",
         confirmText: "Delete",
         confirmColor: "danger",
         type: "danger",
@@ -510,19 +608,22 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   };
 
   // Category handlers
-  const handleSelectCategory = useCallback(async (category: Category) => {
-    if (categoryState.isEditing || categoryState.isCreating) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Discard Changes",
-        message: "You have unsaved changes. Discard them?",
-        confirmText: "Discard",
-        cancelText: "Keep Editing",
-        confirmColor: "warning",
-      });
-      if (!confirmed) return;
-    }
-    selectCategoryInternal(category);
-  }, [categoryState.isEditing, categoryState.isCreating, confirmDialog]);
+  const handleSelectCategory = useCallback(
+    async (category: Category) => {
+      if (categoryState.isEditing || categoryState.isCreating) {
+        const confirmed = await confirmDialog.confirm({
+          title: "Discard Changes",
+          message: "You have unsaved changes. Discard them?",
+          confirmText: "Discard",
+          cancelText: "Keep Editing",
+          confirmColor: "warning",
+        });
+        if (!confirmed) return;
+      }
+      selectCategoryInternal(category);
+    },
+    [categoryState.isEditing, categoryState.isCreating, confirmDialog],
+  );
 
   const selectCategoryInternal = (category: Category) => {
     categoryState.setSelectedItem(category);
@@ -552,11 +653,14 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       setCategoryTouched({ name: true, category_code: true });
       return;
     }
-    
+
     if (categoryState.isCreating) {
       createCategoryMutation.mutate(categoryState.formData);
     } else if (categoryState.selectedItem) {
-      updateCategoryMutation.mutate({ id: categoryState.selectedItem.id, data: categoryState.formData });
+      updateCategoryMutation.mutate({
+        id: categoryState.selectedItem.id,
+        data: categoryState.formData,
+      });
     }
   };
 
@@ -564,7 +668,8 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     if (categoryState.selectedItem) {
       const confirmed = await confirmDialog.confirm({
         title: "Delete Category",
-        message: "Are you sure you want to permanently delete this category? This action cannot be undone and may affect existing products.",
+        message:
+          "Are you sure you want to permanently delete this category? This action cannot be undone and may affect existing products.",
         confirmText: "Delete",
         confirmColor: "danger",
         type: "danger",
@@ -580,7 +685,8 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       categoryState.setIsCreating(false);
       categoryState.setIsEditing(false);
       setCategoryTouched({});
-      if (filteredCategories.length > 0) selectCategoryInternal(filteredCategories[0]);
+      if (filteredCategories.length > 0)
+        selectCategoryInternal(filteredCategories[0]);
     } else if (categoryState.selectedItem) {
       selectCategoryInternal(categoryState.selectedItem);
       categoryState.setIsEditing(false);
@@ -589,19 +695,22 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
   };
 
   // Brand handlers
-  const handleSelectBrand = useCallback(async (brand: Brand) => {
-    if (brandState.isEditing || brandState.isCreating) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Discard Changes",
-        message: "You have unsaved changes. Discard them?",
-        confirmText: "Discard",
-        cancelText: "Keep Editing",
-        confirmColor: "warning",
-      });
-      if (!confirmed) return;
-    }
-    selectBrandInternal(brand);
-  }, [brandState.isEditing, brandState.isCreating, confirmDialog]);
+  const handleSelectBrand = useCallback(
+    async (brand: Brand) => {
+      if (brandState.isEditing || brandState.isCreating) {
+        const confirmed = await confirmDialog.confirm({
+          title: "Discard Changes",
+          message: "You have unsaved changes. Discard them?",
+          confirmText: "Discard",
+          cancelText: "Keep Editing",
+          confirmColor: "warning",
+        });
+        if (!confirmed) return;
+      }
+      selectBrandInternal(brand);
+    },
+    [brandState.isEditing, brandState.isCreating, confirmDialog],
+  );
 
   const selectBrandInternal = (brand: Brand) => {
     brandState.setSelectedItem(brand);
@@ -616,22 +725,52 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   // Auto-select first item when data loads for each tab
   useEffect(() => {
-    if (activeTab === 0 && filteredProducts.length > 0 && !productState.selectedItem && !productState.isCreating) {
+    if (
+      activeTab === 0 &&
+      filteredProducts.length > 0 &&
+      !productState.selectedItem &&
+      !productState.isCreating
+    ) {
       selectProductInternal(filteredProducts[0]);
     }
-  }, [filteredProducts, productState.selectedItem, productState.isCreating, activeTab]);
+  }, [
+    filteredProducts,
+    productState.selectedItem,
+    productState.isCreating,
+    activeTab,
+  ]);
 
   useEffect(() => {
-    if (activeTab === 1 && filteredCategories.length > 0 && !categoryState.selectedItem && !categoryState.isCreating) {
+    if (
+      activeTab === 1 &&
+      filteredCategories.length > 0 &&
+      !categoryState.selectedItem &&
+      !categoryState.isCreating
+    ) {
       selectCategoryInternal(filteredCategories[0]);
     }
-  }, [filteredCategories, categoryState.selectedItem, categoryState.isCreating, activeTab]);
+  }, [
+    filteredCategories,
+    categoryState.selectedItem,
+    categoryState.isCreating,
+    activeTab,
+  ]);
 
   useEffect(() => {
-    if (activeTab === 2 && filteredBrands.length > 0 && !brandState.selectedItem && !brandState.isCreating) {
+    if (
+      activeTab === 2 &&
+      filteredBrands.length > 0 &&
+      !brandState.selectedItem &&
+      !brandState.isCreating
+    ) {
       selectBrandInternal(filteredBrands[0]);
     }
-  }, [filteredBrands, brandState.selectedItem, brandState.isCreating, activeTab]);
+  }, [
+    filteredBrands,
+    brandState.selectedItem,
+    brandState.isCreating,
+    activeTab,
+  ]);
 
   const handleNewBrand = () => {
     brandState.setSelectedItem(null);
@@ -648,11 +787,14 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       setBrandTouched({ brand_name: true, brand_code: true });
       return;
     }
-    
+
     if (brandState.isCreating) {
       createBrandMutation.mutate(brandState.formData);
     } else if (brandState.selectedItem) {
-      updateBrandMutation.mutate({ id: brandState.selectedItem.id, data: brandState.formData });
+      updateBrandMutation.mutate({
+        id: brandState.selectedItem.id,
+        data: brandState.formData,
+      });
     }
   };
 
@@ -690,6 +832,25 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     else refetchBrands();
   };
 
+  const handleExportProductsCSV = async () => {
+    try {
+      const response = await apiClient.get<Blob>(
+        `/inventory/products/export-csv?limit=100000`,
+        { responseType: "blob" },
+      );
+
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `products_${new Date().toISOString().split("T")[0]}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   // Tab configuration
   const tabs: TabConfig[] = [
     { label: "Products" },
@@ -697,11 +858,19 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
     { label: "Brands" },
   ];
 
-  const pageTitle = activeTab === 0 ? "Products" : activeTab === 1 ? "Categories" : "Brands";
+  const pageTitle =
+    activeTab === 0 ? "Products" : activeTab === 1 ? "Categories" : "Brands";
 
   // Render Products Tab
   const renderProductsTab = () => (
-    <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
+    <Box
+      sx={{
+        flex: 1,
+        display: "flex",
+        flexDirection: { xs: "column", md: "row" },
+        overflow: "hidden",
+      }}
+    >
       <SearchableList
         searchValue={productState.searchQuery}
         onSearchChange={productState.setSearchQuery}
@@ -720,43 +889,101 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
               isSelected={isSelected}
               onClick={() => handleSelectProduct(product)}
               primaryText={
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    width: "100%",
+                    gap: 0.5,
+                  }}
+                >
                   {/* Item Code */}
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <span>{product.item_code}</span>
                     {isSelected && (
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        sx={{ color: "inherit", opacity: 0.7 }}
+                      >
                         (Item Code)
                       </Typography>
                     )}
                   </Box>
                   {/* Creation date — always visible */}
-                  <Typography component="span" variant="caption" sx={{ opacity: 0.55, fontSize: "0.68rem" }}>
-                    Added: {new Date(product.added_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                  <Typography
+                    component="span"
+                    variant="caption"
+                    sx={{ opacity: 0.55, fontSize: "0.68rem" }}
+                  >
+                    Added:{" "}
+                    {new Date(product.added_date).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
                   </Typography>
                   {/* Additional fields when selected */}
                   {isSelected && (
                     <>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
                         <Typography component="span" variant="caption">
                           {product.name}
                         </Typography>
-                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          sx={{ color: "inherit", opacity: 0.7 }}
+                        >
                           (Name)
                         </Typography>
                       </Box>
                       {product.selling_price && (
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <Typography component="span" variant="caption" fontWeight={600} sx={{ color: "inherit" }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <Typography
+                            component="span"
+                            variant="caption"
+                            fontWeight={600}
+                            sx={{ color: "inherit" }}
+                          >
                             Rs. {fmtLKR(product.selling_price)}
                           </Typography>
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                          <Typography
+                            component="span"
+                            variant="caption"
+                            sx={{ color: "inherit", opacity: 0.7 }}
+                          >
                             (Selling Price)
                           </Typography>
                         </Box>
                       )}
                       {/* Status Chips - shown below all fields when selected */}
-                      <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          gap: 0.5,
+                          mt: 0.5,
+                          flexWrap: "wrap",
+                        }}
+                      >
                         <Chip
                           label={product.active ? "Active" : "Inactive"}
                           size="small"
@@ -779,31 +1006,58 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
               secondaryText={!isSelected ? product.name : undefined}
               isFavorite={productState.favorites.includes(product.id)}
               onToggleFavorite={() => productState.toggleFavorite(product.id)}
-              chips={!isSelected ? [
-                ...(product.active ? [{ label: "Active", color: "success" as const }] : []),
-                ...(product.website_active ? [{ label: "Web", color: "info" as const }] : []),
-              ] : undefined}
+              chips={
+                !isSelected
+                  ? [
+                      ...(product.active
+                        ? [{ label: "Active", color: "success" as const }]
+                        : []),
+                      ...(product.website_active
+                        ? [{ label: "Web", color: "info" as const }]
+                        : []),
+                    ]
+                  : undefined
+              }
             />
           );
         })}
       </SearchableList>
 
-      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
         <DetailPanelHeader
           icon={<InventoryIcon color="primary" />}
-          breadcrumbs={[{ label: "Inventory", href: "/inventory" }, { label: "Products" }]}
+          breadcrumbs={[
+            { label: "Product Catalogs", href: "/product-catalogs" },
+            { label: "Products" },
+          ]}
           title={
             productState.isCreating
               ? "New Product"
               : productState.selectedItem
-              ? `${productState.selectedItem.item_code} - ${productState.selectedItem.name}`
-              : "Select a Product"
+                ? `${productState.selectedItem.item_code} - ${productState.selectedItem.name}`
+                : "Select a Product"
           }
           chips={
             productState.selectedItem && !productState.isCreating
               ? [
-                  { label: productState.selectedItem.active ? "Active" : "Inactive", color: productState.selectedItem.active ? "success" : "default" },
-                  ...(productState.selectedItem.website_active ? [{ label: "Website Active", color: "info" as const }] : []),
+                  {
+                    label: productState.selectedItem.active
+                      ? "Active"
+                      : "Inactive",
+                    color: productState.selectedItem.active
+                      ? "success"
+                      : "default",
+                  },
+                  ...(productState.selectedItem.website_active
+                    ? [{ label: "Website Active", color: "info" as const }]
+                    : []),
                 ]
               : undefined
           }
@@ -822,10 +1076,17 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           onSave={handleSaveProduct}
           onCancel={handleCancelProduct}
           onEdit={() => productState.setIsEditing(true)}
-          isSaving={createProductMutation.isPending || updateProductMutation.isPending}
-          saveDisabled={!productState.formData.name || !productState.formData.item_code || 
-            productState.formData.cost_price === undefined || productState.formData.cost_price === null ||
-            productState.formData.selling_price === undefined || productState.formData.selling_price === null}
+          isSaving={
+            createProductMutation.isPending || updateProductMutation.isPending
+          }
+          saveDisabled={
+            !productState.formData.name ||
+            !productState.formData.item_code ||
+            productState.formData.cost_price === undefined ||
+            productState.formData.cost_price === null ||
+            productState.formData.selling_price === undefined ||
+            productState.formData.selling_price === null
+          }
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -834,30 +1095,50 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           ) : (
             <>
               {/* Show inactive warning */}
-              {productState.selectedItem && !productState.selectedItem.active && !productState.isCreating && (
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  This product is inactive and cannot be used in transactions. Edit to reactivate.
-                </Alert>
-              )}
-              
+              {productState.selectedItem &&
+                !productState.selectedItem.active &&
+                !productState.isCreating && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    This product is inactive and cannot be used in transactions.
+                    Edit to reactivate.
+                  </Alert>
+                )}
+
               <FormSection title="Basic Information">
                 <TextField
                   label="Item Code"
                   size="small"
                   value={productState.formData.item_code}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, item_code: e.target.value.toUpperCase() })}
+                  onChange={(e) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      item_code: e.target.value.toUpperCase(),
+                    })
+                  }
                   onBlur={() => handleProductBlur("item_code")}
                   disabled={!productState.isCreating}
                   required
-                  error={productTouched.item_code && !productState.formData.item_code}
-                  helperText={productTouched.item_code && !productState.formData.item_code ? "Item code is required" : ""}
+                  error={
+                    productTouched.item_code && !productState.formData.item_code
+                  }
+                  helperText={
+                    productTouched.item_code && !productState.formData.item_code
+                      ? "Item code is required"
+                      : ""
+                  }
                   inputProps={{ style: { textTransform: "uppercase" } }}
                 />
                 {productState.selectedItem && !productState.isCreating && (
                   <TextField
                     label="Created On"
                     size="small"
-                    value={new Date(productState.selectedItem.added_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                    value={new Date(
+                      productState.selectedItem.added_date,
+                    ).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
                     disabled
                     InputProps={{ readOnly: true }}
                   />
@@ -866,18 +1147,32 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   label="Product Name"
                   size="small"
                   value={productState.formData.name}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, name: e.target.value })}
+                  onChange={(e) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      name: e.target.value,
+                    })
+                  }
                   onBlur={() => handleProductBlur("name")}
                   disabled={!productState.isEditing && !productState.isCreating}
                   required
                   error={productTouched.name && !productState.formData.name}
-                  helperText={productTouched.name && !productState.formData.name ? "Product name is required" : ""}
+                  helperText={
+                    productTouched.name && !productState.formData.name
+                      ? "Product name is required"
+                      : ""
+                  }
                 />
                 <TextField
                   label="Model"
                   size="small"
                   value={productState.formData.model}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, model: e.target.value })}
+                  onChange={(e) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      model: e.target.value,
+                    })
+                  }
                   disabled={!productState.isEditing && !productState.isCreating}
                 />
                 <TextField
@@ -885,18 +1180,30 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   size="small"
                   select
                   value={productState.formData.item_type}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, item_type: e.target.value })}
+                  onChange={(e) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      item_type: e.target.value,
+                    })
+                  }
                   disabled={!productState.isEditing && !productState.isCreating}
                 >
                   {PRODUCT_ITEM_TYPE.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
                   ))}
                 </TextField>
                 <TextField
                   label="Description"
                   size="small"
                   value={productState.formData.description}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, description: e.target.value })}
+                  onChange={(e) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      description: e.target.value,
+                    })
+                  }
                   disabled={!productState.isEditing && !productState.isCreating}
                   multiline
                   rows={2}
@@ -911,8 +1218,15 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                     size="small"
                     fullWidth
                     value={productState.formData.image_url ?? ""}
-                    onChange={(e) => productState.setFormData({ ...productState.formData, image_url: e.target.value })}
-                    disabled={!productState.isEditing && !productState.isCreating}
+                    onChange={(e) =>
+                      productState.setFormData({
+                        ...productState.formData,
+                        image_url: e.target.value,
+                      })
+                    }
+                    disabled={
+                      !productState.isEditing && !productState.isCreating
+                    }
                     placeholder="https://example.com/product-image.jpg"
                     helperText="Paste a direct link to the product image (optional)"
                   />
@@ -924,27 +1238,55 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   size="small"
                   options={activeCategories}
                   getOptionLabel={(option) => option.name}
-                  value={activeCategories.find(c => c.id === productState.formData.category_id) || null}
-                  onChange={(_, newValue) => productState.setFormData({ ...productState.formData, category_id: newValue?.id || 0 })}
+                  value={
+                    activeCategories.find(
+                      (c) => c.id === productState.formData.category_id,
+                    ) || null
+                  }
+                  onChange={(_, newValue) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      category_id: newValue?.id || 0,
+                    })
+                  }
                   disabled={!productState.isEditing && !productState.isCreating}
                   renderInput={(params) => (
                     <TextField
                       {...params}
                       label="Category"
-                      helperText={productState.isEditing || productState.isCreating ? "Only active categories can be selected" : ""}
+                      helperText={
+                        productState.isEditing || productState.isCreating
+                          ? "Only active categories can be selected"
+                          : ""
+                      }
                     />
                   )}
-                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  isOptionEqualToValue={(option, value) =>
+                    option.id === value.id
+                  }
                 />
                 <Autocomplete
                   size="small"
                   options={brands || []}
                   getOptionLabel={(option) => option.brand_name}
-                  value={brands?.find(b => b.id === productState.formData.items_brand_id) || null}
-                  onChange={(_, newValue) => productState.setFormData({ ...productState.formData, items_brand_id: newValue?.id || 0 })}
+                  value={
+                    brands?.find(
+                      (b) => b.id === productState.formData.items_brand_id,
+                    ) || null
+                  }
+                  onChange={(_, newValue) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      items_brand_id: newValue?.id || 0,
+                    })
+                  }
                   disabled={!productState.isEditing && !productState.isCreating}
-                  renderInput={(params) => <TextField {...params} label="Brand" />}
-                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  renderInput={(params) => (
+                    <TextField {...params} label="Brand" />
+                  )}
+                  isOptionEqualToValue={(option, value) =>
+                    option.id === value.id
+                  }
                 />
               </FormSection>
 
@@ -954,35 +1296,88 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   size="small"
                   type="number"
                   value={productState.formData.cost_price ?? ""}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, cost_price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  onChange={(e) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      cost_price: e.target.value
+                        ? parseFloat(e.target.value)
+                        : undefined,
+                    })
+                  }
                   onBlur={() => handleProductBlur("cost_price")}
                   disabled={!productState.isEditing && !productState.isCreating}
                   required
-                  error={productTouched.cost_price && (productState.formData.cost_price === undefined || productState.formData.cost_price === null)}
-                  helperText={productTouched.cost_price && (productState.formData.cost_price === undefined || productState.formData.cost_price === null) ? "Cost price is required" : ""}
-                  InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                  error={
+                    productTouched.cost_price &&
+                    (productState.formData.cost_price === undefined ||
+                      productState.formData.cost_price === null)
+                  }
+                  helperText={
+                    productTouched.cost_price &&
+                    (productState.formData.cost_price === undefined ||
+                      productState.formData.cost_price === null)
+                      ? "Cost price is required"
+                      : ""
+                  }
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">Rs.</InputAdornment>
+                    ),
+                  }}
                 />
                 <TextField
                   label="Website Price"
                   size="small"
                   type="number"
                   value={productState.formData.website_price ?? ""}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, website_price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  onChange={(e) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      website_price: e.target.value
+                        ? parseFloat(e.target.value)
+                        : undefined,
+                    })
+                  }
                   disabled={!productState.isEditing && !productState.isCreating}
-                  InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">Rs.</InputAdornment>
+                    ),
+                  }}
                 />
                 <TextField
                   label="Selling Price"
                   size="small"
                   type="number"
                   value={productState.formData.selling_price ?? ""}
-                  onChange={(e) => productState.setFormData({ ...productState.formData, selling_price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  onChange={(e) =>
+                    productState.setFormData({
+                      ...productState.formData,
+                      selling_price: e.target.value
+                        ? parseFloat(e.target.value)
+                        : undefined,
+                    })
+                  }
                   onBlur={() => handleProductBlur("selling_price")}
                   disabled={!productState.isEditing && !productState.isCreating}
                   required
-                  error={productTouched.selling_price && (productState.formData.selling_price === undefined || productState.formData.selling_price === null)}
-                  helperText={productTouched.selling_price && (productState.formData.selling_price === undefined || productState.formData.selling_price === null) ? "Selling price is required" : ""}
-                  InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                  error={
+                    productTouched.selling_price &&
+                    (productState.formData.selling_price === undefined ||
+                      productState.formData.selling_price === null)
+                  }
+                  helperText={
+                    productTouched.selling_price &&
+                    (productState.formData.selling_price === undefined ||
+                      productState.formData.selling_price === null)
+                      ? "Selling price is required"
+                      : ""
+                  }
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">Rs.</InputAdornment>
+                    ),
+                  }}
                 />
                 {/* Minimum Selling Price */}
                 {productState.isCreating ? (
@@ -998,44 +1393,66 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                         return;
                       }
                       const parsed = Number(raw);
-                      setCreateMinPrice(Number.isFinite(parsed) ? Math.max(0, parsed) : "");
+                      setCreateMinPrice(
+                        Number.isFinite(parsed) ? Math.max(0, parsed) : "",
+                      );
                     }}
-                    InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">Rs.</InputAdornment>
+                      ),
+                    }}
                   />
                 ) : (
                   productState.selectedItem && (
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, gridColumn: { sm: "1 / -1" } }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Minimum Selling Price:
-                    </Typography>
-                    {currentMinPrice ? (
-                      <Chip
-                        label={`Rs. ${fmtLKR(currentMinPrice.minimum_price)}`}
-                        color="primary"
-                        size="small"
-                      />
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">Not set</Typography>
-                    )}
-                    {canUpdate && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => {
-                          setNewMinPrice(currentMinPrice?.minimum_price || 0);
-                          setMinPriceDialogOpen(true);
-                        }}
-                      >
-                        {currentMinPrice ? "Update" : "Set"} Min Price
-                      </Button>
-                    )}
-                  </Box>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2,
+                        gridColumn: { sm: "1 / -1" },
+                      }}
+                    >
+                      <Typography variant="body2" color="text.secondary">
+                        Minimum Selling Price:
+                      </Typography>
+                      {currentMinPrice ? (
+                        <Chip
+                          label={`Rs. ${fmtLKR(currentMinPrice.minimum_price)}`}
+                          color="primary"
+                          size="small"
+                        />
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          Not set
+                        </Typography>
+                      )}
+                      {canUpdate && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => {
+                            setNewMinPrice(currentMinPrice?.minimum_price || 0);
+                            setMinPriceDialogOpen(true);
+                          }}
+                        >
+                          {currentMinPrice ? "Update" : "Set"} Min Price
+                        </Button>
+                      )}
+                    </Box>
                   )
                 )}
               </FormSection>
 
               <FormSection title="Status">
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 2, gridColumn: { sm: "1 / -1" } }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                    gridColumn: { sm: "1 / -1" },
+                  }}
+                >
                   <Box sx={{ display: "flex", gap: 3 }}>
                     <FormControlLabel
                       control={
@@ -1043,14 +1460,18 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                           checked={productState.formData.active}
                           onChange={(e) => {
                             const isActive = e.target.checked;
-                            productState.setFormData({ 
-                              ...productState.formData, 
+                            productState.setFormData({
+                              ...productState.formData,
                               active: isActive,
                               // Automatically disable website_active if product becomes inactive
-                              website_active: isActive ? productState.formData.website_active : false
+                              website_active: isActive
+                                ? productState.formData.website_active
+                                : false,
                             });
                           }}
-                          disabled={!productState.isEditing && !productState.isCreating}
+                          disabled={
+                            !productState.isEditing && !productState.isCreating
+                          }
                         />
                       }
                       label="Active"
@@ -1059,40 +1480,68 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                       control={
                         <Switch
                           checked={productState.formData.website_active}
-                          onChange={(e) => productState.setFormData({ ...productState.formData, website_active: e.target.checked })}
+                          onChange={(e) =>
+                            productState.setFormData({
+                              ...productState.formData,
+                              website_active: e.target.checked,
+                            })
+                          }
                           // Website active can only be enabled if product is active
-                          disabled={(!productState.isEditing && !productState.isCreating) || !productState.formData.active}
+                          disabled={
+                            (!productState.isEditing &&
+                              !productState.isCreating) ||
+                            !productState.formData.active
+                          }
                         />
                       }
                       label="Website Active"
                     />
                   </Box>
-                  {!productState.formData.active && (productState.isEditing || productState.isCreating) && (
-                    <Typography variant="caption" color="warning.main">
-                      Note: Inactive products cannot be used in sales, purchases, or displayed on the website.
-                    </Typography>
-                  )}
-                  {productState.formData.active && !productState.formData.website_active && (productState.isEditing || productState.isCreating) && (
-                    <Typography variant="caption" color="text.secondary">
-                      Enable "Website Active" to display this product on the website.
-                    </Typography>
-                  )}
+                  {!productState.formData.active &&
+                    (productState.isEditing || productState.isCreating) && (
+                      <Typography variant="caption" color="warning.main">
+                        Note: Inactive products cannot be used in sales,
+                        purchases, or displayed on the website.
+                      </Typography>
+                    )}
+                  {productState.formData.active &&
+                    !productState.formData.website_active &&
+                    (productState.isEditing || productState.isCreating) && (
+                      <Typography variant="caption" color="text.secondary">
+                        Enable "Website Active" to display this product on the
+                        website.
+                      </Typography>
+                    )}
                 </Box>
               </FormSection>
 
               {/* Record Information (view mode only) */}
-              {productState.selectedItem && !productState.isCreating && !productState.isEditing && (
-                <FormSection title="Record Information" columns={2}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Created</Typography>
-                    <Typography variant="body2">{formatDateTimeReadable(productState.selectedItem.created_at) || "-"}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Last Modified</Typography>
-                    <Typography variant="body2">{formatDateTimeReadable(productState.selectedItem.updated_at) || "-"}</Typography>
-                  </Box>
-                </FormSection>
-              )}
+              {productState.selectedItem &&
+                !productState.isCreating &&
+                !productState.isEditing && (
+                  <FormSection title="Record Information" columns={2}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Created
+                      </Typography>
+                      <Typography variant="body2">
+                        {formatDateTimeReadable(
+                          productState.selectedItem.created_at,
+                        ) || "-"}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Last Modified
+                      </Typography>
+                      <Typography variant="body2">
+                        {formatDateTimeReadable(
+                          productState.selectedItem.updated_at,
+                        ) || "-"}
+                      </Typography>
+                    </Box>
+                  </FormSection>
+                )}
             </>
           )}
         </Box>
@@ -1102,7 +1551,14 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   // Render Categories Tab
   const renderCategoriesTab = () => (
-    <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
+    <Box
+      sx={{
+        flex: 1,
+        display: "flex",
+        flexDirection: { xs: "column", md: "row" },
+        overflow: "hidden",
+      }}
+    >
       <SearchableList
         searchValue={categoryState.searchQuery}
         onSearchChange={categoryState.setSearchQuery}
@@ -1121,12 +1577,29 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
               isSelected={isSelected}
               onClick={() => handleSelectCategory(category)}
               primaryText={
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    width: "100%",
+                    gap: 0.5,
+                  }}
+                >
                   {/* Category Name */}
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <span>{category.name}</span>
                     {isSelected && (
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        sx={{ color: "inherit", opacity: 0.7 }}
+                      >
                         (Name)
                       </Typography>
                     )}
@@ -1134,16 +1607,33 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   {/* Additional fields when selected */}
                   {isSelected && (
                     <>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
                         <Typography component="span" variant="caption">
                           {category.category_code}
                         </Typography>
-                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          sx={{ color: "inherit", opacity: 0.7 }}
+                        >
                           (Code)
                         </Typography>
                       </Box>
                       {/* Status Chips - shown below all fields when selected */}
-                      <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          gap: 0.5,
+                          mt: 0.5,
+                          flexWrap: "wrap",
+                        }}
+                      >
                         <Chip
                           label={category.active ? "Active" : "Inactive"}
                           size="small"
@@ -1158,26 +1648,54 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
               secondaryText={!isSelected ? category.category_code : undefined}
               isFavorite={categoryState.favorites.includes(category.id)}
               onToggleFavorite={() => categoryState.toggleFavorite(category.id)}
-              chips={!isSelected ? [{ label: category.active ? "Active" : "Inactive", color: category.active ? "success" : "default" }] : undefined}
+              chips={
+                !isSelected
+                  ? [
+                      {
+                        label: category.active ? "Active" : "Inactive",
+                        color: category.active ? "success" : "default",
+                      },
+                    ]
+                  : undefined
+              }
             />
           );
         })}
       </SearchableList>
 
-      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
         <DetailPanelHeader
           icon={<CategoryIcon color="primary" />}
-          breadcrumbs={[{ label: "Inventory", href: "/inventory" }, { label: "Categories" }]}
+          breadcrumbs={[
+            { label: "Product Catalogs", href: "/product-catalogs" },
+            { label: "Categories" },
+          ]}
           title={
             categoryState.isCreating
               ? "New Category"
               : categoryState.selectedItem
-              ? categoryState.selectedItem.name
-              : "Select a Category"
+                ? categoryState.selectedItem.name
+                : "Select a Category"
           }
           chips={
             categoryState.selectedItem && !categoryState.isCreating
-              ? [{ label: categoryState.selectedItem.active ? "Active" : "Inactive", color: categoryState.selectedItem.active ? "success" : "default" }]
+              ? [
+                  {
+                    label: categoryState.selectedItem.active
+                      ? "Active"
+                      : "Inactive",
+                    color: categoryState.selectedItem.active
+                      ? "success"
+                      : "default",
+                  },
+                ]
               : undefined
           }
         />
@@ -1194,8 +1712,13 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           onDelete={handleDeleteCategory}
           onSave={handleSaveCategory}
           onCancel={handleCancelCategory}
-          isSaving={createCategoryMutation.isPending || updateCategoryMutation.isPending}
-          saveDisabled={!categoryState.formData.name || !categoryState.formData.category_code}
+          isSaving={
+            createCategoryMutation.isPending || updateCategoryMutation.isPending
+          }
+          saveDisabled={
+            !categoryState.formData.name ||
+            !categoryState.formData.category_code
+          }
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -1204,66 +1727,116 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           ) : (
             <>
               {/* Show inactive warning */}
-              {categoryState.selectedItem && !categoryState.selectedItem.active && !categoryState.isCreating && (
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  This category is inactive and cannot be assigned to new products. Edit to reactivate.
-                </Alert>
-              )}
-              
+              {categoryState.selectedItem &&
+                !categoryState.selectedItem.active &&
+                !categoryState.isCreating && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    This category is inactive and cannot be assigned to new
+                    products. Edit to reactivate.
+                  </Alert>
+                )}
+
               <FormSection title="Category Information" isLast>
                 <TextField
                   label="Category Name"
                   size="small"
                   value={categoryState.formData.name}
-                  onChange={(e) => categoryState.setFormData({ ...categoryState.formData, name: e.target.value })}
+                  onChange={(e) =>
+                    categoryState.setFormData({
+                      ...categoryState.formData,
+                      name: e.target.value,
+                    })
+                  }
                   onBlur={() => handleCategoryBlur("name")}
-                  disabled={!categoryState.isEditing && !categoryState.isCreating}
+                  disabled={
+                    !categoryState.isEditing && !categoryState.isCreating
+                  }
                   required
                   error={categoryTouched.name && !categoryState.formData.name}
-                  helperText={categoryTouched.name && !categoryState.formData.name ? "Category name is required" : ""}
+                  helperText={
+                    categoryTouched.name && !categoryState.formData.name
+                      ? "Category name is required"
+                      : ""
+                  }
                 />
                 <TextField
                   label="Category Code"
                   size="small"
                   value={categoryState.formData.category_code}
-                  onChange={(e) => categoryState.setFormData({ ...categoryState.formData, category_code: e.target.value.toUpperCase() })}
+                  onChange={(e) =>
+                    categoryState.setFormData({
+                      ...categoryState.formData,
+                      category_code: e.target.value.toUpperCase(),
+                    })
+                  }
                   onBlur={() => handleCategoryBlur("category_code")}
                   disabled={!categoryState.isCreating}
                   required
-                  error={categoryTouched.category_code && !categoryState.formData.category_code}
-                  helperText={categoryTouched.category_code && !categoryState.formData.category_code ? "Category code is required" : ""}
+                  error={
+                    categoryTouched.category_code &&
+                    !categoryState.formData.category_code
+                  }
+                  helperText={
+                    categoryTouched.category_code &&
+                    !categoryState.formData.category_code
+                      ? "Category code is required"
+                      : ""
+                  }
                   inputProps={{ style: { textTransform: "uppercase" } }}
                 />
                 <TextField
                   label="Memo"
                   size="small"
                   value={categoryState.formData.memo}
-                  onChange={(e) => categoryState.setFormData({ ...categoryState.formData, memo: e.target.value })}
-                  disabled={!categoryState.isEditing && !categoryState.isCreating}
+                  onChange={(e) =>
+                    categoryState.setFormData({
+                      ...categoryState.formData,
+                      memo: e.target.value,
+                    })
+                  }
+                  disabled={
+                    !categoryState.isEditing && !categoryState.isCreating
+                  }
                 />
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                   <FormControlLabel
                     control={
                       <Switch
                         checked={categoryState.formData.active}
-                        onChange={(e) => categoryState.setFormData({ ...categoryState.formData, active: e.target.checked })}
-                        disabled={!categoryState.isEditing && !categoryState.isCreating}
+                        onChange={(e) =>
+                          categoryState.setFormData({
+                            ...categoryState.formData,
+                            active: e.target.checked,
+                          })
+                        }
+                        disabled={
+                          !categoryState.isEditing && !categoryState.isCreating
+                        }
                       />
                     }
                     label="Active"
                   />
-                  {!categoryState.formData.active && (categoryState.isEditing || categoryState.isCreating) && (
-                    <Typography variant="caption" color="warning.main">
-                      Note: Inactive categories cannot be assigned to new products.
-                    </Typography>
-                  )}
+                  {!categoryState.formData.active &&
+                    (categoryState.isEditing || categoryState.isCreating) && (
+                      <Typography variant="caption" color="warning.main">
+                        Note: Inactive categories cannot be assigned to new
+                        products.
+                      </Typography>
+                    )}
                 </Box>
                 <TextField
                   label="Description"
                   size="small"
                   value={categoryState.formData.description}
-                  onChange={(e) => categoryState.setFormData({ ...categoryState.formData, description: e.target.value })}
-                  disabled={!categoryState.isEditing && !categoryState.isCreating}
+                  onChange={(e) =>
+                    categoryState.setFormData({
+                      ...categoryState.formData,
+                      description: e.target.value,
+                    })
+                  }
+                  disabled={
+                    !categoryState.isEditing && !categoryState.isCreating
+                  }
                   multiline
                   rows={3}
                   sx={{ gridColumn: { sm: "1 / -1" } }}
@@ -1278,7 +1851,14 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
 
   // Render Brands Tab
   const renderBrandsTab = () => (
-    <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
+    <Box
+      sx={{
+        flex: 1,
+        display: "flex",
+        flexDirection: { xs: "column", md: "row" },
+        overflow: "hidden",
+      }}
+    >
       <SearchableList
         searchValue={brandState.searchQuery}
         onSearchChange={brandState.setSearchQuery}
@@ -1297,12 +1877,29 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
               isSelected={isSelected}
               onClick={() => handleSelectBrand(brand)}
               primaryText={
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    width: "100%",
+                    gap: 0.5,
+                  }}
+                >
                   {/* Brand Name */}
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <span>{brand.brand_name}</span>
                     {isSelected && (
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        sx={{ color: "inherit", opacity: 0.7 }}
+                      >
                         (Name)
                       </Typography>
                     )}
@@ -1310,11 +1907,21 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                   {/* Additional fields when selected */}
                   {isSelected && (
                     <>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
                         <Typography component="span" variant="caption">
                           {brand.brand_code}
                         </Typography>
-                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          sx={{ color: "inherit", opacity: 0.7 }}
+                        >
                           (Code)
                         </Typography>
                       </Box>
@@ -1330,16 +1937,26 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
         })}
       </SearchableList>
 
-      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
         <DetailPanelHeader
           icon={<BrandIcon color="primary" />}
-          breadcrumbs={[{ label: "Inventory", href: "/inventory" }, { label: "Brands" }]}
+          breadcrumbs={[
+            { label: "Product Catalogs", href: "/product-catalogs" },
+            { label: "Brands" },
+          ]}
           title={
             brandState.isCreating
               ? "New Brand"
               : brandState.selectedItem
-              ? brandState.selectedItem.brand_name
-              : "Select a Brand"
+                ? brandState.selectedItem.brand_name
+                : "Select a Brand"
           }
         />
 
@@ -1355,8 +1972,12 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
           onDelete={handleDeleteBrand}
           onSave={handleSaveBrand}
           onCancel={handleCancelBrand}
-          isSaving={createBrandMutation.isPending || updateBrandMutation.isPending}
-          saveDisabled={!brandState.formData.brand_name || !brandState.formData.brand_code}
+          isSaving={
+            createBrandMutation.isPending || updateBrandMutation.isPending
+          }
+          saveDisabled={
+            !brandState.formData.brand_name || !brandState.formData.brand_code
+          }
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -1368,30 +1989,57 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
                 label="Brand Name"
                 size="small"
                 value={brandState.formData.brand_name}
-                onChange={(e) => brandState.setFormData({ ...brandState.formData, brand_name: e.target.value })}
+                onChange={(e) =>
+                  brandState.setFormData({
+                    ...brandState.formData,
+                    brand_name: e.target.value,
+                  })
+                }
                 onBlur={() => handleBrandBlur("brand_name")}
                 disabled={!brandState.isEditing && !brandState.isCreating}
                 required
-                error={brandTouched.brand_name && !brandState.formData.brand_name}
-                helperText={brandTouched.brand_name && !brandState.formData.brand_name ? "Brand name is required" : ""}
+                error={
+                  brandTouched.brand_name && !brandState.formData.brand_name
+                }
+                helperText={
+                  brandTouched.brand_name && !brandState.formData.brand_name
+                    ? "Brand name is required"
+                    : ""
+                }
               />
               <TextField
                 label="Brand Code"
                 size="small"
                 value={brandState.formData.brand_code}
-                onChange={(e) => brandState.setFormData({ ...brandState.formData, brand_code: e.target.value.toUpperCase() })}
+                onChange={(e) =>
+                  brandState.setFormData({
+                    ...brandState.formData,
+                    brand_code: e.target.value.toUpperCase(),
+                  })
+                }
                 onBlur={() => handleBrandBlur("brand_code")}
                 disabled={!brandState.isCreating}
                 required
-                error={brandTouched.brand_code && !brandState.formData.brand_code}
-                helperText={brandTouched.brand_code && !brandState.formData.brand_code ? "Brand code is required" : ""}
+                error={
+                  brandTouched.brand_code && !brandState.formData.brand_code
+                }
+                helperText={
+                  brandTouched.brand_code && !brandState.formData.brand_code
+                    ? "Brand code is required"
+                    : ""
+                }
                 inputProps={{ style: { textTransform: "uppercase" } }}
               />
               <TextField
                 label="Description"
                 size="small"
                 value={brandState.formData.description}
-                onChange={(e) => brandState.setFormData({ ...brandState.formData, description: e.target.value })}
+                onChange={(e) =>
+                  brandState.setFormData({
+                    ...brandState.formData,
+                    description: e.target.value,
+                  })
+                }
                 disabled={!brandState.isEditing && !brandState.isCreating}
                 multiline
                 rows={3}
@@ -1409,11 +2057,26 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
       <MasterDetailLayout
         title={pageTitle}
         onRefresh={handleRefresh}
+        headerActions={
+          activeTab === 0 ? (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<DownloadIcon />}
+              onClick={handleExportProductsCSV}
+              disabled={filteredProducts.length === 0}
+              sx={{ mr: 1 }}
+            >
+              Export CSV
+            </Button>
+          ) : undefined
+        }
         {...(!hideTabs
           ? {
               tabs,
               activeTab,
-              onTabChange: (tab: number | string) => setActiveTab(tab as number),
+              onTabChange: (tab: number | string) =>
+                setActiveTab(tab as number),
             }
           : {})}
       >
@@ -1421,12 +2084,15 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
         {activeTab === 1 && renderCategoriesTab()}
         {activeTab === 2 && renderBrandsTab()}
       </MasterDetailLayout>
-      
+
       {/* Single unified confirm dialog */}
       <TConfirmDialog {...confirmDialog.dialogProps} />
-      
+
       {/* Minimum Selling Price Dialog */}
-      <Dialog open={minPriceDialogOpen} onClose={() => setMinPriceDialogOpen(false)}>
+      <Dialog
+        open={minPriceDialogOpen}
+        onClose={() => setMinPriceDialogOpen(false)}
+      >
         <DialogTitle>Set Minimum Selling Price</DialogTitle>
         <DialogContent>
           <TextField
@@ -1436,7 +2102,9 @@ export default function ProductsPage({ view = "products", hideTabs = false }: Pr
             value={newMinPrice}
             onChange={(e) => setNewMinPrice(parseFloat(e.target.value) || 0)}
             InputProps={{
-              startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+              startAdornment: (
+                <InputAdornment position="start">Rs.</InputAdornment>
+              ),
             }}
             sx={{ mt: 2 }}
           />

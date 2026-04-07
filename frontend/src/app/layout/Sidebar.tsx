@@ -189,18 +189,18 @@ const menuItems: MenuItem[] = [
     ],
   },
   {
-    text: "Inventory",
+    text: "Product Catalogs",
     icon: <InventoryIcon />,
-    path: "/inventory",
+    path: "/product-catalogs",
     permission: PERMISSIONS.INVENTORY_VIEW,
     subItems: [
-      { text: "Products", icon: <Inventory2Icon />, path: "/inventory" },
+      { text: "Products", icon: <Inventory2Icon />, path: "/product-catalogs" },
       {
         text: "Categories",
         icon: <CategoryIcon />,
-        path: "/inventory/categories",
+        path: "/product-catalogs/categories",
       },
-      { text: "Brands", icon: <SellIcon />, path: "/inventory/brands" },
+      { text: "Brands", icon: <SellIcon />, path: "/product-catalogs/brands" },
     ],
   },
   {

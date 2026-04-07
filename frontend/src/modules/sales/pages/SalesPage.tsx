@@ -1,89 +1,91 @@
 import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
 import {
-  ActionToolbar,
-  canPrintDocument,
-  CUSTOMER_PAYMENT_METHOD,
-  DetailPanelHeader,
-  EmptyState,
-  fmtLKR,
-  FormSection,
-  handleApiError,
-  MasterDetailLayout,
-  modernTableStyles,
-  SearchableList,
-  SelectableListItem,
-  showErrorToast,
-  showSuccessToast,
-  SortOption,
-  TConfirmDialog,
-  TPrintButton,
-  TPrintPreviewDialog,
-  TStatusChip,
-  TSteps,
-  useMasterDetailState,
-  useTConfirmDialog,
+    ActionToolbar,
+    canPrintDocument,
+    CUSTOMER_PAYMENT_METHOD,
+    DetailPanelHeader,
+    EmptyState,
+    fmtLKR,
+    FormSection,
+    handleApiError,
+    MasterDetailLayout,
+    modernTableStyles,
+    SearchableList,
+    SelectableListItem,
+    showErrorToast,
+    showSuccessToast,
+    SortOption,
+    TConfirmDialog,
+    TPrintButton,
+    TPrintPreviewDialog,
+    TStatusChip,
+    TSteps,
+    useMasterDetailState,
+    useTConfirmDialog,
 } from "@/components/tijaero";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { useReferenceData } from "@/hooks";
-import { customersApi, couponsApi, vouchersApi } from "@/modules/customers/api";
-import { CouponValidationResponse, VoucherValidationResponse } from "@/modules/customers/types";
+import { couponsApi, customersApi, vouchersApi } from "@/modules/customers/api";
+import {
+    CouponValidationResponse,
+    VoucherValidationResponse,
+} from "@/modules/customers/types";
 import { creditNotesApi } from "@/modules/finance/api";
-import { paymentCardsApi } from "../api";
-import { PaymentCard } from "../types";
+import { salesStockApi } from "@/modules/inventory/api";
+import { Brand, SalesStock } from "@/modules/inventory/types";
+import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import {
-  Add as AddIcon,
-  Cancel as CancelIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-  MenuBook as MenuBookIcon,
-  Receipt as ReceiptIcon,
-  ThumbUp as ApproveIcon,
-  LocalOffer as CouponIcon,
-  Percent as PercentIcon,
-  AttachMoney as MoneyIcon,
-  AccountBalance as TaxIcon,
+    Add as AddIcon,
+    ThumbUp as ApproveIcon,
+    Cancel as CancelIcon,
+    LocalOffer as CouponIcon,
+    Delete as DeleteIcon,
+    FileDownload as DownloadIcon,
+    Edit as EditIcon,
+    MenuBook as MenuBookIcon,
+    AttachMoney as MoneyIcon,
+    Percent as PercentIcon,
+    Receipt as ReceiptIcon,
+    AccountBalance as TaxIcon,
 } from "@mui/icons-material";
-import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
-import {
-  Alert,
-  Autocomplete,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Grid,
-  IconButton,
-  InputAdornment,
-  MenuItem,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  ToggleButton,
-  ToggleButtonGroup,
-  Tooltip,
-  Typography,
-} from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import {
+    Alert,
+    Autocomplete,
+    Box,
+    Button,
+    Chip,
+    CircularProgress,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    Grid,
+    IconButton,
+    InputAdornment,
+    MenuItem,
+    Paper,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+    TextField,
+    ToggleButton,
+    ToggleButtonGroup,
+    Tooltip,
+    Typography,
+} from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { salesApi } from "../api";
-import { salesStockApi } from "@/modules/inventory/api";
-import { Brand, SalesStock } from "@/modules/inventory/types";
+import { paymentCardsApi, salesApi } from "../api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
-import { Invoice, InvoiceCreate } from "../types";
+import { Invoice, InvoiceCreate, PaymentCard } from "../types";
 
 const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
   const year = new Date().getFullYear();
@@ -95,7 +97,7 @@ const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
       if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
     }
   }
-  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, "0")}`;
 };
 
 // Sort options
@@ -161,11 +163,39 @@ export default function SalesPage() {
   // Form step state for stepper workflow
   const [formStep, setFormStep] = useState(0);
 
+  const handleExportCSV = async () => {
+    try {
+      const branchParam = filterBranch ? `&branch_codes=${filterBranch}` : "";
+      const statusParam = filterStatus ? `&status=${filterStatus}` : "";
+
+      const response = await apiClient.get<Blob>(
+        `/sales/export-csv?limit=100000${branchParam}${statusParam}`,
+        {
+          responseType: "blob",
+        },
+      );
+
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const dateStr = new Date().toISOString().split("T")[0];
+      const branchStr = filterBranch || "all_branches";
+      link.download = `sales_orders_${branchStr}_${dateStr}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   // Dialog states
   const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState(false);
-  const [selectedInvoiceForView, setSelectedInvoiceForView] = useState<Invoice | null>(null);
+  const [selectedInvoiceForView, setSelectedInvoiceForView] =
+    useState<Invoice | null>(null);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
-  const [selectedItemForPrint, setSelectedItemForPrint] = useState<Invoice | null>(null);
+  const [selectedItemForPrint, setSelectedItemForPrint] =
+    useState<Invoice | null>(null);
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
   const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
   const [currentItemRemark, setCurrentItemRemark] = useState("");
@@ -188,16 +218,19 @@ export default function SalesPage() {
   // Coupon/Discount code state
   const [couponCode, setCouponCode] = useState("");
   const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
-  const [couponValidation, setCouponValidation] = useState<CouponValidationResponse | null>(null);
+  const [couponValidation, setCouponValidation] =
+    useState<CouponValidationResponse | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
 
   // Gift Voucher payment state - Support multiple vouchers
   const [voucherCode, setVoucherCode] = useState("");
   const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
-  const [appliedVouchers, setAppliedVouchers] = useState<Array<{
-    validation: VoucherValidationResponse;
-    amountToRedeem: number;
-  }>>([]);
+  const [appliedVouchers, setAppliedVouchers] = useState<
+    Array<{
+      validation: VoucherValidationResponse;
+      amountToRedeem: number;
+    }>
+  >([]);
   const [voucherError, setVoucherError] = useState<string | null>(null);
 
   // Credit Note state
@@ -206,7 +239,9 @@ export default function SalesPage() {
   const [isLoadingCreditBalance, setIsLoadingCreditBalance] = useState(false);
 
   // Payment card state - for card payment method
-  const [selectedPaymentCardId, setSelectedPaymentCardId] = useState<number | null>(null);
+  const [selectedPaymentCardId, setSelectedPaymentCardId] = useState<
+    number | null
+  >(null);
 
   // Fetch active payment cards from settings
   const { data: paymentCards = [] } = useQuery({
@@ -217,7 +252,11 @@ export default function SalesPage() {
   // Get selected payment card details
   const selectedPaymentCard = useMemo(() => {
     if (!selectedPaymentCardId) return null;
-    return paymentCards.find((card: PaymentCard) => card.id === selectedPaymentCardId) || null;
+    return (
+      paymentCards.find(
+        (card: PaymentCard) => card.id === selectedPaymentCardId,
+      ) || null
+    );
   }, [selectedPaymentCardId, paymentCards]);
 
   // Payment details state for different payment methods
@@ -225,7 +264,7 @@ export default function SalesPage() {
     // Cheque payment details
     cheque_number: "",
     cheque_bank: "",
-    cheque_date: new Date().toISOString().split('T')[0],
+    cheque_date: new Date().toISOString().split("T")[0],
     // Card payment details
     card_ref_number: "",
     card_holder_name: "",
@@ -238,7 +277,9 @@ export default function SalesPage() {
   });
 
   // Invoice-level discount and tax state
-  const [discountType, setDiscountType] = useState<"percent" | "amount">("percent");
+  const [discountType, setDiscountType] = useState<"percent" | "amount">(
+    "percent",
+  );
   const [discountValue, setDiscountValue] = useState<number>(0);
   const [taxRate, setTaxRate] = useState<number>(0); // Tax rate percentage (e.g., 8 for 8% VAT)
 
@@ -264,7 +305,10 @@ export default function SalesPage() {
     initialFormData: emptyInvoiceForm,
     initialSortField: "created_date",
     extraDirty: lineItems.length > 0,
-    onDiscard: () => { setLineItems([]); setFormStep(0); },
+    onDiscard: () => {
+      setLineItems([]);
+      setFormStep(0);
+    },
   });
 
   // OPTIMIZED: Single API call for products, brands and branches (was 2 calls)
@@ -290,9 +334,14 @@ export default function SalesPage() {
     enabled: branchResolved,
   });
 
-  const nextInvoiceNumber = useMemo(() =>
-    getNextNumber('INV', (invoices || []).map((inv: any) => ({ no: inv.invoice_no }))),
-  [invoices]);
+  const nextInvoiceNumber = useMemo(
+    () =>
+      getNextNumber(
+        "INV",
+        (invoices || []).map((inv: any) => ({ no: inv.invoice_no })),
+      ),
+    [invoices],
+  );
 
   // Fetch customers separately (has complex operations like credit check)
   const { data: customers } = useQuery({
@@ -304,15 +353,20 @@ export default function SalesPage() {
   const selectedCustomerId = state.formData.customer_id;
   const { data: customerCreditNotes } = useQuery({
     queryKey: ["customer-credit-notes", selectedCustomerId],
-    queryFn: () => creditNotesApi.getCustomerCreditNotes(selectedCustomerId as number),
-    enabled: !!selectedCustomerId && state.formData.payment_method === "credit_note",
+    queryFn: () =>
+      creditNotesApi.getCustomerCreditNotes(selectedCustomerId as number),
+    enabled:
+      !!selectedCustomerId && state.formData.payment_method === "credit_note",
   });
 
   // Fetch customer credit status for credit sales validation
   const { data: customerCreditStatus } = useQuery({
     queryKey: ["customer-credit-status", selectedCustomerId],
     queryFn: () => customersApi.getCreditSummary(selectedCustomerId as number),
-    enabled: !!selectedCustomerId && selectedCustomerId > 0 && (state.isCreating || state.isEditing),
+    enabled:
+      !!selectedCustomerId &&
+      selectedCustomerId > 0 &&
+      (state.isCreating || state.isEditing),
   });
 
   // Fetch customer credit balance
@@ -322,10 +376,12 @@ export default function SalesPage() {
         setAvailableCreditBalance(0);
         return;
       }
-      
+
       setIsLoadingCreditBalance(true);
       try {
-        const response = await fetch(`/api/v1/finance/customers/${selectedCustomerId}/credit-balance`);
+        const response = await fetch(
+          `/api/v1/finance/customers/${selectedCustomerId}/credit-balance`,
+        );
         const data = await response.json();
         setAvailableCreditBalance(data.available_credit_balance || 0);
       } catch (error) {
@@ -339,11 +395,17 @@ export default function SalesPage() {
   }, [selectedCustomerId]);
 
   // Fetch recent sales for selected customer (last 5 from any branch)
-  const { data: recentCustomerSales, isLoading: loadingRecentSales } = useQuery({
-    queryKey: ["customer-recent-sales", selectedCustomerId],
-    queryFn: () => salesApi.getRecentByCustomer(selectedCustomerId as number, 5),
-    enabled: !!selectedCustomerId && selectedCustomerId > 0 && (state.isCreating || state.isEditing),
-  });
+  const { data: recentCustomerSales, isLoading: loadingRecentSales } = useQuery(
+    {
+      queryKey: ["customer-recent-sales", selectedCustomerId],
+      queryFn: () =>
+        salesApi.getRecentByCustomer(selectedCustomerId as number, 5),
+      enabled:
+        !!selectedCustomerId &&
+        selectedCustomerId > 0 &&
+        (state.isCreating || state.isEditing),
+    },
+  );
 
   // Load full invoice with items when viewing
   const { data: fullInvoice } = useQuery({
@@ -385,7 +447,10 @@ export default function SalesPage() {
 
   // Calculate gross total (before any discounts)
   const calculateGrossTotal = () => {
-    return lineItems.reduce((sum, item) => sum + item.quantity * item.selling_price, 0);
+    return lineItems.reduce(
+      (sum, item) => sum + item.quantity * item.selling_price,
+      0,
+    );
   };
 
   // Filter and sort invoices
@@ -406,19 +471,26 @@ export default function SalesPage() {
 
     // Apply branch filter
     if (filterBranch) {
-      filtered = filtered.filter(invoice => invoice.branch_code === filterBranch);
+      filtered = filtered.filter(
+        (invoice) => invoice.branch_code === filterBranch,
+      );
     }
 
     // Apply status filter
     if (filterStatus) {
-      filtered = filtered.filter(invoice => invoice.approval_status === filterStatus);
+      filtered = filtered.filter(
+        (invoice) => invoice.approval_status === filterStatus,
+      );
     }
 
     filtered.sort((a, b) => {
       if (state.sortField === "invoice_no") {
         return a.invoice_no.localeCompare(b.invoice_no);
       } else if (state.sortField === "created_date") {
-        return new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
+        return (
+          new Date(b.created_date).getTime() -
+          new Date(a.created_date).getTime()
+        );
       } else if (state.sortField === "total") {
         return calculateTotal(b) - calculateTotal(a);
       }
@@ -426,11 +498,21 @@ export default function SalesPage() {
     });
 
     return filtered;
-  }, [invoices, state.searchQuery, state.sortField, filterBranch, filterStatus]);
+  }, [
+    invoices,
+    state.searchQuery,
+    state.sortField,
+    filterBranch,
+    filterStatus,
+  ]);
 
   // Auto-select first item when data loads
   useEffect(() => {
-    if (filteredInvoices.length > 0 && !state.selectedItem && !state.isCreating) {
+    if (
+      filteredInvoices.length > 0 &&
+      !state.selectedItem &&
+      !state.isCreating
+    ) {
       state.setSelectedItem(filteredInvoices[0]);
     }
   }, [filteredInvoices, state.selectedItem, state.isCreating]);
@@ -438,8 +520,16 @@ export default function SalesPage() {
   // Handle navigation state from Proforma page (auto-select Sales Order created from proforma)
   const navStateHandled = useRef(false);
   useEffect(() => {
-    const navState = location.state as { fromProforma?: boolean; invoiceId?: number; invoiceNo?: string } | null;
-    if (navState?.fromProforma && navState.invoiceId && !navStateHandled.current) {
+    const navState = location.state as {
+      fromProforma?: boolean;
+      invoiceId?: number;
+      invoiceNo?: string;
+    } | null;
+    if (
+      navState?.fromProforma &&
+      navState.invoiceId &&
+      !navStateHandled.current
+    ) {
       navStateHandled.current = true;
       // Invalidate and refetch to ensure the newly created invoice appears
       queryClient.invalidateQueries({ queryKey: ["sales"] });
@@ -449,13 +539,26 @@ export default function SalesPage() {
   // After invoices are (re)loaded, select the invoice from navigation state
   const navSelectHandled = useRef(false);
   useEffect(() => {
-    const navState = location.state as { fromProforma?: boolean; invoiceId?: number; invoiceNo?: string } | null;
-    if (navState?.fromProforma && navState.invoiceId && invoices && !navSelectHandled.current) {
-      const createdInvoice = invoices.find((inv: Invoice) => inv.id === navState.invoiceId);
+    const navState = location.state as {
+      fromProforma?: boolean;
+      invoiceId?: number;
+      invoiceNo?: string;
+    } | null;
+    if (
+      navState?.fromProforma &&
+      navState.invoiceId &&
+      invoices &&
+      !navSelectHandled.current
+    ) {
+      const createdInvoice = invoices.find(
+        (inv: Invoice) => inv.id === navState.invoiceId,
+      );
       if (createdInvoice) {
         navSelectHandled.current = true;
         state.setSelectedItem(createdInvoice);
-        showSuccessToast(`Navigated to Sales Order ${navState.invoiceNo || createdInvoice.invoice_no} created from proforma invoice`);
+        showSuccessToast(
+          `Navigated to Sales Order ${navState.invoiceNo || createdInvoice.invoice_no} created from proforma invoice`,
+        );
         // Clear navigation state to prevent re-triggering
         window.history.replaceState({}, document.title);
       }
@@ -483,7 +586,12 @@ export default function SalesPage() {
   const proformaCreateHandled = useRef(false);
   useEffect(() => {
     const navState = location.state as ProformaNavState | null;
-    if (navState?.fromProforma && navState.createNew && navState.proformaId && !proformaCreateHandled.current) {
+    if (
+      navState?.fromProforma &&
+      navState.createNew &&
+      navState.proformaId &&
+      !proformaCreateHandled.current
+    ) {
       proformaCreateHandled.current = true;
 
       // Enter create mode
@@ -530,7 +638,7 @@ export default function SalesPage() {
 
       // Pre-fill line items from proforma (without barcodes — user scans barcodes to assign)
       if (navState.items && navState.items.length > 0) {
-        const prefilledItems: ItemFormData[] = navState.items.map(item => ({
+        const prefilledItems: ItemFormData[] = navState.items.map((item) => ({
           product_id: item.product_id,
           quantity: item.quantity,
           selling_price: item.selling_price,
@@ -542,11 +650,13 @@ export default function SalesPage() {
         setLineItems(prefilledItems);
       }
 
-      showSuccessToast(`Creating Sales Order from Proforma ${navState.proformaNo}. Scan barcodes to assign stock items.`);
+      showSuccessToast(
+        `Creating Sales Order from Proforma ${navState.proformaNo}. Scan barcodes to assign stock items.`,
+      );
       // Clear navigation state to prevent re-triggering
       window.history.replaceState({}, document.title);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
   // Mutations
@@ -572,7 +682,9 @@ export default function SalesPage() {
       queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
       // Invalidate the specific invoice detail query
       if (createdInvoice?.id) {
-        queryClient.invalidateQueries({ queryKey: ["sales", createdInvoice.id] });
+        queryClient.invalidateQueries({
+          queryKey: ["sales", createdInvoice.id],
+        });
       }
 
       const paymentMethod = pendingPaymentMethod.toLowerCase();
@@ -580,10 +692,14 @@ export default function SalesPage() {
 
       if (isCreditPayment) {
         // Credit payment - needs approval, stay on this page
-        showSuccessToast("Sales order created. Credit payment requires approval.");
+        showSuccessToast(
+          "Sales order created. Credit payment requires approval.",
+        );
       } else {
         // Cash/Card/Cheque/Bank Transfer - auto-approved
-        showSuccessToast("Sales order created and payment completed successfully.");
+        showSuccessToast(
+          "Sales order created and payment completed successfully.",
+        );
       }
 
       state.setIsCreating(false);
@@ -609,13 +725,16 @@ export default function SalesPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => salesApi.update(id, data),
+    mutationFn: ({ id, data }: { id: number; data: any }) =>
+      salesApi.update(id, data),
     onSuccess: (updatedInvoice) => {
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
       // Invalidate the specific invoice detail query
       if (state.selectedItem?.id) {
-        queryClient.invalidateQueries({ queryKey: ["sales", state.selectedItem.id] });
+        queryClient.invalidateQueries({
+          queryKey: ["sales", state.selectedItem.id],
+        });
       }
 
       const paymentMethod = pendingPaymentMethod.toLowerCase();
@@ -623,7 +742,9 @@ export default function SalesPage() {
 
       if (isCreditPayment) {
         // Credit payment - needs approval after edit
-        showSuccessToast("Sales order updated. Credit payment requires approval.");
+        showSuccessToast(
+          "Sales order updated. Credit payment requires approval.",
+        );
       } else {
         // Cash/Card - completed status
         showSuccessToast("Sales order updated successfully.");
@@ -677,15 +798,11 @@ export default function SalesPage() {
   const handleSelectInvoice = (invoice: Invoice) => {
     if (state.isCreating) {
       setPendingInvoice(invoice);
-      discardDialog.open(
-        "Discard Changes",
-        "Discard unsaved changes?",
-        () => {
-          state.setSelectedItem(invoice);
-          state.setIsCreating(false);
-          setPendingInvoice(null);
-        }
-      );
+      discardDialog.open("Discard Changes", "Discard unsaved changes?", () => {
+        state.setSelectedItem(invoice);
+        state.setIsCreating(false);
+        setPendingInvoice(null);
+      });
       return;
     }
     state.setSelectedItem(invoice);
@@ -720,7 +837,7 @@ export default function SalesPage() {
     setPaymentDetails({
       cheque_number: "",
       cheque_bank: "",
-      cheque_date: new Date().toISOString().split('T')[0],
+      cheque_date: new Date().toISOString().split("T")[0],
       card_ref_number: "",
       card_holder_name: "",
       bank_transfer_ref: "",
@@ -753,7 +870,10 @@ export default function SalesPage() {
     if (!state.selectedItem || !fullInvoice) return;
 
     // Prevent editing completed or cancelled orders
-    if (state.selectedItem.approval_status === "completed" || state.selectedItem.approval_status === "cancelled") {
+    if (
+      state.selectedItem.approval_status === "completed" ||
+      state.selectedItem.approval_status === "cancelled"
+    ) {
       return;
     }
 
@@ -780,7 +900,7 @@ export default function SalesPage() {
     setPaymentDetails({
       cheque_number: "",
       cheque_bank: "",
-      cheque_date: new Date().toISOString().split('T')[0],
+      cheque_date: new Date().toISOString().split("T")[0],
       card_ref_number: "",
       card_holder_name: "",
       bank_transfer_ref: "",
@@ -825,9 +945,13 @@ export default function SalesPage() {
 
   const handleSave = async () => {
     // Validate that all selling prices are not below minimum prices
-    const invalidItems = lineItems.filter(item => item.selling_price < item.minimum_selling_price);
+    const invalidItems = lineItems.filter(
+      (item) => item.selling_price < item.minimum_selling_price,
+    );
     if (invalidItems.length > 0) {
-      showErrorToast("Cannot save: Some items have selling price below minimum price");
+      showErrorToast(
+        "Cannot save: Some items have selling price below minimum price",
+      );
       return;
     }
 
@@ -835,35 +959,50 @@ export default function SalesPage() {
     // and validate that no item goes below minimum price
     // New Flow: Item Discount → Invoice Discount → Coupon → Tax → Voucher → Service Charge
     const subtotalAfterItemDiscounts = calculateLineItemsTotal();
-    
+
     // Calculate invoice discount percentage on subtotal after item discounts
-    const invoiceDiscountPercent = discountType === "percent" ? discountValue : 
-      (subtotalAfterItemDiscounts > 0 ? (discountValue / subtotalAfterItemDiscounts) * 100 : 0);
-    
+    const invoiceDiscountPercent =
+      discountType === "percent"
+        ? discountValue
+        : subtotalAfterItemDiscounts > 0
+          ? (discountValue / subtotalAfterItemDiscounts) * 100
+          : 0;
+
     // Calculate amount after invoice discount for coupon percentage calculation
-    const afterInvoiceDiscount = subtotalAfterItemDiscounts * (1 - invoiceDiscountPercent / 100);
+    const afterInvoiceDiscount =
+      subtotalAfterItemDiscounts * (1 - invoiceDiscountPercent / 100);
     const validationCouponDiscount = couponValidation?.calculated_discount || 0;
-    const couponDiscountPercent = afterInvoiceDiscount > 0 ? (validationCouponDiscount / afterInvoiceDiscount) * 100 : 0;
-    
+    const couponDiscountPercent =
+      afterInvoiceDiscount > 0
+        ? (validationCouponDiscount / afterInvoiceDiscount) * 100
+        : 0;
+
     // Check each item's effective price after all discounts
-    const invalidDiscountItems = lineItems.filter(item => {
+    const invalidDiscountItems = lineItems.filter((item) => {
       const itemDiscountPercent = item.discount_percent || 0;
-      
+
       // Step 1: Apply item discount
-      const priceAfterItemDiscount = item.selling_price * (1 - itemDiscountPercent / 100);
-      
+      const priceAfterItemDiscount =
+        item.selling_price * (1 - itemDiscountPercent / 100);
+
       // Step 2: Apply invoice discount (proportionally)
-      const priceAfterInvoiceDiscount = priceAfterItemDiscount * (1 - invoiceDiscountPercent / 100);
-      
+      const priceAfterInvoiceDiscount =
+        priceAfterItemDiscount * (1 - invoiceDiscountPercent / 100);
+
       // Step 3: Apply coupon discount (proportionally)
-      const effectivePrice = priceAfterInvoiceDiscount * (1 - couponDiscountPercent / 100);
-      
+      const effectivePrice =
+        priceAfterInvoiceDiscount * (1 - couponDiscountPercent / 100);
+
       return effectivePrice < item.minimum_selling_price;
     });
-    
+
     if (invalidDiscountItems.length > 0) {
-      const itemNames = invalidDiscountItems.map(item => item.product_name || `Product #${item.product_id}`).join(", ");
-      showErrorToast(`Cannot save: Total discounts bring ${invalidDiscountItems.length} item(s) below minimum price: ${itemNames}`);
+      const itemNames = invalidDiscountItems
+        .map((item) => item.product_name || `Product #${item.product_id}`)
+        .join(", ");
+      showErrorToast(
+        `Cannot save: Total discounts bring ${invalidDiscountItems.length} item(s) below minimum price: ${itemNames}`,
+      );
       return;
     }
 
@@ -877,16 +1016,21 @@ export default function SalesPage() {
         const validation = await customersApi.validateCreditSale(
           state.formData.customer_id,
           subtotal,
-          { skipTimeCheck: false, allowOverLimit: false }
+          { skipTimeCheck: false, allowOverLimit: false },
         );
 
         // If validation failed, show errors and block
         if (!validation.allowed) {
           const errorMessages = validation.errors || [];
-          
+
           // Build detailed error display
-          const detailLines: { label: string; value: string; color?: string; strong?: boolean }[] = [];
-          
+          const detailLines: {
+            label: string;
+            value: string;
+            color?: string;
+            strong?: boolean;
+          }[] = [];
+
           // Time check info
           if (validation.time_check && !validation.time_check.allowed) {
             detailLines.push({
@@ -899,7 +1043,7 @@ export default function SalesPage() {
               value: `${validation.time_check.allowed_start} - ${validation.time_check.allowed_end}`,
             });
           }
-          
+
           // Customer check errors
           if (validation.customer_check && !validation.customer_check.valid) {
             validation.customer_check.errors.forEach((err: string) => {
@@ -910,7 +1054,7 @@ export default function SalesPage() {
               });
             });
           }
-          
+
           // Credit limit info
           if (validation.credit_check) {
             detailLines.push({
@@ -939,7 +1083,8 @@ export default function SalesPage() {
             title: "Credit Sale Not Allowed",
             message: errorMessages.join("\n"),
             detailsLines: detailLines.length > 0 ? detailLines : undefined,
-            detailsNote: "Please resolve the above issues before proceeding with a credit sale.",
+            detailsNote:
+              "Please resolve the above issues before proceeding with a credit sale.",
             confirmText: "OK",
             cancelText: "",
             type: "danger",
@@ -951,14 +1096,17 @@ export default function SalesPage() {
         // Show warnings if any (but allow to proceed)
         if (validation.warnings && validation.warnings.length > 0) {
           const customer = customers?.find(
-            (c) => c.id === state.formData.customer_id
+            (c) => c.id === state.formData.customer_id,
           );
           const customerName = customer?.customer_name || "Customer";
-          
-          const detailLines: { label: string; value: string; color?: string; strong?: boolean }[] = [
-            { label: "Customer", value: customerName },
-          ];
-          
+
+          const detailLines: {
+            label: string;
+            value: string;
+            color?: string;
+            strong?: boolean;
+          }[] = [{ label: "Customer", value: customerName }];
+
           if (validation.credit_check) {
             detailLines.push({
               label: "Credit Limit",
@@ -981,7 +1129,9 @@ export default function SalesPage() {
             title: "Credit Sale Warning",
             message: "",
             detailsLines: detailLines,
-            detailsNote: validation.warnings.join(". ") + " Credit sale requires finance approval.",
+            detailsNote:
+              validation.warnings.join(". ") +
+              " Credit sale requires finance approval.",
             confirmText: "Continue",
             cancelText: "Cancel",
             type: "warning",
@@ -992,7 +1142,12 @@ export default function SalesPage() {
           }
         }
       } catch (error: unknown) {
-        showErrorToast(handleApiError(error, "Failed to validate credit sale. Please try again."));
+        showErrorToast(
+          handleApiError(
+            error,
+            "Failed to validate credit sale. Please try again.",
+          ),
+        );
         return;
       }
     }
@@ -1005,29 +1160,37 @@ export default function SalesPage() {
     // 5. Voucher Payment (-)
     // 6. Service Charge (+)
     // 7. Grand Total
-    
+
     // Invoice discount (percentage or fixed amount) - applied first on subtotal
-    const invoiceDiscount = discountType === "percent" 
-      ? subtotal * (discountValue / 100)
-      : discountValue;
+    const invoiceDiscount =
+      discountType === "percent"
+        ? subtotal * (discountValue / 100)
+        : discountValue;
     const afterInvoiceDiscountCalc = subtotal - invoiceDiscount;
-    
+
     // Coupon discount - applied after invoice discount
     const couponDiscount = couponValidation?.calculated_discount || 0;
     const afterDiscount = afterInvoiceDiscountCalc - couponDiscount;
-    
+
     // Tax calculation
     const taxAmount = afterDiscount * (taxRate / 100);
     const afterTax = afterDiscount + taxAmount;
-    
+
     // Total voucher payment from all applied vouchers
-    const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+    const totalVoucherPayment = appliedVouchers.reduce(
+      (sum, v) => sum + Number(v.amountToRedeem),
+      0,
+    );
     const afterVoucher = afterTax - totalVoucherPayment;
-    
+
     // Credit note redemption (limited to available balance and remaining amount)
-    const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
+    const appliedCreditNote = Math.min(
+      creditNoteAmount,
+      availableCreditBalance,
+      Math.max(0, afterVoucher),
+    );
     const afterCreditNote = afterVoucher - appliedCreditNote;
-    
+
     // Service charge for card payments (on remaining amount after credit note)
     // Uses the service charge percentage from the selected payment card
     let serviceCharge = 0;
@@ -1054,7 +1217,8 @@ export default function SalesPage() {
       // Tax and Discount fields
       tax_rate: taxRate,
       discount_percent: discountType === "percent" ? discountValue : 0,
-      discount_amount: discountType === "amount" ? discountValue : invoiceDiscount, // Store calculated amount
+      discount_amount:
+        discountType === "amount" ? discountValue : invoiceDiscount, // Store calculated amount
       // Coupon/Discount code fields
       ...(couponValidation?.coupon_id && {
         cupon_id: couponValidation.coupon_id,
@@ -1063,34 +1227,37 @@ export default function SalesPage() {
       // Credit note redemption
       credit_note_amount: appliedCreditNote,
       // Gift voucher payment fields - send as array for multiple vouchers
-      ...(appliedVouchers.length > 0 && totalVoucherPayment > 0 && {
-        gift_voucher_id: appliedVouchers[0].validation.voucher_id, // Legacy field
-        gift_voucher_amount: totalVoucherPayment, // Total from all vouchers
-        voucher_redemptions: appliedVouchers
-          .filter(v => v.validation.voucher_id) // Ensure voucher_id exists
-          .map(v => ({
-            voucher_id: v.validation.voucher_id!,
-            amount_to_redeem: Number(v.amountToRedeem)
-          }))
-      }),
+      ...(appliedVouchers.length > 0 &&
+        totalVoucherPayment > 0 && {
+          gift_voucher_id: appliedVouchers[0].validation.voucher_id, // Legacy field
+          gift_voucher_amount: totalVoucherPayment, // Total from all vouchers
+          voucher_redemptions: appliedVouchers
+            .filter((v) => v.validation.voucher_id) // Ensure voucher_id exists
+            .map((v) => ({
+              voucher_id: v.validation.voucher_id!,
+              amount_to_redeem: Number(v.amountToRedeem),
+            })),
+        }),
       // Include payment details based on payment method
       ...(paymentMethod === "cheque" && {
         cheque_number: paymentDetails.cheque_number,
         cheque_bank: paymentDetails.cheque_bank,
         cheque_date: paymentDetails.cheque_date,
       }),
-      ...(paymentMethod === "card" && selectedPaymentCard && {
-        card_ref_number: paymentDetails.card_ref_number,
-        card_holder_name: paymentDetails.card_holder_name,
-        payment_card_id: selectedPaymentCard.id, // Include selected card ID
-      }),
+      ...(paymentMethod === "card" &&
+        selectedPaymentCard && {
+          card_ref_number: paymentDetails.card_ref_number,
+          card_holder_name: paymentDetails.card_holder_name,
+          payment_card_id: selectedPaymentCard.id, // Include selected card ID
+        }),
       ...(paymentMethod === "bank_transfer" && {
         bank_transfer_ref: paymentDetails.bank_transfer_ref,
         bank_name: paymentDetails.bank_name,
       }),
-      ...(paymentMethod === "credit_note" && paymentDetails.credit_note_id && {
-        credit_note_id: paymentDetails.credit_note_id,
-      }),
+      ...(paymentMethod === "credit_note" &&
+        paymentDetails.credit_note_id && {
+          credit_note_id: paymentDetails.credit_note_id,
+        }),
     };
 
     // Store payment method for post-creation/update navigation
@@ -1100,7 +1267,7 @@ export default function SalesPage() {
       // Update existing invoice
       updateMutation.mutate({
         id: state.selectedItem.id,
-        data: { items: lineItems }
+        data: { items: lineItems },
       });
     } else {
       // Create new invoice
@@ -1128,7 +1295,7 @@ export default function SalesPage() {
       deleteDialog.open(
         "Delete Sales Order",
         "Are you sure you want to delete this sales order?",
-        () => deleteMutation.mutate(state.selectedItem!.id)
+        () => deleteMutation.mutate(state.selectedItem!.id),
       );
     }
   };
@@ -1161,11 +1328,24 @@ export default function SalesPage() {
     }
     let cancelled = false;
     setIsLoadingManualStock(true);
-    salesStockApi.getAll({ branch_code: branch, product_id: manualProductId, status: "available" })
-      .then((items) => { if (!cancelled) setManualStockItems(items); })
-      .catch(() => { if (!cancelled) setManualStockItems([]); })
-      .finally(() => { if (!cancelled) setIsLoadingManualStock(false); });
-    return () => { cancelled = true; };
+    salesStockApi
+      .getAll({
+        branch_code: branch,
+        product_id: manualProductId,
+        status: "available",
+      })
+      .then((items) => {
+        if (!cancelled) setManualStockItems(items);
+      })
+      .catch(() => {
+        if (!cancelled) setManualStockItems([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingManualStock(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [manualProductId, state.formData.branch_code]);
 
   // Manual picker: reset product list when brand changes
@@ -1175,145 +1355,201 @@ export default function SalesPage() {
   }, [manualBrandId]);
 
   // Manual picker: add a specific stock item to the line
-  const handleAddManualStockItem = useCallback((stockItem: SalesStock) => {
-    const alreadyAdded = lineItems.some(item => item.barcode === stockItem.barcode);
-    if (alreadyAdded) {
-      showErrorToast("This barcode is already in the order");
-      return;
-    }
-    const productObj = products.find((p: any) => p.id === stockItem.product_id);
-    const sellingPrice = stockItem.selling_price ?? productObj?.selling_price ?? 0;
-    const minimumPrice = (stockItem as any).minimum_price ?? (productObj as any)?.minimum_price ?? sellingPrice;
-    const newItem: ItemFormData = {
-      product_id: stockItem.product_id,
-      quantity: 1,
-      selling_price: sellingPrice,
-      minimum_selling_price: minimumPrice,
-      warrenty_month: stockItem.warranty_month ?? "0",
-      barcode: stockItem.barcode,
-      product_name: stockItem.product_name ?? productObj?.name ?? "",
-      branch_code: stockItem.branch_code,
-    };
-    setLineItems(prev => [...prev, newItem]);
-    setValidatedBarcodes(prev => [...prev, stockItem.barcode]);
-    // Remove from manual list so it can't be added twice
-    setManualStockItems(prev => prev.filter(s => s.barcode !== stockItem.barcode));
-    showSuccessToast(`Added: ${newItem.product_name || "Item"}`);
-  }, [lineItems, products]);
+  const handleAddManualStockItem = useCallback(
+    (stockItem: SalesStock) => {
+      const alreadyAdded = lineItems.some(
+        (item) => item.barcode === stockItem.barcode,
+      );
+      if (alreadyAdded) {
+        showErrorToast("This barcode is already in the order");
+        return;
+      }
+      const productObj = products.find(
+        (p: any) => p.id === stockItem.product_id,
+      );
+      const sellingPrice =
+        stockItem.selling_price ?? productObj?.selling_price ?? 0;
+      const minimumPrice =
+        (stockItem as any).minimum_price ??
+        (productObj as any)?.minimum_price ??
+        sellingPrice;
+      const newItem: ItemFormData = {
+        product_id: stockItem.product_id,
+        quantity: 1,
+        selling_price: sellingPrice,
+        minimum_selling_price: minimumPrice,
+        warrenty_month: stockItem.warranty_month ?? "0",
+        barcode: stockItem.barcode,
+        product_name: stockItem.product_name ?? productObj?.name ?? "",
+        branch_code: stockItem.branch_code,
+      };
+      setLineItems((prev) => [...prev, newItem]);
+      setValidatedBarcodes((prev) => [...prev, stockItem.barcode]);
+      // Remove from manual list so it can't be added twice
+      setManualStockItems((prev) =>
+        prev.filter((s) => s.barcode !== stockItem.barcode),
+      );
+      showSuccessToast(`Added: ${newItem.product_name || "Item"}`);
+    },
+    [lineItems, products],
+  );
 
   // Step navigation functions
   const handleNextStep = () => {
-    if (formStep < FORM_STEPS.length - 1) setFormStep(prev => prev + 1);
+    if (formStep < FORM_STEPS.length - 1) setFormStep((prev) => prev + 1);
   };
 
   const handlePreviousStep = () => {
-    if (formStep > 0) setFormStep(prev => prev - 1);
+    if (formStep > 0) setFormStep((prev) => prev - 1);
   };
 
   // Step 1 validation - require customer and invoice number
   // When creating, invoice_no is auto-generated (nextInvoiceNumber) and not stored in formData until submit
-  const effectiveInvoiceNo = state.isCreating ? nextInvoiceNumber : state.formData.invoice_no;
-  const isStep1Valid = effectiveInvoiceNo && state.formData.customer_id && state.formData.customer_id > 0;
+  const effectiveInvoiceNo = state.isCreating
+    ? nextInvoiceNumber
+    : state.formData.invoice_no;
+  const isStep1Valid =
+    effectiveInvoiceNo &&
+    state.formData.customer_id &&
+    state.formData.customer_id > 0;
 
-  const updateLineItem = (index: number, field: keyof ItemFormData, value: number | string) => {
+  const updateLineItem = (
+    index: number,
+    field: keyof ItemFormData,
+    value: number | string,
+  ) => {
     const updated = [...lineItems];
     updated[index] = { ...updated[index], [field]: value };
     setLineItems(updated);
   };
 
   // Barcode validation handler
-  const handleValidateBarcode = useCallback(async (barcode: string) => {
-    if (!barcode.trim()) {
-      setBarcodeError("Please enter a barcode");
-      return;
-    }
-
-    // Check if this exact barcode has already been scanned
-    const existingItem = lineItems.find(item => item.barcode === barcode.trim());
-
-    if (existingItem) {
-      setBarcodeError("This barcode has already been scanned");
-      return;
-    }
-
-    setIsValidatingBarcode(true);
-    setBarcodeError(null);
-
-    try {
-      const response = await apiClient.get(`/inventory/sales-stock/barcode/${barcode.trim()}`);
-      const stockItem = response.data;
-
-      if (stockItem.status !== "available") {
-        setBarcodeError("This item is not available for sale");
+  const handleValidateBarcode = useCallback(
+    async (barcode: string) => {
+      if (!barcode.trim()) {
+        setBarcodeError("Please enter a barcode");
         return;
       }
 
-      // Check if item belongs to the selected branch
-      const selectedBranch = state.formData.branch_code;
-      if (stockItem.branch_code !== selectedBranch) {
-        setBarcodeError(`This item belongs to branch ${stockItem.branch_code}, but you selected ${selectedBranch}`);
+      // Check if this exact barcode has already been scanned
+      const existingItem = lineItems.find(
+        (item) => item.barcode === barcode.trim(),
+      );
+
+      if (existingItem) {
+        setBarcodeError("This barcode has already been scanned");
         return;
       }
 
-      // Get prices from product relationship or top-level fields
-      const sellingPrice = stockItem.selling_price || stockItem.product?.selling_price || 0;
-      const minimumPrice = stockItem.minimum_price || stockItem.product?.minimum_price || sellingPrice;
-      const warrantyMonths = stockItem.warranty_month || stockItem.product?.warrenty_month || "0";
-      const productName = stockItem.product_name || stockItem.product?.product_name || stockItem.product?.name || "";
+      setIsValidatingBarcode(true);
+      setBarcodeError(null);
 
-      // === Proforma mode: assign barcode to existing pre-filled item ===
-      const isFromProforma = !!(state.formData as any).source_quote_id;
-      if (isFromProforma) {
-        // Find a pre-filled item matching this product that doesn't yet have a barcode
-        const unassignedIdx = lineItems.findIndex(
-          item => item.product_id === stockItem.product_id && !item.barcode
+      try {
+        const response = await apiClient.get(
+          `/inventory/sales-stock/barcode/${barcode.trim()}`,
         );
-        if (unassignedIdx >= 0) {
-          // Assign barcode to the existing item
-          setLineItems(prev => prev.map((item, idx) =>
-            idx === unassignedIdx
-              ? { ...item, barcode: barcode.trim(), product_name: productName || item.product_name, branch_code: stockItem.branch_code }
-              : item
-          ));
-          setValidatedBarcodes(prev => [...prev, barcode.trim()]);
-          setBarcodeInput("");
-          barcodeInputRef.current?.focus();
-          showSuccessToast(`Assigned barcode to: ${productName || "Product"}`);
+        const stockItem = response.data;
+
+        if (stockItem.status !== "available") {
+          setBarcodeError("This item is not available for sale");
           return;
-        } else {
-          // No unassigned item for this product — check if ALL items for this product are assigned
-          const hasProductAtAll = lineItems.some(item => item.product_id === stockItem.product_id);
-          if (hasProductAtAll) {
-            setBarcodeError(`All items for ${productName || "this product"} already have barcodes assigned`);
-            return;
-          }
-          // Product not in proforma list — add as extra item (fall through to normal flow)
         }
+
+        // Check if item belongs to the selected branch
+        const selectedBranch = state.formData.branch_code;
+        if (stockItem.branch_code !== selectedBranch) {
+          setBarcodeError(
+            `This item belongs to branch ${stockItem.branch_code}, but you selected ${selectedBranch}`,
+          );
+          return;
+        }
+
+        // Get prices from product relationship or top-level fields
+        const sellingPrice =
+          stockItem.selling_price || stockItem.product?.selling_price || 0;
+        const minimumPrice =
+          stockItem.minimum_price ||
+          stockItem.product?.minimum_price ||
+          sellingPrice;
+        const warrantyMonths =
+          stockItem.warranty_month || stockItem.product?.warrenty_month || "0";
+        const productName =
+          stockItem.product_name ||
+          stockItem.product?.product_name ||
+          stockItem.product?.name ||
+          "";
+
+        // === Proforma mode: assign barcode to existing pre-filled item ===
+        const isFromProforma = !!(state.formData as any).source_quote_id;
+        if (isFromProforma) {
+          // Find a pre-filled item matching this product that doesn't yet have a barcode
+          const unassignedIdx = lineItems.findIndex(
+            (item) => item.product_id === stockItem.product_id && !item.barcode,
+          );
+          if (unassignedIdx >= 0) {
+            // Assign barcode to the existing item
+            setLineItems((prev) =>
+              prev.map((item, idx) =>
+                idx === unassignedIdx
+                  ? {
+                      ...item,
+                      barcode: barcode.trim(),
+                      product_name: productName || item.product_name,
+                      branch_code: stockItem.branch_code,
+                    }
+                  : item,
+              ),
+            );
+            setValidatedBarcodes((prev) => [...prev, barcode.trim()]);
+            setBarcodeInput("");
+            barcodeInputRef.current?.focus();
+            showSuccessToast(
+              `Assigned barcode to: ${productName || "Product"}`,
+            );
+            return;
+          } else {
+            // No unassigned item for this product — check if ALL items for this product are assigned
+            const hasProductAtAll = lineItems.some(
+              (item) => item.product_id === stockItem.product_id,
+            );
+            if (hasProductAtAll) {
+              setBarcodeError(
+                `All items for ${productName || "this product"} already have barcodes assigned`,
+              );
+              return;
+            }
+            // Product not in proforma list — add as extra item (fall through to normal flow)
+          }
+        }
+
+        // === Normal mode: add new line item ===
+        const newItem: ItemFormData = {
+          product_id: stockItem.product_id,
+          quantity: 1,
+          selling_price: sellingPrice,
+          minimum_selling_price: minimumPrice,
+          warrenty_month: warrantyMonths?.toString() || "0",
+          barcode: barcode.trim(),
+          product_name: productName,
+          branch_code:
+            stockItem.branch_code || state.formData.branch_code || "",
+        };
+        setLineItems((prev) => [...prev, newItem]);
+        setValidatedBarcodes((prev) => [...prev, barcode.trim()]);
+
+        setBarcodeInput("");
+        barcodeInputRef.current?.focus();
+        showSuccessToast(`Added: ${productName || "Product"}`);
+      } catch (error) {
+        setBarcodeError(
+          handleApiError(error, "Barcode not found in available stock"),
+        );
+      } finally {
+        setIsValidatingBarcode(false);
       }
-
-      // === Normal mode: add new line item ===
-      const newItem: ItemFormData = {
-        product_id: stockItem.product_id,
-        quantity: 1,
-        selling_price: sellingPrice,
-        minimum_selling_price: minimumPrice,
-        warrenty_month: warrantyMonths?.toString() || "0",
-        barcode: barcode.trim(),
-        product_name: productName,
-        branch_code: stockItem.branch_code || state.formData.branch_code || "",
-      };
-      setLineItems(prev => [...prev, newItem]);
-      setValidatedBarcodes(prev => [...prev, barcode.trim()]);
-
-      setBarcodeInput("");
-      barcodeInputRef.current?.focus();
-      showSuccessToast(`Added: ${productName || "Product"}`);
-    } catch (error) {
-      setBarcodeError(handleApiError(error, "Barcode not found in available stock"));
-    } finally {
-      setIsValidatingBarcode(false);
-    }
-  }, [lineItems, products, state.formData.branch_code, state.formData]);
+    },
+    [lineItems, products, state.formData.branch_code, state.formData],
+  );
 
   // Coupon validation handler
   const handleValidateCoupon = useCallback(async () => {
@@ -1332,7 +1568,7 @@ export default function SalesPage() {
 
     try {
       const subtotal = calculateLineItemsTotal();
-      const productIds = lineItems.map(item => item.product_id);
+      const productIds = lineItems.map((item) => item.product_id);
 
       const response = await couponsApi.validate({
         coupon_code: couponCode.trim(),
@@ -1341,7 +1577,7 @@ export default function SalesPage() {
         invoice_discount_type: discountType,
         invoice_discount_value: discountValue,
         product_ids: productIds,
-        line_items: lineItems.map(item => ({
+        line_items: lineItems.map((item) => ({
           product_id: item.product_id,
           quantity: item.quantity,
           selling_price: item.selling_price,
@@ -1350,7 +1586,9 @@ export default function SalesPage() {
 
       if (response.valid) {
         setCouponValidation(response);
-        showSuccessToast(`Coupon applied! Discount: Rs. ${fmtLKR(response.calculated_discount || 0)}`);
+        showSuccessToast(
+          `Coupon applied! Discount: Rs. ${fmtLKR(response.calculated_discount || 0)}`,
+        );
       } else {
         setCouponError(response.message);
         setCouponValidation(null);
@@ -1384,7 +1622,10 @@ export default function SalesPage() {
       // Calculate amount due after coupon discount AND previously applied vouchers
       const subtotal = calculateLineItemsTotal();
       const couponDiscount = couponValidation?.calculated_discount || 0;
-      const previousVouchersTotal = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+      const previousVouchersTotal = appliedVouchers.reduce(
+        (sum, v) => sum + Number(v.amountToRedeem),
+        0,
+      );
       const amountDue = subtotal - couponDiscount - previousVouchersTotal;
 
       const response = await vouchersApi.validate({
@@ -1394,18 +1635,25 @@ export default function SalesPage() {
 
       if (response.valid) {
         // Check if this voucher is already applied
-        const alreadyApplied = appliedVouchers.some(v => v.validation.voucher_id === response.voucher_id);
+        const alreadyApplied = appliedVouchers.some(
+          (v) => v.validation.voucher_id === response.voucher_id,
+        );
         if (alreadyApplied) {
           setVoucherError("This voucher has already been applied");
           showErrorToast("This voucher has already been applied");
         } else {
           // Add voucher to the list
-          setAppliedVouchers(prev => [...prev, {
-            validation: response,
-            amountToRedeem: Number(response.redeemable_amount) || 0
-          }]);
+          setAppliedVouchers((prev) => [
+            ...prev,
+            {
+              validation: response,
+              amountToRedeem: Number(response.redeemable_amount) || 0,
+            },
+          ]);
           setVoucherCode(""); // Clear input for next voucher
-          showSuccessToast(`Voucher added! Balance: Rs. ${fmtLKR(response.balance || 0)}`);
+          showSuccessToast(
+            `Voucher added! Balance: Rs. ${fmtLKR(response.balance || 0)}`,
+          );
         }
       } else {
         setVoucherError(response.message);
@@ -1419,7 +1667,9 @@ export default function SalesPage() {
 
   // Remove a specific voucher
   const handleRemoveVoucher = (voucherId: number) => {
-    setAppliedVouchers(prev => prev.filter(v => v.validation.voucher_id !== voucherId));
+    setAppliedVouchers((prev) =>
+      prev.filter((v) => v.validation.voucher_id !== voucherId),
+    );
   };
 
   // Clear all vouchers
@@ -1438,7 +1688,12 @@ export default function SalesPage() {
 
   // Auto-revalidate coupon when line items change (with debouncing)
   useEffect(() => {
-    if (!couponValidation || !couponCode || lineItems.length === 0 || !state.formData.customer_id) {
+    if (
+      !couponValidation ||
+      !couponCode ||
+      lineItems.length === 0 ||
+      !state.formData.customer_id
+    ) {
       if (couponValidation && lineItems.length === 0) {
         // Clear coupon if all items removed
         setCouponValidation(null);
@@ -1451,7 +1706,7 @@ export default function SalesPage() {
     const timeoutId = setTimeout(async () => {
       try {
         const subtotal = calculateLineItemsTotal();
-        const productIds = lineItems.map(item => item.product_id);
+        const productIds = lineItems.map((item) => item.product_id);
 
         const response = await couponsApi.validate({
           coupon_code: couponCode.trim(),
@@ -1460,7 +1715,7 @@ export default function SalesPage() {
           invoice_discount_type: discountType,
           invoice_discount_value: discountValue,
           product_ids: productIds,
-          line_items: lineItems.map(item => ({
+          line_items: lineItems.map((item) => ({
             product_id: item.product_id,
             quantity: item.quantity,
             selling_price: item.selling_price,
@@ -1483,89 +1738,145 @@ export default function SalesPage() {
     }, 500); // Wait 500ms after last change before revalidating
 
     return () => clearTimeout(timeoutId);
-  }, [lineItems.length, couponCode, state.formData.customer_id, discountType, discountValue]); // Revalidate when discount changes
+  }, [
+    lineItems.length,
+    couponCode,
+    state.formData.customer_id,
+    discountType,
+    discountValue,
+  ]); // Revalidate when discount changes
 
   // Custom actions for toolbar
-  const customActions = state.selectedItem && !state.isCreating && !state.isEditing ? (
-    <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-      {/* Workflow Actions based on approval_status */}
-      {canApprove && state.selectedItem.approval_status === "pending_approval" && (
-        <Tooltip title="Approve Order">
-          <IconButton
-            size="small"
-            color="success"
-            onClick={() => approveDialog.open(
-              "Approve Sales Order",
-              `Approve invoice ${state.selectedItem?.invoice_no}? Stock will be marked as sold and order will be completed.`,
-              () => approveMutation.mutate(state.selectedItem!.id)
-            )}
-            disabled={approveMutation.isPending}
-          >
-            <ApproveIcon />
-          </IconButton>
-        </Tooltip>
-      )}
-      {canDelete && state.selectedItem.approval_status !== "completed" && state.selectedItem.approval_status !== "cancelled" && (
-        <Tooltip title="Cancel Order">
-          <IconButton
-            size="small"
-            color="error"
-            onClick={() => cancelDialog.open(
-              "Cancel Sales Order",
-              `Cancel invoice ${state.selectedItem?.invoice_no}? Stock will be restored to available.`,
-              () => cancelMutation.mutate(state.selectedItem!.id)
-            )}
-            disabled={cancelMutation.isPending}
-          >
-            <CancelIcon />
-          </IconButton>
-        </Tooltip>
-      )}
+  const customActions =
+    state.selectedItem && !state.isCreating && !state.isEditing ? (
+      <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+        {/* Workflow Actions based on approval_status */}
+        {canApprove &&
+          state.selectedItem.approval_status === "pending_approval" && (
+            <Tooltip title="Approve Order">
+              <IconButton
+                size="small"
+                color="success"
+                onClick={() =>
+                  approveDialog.open(
+                    "Approve Sales Order",
+                    `Approve invoice ${state.selectedItem?.invoice_no}? Stock will be marked as sold and order will be completed.`,
+                    () => approveMutation.mutate(state.selectedItem!.id),
+                  )
+                }
+                disabled={approveMutation.isPending}
+              >
+                <ApproveIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+        {canDelete &&
+          state.selectedItem.approval_status !== "completed" &&
+          state.selectedItem.approval_status !== "cancelled" && (
+            <Tooltip title="Cancel Order">
+              <IconButton
+                size="small"
+                color="error"
+                onClick={() =>
+                  cancelDialog.open(
+                    "Cancel Sales Order",
+                    `Cancel invoice ${state.selectedItem?.invoice_no}? Stock will be restored to available.`,
+                    () => cancelMutation.mutate(state.selectedItem!.id),
+                  )
+                }
+                disabled={cancelMutation.isPending}
+              >
+                <CancelIcon />
+              </IconButton>
+            </Tooltip>
+          )}
 
-      {/* Standard Actions */}
-      <Button
-        size="small"
-        variant="outlined"
-        startIcon={<EditIcon />}
-        onClick={handleEdit}
-        disabled={state.selectedItem.approval_status === "completed" || state.selectedItem.approval_status === "cancelled"}
-      >
-        Edit
-      </Button>
-      <TPrintButton
-        documentType="invoice"
-        documentId={state.selectedItem.id}
-        disabled={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"])}
-        disabledReason={`Cannot print: invoice is ${(state.selectedItem.approval_status || "").replace(/_/g, " ")}`}
-        tooltip="Print Invoice"
-        onClick={() => {
-          setSelectedItemForPrint(state.selectedItem);
-          setPrintDialogOpen(true);
-        }}
-      />
-    </Box>
-  ) : undefined;
+        {/* Standard Actions */}
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<EditIcon />}
+          onClick={handleEdit}
+          disabled={
+            state.selectedItem.approval_status === "completed" ||
+            state.selectedItem.approval_status === "cancelled"
+          }
+        >
+          Edit
+        </Button>
+        <TPrintButton
+          documentType="invoice"
+          documentId={state.selectedItem.id}
+          disabled={
+            !canPrintDocument(state.selectedItem.approval_status, ["cancelled"])
+          }
+          disabledReason={`Cannot print: invoice is ${(state.selectedItem.approval_status || "").replace(/_/g, " ")}`}
+          tooltip="Print Invoice"
+          onClick={() => {
+            setSelectedItemForPrint(state.selectedItem);
+            setPrintDialogOpen(true);
+          }}
+        />
+      </Box>
+    ) : undefined;
 
   // Render view invoice details
   const renderViewInvoice = () => {
-    const customer = customers?.find((c) => c.id === state.selectedItem?.customer_id);
+    const customer = customers?.find(
+      (c) => c.id === state.selectedItem?.customer_id,
+    );
     const productMap = new Map(products.map((p: any) => [p.id, p]));
 
     return (
       <>
         {/* Order Information */}
         <FormSection title="Order Information" columns={3}>
-          <TextField label="Invoice Number" size="small" value={state.selectedItem?.invoice_no} disabled />
-          <TextField label="Branch" size="small" value={state.selectedItem?.branch_code} disabled />
-          <TextField label="Payment Method" size="small" value={state.selectedItem?.payment_method?.replace(/_/g, " ")} disabled />
+          <TextField
+            label="Invoice Number"
+            size="small"
+            value={state.selectedItem?.invoice_no}
+            disabled
+          />
+          <TextField
+            label="Branch"
+            size="small"
+            value={state.selectedItem?.branch_code}
+            disabled
+          />
+          <TextField
+            label="Payment Method"
+            size="small"
+            value={state.selectedItem?.payment_method?.replace(/_/g, " ")}
+            disabled
+          />
         </FormSection>
 
         {/* Customer Information */}
         <FormSection title="Customer Information" columns={2}>
-          <TextField label="Customer Name" size="small" value={customer?.customer_name || ""} disabled />
-          <TextField label="Company" size="small" value={customer?.company_name || "N/A"} disabled />
-          <TextField label="Contact" size="small" value={customer?.mobile_contact_number || ""} disabled />
-          <TextField label="Email" size="small" value={customer?.email || "N/A"} disabled />
+          <TextField
+            label="Customer Name"
+            size="small"
+            value={customer?.customer_name || ""}
+            disabled
+          />
+          <TextField
+            label="Company"
+            size="small"
+            value={customer?.company_name || "N/A"}
+            disabled
+          />
+          <TextField
+            label="Contact"
+            size="small"
+            value={customer?.mobile_contact_number || ""}
+            disabled
+          />
+          <TextField
+            label="Email"
+            size="small"
+            value={customer?.email || "N/A"}
+            disabled
+          />
         </FormSection>
 
         {/* Dates & Payment */}
@@ -1573,7 +1884,11 @@ export default function SalesPage() {
           <TextField
             label="Order Date"
             size="small"
-            value={state.selectedItem ? new Date(state.selectedItem.created_date).toLocaleDateString() : ""}
+            value={
+              state.selectedItem
+                ? new Date(state.selectedItem.created_date).toLocaleDateString()
+                : ""
+            }
             disabled
           />
           <TextField
@@ -1587,8 +1902,15 @@ export default function SalesPage() {
         {/* Order Status */}
         <FormSection title="Order Status" columns={1}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Typography variant="body2" color="text.secondary">Status:</Typography>
-            <TStatusChip status={state.selectedItem?.approval ? "approved" : "pending_approval"} statusMap="salesOrder" />
+            <Typography variant="body2" color="text.secondary">
+              Status:
+            </Typography>
+            <TStatusChip
+              status={
+                state.selectedItem?.approval ? "approved" : "pending_approval"
+              }
+              statusMap="salesOrder"
+            />
           </Box>
         </FormSection>
 
@@ -1597,14 +1919,22 @@ export default function SalesPage() {
           <TextField
             label="Created Date"
             size="small"
-            value={state.selectedItem?.created_at ? new Date(state.selectedItem.created_at).toLocaleString() : ""}
+            value={
+              state.selectedItem?.created_at
+                ? new Date(state.selectedItem.created_at).toLocaleString()
+                : ""
+            }
             disabled
             InputProps={{ readOnly: true }}
           />
           <TextField
             label="Order Date"
             size="small"
-            value={state.selectedItem?.created_date ? new Date(state.selectedItem.created_date).toLocaleDateString() : ""}
+            value={
+              state.selectedItem?.created_date
+                ? new Date(state.selectedItem.created_date).toLocaleDateString()
+                : ""
+            }
             disabled
             InputProps={{ readOnly: true }}
           />
@@ -1613,7 +1943,16 @@ export default function SalesPage() {
         {/* Order Items */}
         {fullInvoice?.items && (
           <FormSection title="Order Items" columns={1}>
-            <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+            <Paper
+              variant="outlined"
+              sx={{
+                overflow: "hidden",
+                width: "100%",
+                borderRadius: 2,
+                border: "1px solid",
+                borderColor: "divider",
+              }}
+            >
               <Table size="small">
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
@@ -1629,27 +1968,58 @@ export default function SalesPage() {
                   {fullInvoice.items.map((item: any, index: number) => {
                     const product = productMap.get(item.product_id);
                     return (
-                      <TableRow key={index} sx={{
-                        ...modernTableStyles.bodyRow,
-                        ...(index % 2 === 1 && { bgcolor: "grey.25" }),
-                      }}>
-                        <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
-                        <TableCell align="right">{item.quantity}</TableCell>
-                        <TableCell align="right">{fmtLKR(item.selling_price)}</TableCell>
-                        <TableCell align="center">{item.warrenty_month || "0"} mo</TableCell>
+                      <TableRow
+                        key={index}
+                        sx={{
+                          ...modernTableStyles.bodyRow,
+                          ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                        }}
+                      >
                         <TableCell>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                            <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {product?.name || `Product #${item.product_id}`}
+                        </TableCell>
+                        <TableCell align="right">{item.quantity}</TableCell>
+                        <TableCell align="right">
+                          {fmtLKR(item.selling_price)}
+                        </TableCell>
+                        <TableCell align="center">
+                          {item.warrenty_month || "0"} mo
+                        </TableCell>
+                        <TableCell>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 0.5,
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                maxWidth: 100,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
                               {item.remark || "-"}
                             </Typography>
                             <Tooltip title="View Remark">
-                              <IconButton size="small" onClick={() => { setCurrentItemRemark(item.remark || ""); setItemRemarkModalOpen(true); }}>
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  setCurrentItemRemark(item.remark || "");
+                                  setItemRemarkModalOpen(true);
+                                }}
+                              >
                                 <MenuBookIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           </Box>
                         </TableCell>
-                        <TableCell align="right">{fmtLKR(item.quantity * item.selling_price)}</TableCell>
+                        <TableCell align="right">
+                          {fmtLKR(item.quantity * item.selling_price)}
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -1658,7 +2028,15 @@ export default function SalesPage() {
                       <strong>Subtotal:</strong>
                     </TableCell>
                     <TableCell align="right">
-                      <strong>{fmtLKR(fullInvoice.items.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0)}</strong>
+                      <strong>
+                        {fmtLKR(
+                          fullInvoice.items.reduce(
+                            (sum: number, item: any) =>
+                              sum + item.quantity * item.selling_price,
+                            0,
+                          ) || 0,
+                        )}
+                      </strong>
                     </TableCell>
                   </TableRow>
                   {/* Coupon Discount Row */}
@@ -1681,7 +2059,11 @@ export default function SalesPage() {
                     <TableRow sx={{ bgcolor: "warning.lighter" }}>
                       <TableCell colSpan={5} align="right">
                         <Typography fontWeight="medium" color="warning.dark">
-                          Invoice Discount{fullInvoice.discount_percent > 0 ? ` (${fullInvoice.discount_percent}%)` : ""}:
+                          Invoice Discount
+                          {fullInvoice.discount_percent > 0
+                            ? ` (${fullInvoice.discount_percent}%)`
+                            : ""}
+                          :
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
@@ -1726,12 +2108,20 @@ export default function SalesPage() {
                     fullInvoice.service_charge_amount > 0 && (
                       <TableRow sx={{ bgcolor: "grey.100" }}>
                         <TableCell colSpan={5} align="right">
-                          <Typography fontWeight="medium" color="text.secondary">
-                            Service Charge ({(fullInvoice.service_charge_rate * 100).toFixed(1)}%):
+                          <Typography
+                            fontWeight="medium"
+                            color="text.secondary"
+                          >
+                            Service Charge (
+                            {(fullInvoice.service_charge_rate * 100).toFixed(1)}
+                            %):
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Typography fontWeight="medium" color="text.secondary">
+                          <Typography
+                            fontWeight="medium"
+                            color="text.secondary"
+                          >
                             +{fmtLKR(fullInvoice.service_charge_amount)}
                           </Typography>
                         </TableCell>
@@ -1739,12 +2129,20 @@ export default function SalesPage() {
                     )}
                   <TableRow sx={{ bgcolor: "success.lighter" }}>
                     <TableCell colSpan={5} align="right">
-                      <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
+                      <Typography
+                        fontWeight="bold"
+                        fontSize="1.1rem"
+                        color="success.dark"
+                      >
                         Grand Total (Amount Paid):
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography fontWeight="bold" fontSize="1.1rem" color="success.dark">
+                      <Typography
+                        fontWeight="bold"
+                        fontSize="1.1rem"
+                        color="success.dark"
+                      >
                         {fmtLKR(fullInvoice.grand_total || 0)}
                       </Typography>
                     </TableCell>
@@ -1773,7 +2171,14 @@ export default function SalesPage() {
         {/* Remarks */}
         {state.selectedItem?.remarks && (
           <FormSection title="Remarks" columns={1}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                width: "100%",
+              }}
+            >
               <TextField
                 multiline
                 rows={2}
@@ -1783,15 +2188,16 @@ export default function SalesPage() {
                 size="small"
               />
               <Tooltip title="View / Add Remarks">
-                <IconButton size="small" onClick={() => setRemarksDialogOpen(true)}>
+                <IconButton
+                  size="small"
+                  onClick={() => setRemarksDialogOpen(true)}
+                >
                   <MenuBookIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
             </Box>
           </FormSection>
         )}
-
-
       </>
     );
   };
@@ -1813,82 +2219,161 @@ export default function SalesPage() {
             <TextField
               label="Invoice No"
               size="small"
-              value={state.isCreating ? nextInvoiceNumber : state.formData.invoice_no}
+              value={
+                state.isCreating ? nextInvoiceNumber : state.formData.invoice_no
+              }
               disabled
             />
             <Autocomplete
               size="small"
               options={branches}
-              getOptionLabel={(option) => `${option.branch_code} - ${option.branch_name}`}
-              value={branches.find((b) => b.branch_code === state.formData.branch_code) || null}
-              onChange={(_, newValue) => state.setFormData({ ...state.formData, branch_code: newValue?.branch_code || "" })}
-              renderInput={(params) => <TextField {...params} label="Branch" required />}
+              getOptionLabel={(option) =>
+                `${option.branch_code} - ${option.branch_name}`
+              }
+              value={
+                branches.find(
+                  (b) => b.branch_code === state.formData.branch_code,
+                ) || null
+              }
+              onChange={(_, newValue) =>
+                state.setFormData({
+                  ...state.formData,
+                  branch_code: newValue?.branch_code || "",
+                })
+              }
+              renderInput={(params) => (
+                <TextField {...params} label="Branch" required />
+              )}
             />
             <Autocomplete
               size="small"
               options={customers || []}
               getOptionLabel={(option) => option.customer_name || ""}
-              value={customers?.find((c) => c.id === state.formData.customer_id) || null}
-              onChange={(_, newValue) => state.setFormData({ ...state.formData, customer_id: newValue?.id || 0 })}
-              renderInput={(params) => <TextField {...params} label="Customer" required />}
+              value={
+                customers?.find((c) => c.id === state.formData.customer_id) ||
+                null
+              }
+              onChange={(_, newValue) =>
+                state.setFormData({
+                  ...state.formData,
+                  customer_id: newValue?.id || 0,
+                })
+              }
+              renderInput={(params) => (
+                <TextField {...params} label="Customer" required />
+              )}
             />
             <Autocomplete
               size="small"
-              options={(customers || []).filter((c) => c.is_customer_agent && c.active)}
-              getOptionLabel={(option) => `${option.customer_name}${option.commission_rate ? ` (${option.commission_rate}%)` : ""}`}
-              value={customers?.find((c) => c.id === state.formData.customer_agent_id) || null}
-              onChange={(_, newValue) => state.setFormData({ ...state.formData, customer_agent_id: newValue?.id || undefined })}
-              renderInput={(params) => <TextField {...params} label="Customer Agent (Optional)" />}
+              options={(customers || []).filter(
+                (c) => c.is_customer_agent && c.active,
+              )}
+              getOptionLabel={(option) =>
+                `${option.customer_name}${option.commission_rate ? ` (${option.commission_rate}%)` : ""}`
+              }
+              value={
+                customers?.find(
+                  (c) => c.id === state.formData.customer_agent_id,
+                ) || null
+              }
+              onChange={(_, newValue) =>
+                state.setFormData({
+                  ...state.formData,
+                  customer_agent_id: newValue?.id || undefined,
+                })
+              }
+              renderInput={(params) => (
+                <TextField {...params} label="Customer Agent (Optional)" />
+              )}
             />
           </FormSection>
 
           {/* Customer Credit Information Panel */}
           {customerCreditStatus && (state.formData.customer_id || 0) > 0 && (
-            <Box sx={{
-              p: 2,
-              mb: 2,
-              borderRadius: 1,
-              bgcolor: customerCreditStatus.available_credit <= 0 ? "error.lighter" :
-                customerCreditStatus.available_credit < customerCreditStatus.max_credit_limit * 0.2 ? "warning.lighter" :
-                  "success.lighter",
-              border: 1,
-              borderColor: customerCreditStatus.available_credit <= 0 ? "error.light" :
-                customerCreditStatus.available_credit < customerCreditStatus.max_credit_limit * 0.2 ? "warning.light" :
-                  "success.light"
-            }}>
+            <Box
+              sx={{
+                p: 2,
+                mb: 2,
+                borderRadius: 1,
+                bgcolor:
+                  customerCreditStatus.available_credit <= 0
+                    ? "error.lighter"
+                    : customerCreditStatus.available_credit <
+                        customerCreditStatus.max_credit_limit * 0.2
+                      ? "warning.lighter"
+                      : "success.lighter",
+                border: 1,
+                borderColor:
+                  customerCreditStatus.available_credit <= 0
+                    ? "error.light"
+                    : customerCreditStatus.available_credit <
+                        customerCreditStatus.max_credit_limit * 0.2
+                      ? "warning.light"
+                      : "success.light",
+              }}
+            >
               <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
                 Customer Credit Information
               </Typography>
-              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2 }}>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, 1fr)",
+                  gap: 2,
+                }}
+              >
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Credit Limit</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Credit Limit
+                  </Typography>
                   <Typography variant="body2" fontWeight={500}>
                     Rs. {fmtLKR(customerCreditStatus.max_credit_limit || 0)}
                   </Typography>
                 </Box>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Outstanding</Typography>
-                  <Typography variant="body2" fontWeight={500} color="error.main">
+                  <Typography variant="caption" color="text.secondary">
+                    Outstanding
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    fontWeight={500}
+                    color="error.main"
+                  >
                     Rs. {fmtLKR(customerCreditStatus.outstanding_credit || 0)}
                   </Typography>
                 </Box>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Available Credit</Typography>
-                  <Typography variant="body2" fontWeight={500} color={customerCreditStatus.available_credit > 0 ? "success.main" : "error.main"}>
+                  <Typography variant="caption" color="text.secondary">
+                    Available Credit
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    fontWeight={500}
+                    color={
+                      customerCreditStatus.available_credit > 0
+                        ? "success.main"
+                        : "error.main"
+                    }
+                  >
                     Rs. {fmtLKR(customerCreditStatus.available_credit || 0)}
                   </Typography>
                 </Box>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Credit Terms</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Credit Terms
+                  </Typography>
                   <Typography variant="body2" fontWeight={500}>
                     {customerCreditStatus.credit_days || 0} days
                   </Typography>
                 </Box>
               </Box>
               {customerCreditStatus.overdue_count > 0 && (
-                <Box sx={{ mt: 1, p: 1, bgcolor: "error.light", borderRadius: 1 }}>
+                <Box
+                  sx={{ mt: 1, p: 1, bgcolor: "error.light", borderRadius: 1 }}
+                >
                   <Typography variant="caption" color="error.contrastText">
-                    ⚠️ {customerCreditStatus.overdue_count} overdue invoice(s) - Rs. {fmtLKR(customerCreditStatus.total_overdue_amount || 0)}
+                    ⚠️ {customerCreditStatus.overdue_count} overdue invoice(s) -
+                    Rs. {fmtLKR(customerCreditStatus.total_overdue_amount || 0)}
                   </Typography>
                 </Box>
               )}
@@ -1897,14 +2382,16 @@ export default function SalesPage() {
 
           {/* Recent Customer Sales Panel */}
           {(state.formData.customer_id || 0) > 0 && (
-            <Box sx={{
-              p: 2,
-              mb: 2,
-              borderRadius: 1,
-              bgcolor: "background.paper",
-              border: 1,
-              borderColor: "divider"
-            }}>
+            <Box
+              sx={{
+                p: 2,
+                mb: 2,
+                borderRadius: 1,
+                bgcolor: "background.paper",
+                border: 1,
+                borderColor: "divider",
+              }}
+            >
               <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
                 Recent Sales History (Last 5 from All Branches)
               </Typography>
@@ -1936,34 +2423,51 @@ export default function SalesPage() {
                         sx={{ cursor: "pointer" }}
                       >
                         <TableCell>
-                          <Typography variant="body2" fontWeight={500} color="primary">
+                          <Typography
+                            variant="body2"
+                            fontWeight={500}
+                            color="primary"
+                          >
                             {sale.invoice_no}
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Chip label={sale.branch_code} size="small" variant="outlined" />
+                          <Chip
+                            label={sale.branch_code}
+                            size="small"
+                            variant="outlined"
+                          />
                         </TableCell>
                         <TableCell>
                           {format(new Date(sale.created_date), "dd/MM/yyyy")}
                         </TableCell>
                         <TableCell>
                           <Chip
-                            label={sale.payment_method?.replace(/_/g, " ").toUpperCase()}
+                            label={sale.payment_method
+                              ?.replace(/_/g, " ")
+                              .toUpperCase()}
                             size="small"
-                            color={sale.payment_method === "cash" ? "success" : "default"}
+                            color={
+                              sale.payment_method === "cash"
+                                ? "success"
+                                : "default"
+                            }
                           />
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight={500}>
-                            Rs. {fmtLKR(sale.grand_total || (
-                              sale.cash_amount +
-                              sale.card_visa_amount +
-                              sale.card_mastercard_amount +
-                              sale.card_amex_amount +
-                              sale.cheque_amount +
-                              sale.bank_transfer_amount +
-                              sale.credit_amount
-                            ) || 0)}
+                            Rs.{" "}
+                            {fmtLKR(
+                              sale.grand_total ||
+                                sale.cash_amount +
+                                  sale.card_visa_amount +
+                                  sale.card_mastercard_amount +
+                                  sale.card_amex_amount +
+                                  sale.cheque_amount +
+                                  sale.bank_transfer_amount +
+                                  sale.credit_amount ||
+                                0,
+                            )}
                           </Typography>
                         </TableCell>
                         <TableCell>
@@ -1978,7 +2482,11 @@ export default function SalesPage() {
                   </TableBody>
                 </Table>
               ) : (
-                <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", py: 2 }}>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ textAlign: "center", py: 2 }}
+                >
                   No previous sales records found for this customer
                 </Typography>
               )}
@@ -1990,7 +2498,12 @@ export default function SalesPage() {
               label="Remarks"
               size="small"
               value={state.formData.remarks}
-              onChange={(e) => state.setFormData({ ...state.formData, remarks: e.target.value })}
+              onChange={(e) =>
+                state.setFormData({
+                  ...state.formData,
+                  remarks: e.target.value,
+                })
+              }
               multiline
               rows={2}
             />
@@ -2017,7 +2530,16 @@ export default function SalesPage() {
                   borderWidth: 2,
                 }}
               >
-                <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography
+                  variant="subtitle2"
+                  fontWeight="bold"
+                  sx={{
+                    mb: 1.5,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                  }}
+                >
                   <QrCodeScannerIcon color="warning" />
                   Scan / Type Barcode
                 </Typography>
@@ -2062,7 +2584,11 @@ export default function SalesPage() {
                     disabled={isValidatingBarcode || !barcodeInput.trim()}
                     sx={{ minWidth: 80 }}
                   >
-                    {isValidatingBarcode ? <CircularProgress size={20} /> : "Add"}
+                    {isValidatingBarcode ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      "Add"
+                    )}
                   </Button>
                 </Box>
               </Paper>
@@ -2079,7 +2605,16 @@ export default function SalesPage() {
                   borderWidth: 2,
                 }}
               >
-                <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography
+                  variant="subtitle2"
+                  fontWeight="bold"
+                  sx={{
+                    mb: 1.5,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                  }}
+                >
                   <MenuBookIcon color="primary" />
                   Browse & Select Items
                 </Typography>
@@ -2091,21 +2626,40 @@ export default function SalesPage() {
                     sx={{ flex: 1 }}
                     options={brands}
                     getOptionLabel={(b: Brand) => b.brand_name}
-                    value={brands.find((b: Brand) => b.id === manualBrandId) || null}
+                    value={
+                      brands.find((b: Brand) => b.id === manualBrandId) || null
+                    }
                     onChange={(_, v) => setManualBrandId(v?.id ?? null)}
-                    renderInput={(params) => <TextField {...params} label="Brand" placeholder="Filter by brand..." />}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Brand"
+                        placeholder="Filter by brand..."
+                      />
+                    )}
                     noOptionsText="No brands"
                   />
                   <Autocomplete
                     size="small"
                     sx={{ flex: 1 }}
-                    options={(products as any[]).filter((p: any) =>
-                      !manualBrandId || p.items_brand_id === manualBrandId
+                    options={(products as any[]).filter(
+                      (p: any) =>
+                        !manualBrandId || p.items_brand_id === manualBrandId,
                     )}
                     getOptionLabel={(p: any) => p.name}
-                    value={(products as any[]).find((p: any) => p.id === manualProductId) || null}
+                    value={
+                      (products as any[]).find(
+                        (p: any) => p.id === manualProductId,
+                      ) || null
+                    }
                     onChange={(_, v) => setManualProductId(v?.id ?? null)}
-                    renderInput={(params) => <TextField {...params} label="Product" placeholder="Select product..." />}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Product"
+                        placeholder="Select product..."
+                      />
+                    )}
                     noOptionsText="No products"
                   />
                 </Box>
@@ -2128,36 +2682,67 @@ export default function SalesPage() {
                       </Typography>
                     </Box>
                   ) : isLoadingManualStock ? (
-                    <Box sx={{ p: 2, display: "flex", justifyContent: "center" }}>
+                    <Box
+                      sx={{ p: 2, display: "flex", justifyContent: "center" }}
+                    >
                       <CircularProgress size={24} />
                     </Box>
                   ) : manualStockItems.length === 0 ? (
                     <Box sx={{ p: 2, textAlign: "center" }}>
                       <Typography variant="body2" color="text.secondary">
-                        No available stock for this product in {state.formData.branch_code || "selected branch"}
+                        No available stock for this product in{" "}
+                        {state.formData.branch_code || "selected branch"}
                       </Typography>
                     </Box>
                   ) : (
                     <Table size="small">
                       <TableHead>
                         <TableRow sx={{ bgcolor: "grey.50" }}>
-                          <TableCell sx={{ py: 0.5, fontWeight: 600, fontSize: "0.75rem" }}>Barcode</TableCell>
-                          <TableCell sx={{ py: 0.5, fontWeight: 600, fontSize: "0.75rem" }}>Price</TableCell>
+                          <TableCell
+                            sx={{
+                              py: 0.5,
+                              fontWeight: 600,
+                              fontSize: "0.75rem",
+                            }}
+                          >
+                            Barcode
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              py: 0.5,
+                              fontWeight: 600,
+                              fontSize: "0.75rem",
+                            }}
+                          >
+                            Price
+                          </TableCell>
                           <TableCell sx={{ py: 0.5, width: 64 }} />
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {manualStockItems.map((s) => {
-                          const alreadyInOrder = lineItems.some(li => li.barcode === s.barcode);
+                          const alreadyInOrder = lineItems.some(
+                            (li) => li.barcode === s.barcode,
+                          );
                           return (
                             <TableRow
                               key={s.id}
                               sx={{
                                 opacity: alreadyInOrder ? 0.4 : 1,
-                                "&:hover": { bgcolor: alreadyInOrder ? undefined : "primary.50" },
+                                "&:hover": {
+                                  bgcolor: alreadyInOrder
+                                    ? undefined
+                                    : "primary.50",
+                                },
                               }}
                             >
-                              <TableCell sx={{ py: 0.5, fontFamily: "monospace", fontSize: "0.8rem" }}>
+                              <TableCell
+                                sx={{
+                                  py: 0.5,
+                                  fontFamily: "monospace",
+                                  fontSize: "0.8rem",
+                                }}
+                              >
                                 {s.barcode}
                               </TableCell>
                               <TableCell sx={{ py: 0.5, fontSize: "0.8rem" }}>
@@ -2170,7 +2755,12 @@ export default function SalesPage() {
                                   color="primary"
                                   disabled={alreadyInOrder}
                                   onClick={() => handleAddManualStockItem(s)}
-                                  sx={{ minWidth: 0, px: 1, py: 0.25, fontSize: "0.7rem" }}
+                                  sx={{
+                                    minWidth: 0,
+                                    px: 1,
+                                    py: 0.25,
+                                    fontSize: "0.7rem",
+                                  }}
                                 >
                                   {alreadyInOrder ? "✓" : "Add"}
                                 </Button>
@@ -2187,41 +2777,79 @@ export default function SalesPage() {
           </Grid>
 
           {/* Proforma Mode: Show assignment progress */}
-          {!!(state.formData as any).source_quote_id && lineItems.length > 0 && (
-            <Alert
-              severity={lineItems.every(item => !!item.barcode) ? "success" : "info"}
-              sx={{ mb: 2 }}
-            >
-              <strong>Proforma Items:</strong>{" "}
-              {lineItems.filter(item => !!item.barcode).length} / {lineItems.length} items have barcodes assigned.
-              {!lineItems.every(item => !!item.barcode)
-                ? " Scan barcodes to assign stock to the remaining items."
-                : " All items assigned! You can proceed to payment."}
-            </Alert>
-          )}
+          {!!(state.formData as any).source_quote_id &&
+            lineItems.length > 0 && (
+              <Alert
+                severity={
+                  lineItems.every((item) => !!item.barcode) ? "success" : "info"
+                }
+                sx={{ mb: 2 }}
+              >
+                <strong>Proforma Items:</strong>{" "}
+                {lineItems.filter((item) => !!item.barcode).length} /{" "}
+                {lineItems.length} items have barcodes assigned.
+                {!lineItems.every((item) => !!item.barcode)
+                  ? " Scan barcodes to assign stock to the remaining items."
+                  : " All items assigned! You can proceed to payment."}
+              </Alert>
+            )}
 
           {/* Line Items Section */}
           <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-              <Typography variant="subtitle1" fontWeight="bold">Line Items</Typography>
-              <IconButton size="small" onClick={addLineItem} color="primary" title="Add manual item">
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                mb: 1,
+              }}
+            >
+              <Typography variant="subtitle1" fontWeight="bold">
+                Line Items
+              </Typography>
+              <IconButton
+                size="small"
+                onClick={addLineItem}
+                color="primary"
+                title="Add manual item"
+              >
                 <AddIcon />
               </IconButton>
             </Box>
 
-            <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+            <Paper
+              variant="outlined"
+              sx={{
+                overflow: "hidden",
+                borderRadius: 2,
+                border: "1px solid",
+                borderColor: "divider",
+              }}
+            >
               <Table size="small">
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
                     <TableCell>Barcode</TableCell>
                     <TableCell>Product</TableCell>
                     <TableCell>Branch Code</TableCell>
-                    <TableCell align="right" sx={{ width: 80 }}>Qty</TableCell>
-                    <TableCell align="right" sx={{ width: 80 }}>Warranty</TableCell>
-                    <TableCell align="right" sx={{ width: 100 }}>Min Price</TableCell>
-                    <TableCell align="right" sx={{ width: 100 }}>Unit Price</TableCell>
-                    <TableCell align="right" sx={{ width: 80 }}>Disc %</TableCell>
-                    <TableCell align="right" sx={{ width: 100 }}>Amount</TableCell>
+                    <TableCell align="right" sx={{ width: 80 }}>
+                      Qty
+                    </TableCell>
+                    <TableCell align="right" sx={{ width: 80 }}>
+                      Warranty
+                    </TableCell>
+                    <TableCell align="right" sx={{ width: 100 }}>
+                      Min Price
+                    </TableCell>
+                    <TableCell align="right" sx={{ width: 100 }}>
+                      Unit Price
+                    </TableCell>
+                    <TableCell align="right" sx={{ width: 80 }}>
+                      Disc %
+                    </TableCell>
+                    <TableCell align="right" sx={{ width: 100 }}>
+                      Amount
+                    </TableCell>
                     <TableCell sx={{ width: 50 }} />
                   </TableRow>
                 </TableHead>
@@ -2234,17 +2862,36 @@ export default function SalesPage() {
                     </TableRow>
                   ) : (
                     lineItems.map((item, index) => (
-                      <TableRow key={index} sx={{
-                        ...modernTableStyles.bodyRow,
-                        ...(index % 2 === 1 && { bgcolor: "grey.25" }),
-                      }}>
+                      <TableRow
+                        key={index}
+                        sx={{
+                          ...modernTableStyles.bodyRow,
+                          ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                        }}
+                      >
                         {/* Barcode Column - with validation indicator */}
                         <TableCell>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                            {item.barcode && validatedBarcodes.includes(item.barcode) && (
-                              <CheckCircleIcon fontSize="small" color="success" />
-                            )}
-                            <Typography variant="body2" color={item.barcode ? "success.main" : "text.secondary"} fontWeight={item.barcode ? 500 : 400}>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 0.5,
+                            }}
+                          >
+                            {item.barcode &&
+                              validatedBarcodes.includes(item.barcode) && (
+                                <CheckCircleIcon
+                                  fontSize="small"
+                                  color="success"
+                                />
+                              )}
+                            <Typography
+                              variant="body2"
+                              color={
+                                item.barcode ? "success.main" : "text.secondary"
+                              }
+                              fontWeight={item.barcode ? 500 : 400}
+                            >
                               {item.barcode || "-"}
                             </Typography>
                           </Box>
@@ -2252,17 +2899,23 @@ export default function SalesPage() {
 
                         {/* Product Column */}
                         <TableCell>
-                          <Typography variant="body2">{item.product_name || `Product #${item.product_id}`}</Typography>
+                          <Typography variant="body2">
+                            {item.product_name || `Product #${item.product_id}`}
+                          </Typography>
                         </TableCell>
 
                         {/* Branch Code Column */}
                         <TableCell>
-                          {item.branch_code || state.formData.branch_code || "-"}
+                          {item.branch_code ||
+                            state.formData.branch_code ||
+                            "-"}
                         </TableCell>
 
                         {/* Quantity Column */}
                         <TableCell align="right">
-                          <Typography variant="body2">{item.quantity}</Typography>
+                          <Typography variant="body2">
+                            {item.quantity}
+                          </Typography>
                         </TableCell>
 
                         {/* Warranty Column */}
@@ -2271,7 +2924,13 @@ export default function SalesPage() {
                             size="small"
                             type="number"
                             value={item.warrenty_month}
-                            onChange={(e) => updateLineItem(index, "warrenty_month", e.target.value)}
+                            onChange={(e) =>
+                              updateLineItem(
+                                index,
+                                "warrenty_month",
+                                e.target.value,
+                              )
+                            }
                             sx={{ width: 80 }}
                             inputProps={{ min: 0 }}
                           />
@@ -2290,12 +2949,32 @@ export default function SalesPage() {
                             size="small"
                             type="number"
                             value={item.selling_price}
-                            onChange={(e) => updateLineItem(index, "selling_price", e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                            onChange={(e) =>
+                              updateLineItem(
+                                index,
+                                "selling_price",
+                                e.target.value === ""
+                                  ? 0
+                                  : parseFloat(e.target.value),
+                              )
+                            }
                             sx={{ width: 100 }}
                             inputProps={{ step: 0.01 }}
-                            error={item.selling_price < item.minimum_selling_price}
-                            helperText={item.selling_price < item.minimum_selling_price ? `Min: ${fmtLKR(item.minimum_selling_price)}` : undefined}
-                            FormHelperTextProps={{ sx: { fontSize: "0.6rem", mx: 0, color: "error.main" } }}
+                            error={
+                              item.selling_price < item.minimum_selling_price
+                            }
+                            helperText={
+                              item.selling_price < item.minimum_selling_price
+                                ? `Min: ${fmtLKR(item.minimum_selling_price)}`
+                                : undefined
+                            }
+                            FormHelperTextProps={{
+                              sx: {
+                                fontSize: "0.6rem",
+                                mx: 0,
+                                color: "error.main",
+                              },
+                            }}
                           />
                         </TableCell>
 
@@ -2306,62 +2985,121 @@ export default function SalesPage() {
                             type="number"
                             value={item.discount_percent || 0}
                             onChange={(e) => {
-                              const discPct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
-                              
+                              const discPct = Math.min(
+                                100,
+                                Math.max(0, parseFloat(e.target.value) || 0),
+                              );
+
                               // Calculate price after discount
-                              const priceAfterDiscount = item.selling_price * (1 - discPct / 100);
-                              
+                              const priceAfterDiscount =
+                                item.selling_price * (1 - discPct / 100);
+
                               // Check if price after discount is below minimum
-                              if (priceAfterDiscount < item.minimum_selling_price) {
+                              if (
+                                priceAfterDiscount < item.minimum_selling_price
+                              ) {
                                 // Calculate maximum allowed discount to maintain minimum price
-                                const maxDiscountPct = ((item.selling_price - item.minimum_selling_price) / item.selling_price) * 100;
-                                updateLineItem(index, "discount_percent", Math.max(0, maxDiscountPct));
+                                const maxDiscountPct =
+                                  ((item.selling_price -
+                                    item.minimum_selling_price) /
+                                    item.selling_price) *
+                                  100;
+                                updateLineItem(
+                                  index,
+                                  "discount_percent",
+                                  Math.max(0, maxDiscountPct),
+                                );
                               } else {
-                                updateLineItem(index, "discount_percent", discPct);
+                                updateLineItem(
+                                  index,
+                                  "discount_percent",
+                                  discPct,
+                                );
                               }
                             }}
                             sx={{ width: 70 }}
                             inputProps={{ min: 0, max: 100, step: 0.5 }}
                             error={(() => {
-                              const priceAfterDiscount = item.selling_price * (1 - (item.discount_percent || 0) / 100);
-                              return priceAfterDiscount < item.minimum_selling_price;
+                              const priceAfterDiscount =
+                                item.selling_price *
+                                (1 - (item.discount_percent || 0) / 100);
+                              return (
+                                priceAfterDiscount < item.minimum_selling_price
+                              );
                             })()}
                             InputProps={{
-                              endAdornment: <InputAdornment position="end" sx={{ ml: 0 }}>%</InputAdornment>,
+                              endAdornment: (
+                                <InputAdornment position="end" sx={{ ml: 0 }}>
+                                  %
+                                </InputAdornment>
+                              ),
                             }}
                           />
                         </TableCell>
 
                         {/* Amount Column (after discount) */}
                         <TableCell align="right">
-                          <Typography variant="body2" fontWeight="medium" color={(() => {
-                            const lineTotal = item.quantity * item.selling_price;
-                            const discountAmt = lineTotal * ((item.discount_percent || 0) / 100);
-                            const finalAmount = lineTotal - discountAmt;
-                            const minRequired = item.quantity * item.minimum_selling_price;
-                            return finalAmount < minRequired ? "error.main" : "text.primary";
-                          })()}>
+                          <Typography
+                            variant="body2"
+                            fontWeight="medium"
+                            color={(() => {
+                              const lineTotal =
+                                item.quantity * item.selling_price;
+                              const discountAmt =
+                                lineTotal *
+                                ((item.discount_percent || 0) / 100);
+                              const finalAmount = lineTotal - discountAmt;
+                              const minRequired =
+                                item.quantity * item.minimum_selling_price;
+                              return finalAmount < minRequired
+                                ? "error.main"
+                                : "text.primary";
+                            })()}
+                          >
                             {(() => {
-                              const lineTotal = item.quantity * item.selling_price;
-                              const discountAmt = lineTotal * ((item.discount_percent || 0) / 100);
+                              const lineTotal =
+                                item.quantity * item.selling_price;
+                              const discountAmt =
+                                lineTotal *
+                                ((item.discount_percent || 0) / 100);
                               return fmtLKR(lineTotal - discountAmt);
                             })()}
                           </Typography>
                           {(item.discount_percent || 0) > 0 && (
-                            <Typography variant="caption" color={(() => {
-                              const lineTotal = item.quantity * item.selling_price;
-                              const discountAmt = lineTotal * ((item.discount_percent || 0) / 100);
-                              const finalAmount = lineTotal - discountAmt;
-                              const minRequired = item.quantity * item.minimum_selling_price;
-                              return finalAmount < minRequired ? "error.main" : "success.main";
-                            })()} sx={{ display: "block" }}>
-                              -{fmtLKR(item.quantity * item.selling_price * ((item.discount_percent || 0) / 100))}
+                            <Typography
+                              variant="caption"
+                              color={(() => {
+                                const lineTotal =
+                                  item.quantity * item.selling_price;
+                                const discountAmt =
+                                  lineTotal *
+                                  ((item.discount_percent || 0) / 100);
+                                const finalAmount = lineTotal - discountAmt;
+                                const minRequired =
+                                  item.quantity * item.minimum_selling_price;
+                                return finalAmount < minRequired
+                                  ? "error.main"
+                                  : "success.main";
+                              })()}
+                              sx={{ display: "block" }}
+                            >
+                              -
+                              {fmtLKR(
+                                item.quantity *
+                                  item.selling_price *
+                                  ((item.discount_percent || 0) / 100),
+                              )}
                               {(() => {
-                                const priceAfterDiscount = item.selling_price * (1 - (item.discount_percent || 0) / 100);
-                                if (priceAfterDiscount < item.minimum_selling_price) {
+                                const priceAfterDiscount =
+                                  item.selling_price *
+                                  (1 - (item.discount_percent || 0) / 100);
+                                if (
+                                  priceAfterDiscount <
+                                  item.minimum_selling_price
+                                ) {
                                   return ` (Below min!)`;
                                 }
-                                return '';
+                                return "";
                               })()}
                             </Typography>
                           )}
@@ -2369,7 +3107,11 @@ export default function SalesPage() {
 
                         {/* Delete Button Column */}
                         <TableCell align="center">
-                          <IconButton size="small" color="error" onClick={() => removeLineItem(index)}>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => removeLineItem(index)}
+                          >
                             <DeleteIcon fontSize="small" />
                           </IconButton>
                         </TableCell>
@@ -2392,7 +3134,14 @@ export default function SalesPage() {
                   {calculateTotalItemDiscounts() > 0 && (
                     <TableRow sx={{ bgcolor: "error.lighter" }}>
                       <TableCell colSpan={8} align="right">
-                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                            gap: 1,
+                          }}
+                        >
                           <PercentIcon fontSize="small" color="error" />
                           <Typography fontWeight="medium" color="error.dark">
                             Item Discounts:
@@ -2420,42 +3169,67 @@ export default function SalesPage() {
                     <TableCell />
                   </TableRow>
                   {/* Coupon Discount Row - Only if coupon is applied */}
-                  {couponValidation && couponValidation.calculated_discount && couponValidation.calculated_discount > 0 && (
-                    <TableRow sx={{ bgcolor: "success.lighter" }}>
-                      <TableCell colSpan={8} align="right">
-                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
-                          <CouponIcon fontSize="small" color="success" />
+                  {couponValidation &&
+                    couponValidation.calculated_discount &&
+                    couponValidation.calculated_discount > 0 && (
+                      <TableRow sx={{ bgcolor: "success.lighter" }}>
+                        <TableCell colSpan={8} align="right">
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "flex-end",
+                              gap: 1,
+                            }}
+                          >
+                            <CouponIcon fontSize="small" color="success" />
+                            <Typography
+                              fontWeight="medium"
+                              color="success.dark"
+                            >
+                              Coupon Discount ({couponCode}):
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right">
                           <Typography fontWeight="medium" color="success.dark">
-                            Coupon Discount ({couponCode}):
+                            -{fmtLKR(couponValidation.calculated_discount)}
                           </Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="medium" color="success.dark">
-                          -{fmtLKR(couponValidation.calculated_discount)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell />
-                    </TableRow>
-                  )}
+                        </TableCell>
+                        <TableCell />
+                      </TableRow>
+                    )}
                   {/* Invoice Discount Row - Only if discount is applied */}
                   {discountValue > 0 && (
                     <TableRow sx={{ bgcolor: "warning.lighter" }}>
                       <TableCell colSpan={8} align="right">
-                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                            gap: 1,
+                          }}
+                        >
                           <PercentIcon fontSize="small" color="warning" />
                           <Typography fontWeight="medium" color="warning.dark">
-                            Invoice Discount ({discountType === "percent" ? `${discountValue}%` : "Fixed"}):
+                            Invoice Discount (
+                            {discountType === "percent"
+                              ? `${discountValue}%`
+                              : "Fixed"}
+                            ):
                           </Typography>
                         </Box>
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="warning.dark">
-                          -{(() => {
+                          -
+                          {(() => {
                             const subtotal = calculateLineItemsTotal();
-                            const discount = discountType === "percent" 
-                              ? subtotal * (discountValue / 100)
-                              : discountValue;
+                            const discount =
+                              discountType === "percent"
+                                ? subtotal * (discountValue / 100)
+                                : discountValue;
                             return fmtLKR(discount);
                           })()}
                         </Typography>
@@ -2467,7 +3241,14 @@ export default function SalesPage() {
                   {taxRate > 0 && (
                     <TableRow sx={{ bgcolor: "info.lighter" }}>
                       <TableCell colSpan={8} align="right">
-                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                            gap: 1,
+                          }}
+                        >
                           <TaxIcon fontSize="small" color="info" />
                           <Typography fontWeight="medium" color="info.dark">
                             Tax ({taxRate}%):
@@ -2476,14 +3257,19 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="info.dark">
-                          +{(() => {
+                          +
+                          {(() => {
                             const subtotal = calculateLineItemsTotal();
-                            const invoiceDiscount = discountType === "percent" 
-                              ? subtotal * (discountValue / 100)
-                              : discountValue;
-                            const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                            const couponDiscount = couponValidation?.calculated_discount || 0;
-                            const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                            const invoiceDiscount =
+                              discountType === "percent"
+                                ? subtotal * (discountValue / 100)
+                                : discountValue;
+                            const afterInvoiceDiscount =
+                              subtotal - invoiceDiscount;
+                            const couponDiscount =
+                              couponValidation?.calculated_discount || 0;
+                            const afterDiscount =
+                              afterInvoiceDiscount - couponDiscount;
                             const taxAmount = afterDiscount * (taxRate / 100);
                             return fmtLKR(taxAmount);
                           })()}
@@ -2493,29 +3279,60 @@ export default function SalesPage() {
                     </TableRow>
                   )}
                   {/* Gift Voucher Payment Row - Only if vouchers are applied */}
-                  {appliedVouchers.length > 0 && appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0) > 0 && (
-                    <TableRow sx={{ bgcolor: "secondary.lighter" }}>
-                      <TableCell colSpan={8} align="right">
-                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
-                          <ReceiptIcon fontSize="small" color="secondary" />
-                          <Typography fontWeight="medium" color="secondary.dark">
-                            Gift Voucher Payment ({appliedVouchers.length} voucher{appliedVouchers.length > 1 ? 's' : ''}):
+                  {appliedVouchers.length > 0 &&
+                    appliedVouchers.reduce(
+                      (sum, v) => sum + Number(v.amountToRedeem),
+                      0,
+                    ) > 0 && (
+                      <TableRow sx={{ bgcolor: "secondary.lighter" }}>
+                        <TableCell colSpan={8} align="right">
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "flex-end",
+                              gap: 1,
+                            }}
+                          >
+                            <ReceiptIcon fontSize="small" color="secondary" />
+                            <Typography
+                              fontWeight="medium"
+                              color="secondary.dark"
+                            >
+                              Gift Voucher Payment ({appliedVouchers.length}{" "}
+                              voucher{appliedVouchers.length > 1 ? "s" : ""}):
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography
+                            fontWeight="medium"
+                            color="secondary.dark"
+                          >
+                            -
+                            {fmtLKR(
+                              appliedVouchers.reduce(
+                                (sum, v) => sum + Number(v.amountToRedeem),
+                                0,
+                              ),
+                            )}
                           </Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="medium" color="secondary.dark">
-                          -{fmtLKR(appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0))}
-                        </Typography>
-                      </TableCell>
-                      <TableCell />
-                    </TableRow>
-                  )}
+                        </TableCell>
+                        <TableCell />
+                      </TableRow>
+                    )}
                   {/* Credit Note Payment Row - Only if applied */}
                   {creditNoteAmount > 0 && (
                     <TableRow sx={{ bgcolor: "success.lighter" }}>
                       <TableCell colSpan={8} align="right">
-                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                            gap: 1,
+                          }}
+                        >
                           <ReceiptIcon fontSize="small" color="success" />
                           <Typography fontWeight="medium" color="success.dark">
                             Credit Note Applied:
@@ -2524,54 +3341,103 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="success.dark">
-                          -{fmtLKR(Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, (() => {
-                            const subtotal = calculateLineItemsTotal();
-                            const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
-                            const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                            const couponDiscount = couponValidation?.calculated_discount || 0;
-                            const afterDiscount = afterInvoiceDiscount - couponDiscount;
-                            const taxRate = parseFloat(state.formData.tax_rate?.toString() || "0");
-                            const taxAmount = afterDiscount * (taxRate / 100);
-                            const afterTax = afterDiscount + taxAmount;
-                            const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
-                            return afterTax - totalVoucherPayment;
-                          })())))}
+                          -
+                          {fmtLKR(
+                            Math.min(
+                              creditNoteAmount,
+                              availableCreditBalance,
+                              Math.max(
+                                0,
+                                (() => {
+                                  const subtotal = calculateLineItemsTotal();
+                                  const invoiceDiscount =
+                                    discountType === "percent"
+                                      ? subtotal * (discountValue / 100)
+                                      : discountValue;
+                                  const afterInvoiceDiscount =
+                                    subtotal - invoiceDiscount;
+                                  const couponDiscount =
+                                    couponValidation?.calculated_discount || 0;
+                                  const afterDiscount =
+                                    afterInvoiceDiscount - couponDiscount;
+                                  const taxRate = parseFloat(
+                                    state.formData.tax_rate?.toString() || "0",
+                                  );
+                                  const taxAmount =
+                                    afterDiscount * (taxRate / 100);
+                                  const afterTax = afterDiscount + taxAmount;
+                                  const totalVoucherPayment =
+                                    appliedVouchers.reduce(
+                                      (sum, v) =>
+                                        sum + Number(v.amountToRedeem),
+                                      0,
+                                    );
+                                  return afterTax - totalVoucherPayment;
+                                })(),
+                              ),
+                            ),
+                          )}
                         </Typography>
                       </TableCell>
                       <TableCell />
                     </TableRow>
                   )}
                   {/* Service Charge Row - Only for card payments */}
-                  {state.formData.payment_method === "card" && selectedPaymentCard && (
+                  {state.formData.payment_method === "card" &&
+                    selectedPaymentCard && (
                       <TableRow sx={{ bgcolor: "grey.100" }}>
                         <TableCell colSpan={8} align="right">
-                          <Typography fontWeight="medium" color="text.secondary">
-                            Service Charge ({selectedPaymentCard.service_charge_percent}%):
+                          <Typography
+                            fontWeight="medium"
+                            color="text.secondary"
+                          >
+                            Service Charge (
+                            {selectedPaymentCard.service_charge_percent}%):
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Typography fontWeight="medium" color="text.secondary">
-                            +{(() => {
+                          <Typography
+                            fontWeight="medium"
+                            color="text.secondary"
+                          >
+                            +
+                            {(() => {
                               const subtotal = calculateLineItemsTotal();
                               // Invoice discount first
-                              const invoiceDiscount = discountType === "percent" 
-                                ? subtotal * (discountValue / 100)
-                                : discountValue;
-                              const afterInvoiceDiscount = subtotal - invoiceDiscount;
+                              const invoiceDiscount =
+                                discountType === "percent"
+                                  ? subtotal * (discountValue / 100)
+                                  : discountValue;
+                              const afterInvoiceDiscount =
+                                subtotal - invoiceDiscount;
                               // Then coupon
-                              const couponDiscount = couponValidation?.calculated_discount || 0;
-                              const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                              const couponDiscount =
+                                couponValidation?.calculated_discount || 0;
+                              const afterDiscount =
+                                afterInvoiceDiscount - couponDiscount;
                               // Tax
                               const taxAmount = afterDiscount * (taxRate / 100);
                               const afterTax = afterDiscount + taxAmount;
                               // Voucher
-                              const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
-                              const afterVoucher = afterTax - totalVoucherPayment;
+                              const totalVoucherPayment =
+                                appliedVouchers.reduce(
+                                  (sum, v) => sum + Number(v.amountToRedeem),
+                                  0,
+                                );
+                              const afterVoucher =
+                                afterTax - totalVoucherPayment;
                               // Credit note
-                              const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
-                              const afterCreditNote = afterVoucher - appliedCreditNote;
+                              const appliedCreditNote = Math.min(
+                                creditNoteAmount,
+                                availableCreditBalance,
+                                Math.max(0, afterVoucher),
+                              );
+                              const afterCreditNote =
+                                afterVoucher - appliedCreditNote;
                               // Service charge on remaining amount after credit note
-                              const rate = (selectedPaymentCard.service_charge_percent || 0) / 100;
+                              const rate =
+                                (selectedPaymentCard.service_charge_percent ||
+                                  0) / 100;
                               return fmtLKR(afterCreditNote * rate);
                             })()}
                           </Typography>
@@ -2582,34 +3448,57 @@ export default function SalesPage() {
                   {/* Grand Total Row */}
                   <TableRow sx={{ bgcolor: "primary.lighter" }}>
                     <TableCell colSpan={8} align="right">
-                      <Typography fontWeight="bold" color="primary.main">Grand Total (Amount to Pay):</Typography>
+                      <Typography fontWeight="bold" color="primary.main">
+                        Grand Total (Amount to Pay):
+                      </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography fontWeight="bold" color="primary.main" fontSize="1.1rem">
+                      <Typography
+                        fontWeight="bold"
+                        color="primary.main"
+                        fontSize="1.1rem"
+                      >
                         {(() => {
                           const subtotal = calculateLineItemsTotal();
                           // Invoice discount first
-                          const invoiceDiscount = discountType === "percent" 
-                            ? subtotal * (discountValue / 100)
-                            : discountValue;
-                          const afterInvoiceDiscount = subtotal - invoiceDiscount;
+                          const invoiceDiscount =
+                            discountType === "percent"
+                              ? subtotal * (discountValue / 100)
+                              : discountValue;
+                          const afterInvoiceDiscount =
+                            subtotal - invoiceDiscount;
                           // Then coupon
-                          const couponDiscount = couponValidation?.calculated_discount || 0;
-                          const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                          const couponDiscount =
+                            couponValidation?.calculated_discount || 0;
+                          const afterDiscount =
+                            afterInvoiceDiscount - couponDiscount;
                           // Tax
                           const taxAmount = afterDiscount * (taxRate / 100);
                           const afterTax = afterDiscount + taxAmount;
                           // Voucher
-                          const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                          const totalVoucherPayment = appliedVouchers.reduce(
+                            (sum, v) => sum + Number(v.amountToRedeem),
+                            0,
+                          );
                           const afterVoucher = afterTax - totalVoucherPayment;
                           // Credit Note
-                          const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
-                          const afterCreditNote = afterVoucher - appliedCreditNote;
+                          const appliedCreditNote = Math.min(
+                            creditNoteAmount,
+                            availableCreditBalance,
+                            Math.max(0, afterVoucher),
+                          );
+                          const afterCreditNote =
+                            afterVoucher - appliedCreditNote;
                           // Service charge for card payments
                           let serviceCharge = 0;
-                          if (state.formData.payment_method === "card" && selectedPaymentCard) {
-                            const chargePercent = selectedPaymentCard.service_charge_percent || 0;
-                            serviceCharge = afterCreditNote * (chargePercent / 100);
+                          if (
+                            state.formData.payment_method === "card" &&
+                            selectedPaymentCard
+                          ) {
+                            const chargePercent =
+                              selectedPaymentCard.service_charge_percent || 0;
+                            serviceCharge =
+                              afterCreditNote * (chargePercent / 100);
                           }
                           return fmtLKR(afterCreditNote + serviceCharge);
                         })()}
@@ -2633,13 +3522,15 @@ export default function SalesPage() {
                 borderColor: couponValidation ? "success.main" : "divider",
               }}
             >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+              <Box
+                sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}
+              >
                 <CouponIcon color={couponValidation ? "success" : "action"} />
                 <Typography variant="subtitle2" fontWeight="bold">
                   Apply Coupon / Discount Code
                 </Typography>
               </Box>
-              
+
               {!couponValidation ? (
                 <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
                   <TextField
@@ -2657,9 +3548,18 @@ export default function SalesPage() {
                         handleValidateCoupon();
                       }
                     }}
-                    disabled={isValidatingCoupon || !state.formData.customer_id || lineItems.length === 0}
+                    disabled={
+                      isValidatingCoupon ||
+                      !state.formData.customer_id ||
+                      lineItems.length === 0
+                    }
                     error={!!couponError}
-                    helperText={couponError || (lineItems.length === 0 ? "Add items first" : "Scan barcode or type code and press Enter/Apply")}
+                    helperText={
+                      couponError ||
+                      (lineItems.length === 0
+                        ? "Add items first"
+                        : "Scan barcode or type code and press Enter/Apply")
+                    }
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">
@@ -2677,14 +3577,29 @@ export default function SalesPage() {
                     variant="contained"
                     color="primary"
                     onClick={handleValidateCoupon}
-                    disabled={isValidatingCoupon || !couponCode.trim() || !state.formData.customer_id || lineItems.length === 0}
+                    disabled={
+                      isValidatingCoupon ||
+                      !couponCode.trim() ||
+                      !state.formData.customer_id ||
+                      lineItems.length === 0
+                    }
                     sx={{ minWidth: 100 }}
                   >
-                    {isValidatingCoupon ? <CircularProgress size={20} /> : "Apply"}
+                    {isValidatingCoupon ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      "Apply"
+                    )}
                   </Button>
                 </Box>
               ) : (
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
                   <Box>
                     <Chip
                       icon={<CouponIcon />}
@@ -2693,9 +3608,14 @@ export default function SalesPage() {
                       variant="filled"
                       sx={{ mr: 1 }}
                     />
-                    <Typography variant="body2" component="span" color="success.dark" fontWeight="medium">
-                      {couponValidation.discount_type === "PERCENT" 
-                        ? `${couponValidation.discount_value}% off` 
+                    <Typography
+                      variant="body2"
+                      component="span"
+                      color="success.dark"
+                      fontWeight="medium"
+                    >
+                      {couponValidation.discount_type === "PERCENT"
+                        ? `${couponValidation.discount_value}% off`
                         : `Rs. ${fmtLKR(couponValidation.discount_value || 0)} off`}
                       {" - Discount: Rs. "}
                       {fmtLKR(couponValidation.calculated_discount || 0)}
@@ -2721,21 +3641,33 @@ export default function SalesPage() {
               sx={{
                 p: 2,
                 mb: 2,
-                bgcolor: (discountValue > 0 || taxRate > 0) ? "warning.50" : "grey.50",
-                borderColor: (discountValue > 0 || taxRate > 0) ? "warning.main" : "divider",
+                bgcolor:
+                  discountValue > 0 || taxRate > 0 ? "warning.50" : "grey.50",
+                borderColor:
+                  discountValue > 0 || taxRate > 0 ? "warning.main" : "divider",
               }}
             >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
-                <PercentIcon color={(discountValue > 0 || taxRate > 0) ? "warning" : "action"} />
+              <Box
+                sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}
+              >
+                <PercentIcon
+                  color={
+                    discountValue > 0 || taxRate > 0 ? "warning" : "action"
+                  }
+                />
                 <Typography variant="subtitle2" fontWeight="bold">
                   Discount & Tax
                 </Typography>
               </Box>
-              
+
               <Box sx={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
                 {/* Discount Section */}
                 <Box sx={{ flex: 1, minWidth: 280 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 1 }}
+                  >
                     Invoice Discount
                   </Typography>
                   <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
@@ -2760,7 +3692,11 @@ export default function SalesPage() {
                         const val = parseFloat(e.target.value) || 0;
                         // Validate: percentage can't exceed 100, amount can't exceed subtotal
                         if (discountType === "percent" && val > 100) return;
-                        if (discountType === "amount" && val > calculateLineItemsTotal()) return;
+                        if (
+                          discountType === "amount" &&
+                          val > calculateLineItemsTotal()
+                        )
+                          return;
                         setDiscountValue(val);
                       }}
                       placeholder={discountType === "percent" ? "0%" : "0.00"}
@@ -2772,26 +3708,37 @@ export default function SalesPage() {
                           </InputAdornment>
                         ),
                       }}
-                      inputProps={{ 
-                        min: 0, 
-                        max: discountType === "percent" ? 100 : calculateLineItemsTotal(),
-                        step: discountType === "percent" ? 0.5 : 100
+                      inputProps={{
+                        min: 0,
+                        max:
+                          discountType === "percent"
+                            ? 100
+                            : calculateLineItemsTotal(),
+                        step: discountType === "percent" ? 0.5 : 100,
                       }}
                     />
                     {discountValue > 0 && (
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                        <Typography variant="body2" color="warning.dark" fontWeight="medium">
-                          = Rs. {(() => {
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                      >
+                        <Typography
+                          variant="body2"
+                          color="warning.dark"
+                          fontWeight="medium"
+                        >
+                          = Rs.{" "}
+                          {(() => {
                             const subtotal = calculateLineItemsTotal();
-                            const discount = discountType === "percent" 
-                              ? subtotal * (discountValue / 100)
-                              : discountValue;
+                            const discount =
+                              discountType === "percent"
+                                ? subtotal * (discountValue / 100)
+                                : discountValue;
                             return fmtLKR(discount);
                           })()}
                         </Typography>
-                        <IconButton 
-                          size="small" 
-                          color="error" 
+                        <IconButton
+                          size="small"
+                          color="error"
                           onClick={() => setDiscountValue(0)}
                           sx={{ p: 0.5 }}
                         >
@@ -2804,7 +3751,11 @@ export default function SalesPage() {
 
                 {/* Tax Section */}
                 <Box sx={{ flex: 1, minWidth: 200 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 1 }}
+                  >
                     Tax Rate (VAT/GST)
                   </Typography>
                   <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
@@ -2832,23 +3783,34 @@ export default function SalesPage() {
                       inputProps={{ min: 0, max: 100, step: 0.5 }}
                     />
                     {taxRate > 0 && (
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                        <Typography variant="body2" color="info.dark" fontWeight="medium">
-                          = Rs. {(() => {
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                      >
+                        <Typography
+                          variant="body2"
+                          color="info.dark"
+                          fontWeight="medium"
+                        >
+                          = Rs.{" "}
+                          {(() => {
                             const subtotal = calculateLineItemsTotal();
-                            const invoiceDiscount = discountType === "percent" 
-                              ? subtotal * (discountValue / 100)
-                              : discountValue;
-                            const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                            const couponDiscount = couponValidation?.calculated_discount || 0;
-                            const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                            const invoiceDiscount =
+                              discountType === "percent"
+                                ? subtotal * (discountValue / 100)
+                                : discountValue;
+                            const afterInvoiceDiscount =
+                              subtotal - invoiceDiscount;
+                            const couponDiscount =
+                              couponValidation?.calculated_discount || 0;
+                            const afterDiscount =
+                              afterInvoiceDiscount - couponDiscount;
                             const taxAmount = afterDiscount * (taxRate / 100);
                             return fmtLKR(taxAmount);
                           })()}
                         </Typography>
-                        <IconButton 
-                          size="small" 
-                          color="error" 
+                        <IconButton
+                          size="small"
+                          color="error"
                           onClick={() => setTaxRate(0)}
                           sx={{ p: 0.5 }}
                         >
@@ -2884,19 +3846,29 @@ export default function SalesPage() {
                 p: 2,
                 mb: 2,
                 bgcolor: appliedVouchers.length > 0 ? "info.50" : "grey.50",
-                borderColor: appliedVouchers.length > 0 ? "info.main" : "divider",
+                borderColor:
+                  appliedVouchers.length > 0 ? "info.main" : "divider",
               }}
             >
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1,
+                }}
+              >
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <ReceiptIcon color={appliedVouchers.length > 0 ? "info" : "action"} />
+                  <ReceiptIcon
+                    color={appliedVouchers.length > 0 ? "info" : "action"}
+                  />
                   <Typography variant="subtitle2" fontWeight="bold">
                     Apply Gift Vouchers
                   </Typography>
                   {appliedVouchers.length > 0 && (
-                    <Chip 
-                      label={`${appliedVouchers.length} applied`} 
-                      size="small" 
+                    <Chip
+                      label={`${appliedVouchers.length} applied`}
+                      size="small"
                       color="info"
                       sx={{ height: 20 }}
                     />
@@ -2913,9 +3885,16 @@ export default function SalesPage() {
                   </Button>
                 )}
               </Box>
-              
+
               {/* Voucher input - always visible */}
-              <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", mb: appliedVouchers.length > 0 ? 2 : 0 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  gap: 1,
+                  alignItems: "flex-start",
+                  mb: appliedVouchers.length > 0 ? 2 : 0,
+                }}
+              >
                 <TextField
                   size="small"
                   fullWidth
@@ -2933,7 +3912,12 @@ export default function SalesPage() {
                   }}
                   disabled={isValidatingVoucher || lineItems.length === 0}
                   error={!!voucherError}
-                  helperText={voucherError || (lineItems.length === 0 ? "Add items first" : "Scan voucher barcode or type code and press Enter/Apply")}
+                  helperText={
+                    voucherError ||
+                    (lineItems.length === 0
+                      ? "Add items first"
+                      : "Scan voucher barcode or type code and press Enter/Apply")
+                  }
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
@@ -2951,10 +3935,18 @@ export default function SalesPage() {
                   variant="contained"
                   color="info"
                   onClick={handleValidateVoucher}
-                  disabled={isValidatingVoucher || !voucherCode.trim() || lineItems.length === 0}
+                  disabled={
+                    isValidatingVoucher ||
+                    !voucherCode.trim() ||
+                    lineItems.length === 0
+                  }
                   sx={{ minWidth: 100 }}
                 >
-                  {isValidatingVoucher ? <CircularProgress size={20} /> : "Apply"}
+                  {isValidatingVoucher ? (
+                    <CircularProgress size={20} />
+                  ) : (
+                    "Apply"
+                  )}
                 </Button>
               </Box>
 
@@ -2972,8 +3964,17 @@ export default function SalesPage() {
                         borderColor: "info.light",
                       }}
                     >
-                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          mb: 1,
+                        }}
+                      >
+                        <Box
+                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        >
                           <Chip
                             icon={<ReceiptIcon />}
                             label={voucher.validation.barcode_no}
@@ -2981,36 +3982,68 @@ export default function SalesPage() {
                             size="small"
                           />
                           <Typography variant="caption" color="text.secondary">
-                            Full Value: Rs. {fmtLKR(voucher.validation.balance || 0)}
-                            {voucher.validation.expiry_date && (
-                              ` • Expires: ${new Date(voucher.validation.expiry_date).toLocaleDateString()}`
-                            )}
+                            Full Value: Rs.{" "}
+                            {fmtLKR(voucher.validation.balance || 0)}
+                            {voucher.validation.expiry_date &&
+                              ` • Expires: ${new Date(voucher.validation.expiry_date).toLocaleDateString()}`}
                           </Typography>
                         </Box>
                         <IconButton
                           size="small"
                           color="error"
-                          onClick={() => voucher.validation.voucher_id && handleRemoveVoucher(voucher.validation.voucher_id)}
+                          onClick={() =>
+                            voucher.validation.voucher_id &&
+                            handleRemoveVoucher(voucher.validation.voucher_id)
+                          }
                         >
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </Box>
-                      <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-                        <Typography variant="body2" color="info.dark" fontWeight="bold">
+                      <Box
+                        sx={{ display: "flex", gap: 2, alignItems: "center" }}
+                      >
+                        <Typography
+                          variant="body2"
+                          color="info.dark"
+                          fontWeight="bold"
+                        >
                           Applying: Rs. {fmtLKR(voucher.amountToRedeem)}
                         </Typography>
-                        {(voucher.validation.balance || 0) > voucher.amountToRedeem && (
+                        {(voucher.validation.balance || 0) >
+                          voucher.amountToRedeem && (
                           <Typography variant="caption" color="warning.main">
-                            (One-time use - Rs. {fmtLKR((voucher.validation.balance || 0) - voucher.amountToRedeem)} will be forfeited)
+                            (One-time use - Rs.{" "}
+                            {fmtLKR(
+                              (voucher.validation.balance || 0) -
+                                voucher.amountToRedeem,
+                            )}{" "}
+                            will be forfeited)
                           </Typography>
                         )}
                       </Box>
                     </Box>
                   ))}
                   {/* Total voucher payment */}
-                  <Box sx={{ p: 1, bgcolor: "success.lighter", borderRadius: 1, textAlign: "right" }}>
-                    <Typography variant="body2" color="success.dark" fontWeight="bold">
-                      Total Voucher Payment: Rs. {fmtLKR(appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0))}
+                  <Box
+                    sx={{
+                      p: 1,
+                      bgcolor: "success.lighter",
+                      borderRadius: 1,
+                      textAlign: "right",
+                    }}
+                  >
+                    <Typography
+                      variant="body2"
+                      color="success.dark"
+                      fontWeight="bold"
+                    >
+                      Total Voucher Payment: Rs.{" "}
+                      {fmtLKR(
+                        appliedVouchers.reduce(
+                          (sum, v) => sum + Number(v.amountToRedeem),
+                          0,
+                        ),
+                      )}
                     </Typography>
                   </Box>
                 </Box>
@@ -3019,93 +4052,147 @@ export default function SalesPage() {
           )}
 
           {/* Credit Note Payment Section */}
-          {lineItems.length > 0 && selectedCustomerId && selectedCustomerId > 0 && (
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 2,
-                mb: 2,
-                bgcolor: creditNoteAmount > 0 ? "success.50" : "grey.50",
-                borderColor: creditNoteAmount > 0 ? "success.main" : "divider",
-              }}
-            >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-                <ReceiptIcon color={creditNoteAmount > 0 ? "success" : "action"} />
-                <Typography variant="subtitle2" fontWeight="bold">
-                  Apply Credit Note Balance
+          {lineItems.length > 0 &&
+            selectedCustomerId &&
+            selectedCustomerId > 0 && (
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  mb: 2,
+                  bgcolor: creditNoteAmount > 0 ? "success.50" : "grey.50",
+                  borderColor:
+                    creditNoteAmount > 0 ? "success.main" : "divider",
+                }}
+              >
+                <Box
+                  sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}
+                >
+                  <ReceiptIcon
+                    color={creditNoteAmount > 0 ? "success" : "action"}
+                  />
+                  <Typography variant="subtitle2" fontWeight="bold">
+                    Apply Credit Note Balance
+                  </Typography>
+                  {isLoadingCreditBalance && <CircularProgress size={16} />}
+                </Box>
+
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: "block", mb: 2 }}
+                >
+                  Available Balance: Rs. {fmtLKR(availableCreditBalance)}
                 </Typography>
-                {isLoadingCreditBalance && <CircularProgress size={16} />}
-              </Box>
 
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
-                Available Balance: Rs. {fmtLKR(availableCreditBalance)}
-              </Typography>
-
-              {availableCreditBalance > 0 ? (
-                <Box>
-                  <TextField
-                    size="small"
-                    label="Credit Note Amount to Apply"
-                    type="number"
-                    fullWidth
-                    value={creditNoteAmount}
-                    onChange={(e) => {
-                      const inputValue = parseFloat(e.target.value) || 0;
-                      // Calculate remaining invoice amount
-                      const subtotal = calculateLineItemsTotal();
-                      const couponDiscount = couponValidation?.calculated_discount || 0;
-                      const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
-                      const afterDiscount = subtotal - invoiceDiscount - couponDiscount;
-                      const taxRate = parseFloat(state.formData.tax_rate?.toString() || "0");
-                      const taxAmount = afterDiscount * (taxRate / 100);
-                      const afterTax = afterDiscount + taxAmount;
-                      const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
-                      const afterVoucher = afterTax - totalVoucherPayment;
-                      
-                      // Max is minimum of: available balance or remaining invoice amount
-                      const maxAllowed = Math.min(availableCreditBalance, Math.max(0, afterVoucher));
-                      const value = Math.min(inputValue, maxAllowed);
-                      
-                      setCreditNoteAmount(Math.max(0, value));
-                    }}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
-                      inputProps: { 
-                        min: 0, 
-                        max: availableCreditBalance,
-                        step: 0.01 
-                      },
-                    }}
-                    helperText={`Max: Rs. ${fmtLKR(Math.min(
-                      availableCreditBalance,
-                      Math.max(0, (() => {
+                {availableCreditBalance > 0 ? (
+                  <Box>
+                    <TextField
+                      size="small"
+                      label="Credit Note Amount to Apply"
+                      type="number"
+                      fullWidth
+                      value={creditNoteAmount}
+                      onChange={(e) => {
+                        const inputValue = parseFloat(e.target.value) || 0;
+                        // Calculate remaining invoice amount
                         const subtotal = calculateLineItemsTotal();
-                        const couponDiscount = couponValidation?.calculated_discount || 0;
-                        const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
-                        const afterDiscount = subtotal - invoiceDiscount - couponDiscount;
-                        const taxRate = parseFloat(state.formData.tax_rate?.toString() || "0");
+                        const couponDiscount =
+                          couponValidation?.calculated_discount || 0;
+                        const invoiceDiscount =
+                          discountType === "percent"
+                            ? subtotal * (discountValue / 100)
+                            : discountValue;
+                        const afterDiscount =
+                          subtotal - invoiceDiscount - couponDiscount;
+                        const taxRate = parseFloat(
+                          state.formData.tax_rate?.toString() || "0",
+                        );
                         const taxAmount = afterDiscount * (taxRate / 100);
                         const afterTax = afterDiscount + taxAmount;
-                        const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
-                        return afterTax - totalVoucherPayment;
-                      })())
-                    ))}`}
-                  />
-                  {creditNoteAmount > 0 && (
-                    <Box sx={{ mt: 2, p: 1, bgcolor: "success.lighter", borderRadius: 1, textAlign: "right" }}>
-                      <Typography variant="body2" color="success.dark" fontWeight="bold">
-                        Credit Note Applied: Rs. {fmtLKR(creditNoteAmount)}
-                      </Typography>
-                    </Box>
-                  )}
-                </Box>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  No credit balance available for this customer
-                </Typography>
-              )}
-            </Paper>
-          )}
+                        const totalVoucherPayment = appliedVouchers.reduce(
+                          (sum, v) => sum + Number(v.amountToRedeem),
+                          0,
+                        );
+                        const afterVoucher = afterTax - totalVoucherPayment;
+
+                        // Max is minimum of: available balance or remaining invoice amount
+                        const maxAllowed = Math.min(
+                          availableCreditBalance,
+                          Math.max(0, afterVoucher),
+                        );
+                        const value = Math.min(inputValue, maxAllowed);
+
+                        setCreditNoteAmount(Math.max(0, value));
+                      }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">Rs.</InputAdornment>
+                        ),
+                        inputProps: {
+                          min: 0,
+                          max: availableCreditBalance,
+                          step: 0.01,
+                        },
+                      }}
+                      helperText={`Max: Rs. ${fmtLKR(
+                        Math.min(
+                          availableCreditBalance,
+                          Math.max(
+                            0,
+                            (() => {
+                              const subtotal = calculateLineItemsTotal();
+                              const couponDiscount =
+                                couponValidation?.calculated_discount || 0;
+                              const invoiceDiscount =
+                                discountType === "percent"
+                                  ? subtotal * (discountValue / 100)
+                                  : discountValue;
+                              const afterDiscount =
+                                subtotal - invoiceDiscount - couponDiscount;
+                              const taxRate = parseFloat(
+                                state.formData.tax_rate?.toString() || "0",
+                              );
+                              const taxAmount = afterDiscount * (taxRate / 100);
+                              const afterTax = afterDiscount + taxAmount;
+                              const totalVoucherPayment =
+                                appliedVouchers.reduce(
+                                  (sum, v) => sum + Number(v.amountToRedeem),
+                                  0,
+                                );
+                              return afterTax - totalVoucherPayment;
+                            })(),
+                          ),
+                        ),
+                      )}`}
+                    />
+                    {creditNoteAmount > 0 && (
+                      <Box
+                        sx={{
+                          mt: 2,
+                          p: 1,
+                          bgcolor: "success.lighter",
+                          borderRadius: 1,
+                          textAlign: "right",
+                        }}
+                      >
+                        <Typography
+                          variant="body2"
+                          color="success.dark"
+                          fontWeight="bold"
+                        >
+                          Credit Note Applied: Rs. {fmtLKR(creditNoteAmount)}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No credit balance available for this customer
+                  </Typography>
+                )}
+              </Paper>
+            )}
 
           {/* ── Live Total Bar ────────────────────────────────── */}
           <Paper
@@ -3122,48 +4209,123 @@ export default function SalesPage() {
               justifyContent: "space-between",
             }}
           >
-            <Box sx={{ display: "flex", gap: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+            <Box
+              sx={{
+                display: "flex",
+                gap: 2.5,
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
               <Box sx={{ textAlign: "center" }}>
-                <Typography variant="caption" color="text.secondary" display="block">Items</Typography>
-                <Typography variant="body2" fontWeight={700}>{lineItems.length}</Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  display="block"
+                >
+                  Items
+                </Typography>
+                <Typography variant="body2" fontWeight={700}>
+                  {lineItems.length}
+                </Typography>
               </Box>
               <Box sx={{ textAlign: "center" }}>
-                <Typography variant="caption" color="text.secondary" display="block">Subtotal</Typography>
-                <Typography variant="body2" fontWeight={700}>{fmtLKR(calculateLineItemsTotal())}</Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  display="block"
+                >
+                  Subtotal
+                </Typography>
+                <Typography variant="body2" fontWeight={700}>
+                  {fmtLKR(calculateLineItemsTotal())}
+                </Typography>
               </Box>
               {(discountValue > 0 || calculateTotalItemDiscounts() > 0) && (
                 <Box sx={{ textAlign: "center" }}>
-                  <Typography variant="caption" color="text.secondary" display="block">Discounts</Typography>
-                  <Typography variant="body2" fontWeight={700} color="warning.dark">
-                    -{fmtLKR(calculateTotalItemDiscounts() + (discountType === "percent" ? calculateLineItemsTotal() * (discountValue / 100) : discountValue))}
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    display="block"
+                  >
+                    Discounts
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    fontWeight={700}
+                    color="warning.dark"
+                  >
+                    -
+                    {fmtLKR(
+                      calculateTotalItemDiscounts() +
+                        (discountType === "percent"
+                          ? calculateLineItemsTotal() * (discountValue / 100)
+                          : discountValue),
+                    )}
                   </Typography>
                 </Box>
               )}
               {taxRate > 0 && (
                 <Box sx={{ textAlign: "center" }}>
-                  <Typography variant="caption" color="text.secondary" display="block">Tax ({taxRate}%)</Typography>
-                  <Typography variant="body2" fontWeight={700} color="info.dark">
-                    +{fmtLKR((() => {
-                      const sub = calculateLineItemsTotal();
-                      const disc = discountType === "percent" ? sub * (discountValue / 100) : discountValue;
-                      return (sub - calculateTotalItemDiscounts() - disc) * (taxRate / 100);
-                    })())}
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    display="block"
+                  >
+                    Tax ({taxRate}%)
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    fontWeight={700}
+                    color="info.dark"
+                  >
+                    +
+                    {fmtLKR(
+                      (() => {
+                        const sub = calculateLineItemsTotal();
+                        const disc =
+                          discountType === "percent"
+                            ? sub * (discountValue / 100)
+                            : discountValue;
+                        return (
+                          (sub - calculateTotalItemDiscounts() - disc) *
+                          (taxRate / 100)
+                        );
+                      })(),
+                    )}
                   </Typography>
                 </Box>
               )}
             </Box>
             <Box sx={{ textAlign: "right" }}>
-              <Typography variant="caption" color="text.secondary" display="block">Grand Total</Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+              >
+                Grand Total
+              </Typography>
               <Typography variant="h6" fontWeight={800} color="primary.main">
-                {fmtLKR((() => {
-                  const sub = calculateLineItemsTotal();
-                  const itemDisc = calculateTotalItemDiscounts();
-                  const invoiceDisc = discountType === "percent" ? sub * (discountValue / 100) : discountValue;
-                  const taxable = sub - itemDisc - invoiceDisc;
-                  const tax = taxable * (taxRate / 100);
-                  const voucher = appliedVouchers.reduce((s, v) => s + Number(v.amountToRedeem || 0), 0);
-                  return Math.max(0, taxable + tax - voucher - creditNoteAmount);
-                })())}
+                {fmtLKR(
+                  (() => {
+                    const sub = calculateLineItemsTotal();
+                    const itemDisc = calculateTotalItemDiscounts();
+                    const invoiceDisc =
+                      discountType === "percent"
+                        ? sub * (discountValue / 100)
+                        : discountValue;
+                    const taxable = sub - itemDisc - invoiceDisc;
+                    const tax = taxable * (taxRate / 100);
+                    const voucher = appliedVouchers.reduce(
+                      (s, v) => s + Number(v.amountToRedeem || 0),
+                      0,
+                    );
+                    return Math.max(
+                      0,
+                      taxable + tax - voucher - creditNoteAmount,
+                    );
+                  })(),
+                )}
               </Typography>
             </Box>
           </Paper>
@@ -3182,12 +4344,15 @@ export default function SalesPage() {
               select
               value={state.formData.payment_method}
               onChange={(e) => {
-                state.setFormData({ ...state.formData, payment_method: e.target.value });
+                state.setFormData({
+                  ...state.formData,
+                  payment_method: e.target.value,
+                });
                 // Reset payment details when method changes
                 setPaymentDetails({
                   cheque_number: "",
                   cheque_bank: "",
-                  cheque_date: new Date().toISOString().split('T')[0],
+                  cheque_date: new Date().toISOString().split("T")[0],
                   card_ref_number: "",
                   card_holder_name: "",
                   bank_transfer_ref: "",
@@ -3200,7 +4365,9 @@ export default function SalesPage() {
               }}
             >
               {CUSTOMER_PAYMENT_METHOD.map((option) => (
-                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
               ))}
             </TextField>
           </FormSection>
@@ -3212,14 +4379,24 @@ export default function SalesPage() {
                 label="Cheque Number"
                 size="small"
                 value={paymentDetails.cheque_number}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, cheque_number: e.target.value })}
+                onChange={(e) =>
+                  setPaymentDetails({
+                    ...paymentDetails,
+                    cheque_number: e.target.value,
+                  })
+                }
                 required
               />
               <TextField
                 label="Bank Name"
                 size="small"
                 value={paymentDetails.cheque_bank}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, cheque_bank: e.target.value })}
+                onChange={(e) =>
+                  setPaymentDetails({
+                    ...paymentDetails,
+                    cheque_bank: e.target.value,
+                  })
+                }
                 required
               />
               <TextField
@@ -3227,7 +4404,12 @@ export default function SalesPage() {
                 size="small"
                 type="date"
                 value={paymentDetails.cheque_date}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, cheque_date: e.target.value })}
+                onChange={(e) =>
+                  setPaymentDetails({
+                    ...paymentDetails,
+                    cheque_date: e.target.value,
+                  })
+                }
                 InputLabelProps={{ shrink: true }}
                 required
               />
@@ -3241,7 +4423,9 @@ export default function SalesPage() {
                 label="Select Card"
                 size="small"
                 value={selectedPaymentCardId || ""}
-                onChange={(e) => setSelectedPaymentCardId(Number(e.target.value))}
+                onChange={(e) =>
+                  setSelectedPaymentCardId(Number(e.target.value))
+                }
                 required
               >
                 <MenuItem value="" disabled>
@@ -3249,7 +4433,8 @@ export default function SalesPage() {
                 </MenuItem>
                 {paymentCards.map((card: PaymentCard) => (
                   <MenuItem key={card.id} value={card.id}>
-                    {card.card_name} ({card.card_type}) - {card.service_charge_percent}% fee
+                    {card.card_name} ({card.card_type}) -{" "}
+                    {card.service_charge_percent}% fee
                   </MenuItem>
                 ))}
               </TextField>
@@ -3257,20 +4442,38 @@ export default function SalesPage() {
                 label="Card Reference Number"
                 size="small"
                 value={paymentDetails.card_ref_number}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, card_ref_number: e.target.value })}
+                onChange={(e) =>
+                  setPaymentDetails({
+                    ...paymentDetails,
+                    card_ref_number: e.target.value,
+                  })
+                }
                 placeholder="Transaction/Approval code"
               />
               <TextField
                 label="Card Holder Name"
                 size="small"
                 value={paymentDetails.card_holder_name}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, card_holder_name: e.target.value })}
+                onChange={(e) =>
+                  setPaymentDetails({
+                    ...paymentDetails,
+                    card_holder_name: e.target.value,
+                  })
+                }
               />
               {selectedPaymentCard && (
-                <Box sx={{ gridColumn: "span 2", p: 1.5, bgcolor: "warning.lighter", borderRadius: 1 }}>
+                <Box
+                  sx={{
+                    gridColumn: "span 2",
+                    p: 1.5,
+                    bgcolor: "warning.lighter",
+                    borderRadius: 1,
+                  }}
+                >
                   <Typography variant="body2" color="warning.dark">
                     <strong>Service Charge:</strong>{" "}
-                    {selectedPaymentCard.service_charge_percent}% will be applied to the total amount
+                    {selectedPaymentCard.service_charge_percent}% will be
+                    applied to the total amount
                     {selectedPaymentCard.description && (
                       <span> - {selectedPaymentCard.description}</span>
                     )}
@@ -3286,14 +4489,24 @@ export default function SalesPage() {
                 label="Bank Name"
                 size="small"
                 value={paymentDetails.bank_name}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, bank_name: e.target.value })}
+                onChange={(e) =>
+                  setPaymentDetails({
+                    ...paymentDetails,
+                    bank_name: e.target.value,
+                  })
+                }
                 required
               />
               <TextField
                 label="Reference Number"
                 size="small"
                 value={paymentDetails.bank_transfer_ref}
-                onChange={(e) => setPaymentDetails({ ...paymentDetails, bank_transfer_ref: e.target.value })}
+                onChange={(e) =>
+                  setPaymentDetails({
+                    ...paymentDetails,
+                    bank_transfer_ref: e.target.value,
+                  })
+                }
                 placeholder="Bank transfer reference"
                 required
               />
@@ -3311,7 +4524,7 @@ export default function SalesPage() {
                     value={paymentDetails.credit_note_id || ""}
                     onChange={(e) => {
                       const selectedNote = customerCreditNotes.find(
-                        (cn: any) => cn.id === Number(e.target.value)
+                        (cn: any) => cn.id === Number(e.target.value),
                       );
                       setPaymentDetails({
                         ...paymentDetails,
@@ -3323,14 +4536,24 @@ export default function SalesPage() {
                   >
                     {customerCreditNotes.map((creditNote: any) => (
                       <MenuItem key={creditNote.id} value={creditNote.id}>
-                        {creditNote.credit_note_no} - Rs. {fmtLKR(creditNote.amount || 0)} (Balance: Rs. {fmtLKR(creditNote.balance || 0)})
+                        {creditNote.credit_note_no} - Rs.{" "}
+                        {fmtLKR(creditNote.amount || 0)} (Balance: Rs.{" "}
+                        {fmtLKR(creditNote.balance || 0)})
                       </MenuItem>
                     ))}
                   </TextField>
                   {paymentDetails.credit_note_id > 0 && (
-                    <Box sx={{ p: 2, bgcolor: "success.lighter", borderRadius: 1, mt: 1 }}>
+                    <Box
+                      sx={{
+                        p: 2,
+                        bgcolor: "success.lighter",
+                        borderRadius: 1,
+                        mt: 1,
+                      }}
+                    >
                       <Typography variant="body2" color="success.dark">
-                        Available Credit: Rs. {fmtLKR(paymentDetails.credit_note_amount)}
+                        Available Credit: Rs.{" "}
+                        {fmtLKR(paymentDetails.credit_note_amount)}
                       </Typography>
                     </Box>
                   )}
@@ -3338,7 +4561,8 @@ export default function SalesPage() {
               ) : (
                 <Box sx={{ p: 2, bgcolor: "warning.lighter", borderRadius: 1 }}>
                   <Typography variant="body2" color="warning.dark">
-                    No credit notes available for this customer. Please select a different payment method.
+                    No credit notes available for this customer. Please select a
+                    different payment method.
                   </Typography>
                 </Box>
               )}
@@ -3346,24 +4570,35 @@ export default function SalesPage() {
           )}
 
           {/* Order Summary - Show final calculation */}
-          <Paper 
-            variant="outlined" 
-            sx={{ 
-              p: 3, 
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 3,
               mt: 3,
               mb: 2,
               bgcolor: "primary.50",
               borderColor: "primary.main",
-              borderWidth: 2
+              borderWidth: 2,
             }}
           >
-            <Typography variant="h6" fontWeight="bold" color="primary.main" sx={{ mb: 2 }}>
+            <Typography
+              variant="h6"
+              fontWeight="bold"
+              color="primary.main"
+              sx={{ mb: 2 }}
+            >
               Order Summary
             </Typography>
-            
+
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
               {/* Subtotal */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
                 <Typography variant="body1" color="text.secondary">
                   Subtotal:
                 </Typography>
@@ -3374,14 +4609,32 @@ export default function SalesPage() {
 
               {/* Invoice Discount */}
               {discountValue > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
                   <Typography variant="body1" color="text.secondary">
-                    Discount {discountType === "percent" ? `(${discountValue}%)` : "(Fixed)"}:
+                    Discount{" "}
+                    {discountType === "percent"
+                      ? `(${discountValue}%)`
+                      : "(Fixed)"}
+                    :
                   </Typography>
-                  <Typography variant="body1" fontWeight="medium" color="error.main">
-                    - Rs. {(() => {
+                  <Typography
+                    variant="body1"
+                    fontWeight="medium"
+                    color="error.main"
+                  >
+                    - Rs.{" "}
+                    {(() => {
                       const subtotal = calculateLineItemsTotal();
-                      const discount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                      const discount =
+                        discountType === "percent"
+                          ? subtotal * (discountValue / 100)
+                          : discountValue;
                       return fmtLKR(discount);
                     })()}
                   </Typography>
@@ -3389,30 +4642,57 @@ export default function SalesPage() {
               )}
 
               {/* Coupon Discount */}
-              {couponValidation && (couponValidation.calculated_discount ?? 0) > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <Typography variant="body1" color="text.secondary">
-                    Coupon (ID: {couponValidation.coupon_id}):
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium" color="error.main">
-                    - Rs. {fmtLKR(couponValidation.calculated_discount ?? 0)}
-                  </Typography>
-                </Box>
-              )}
+              {couponValidation &&
+                (couponValidation.calculated_discount ?? 0) > 0 && (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Typography variant="body1" color="text.secondary">
+                      Coupon (ID: {couponValidation.coupon_id}):
+                    </Typography>
+                    <Typography
+                      variant="body1"
+                      fontWeight="medium"
+                      color="error.main"
+                    >
+                      - Rs. {fmtLKR(couponValidation.calculated_discount ?? 0)}
+                    </Typography>
+                  </Box>
+                )}
 
               {/* Tax */}
               {taxRate > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
                   <Typography variant="body1" color="text.secondary">
                     Tax ({taxRate}%):
                   </Typography>
-                  <Typography variant="body1" fontWeight="medium" color="info.main">
-                    + Rs. {(() => {
+                  <Typography
+                    variant="body1"
+                    fontWeight="medium"
+                    color="info.main"
+                  >
+                    + Rs.{" "}
+                    {(() => {
                       const subtotal = calculateLineItemsTotal();
-                      const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                      const invoiceDiscount =
+                        discountType === "percent"
+                          ? subtotal * (discountValue / 100)
+                          : discountValue;
                       const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                      const couponDiscount = couponValidation?.calculated_discount || 0;
-                      const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                      const couponDiscount =
+                        couponValidation?.calculated_discount || 0;
+                      const afterDiscount =
+                        afterInvoiceDiscount - couponDiscount;
                       const taxAmount = afterDiscount * (taxRate / 100);
                       return fmtLKR(taxAmount);
                     })()}
@@ -3421,89 +4701,191 @@ export default function SalesPage() {
               )}
 
               {/* Gift Voucher */}
-              {appliedVouchers.length > 0 && appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0) > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <Typography variant="body1" color="text.secondary">
-                    Gift Voucher ({appliedVouchers.length}):
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium" color="secondary.main">
-                    - Rs. {fmtLKR(appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0))}
-                  </Typography>
-                </Box>
-              )}
+              {appliedVouchers.length > 0 &&
+                appliedVouchers.reduce(
+                  (sum, v) => sum + Number(v.amountToRedeem),
+                  0,
+                ) > 0 && (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Typography variant="body1" color="text.secondary">
+                      Gift Voucher ({appliedVouchers.length}):
+                    </Typography>
+                    <Typography
+                      variant="body1"
+                      fontWeight="medium"
+                      color="secondary.main"
+                    >
+                      - Rs.{" "}
+                      {fmtLKR(
+                        appliedVouchers.reduce(
+                          (sum, v) => sum + Number(v.amountToRedeem),
+                          0,
+                        ),
+                      )}
+                    </Typography>
+                  </Box>
+                )}
 
               {/* Credit Note */}
               {creditNoteAmount > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
                   <Typography variant="body1" color="text.secondary">
                     Credit Note Applied:
                   </Typography>
-                  <Typography variant="body1" fontWeight="medium" color="success.main">
-                    - Rs. {fmtLKR(Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, (() => {
-                      const subtotal = calculateLineItemsTotal();
-                      const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
-                      const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                      const couponDiscount = couponValidation?.calculated_discount || 0;
-                      const afterDiscount = afterInvoiceDiscount - couponDiscount;
-                      const taxAmount = afterDiscount * (taxRate / 100);
-                      const afterTax = afterDiscount + taxAmount;
-                      const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
-                      return afterTax - totalVoucherPayment;
-                    })())))}
+                  <Typography
+                    variant="body1"
+                    fontWeight="medium"
+                    color="success.main"
+                  >
+                    - Rs.{" "}
+                    {fmtLKR(
+                      Math.min(
+                        creditNoteAmount,
+                        availableCreditBalance,
+                        Math.max(
+                          0,
+                          (() => {
+                            const subtotal = calculateLineItemsTotal();
+                            const invoiceDiscount =
+                              discountType === "percent"
+                                ? subtotal * (discountValue / 100)
+                                : discountValue;
+                            const afterInvoiceDiscount =
+                              subtotal - invoiceDiscount;
+                            const couponDiscount =
+                              couponValidation?.calculated_discount || 0;
+                            const afterDiscount =
+                              afterInvoiceDiscount - couponDiscount;
+                            const taxAmount = afterDiscount * (taxRate / 100);
+                            const afterTax = afterDiscount + taxAmount;
+                            const totalVoucherPayment = appliedVouchers.reduce(
+                              (sum, v) => sum + Number(v.amountToRedeem),
+                              0,
+                            );
+                            return afterTax - totalVoucherPayment;
+                          })(),
+                        ),
+                      ),
+                    )}
                   </Typography>
                 </Box>
               )}
 
               {/* Service Charge - Only for card payments */}
-              {state.formData.payment_method === "card" && selectedPaymentCard && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <Typography variant="body1" color="text.secondary">
-                    Service Charge ({selectedPaymentCard.service_charge_percent}%):
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium" color="warning.main">
-                    + Rs. {(() => {
-                      const subtotal = calculateLineItemsTotal();
-                      const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
-                      const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                      const couponDiscount = couponValidation?.calculated_discount || 0;
-                      const afterDiscount = afterInvoiceDiscount - couponDiscount;
-                      const taxAmount = afterDiscount * (taxRate / 100);
-                      const afterTax = afterDiscount + taxAmount;
-                      const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
-                      const afterVoucher = afterTax - totalVoucherPayment;
-                      const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
-                      const afterCreditNote = afterVoucher - appliedCreditNote;
-                      const serviceCharge = afterCreditNote * ((selectedPaymentCard.service_charge_percent || 0) / 100);
-                      return fmtLKR(serviceCharge);
-                    })()}
-                  </Typography>
-                </Box>
-              )}
+              {state.formData.payment_method === "card" &&
+                selectedPaymentCard && (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Typography variant="body1" color="text.secondary">
+                      Service Charge (
+                      {selectedPaymentCard.service_charge_percent}%):
+                    </Typography>
+                    <Typography
+                      variant="body1"
+                      fontWeight="medium"
+                      color="warning.main"
+                    >
+                      + Rs.{" "}
+                      {(() => {
+                        const subtotal = calculateLineItemsTotal();
+                        const invoiceDiscount =
+                          discountType === "percent"
+                            ? subtotal * (discountValue / 100)
+                            : discountValue;
+                        const afterInvoiceDiscount = subtotal - invoiceDiscount;
+                        const couponDiscount =
+                          couponValidation?.calculated_discount || 0;
+                        const afterDiscount =
+                          afterInvoiceDiscount - couponDiscount;
+                        const taxAmount = afterDiscount * (taxRate / 100);
+                        const afterTax = afterDiscount + taxAmount;
+                        const totalVoucherPayment = appliedVouchers.reduce(
+                          (sum, v) => sum + Number(v.amountToRedeem),
+                          0,
+                        );
+                        const afterVoucher = afterTax - totalVoucherPayment;
+                        const appliedCreditNote = Math.min(
+                          creditNoteAmount,
+                          availableCreditBalance,
+                          Math.max(0, afterVoucher),
+                        );
+                        const afterCreditNote =
+                          afterVoucher - appliedCreditNote;
+                        const serviceCharge =
+                          afterCreditNote *
+                          ((selectedPaymentCard.service_charge_percent || 0) /
+                            100);
+                        return fmtLKR(serviceCharge);
+                      })()}
+                    </Typography>
+                  </Box>
+                )}
 
               {/* Divider */}
               <Box sx={{ borderTop: 2, borderColor: "primary.main", my: 1 }} />
 
               {/* Grand Total */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
                 <Typography variant="h5" fontWeight="bold" color="primary.main">
                   Total Amount to Pay:
                 </Typography>
                 <Typography variant="h4" fontWeight="bold" color="primary.main">
-                  Rs. {(() => {
+                  Rs.{" "}
+                  {(() => {
                     const subtotal = calculateLineItemsTotal();
-                    const invoiceDiscount = discountType === "percent" ? subtotal * (discountValue / 100) : discountValue;
+                    const invoiceDiscount =
+                      discountType === "percent"
+                        ? subtotal * (discountValue / 100)
+                        : discountValue;
                     const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                    const couponDiscount = couponValidation?.calculated_discount || 0;
+                    const couponDiscount =
+                      couponValidation?.calculated_discount || 0;
                     const afterDiscount = afterInvoiceDiscount - couponDiscount;
                     const taxAmount = afterDiscount * (taxRate / 100);
                     const afterTax = afterDiscount + taxAmount;
-                    const totalVoucherPayment = appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0);
+                    const totalVoucherPayment = appliedVouchers.reduce(
+                      (sum, v) => sum + Number(v.amountToRedeem),
+                      0,
+                    );
                     const afterVoucher = afterTax - totalVoucherPayment;
-                    const appliedCreditNote = Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher));
+                    const appliedCreditNote = Math.min(
+                      creditNoteAmount,
+                      availableCreditBalance,
+                      Math.max(0, afterVoucher),
+                    );
                     const afterCreditNote = afterVoucher - appliedCreditNote;
                     let serviceCharge = 0;
-                    if (state.formData.payment_method === "card" && selectedPaymentCard) {
-                      serviceCharge = afterCreditNote * ((selectedPaymentCard.service_charge_percent || 0) / 100);
+                    if (
+                      state.formData.payment_method === "card" &&
+                      selectedPaymentCard
+                    ) {
+                      serviceCharge =
+                        afterCreditNote *
+                        ((selectedPaymentCard.service_charge_percent || 0) /
+                          100);
                     }
                     const grandTotal = afterCreditNote + serviceCharge;
                     return fmtLKR(grandTotal);
@@ -3530,11 +4912,21 @@ export default function SalesPage() {
                 createMutation.isPending ||
                 updateMutation.isPending ||
                 lineItems.length === 0 ||
-                lineItems.some(item => item.selling_price < item.minimum_selling_price)
+                lineItems.some(
+                  (item) => item.selling_price < item.minimum_selling_price,
+                )
               }
-              startIcon={(createMutation.isPending || updateMutation.isPending) ? <CircularProgress size={20} /> : null}
+              startIcon={
+                createMutation.isPending || updateMutation.isPending ? (
+                  <CircularProgress size={20} />
+                ) : null
+              }
             >
-              {(createMutation.isPending || updateMutation.isPending) ? "Saving..." : state.isEditing ? "Update Order" : "Save Order"}
+              {createMutation.isPending || updateMutation.isPending
+                ? "Saving..."
+                : state.isEditing
+                  ? "Update Order"
+                  : "Save Order"}
             </Button>
           </Box>
         </>
@@ -3544,12 +4936,34 @@ export default function SalesPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Sales Orders" onRefresh={() => {
-        queryClient.invalidateQueries({ queryKey: ["sales"] });
-        queryClient.invalidateQueries({ queryKey: ["customers"] });
-        queryClient.invalidateQueries({ queryKey: ["payment-cards-active"] });
-      }}>
-        <Box sx={{ flex: 1, display: "flex", flexDirection: { xs: "column", md: "row" }, overflow: "hidden" }}>
+      <MasterDetailLayout
+        title="Sales Orders"
+        headerActions={
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            disabled={filteredInvoices.length === 0}
+            sx={{ mr: 1 }}
+          >
+            Export CSV
+          </Button>
+        }
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["sales"] });
+          queryClient.invalidateQueries({ queryKey: ["customers"] });
+          queryClient.invalidateQueries({ queryKey: ["payment-cards-active"] });
+        }}
+      >
+        <Box
+          sx={{
+            flex: 1,
+            display: "flex",
+            flexDirection: { xs: "column", md: "row" },
+            overflow: "hidden",
+          }}
+        >
           {/* Master List */}
           <SearchableList
             searchValue={state.searchQuery}
@@ -3561,48 +4975,90 @@ export default function SalesPage() {
             isLoading={isLoading}
             emptyMessage="No sales orders found"
             listHeader={
-              <SalesFilterPanel
-                statusOptions={INVOICE_STATUS_OPTIONS}
-                statusValue={filterStatus}
-                onStatusChange={setFilterStatus}
-                branches={branches}
-                branchValue={filterBranch}
-                onBranchChange={setFilterBranch}
-              />
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 1,
+                  padding: 1.5,
+                  paddingBottom: 0,
+                }}
+              >
+                <SalesFilterPanel
+                  statusOptions={INVOICE_STATUS_OPTIONS}
+                  statusValue={filterStatus}
+                  onStatusChange={setFilterStatus}
+                  branches={branches}
+                  branchValue={filterBranch}
+                  onBranchChange={setFilterBranch}
+                />
+              </Box>
             }
           >
             {filteredInvoices.map((invoice) => {
               const isSelected = state.selectedItem?.id === invoice.id;
-              const customer = customers?.find((c) => c.id === invoice.customer_id);
-              const customerName = customer?.customer_name || "Unknown Customer";
+              const customer = customers?.find(
+                (c) => c.id === invoice.customer_id,
+              );
+              const customerName =
+                customer?.customer_name || "Unknown Customer";
               return (
                 <SelectableListItem
                   key={invoice.id}
                   isSelected={isSelected}
                   onClick={() => handleSelectInvoice(invoice)}
                   primaryText={
-                    <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        width: "100%",
+                        gap: 0.5,
+                      }}
+                    >
                       {/* Invoice No */}
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
                         <span>{invoice.invoice_no}</span>
                         {isSelected && (
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                          <Typography
+                            component="span"
+                            variant="caption"
+                            sx={{ color: "inherit", opacity: 0.7 }}
+                          >
                             (Invoice No)
                           </Typography>
                         )}
                       </Box>
                       {/* Total */}
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
                         <Typography
                           component="span"
                           variant="caption"
                           fontWeight={600}
-                          sx={{ color: isSelected ? "common.white" : "text.primary" }}
+                          sx={{
+                            color: isSelected ? "common.white" : "text.primary",
+                          }}
                         >
                           Rs. {fmtLKR(calculateTotal(invoice))}
                         </Typography>
                         {isSelected && (
-                          <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                          <Typography
+                            component="span"
+                            variant="caption"
+                            sx={{ color: "inherit", opacity: 0.7 }}
+                          >
                             (Total)
                           </Typography>
                         )}
@@ -3610,32 +5066,76 @@ export default function SalesPage() {
                       {/* Date & Customer Name - only when selected */}
                       {isSelected && (
                         <>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                            }}
+                          >
                             <Typography component="span" variant="caption">
-                              {format(new Date(invoice.created_date), "MMM dd, yyyy")}
+                              {format(
+                                new Date(invoice.created_date),
+                                "MMM dd, yyyy",
+                              )}
                             </Typography>
-                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{ color: "inherit", opacity: 0.7 }}
+                            >
                               (Date)
                             </Typography>
                           </Box>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                            }}
+                          >
                             <Typography component="span" variant="caption">
                               {customerName}
                             </Typography>
-                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{ color: "inherit", opacity: 0.7 }}
+                            >
                               (Customer)
                             </Typography>
                           </Box>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <Typography component="span" variant="caption" sx={{ textTransform: "capitalize" }}>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                            }}
+                          >
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{ textTransform: "capitalize" }}
+                            >
                               {invoice.payment_method?.replace(/_/g, " ")}
                             </Typography>
-                            <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{ color: "inherit", opacity: 0.7 }}
+                            >
                               (Payment)
                             </Typography>
                           </Box>
                           {/* Status Chips - shown below all fields when selected */}
-                          <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              gap: 0.5,
+                              mt: 0.5,
+                              flexWrap: "wrap",
+                            }}
+                          >
                             <Chip
                               label={invoice.status ? "Active" : "Inactive"}
                               size="small"
@@ -3643,7 +5143,9 @@ export default function SalesPage() {
                               sx={{ height: 18, fontSize: "0.65rem" }}
                             />
                             <TStatusChip
-                              status={invoice.approval_status || "pending_approval"}
+                              status={
+                                invoice.approval_status || "pending_approval"
+                              }
                               statusMap="invoice"
                               size="small"
                               sx={{ height: 18, fontSize: "0.65rem" }}
@@ -3653,7 +5155,11 @@ export default function SalesPage() {
                       )}
                     </Box>
                   }
-                  secondaryText={!isSelected ? `${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${customerName}` : undefined}
+                  secondaryText={
+                    !isSelected
+                      ? `${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${customerName}`
+                      : undefined
+                  }
                   isFavorite={state.favorites.includes(invoice.id)}
                   onToggleFavorite={() => state.toggleFavorite(invoice.id)}
                 />
@@ -3662,10 +5168,20 @@ export default function SalesPage() {
           </SearchableList>
 
           {/* Detail Panel */}
-          <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <Box
+            sx={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
             <DetailPanelHeader
               icon={<ReceiptIcon color="primary" />}
-              breadcrumbs={[{ label: "Sales", href: "/sales" }, { label: "Sales Orders" }]}
+              breadcrumbs={[
+                { label: "Sales", href: "/sales" },
+                { label: "Sales Orders" },
+              ]}
               title={
                 state.isCreating
                   ? "Create New Sales Order"
@@ -3676,16 +5192,27 @@ export default function SalesPage() {
               chips={
                 state.selectedItem && !state.isCreating
                   ? [
-                    { label: state.selectedItem.status ? "Active" : "Inactive", color: state.selectedItem.status ? "success" : "default" },
-                  ]
+                      {
+                        label: state.selectedItem.status
+                          ? "Active"
+                          : "Inactive",
+                        color: state.selectedItem.status
+                          ? "success"
+                          : "default",
+                      },
+                    ]
                   : undefined
               }
             />
 
             <ActionToolbar
               canCreate={canCreate}
-              canDelete={canDelete && state.selectedItem?.approval_status !== "completed"}
-              canUpdate={canUpdate && state.selectedItem?.approval_status !== "completed"}
+              canDelete={
+                canDelete && state.selectedItem?.approval_status !== "completed"
+              }
+              canUpdate={
+                canUpdate && state.selectedItem?.approval_status !== "completed"
+              }
               isEditing={state.isEditing}
               isCreating={state.isCreating}
               hasSelection={!!state.selectedItem}
@@ -3736,8 +5263,16 @@ export default function SalesPage() {
       </MasterDetailLayout>
       <TConfirmDialog {...deleteDialog.dialogProps} />
       <TConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
-      <TConfirmDialog {...approveDialog.dialogProps} confirmText="Approve" confirmColor="success" />
-      <TConfirmDialog {...cancelDialog.dialogProps} confirmText="Cancel Order" confirmColor="error" />
+      <TConfirmDialog
+        {...approveDialog.dialogProps}
+        confirmText="Approve"
+        confirmColor="success"
+      />
+      <TConfirmDialog
+        {...cancelDialog.dialogProps}
+        confirmText="Cancel Order"
+        confirmColor="error"
+      />
       <TConfirmDialog {...creditWarningDialog.dialogProps} />
 
       {/* Invoice Details Dialog */}
@@ -3751,7 +5286,12 @@ export default function SalesPage() {
       />
 
       {/* Remarks Modal */}
-      <Dialog open={remarksDialogOpen} onClose={() => setRemarksDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={remarksDialogOpen}
+        onClose={() => setRemarksDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Remarks</DialogTitle>
         <DialogContent>
           <TextField
@@ -3766,7 +5306,10 @@ export default function SalesPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
-          <Button onClick={() => setRemarksDialogOpen(false)} variant="outlined">
+          <Button
+            onClick={() => setRemarksDialogOpen(false)}
+            variant="outlined"
+          >
             Cancel
           </Button>
         </DialogActions>
@@ -3794,7 +5337,10 @@ export default function SalesPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setItemRemarkModalOpen(false)} variant="outlined">
+          <Button
+            onClick={() => setItemRemarkModalOpen(false)}
+            variant="outlined"
+          >
             Close
           </Button>
         </DialogActions>
