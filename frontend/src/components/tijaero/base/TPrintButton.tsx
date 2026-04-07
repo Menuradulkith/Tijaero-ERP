@@ -1,9 +1,9 @@
 /**
  * TPrintButton - Reusable print/report button for documents
- * 
+ *
  * Provides a standardized print button with tooltip and disabled state handling.
  * Supports various document types across the ERP system.
- * 
+ *
  * @example
  * ```tsx
  * // Basic usage
@@ -11,7 +11,7 @@
  *   documentType="purchase-order"
  *   documentId={poId}
  * />
- * 
+ *
  * // With status check
  * <TPrintButton
  *   documentType="grn"
@@ -63,7 +63,7 @@ export interface TPrintButtonProps {
 
 /**
  * Get the report URL for a document
- * 
+ *
  * @param documentType - Type of document
  * @param documentId - Document ID
  * @param baseUrl - Optional base URL override
@@ -72,12 +72,31 @@ export interface TPrintButtonProps {
 export function getReportUrl(
   documentType: TPrintDocumentType,
   documentId: number,
-  baseUrl?: string
+  baseUrl?: string,
 ): string {
-  const resolvedBaseUrl = baseUrl || (
-    import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1"
-  ).replace(/\/api\/v1$/, "");
-  return `${resolvedBaseUrl}/api/v1/reporting/documents/${documentType}/${documentId}`;
+  const resolvedBaseUrl =
+    baseUrl ||
+    (import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1").replace(
+      /\/api\/v1$/,
+      "",
+    );
+
+  let url = `${resolvedBaseUrl}/api/v1/reporting/documents/${documentType}/${documentId}`;
+
+  try {
+    const raw = localStorage.getItem("auth-storage");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const token = parsed?.state?.token;
+      if (token) {
+        url += `?token=${token}`;
+      }
+    }
+  } catch (e) {
+    // Ignore JSON parse errors
+  }
+
+  return url;
 }
 
 /** Statuses that are always non-printable (pending approval or draft) */
@@ -99,7 +118,7 @@ export const PENDING_APPROVAL_STATUSES = [
  */
 export function canPrintDocument(
   status?: string,
-  additionalBlockedStatuses: string[] = []
+  additionalBlockedStatuses: string[] = [],
 ): boolean {
   if (!status) return false;
   const blocked = [...PENDING_APPROVAL_STATUSES, ...additionalBlockedStatuses];
@@ -115,12 +134,14 @@ export function canPrintDocument(
  */
 export function getPrintDisabledReason(
   status?: string,
-  additionalBlockedStatuses: string[] = []
+  additionalBlockedStatuses: string[] = [],
 ): string | undefined {
   if (!canPrintDocument(status, additionalBlockedStatuses)) {
     const s = (status || "").toLowerCase();
-    if (s.includes("pending_approval")) return "Cannot print: document is pending approval";
-    if (s.includes("pending_bank")) return "Cannot print: bank transfer is pending verification";
+    if (s.includes("pending_approval"))
+      return "Cannot print: document is pending approval";
+    if (s.includes("pending_bank"))
+      return "Cannot print: bank transfer is pending verification";
     if (s === "pending") return "Cannot print: document is pending";
     if (s === "draft") return "Cannot print draft documents";
     return `Cannot print documents in '${status}' status`;

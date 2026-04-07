@@ -273,6 +273,349 @@
 			"command": "cat frontend/src/hooks/useDashboardMetrics.ts",
 			"isBackground": false,
 			"group": "test"
+		},
+		{
+			"label": "Alembic Upgrade Head",
+			"type": "shell",
+			"command": "cd backend && alembic upgrade head",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Alembic Upgrade Head Path",
+			"type": "shell",
+			"command": "cd backend && /opt/miniconda3/bin/python -m alembic upgrade head",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Alembic Bin Upgrade Head",
+			"type": "shell",
+			"command": "cd backend && /opt/miniconda3/bin/alembic upgrade head",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Read start.sh",
+			"type": "shell",
+			"command": "cat backend/start.sh",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Alembic Module Upgrade",
+			"type": "shell",
+			"command": "cd backend && /opt/miniconda3/bin/python3.12 -c \"import alembic.config; alembic.config.main()\" upgrade head",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Find and run alembic",
+			"type": "shell",
+			"command": "which alembic && alembic upgrade head",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Read migration script",
+			"type": "shell",
+			"command": "cat backend/alembic/versions/add_company_assets_return_fields.py",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Conda activate && alembic upgrade",
+			"type": "shell",
+			"command": "source /opt/miniconda3/bin/activate && cd backend && alembic upgrade head",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "List Scripts",
+			"type": "shell",
+			"command": "ls backend/scripts",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Conda Run Alembic",
+			"type": "shell",
+			"command": "/opt/miniconda3/bin/conda run alembic upgrade head",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Poetry Run Alembic",
+			"type": "shell",
+			"command": "cd backend && poetry run alembic upgrade head",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Run Alembic With ZSHRC",
+			"type": "shell",
+			"command": "source ~/.zshrc && cd backend && alembic upgrade head",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Run Migration SQL",
+			"type": "shell",
+			"command": "cd backend && /opt/miniconda3/bin/python3.12 -c \"\nimport sys; sys.path.append('.')\nfrom app.db.session import engine\nwith engine.connect() as conn:\n    print('Executing alter table')\n    try:\n        conn.execute('ALTER TABLE company_assets ADD COLUMN return_reason VARCHAR(200)')\n    except Exception as e: print(e)\n    try:\n        conn.execute('ALTER TABLE company_assets ADD COLUMN sale_return_id INTEGER')\n    except Exception as e: print(e)\n    try:\n        conn.execute('ALTER TABLE company_assets ADD COLUMN source VARCHAR(50) DEFAULT \\'grn\\' NOT NULL')\n    except Exception as e: print(e)\nprint('Done!')\n\"",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Run Migration SQL 2",
+			"type": "shell",
+			"command": "cd backend && /opt/miniconda3/bin/python3.12 -c \"\nimport sys; sys.path.append('.')\nfrom sqlalchemy import text\nfrom app.db.session import engine\nwith engine.connect() as conn:\n    print('Executing alter table')\n    try:\n        conn.execute(text('ALTER TABLE company_assets ADD COLUMN return_reason VARCHAR(200)'))\n        conn.commit()\n    except Exception as e: print(e)\n    try:\n        conn.execute(text('ALTER TABLE company_assets ADD COLUMN sale_return_id INTEGER'))\n        conn.commit()\n    except Exception as e: print(e)\n    try:\n        conn.execute(text('ALTER TABLE company_assets ADD COLUMN source VARCHAR(50) DEFAULT \\'grn\\' NOT NULL'))\n        conn.commit()\n    except Exception as e: print(e)\nprint('Done!')\n\"",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Verify Migration",
+			"type": "shell",
+			"command": "cd backend && /opt/miniconda3/bin/python3.12 -c \"import sys; sys.path.append('.'); from sqlalchemy import text; from app.db.session import engine; print(list(engine.connect().execute(text('SELECT * FROM company_assets LIMIT 1')).keys()))\"",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Read reporting api.py",
+			"type": "shell",
+			"command": "cat backend/app/reporting/api.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read frontend reporting api",
+			"type": "shell",
+			"command": "cat frontend/src/modules/reporting/api.ts",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Find reporting post routes",
+			"type": "shell",
+			"command": "grep -rn \"@router.post(\\\"/sales\\\")\" backend/app/ || grep -rn \"@router.post(\\\"/finance\\\")\" backend/app/",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read backend main",
+			"type": "shell",
+			"command": "cat backend/app/main.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read router",
+			"type": "shell",
+			"command": "cat backend/app/api/v1/router.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Modules Reporting",
+			"type": "shell",
+			"command": "cat backend/app/modules/reporting/api.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read output",
+			"type": "shell",
+			"command": "cat \"/Users/virajsamarasinghe/Library/Application Support/Code/User/workspaceStorage/6135dc1873b4fb6527decd225043aabd/GitHub.copilot-chat/chat-session-resources/f0e22457-7132-4f81-8b3e-640b73064844/call_MHx2OWFyZ25EOHZyYVowMDU0dnI__vscode-1775406801482/content.txt\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check Country relationship",
+			"type": "shell",
+			"command": "grep -n \"Country\" backend/app/modules/customers/models.py || true",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Find Country model",
+			"type": "shell",
+			"command": "grep -r \"class Country\" backend/app/ || true",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read core models file",
+			"type": "shell",
+			"command": "cat backend/app/models.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read core models init",
+			"type": "shell",
+			"command": "cat backend/app/models/__init__.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Test Reports Script",
+			"type": "shell",
+			"command": "cat << 'EOF' > test_reports.py\nimport sys\nsys.path.append('.')\nimport app.models # Register all models\nfrom app.db.session import SessionLocal\nfrom app.modules.reporting.service import ReportingService\nfrom app.modules.reporting import schemas\nimport datetime\n\ndb = SessionLocal()\nservice = ReportingService(db)\n\n# 1. Sales Report\nreq = schemas.SalesReportRequest(start_date=datetime.date.today(), end_date=datetime.date.today())\ntry:\n    print('Sales report:', service.get_sales_report(req).total_sales)\nexcept Exception as e:\n    import traceback; traceback.print_exc()\n\n# 2. Finance Report \nreq2 = schemas.FinanceReportRequest(start_date=datetime.date.today(), end_date=datetime.date.today(), report_type='summary')\ntry:\n    print('Finance report:', service.get_finance_report(req2).total_income)\nexcept Exception as e:\n    import traceback; traceback.print_exc()\n\n# 3. Inventory Report\nreq3 = schemas.InventoryReportRequest()\ntry:\n    print('Inventory report:', service.get_inventory_report(req3).total_items)\nexcept Exception as e:\n    import traceback; traceback.print_exc()\n\n# 4. HR Report\nreq4 = schemas.HRReportRequest()\ntry:\n    print('HR report:', service.get_hr_report(req4).total_employees)\nexcept Exception as e:\n    import traceback; traceback.print_exc()\n\n# 5. Warehouse Report\nreq5 = schemas.WarehouseReportRequest()\ntry:\n    print('Warehouse report:', service.get_warehouse_report(req5).total_locations)\nexcept Exception as e:\n    import traceback; traceback.print_exc()\n\n# 6. Support Report\nreq6 = schemas.SupportReportRequest()\ntry:\n    print('Support report:', service.get_support_report(req6).total_tickets)\nexcept Exception as e:\n    import traceback; traceback.print_exc()\n\n# 7. Dashboard Metrics\ntry:\n    print('Dashboard metrics:', service.get_dashboard_metrics().sales)\nexcept Exception as e:\n    import traceback; traceback.print_exc()\n\nEOF\ncd backend && /opt/miniconda3/bin/python3.12 ../test_reports.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read flexible auth",
+			"type": "shell",
+			"command": "grep -A 20 \"def get_current_user_flexible\" backend/app/auth/dependencies.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read TPrintButton",
+			"type": "shell",
+			"command": "cat frontend/src/components/tijaero/base/TPrintButton.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read SalesReport",
+			"type": "shell",
+			"command": "cat frontend/src/modules/reporting/pages/SalesReportPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "grep frontend routing",
+			"type": "shell",
+			"command": "grep -rn \"reporting\" frontend/src/routes.tsx || grep -rn \"reporting\" frontend/src/App.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "grep app.reporting",
+			"type": "shell",
+			"command": "grep -rn \"app.reporting\" backend/app",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Test document rendering",
+			"type": "shell",
+			"command": "python3.12 -c \"\nimport sys; sys.path.append('backend')\nfrom app.db.session import SessionLocal\nfrom app.reporting.document_reports import get_document_report_service\n\ndb = SessionLocal()\nsvc = get_document_report_service(db)\ntry:\n    print('Testing Invoice')\n    print(svc.generate_invoice_report(1)[:100])\nexcept Exception as e:\n    import traceback; traceback.print_exc()\n\n\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read doc output",
+			"type": "shell",
+			"command": "cat \"/Users/virajsamarasinghe/Library/Application Support/Code/User/workspaceStorage/6135dc1873b4fb6527decd225043aabd/GitHub.copilot-chat/chat-session-resources/f0e22457-7132-4f81-8b3e-640b73064844/call_MHw0VFdlQTV4MXdvcFFLdzRUZ2E__vscode-1775406801509/content.txt\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read doc reports py",
+			"type": "shell",
+			"command": "cat backend/app/reporting/document_reports.py | head -n 30",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check get_purchase_order_report",
+			"type": "shell",
+			"command": "cat backend/app/modules/reporting/api.py | grep -n -A 20 \"def get_purchase_order_report\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read Flexible token resolution",
+			"type": "shell",
+			"command": "cat backend/app/auth/dependencies.py | grep -A 20 \"def _resolve_token\"",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check all document reporting endpoints",
+			"type": "shell",
+			"command": "cat backend/app/modules/reporting/api.py | sed -n '170,400p'",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read document_reports headers",
+			"type": "shell",
+			"command": "sed -n '1,60p' backend/app/reporting/document_reports.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Find WarrantyClaims",
+			"type": "shell",
+			"command": "grep -r \"class WarrantyClaims\" backend/app",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check models init",
+			"type": "shell",
+			"command": "cat backend/app/models/__init__.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Run test_docs",
+			"type": "shell",
+			"command": "cd backend && python test_docs.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Run test_docs correctly",
+			"type": "shell",
+			"command": "cd backend && source .venv/bin/activate && python test_docs.py",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Find minimum-prices",
+			"type": "shell",
+			"command": "grep -r -n \"minimum-prices/current\" backend/app",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Find remaining fetches",
+			"type": "shell",
+			"command": "grep -n \"fetch(\" frontend/src/modules/**/*.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Read SalesPage fetch",
+			"type": "shell",
+			"command": "sed -n '360,375p' frontend/src/modules/sales/pages/SalesPage.tsx",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Find ALL fetches in frontend",
+			"type": "shell",
+			"command": "grep -rn \"fetch(\" frontend/src/",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Check alembic versions",
+			"type": "shell",
+			"command": "ls backend/alembic/versions",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Lint SalesPage",
+			"type": "shell",
+			"command": "npx eslint frontend/src/modules/sales/pages/SalesPage.tsx",
+			"isBackground": false,
+			"group": "test"
 		}
 	]
 }
