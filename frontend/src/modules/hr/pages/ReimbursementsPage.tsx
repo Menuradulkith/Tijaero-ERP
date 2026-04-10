@@ -210,9 +210,6 @@ export default function ReimbursementsPage() {
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const branchResolved =
-    defaultBranchCode === undefined || filterBranch !== null;
-
   // Data query
   const { data: reimbursements, isLoading } = useQuery({
     queryKey: ["reimbursements", filterBranch, filterStatus],
