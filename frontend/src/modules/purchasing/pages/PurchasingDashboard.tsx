@@ -437,40 +437,6 @@ export default function PurchasingDashboard() {
             )}
           </Paper>
         </Grid>
-
-        {/* ── Row 5: Quick Actions ────────────────────────────────── */}
-        <Grid item xs={12}>
-          <Typography variant="h6" fontWeight={700} gutterBottom>
-            Quick Actions
-          </Typography>
-          <Grid container spacing={2}>
-            {[
-              { label: "Manage Suppliers", icon: <BusinessIcon color="primary" sx={{ fontSize: 40 }} />, path: "/purchasing/suppliers" },
-              { label: "New Purchase Order", icon: <ShoppingCartIcon color="warning" sx={{ fontSize: 40 }} />, path: "/purchasing/orders" },
-              { label: "Receive Goods", icon: <ReceiptLongIcon color="info" sx={{ fontSize: 40 }} />, path: "/purchasing/grn" },
-              { label: "Process Return", icon: <AssignmentReturnIcon color="error" sx={{ fontSize: 40 }} />, path: "/purchasing/returns" },
-            ].map((action) => (
-              <Grid item xs={6} sm={3} key={action.label}>
-                <Card
-                  variant="outlined"
-                  sx={{
-                    cursor: "pointer",
-                    textAlign: "center",
-                    p: 2,
-                    transition: "all 0.2s",
-                    "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)", boxShadow: 2 },
-                  }}
-                  onClick={() => navigate(action.path)}
-                >
-                  <Box sx={{ mb: 1 }}>{action.icon}</Box>
-                  <Typography variant="body2" fontWeight={500}>
-                    {action.label}
-                  </Typography>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-        </Grid>
       </Grid>
     </Box>
   );
