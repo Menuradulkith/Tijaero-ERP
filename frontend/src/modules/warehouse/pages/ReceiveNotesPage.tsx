@@ -1060,7 +1060,7 @@ export default function ReceiveNotesPage() {
             ? STEPS[activeStep]
             : selectedIRN
             ? `Transfer: ITN-${selectedIRN.item_transfer_note_id}`
-            : "Select or create a receive note"
+            : ""
         }
       />
 

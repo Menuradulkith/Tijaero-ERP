@@ -628,11 +628,7 @@ export default function ItemTransferNotesPage() {
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedITN && !isCreating ? (
           <EmptyState 
-            message="Select a transfer note from the list or create a new one"
-            action={{
-              label: "Create New Transfer Note",
-              onClick: handleNewITN
-            }}
+            message="Select a transfer note from the list"
           />
         ) : (
           <>
