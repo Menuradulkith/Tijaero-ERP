@@ -5,14 +5,16 @@ import JobItemsPage from "./pages/JobItemsPage";
 import CallLogsPage from "./pages/CallLogsPage";
 import WarrantyClaimsPage from "./pages/WarrantyClaimsPage";
 
+import ProtectedRoute from "@/auth/components/ProtectedRoute";
+
 export default function SupportRoutes() {
   return (
     <Routes>
-      <Route index element={<SupportDashboard />} />
-      <Route path="tickets" element={<SupportTicketsPage />} />
-      <Route path="job-items" element={<JobItemsPage />} />
-      <Route path="call-logs" element={<CallLogsPage />} />
-      <Route path="warranty-claims" element={<WarrantyClaimsPage />} />
+      <Route index element={<ProtectedRoute resource="support_dashboard" action="view"><SupportDashboard /></ProtectedRoute>} />
+      <Route path="tickets" element={<ProtectedRoute resource="support_tickets" action="view"><SupportTicketsPage /></ProtectedRoute>} />
+      <Route path="job-items" element={<ProtectedRoute resource="job_items" action="view"><JobItemsPage /></ProtectedRoute>} />
+      <Route path="call-logs" element={<ProtectedRoute resource="call_logs" action="view"><CallLogsPage /></ProtectedRoute>} />
+      <Route path="warranty-claims" element={<ProtectedRoute resource="warranty_claims" action="view"><WarrantyClaimsPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );

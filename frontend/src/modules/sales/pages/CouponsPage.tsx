@@ -120,6 +120,7 @@ const getCouponStatus = (coupon: CustomerCuponCodes): string => {
 
 export default function CouponsPage() {
   const queryClient = useQueryClient();
+  const canViewProducts = usePermission("products", "view");
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Permissions
@@ -166,6 +167,7 @@ export default function CouponsPage() {
   const { data: products } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.getAll(),
+    enabled: canViewProducts,
   });
 
   // Fetch usage history for selected coupon

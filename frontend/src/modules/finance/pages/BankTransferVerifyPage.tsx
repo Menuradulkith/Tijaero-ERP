@@ -46,6 +46,7 @@ import {
   useTConfirmDialog,
   fmtLKR,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { bankTransferApi, PendingBankTransfer } from "@/modules/finance/api/bankTransfer";
@@ -71,6 +72,7 @@ const BT_STATUS_FILTER_OPTIONS = [
 
 export default function BankTransferVerifyPage() {
   const queryClient = useQueryClient();
+  const canViewCustomers = usePermission("customers", "view");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_date");
   const [selectedTransfer, setSelectedTransfer] = useState<PendingBankTransfer | null>(null);
@@ -114,6 +116,7 @@ export default function BankTransferVerifyPage() {
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
+    enabled: canViewCustomers,
   });
 
   // Create lookup maps

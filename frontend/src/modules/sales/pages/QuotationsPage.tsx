@@ -162,9 +162,9 @@ export default function QuotationsPage() {
   const [cancelLinkedPO, setCancelLinkedPO] = useState(false);
 
   // Permissions
-  const canCreate = usePermission("sales", "create");
-  const canDelete = usePermission("sales", "delete");
-  const canUpdate = usePermission("sales", "update");
+  const canCreate = usePermission("quotations", "create");
+  const canDelete = usePermission("quotations", "delete");
+  const canUpdate = usePermission("quotations", "update");
 
   // Confirm dialogs
   const confirmDialog = useTConfirmDialog();

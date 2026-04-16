@@ -19,7 +19,7 @@ from . import schemas, service
 router = APIRouter(
     prefix="/hr",
     tags=["hr"],
-    dependencies=[Depends(require_permission(*Permissions.HR_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.HR_DASHBOARD_VIEW))],
 )
 
 
@@ -28,7 +28,7 @@ router = APIRouter(
     "/deductions",
     response_model=schemas.SalaryDeduction,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.HR_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.DEDUCTION_CREATE))],
 )
 def create_salary_deduction(
     deduction: schemas.SalaryDeductionCreate, db: Session = Depends(get_db)
@@ -63,7 +63,7 @@ def list_salary_deductions(
 @router.put(
     "/deductions/{deduction_id}",
     response_model=schemas.SalaryDeduction,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.DEDUCTION_UPDATE))],
 )
 def update_salary_deduction(
     deduction_id: int,
@@ -78,7 +78,7 @@ def update_salary_deduction(
 @router.delete(
     "/deductions/{deduction_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.HR_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.DEDUCTION_DELETE))],
 )
 def delete_salary_deduction(deduction_id: int, db: Session = Depends(get_db)):
     """Delete a salary deduction"""
@@ -91,7 +91,7 @@ def delete_salary_deduction(deduction_id: int, db: Session = Depends(get_db)):
     "/reimbursements",
     response_model=schemas.Reimbursement,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.HR_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_CREATE))],
 )
 def create_reimbursement(
     reimbursement: schemas.ReimbursementCreate,
@@ -145,7 +145,7 @@ def list_reimbursements(
 @router.patch(
     "/reimbursements/{reimbursement_id}",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_UPDATE))],
 )
 def update_reimbursement(
     reimbursement_id: int,
@@ -161,7 +161,7 @@ def update_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/approve",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
 )
 def approve_reimbursement(
     reimbursement_id: int,
@@ -179,7 +179,7 @@ def approve_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/reject",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
 )
 def reject_reimbursement(
     reimbursement_id: int,
@@ -197,7 +197,7 @@ def reject_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/verify",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
 )
 def verify_reimbursement(
     reimbursement_id: int,
@@ -215,7 +215,7 @@ def verify_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/pay",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
 )
 def process_reimbursement_payment(
     reimbursement_id: int,
@@ -233,7 +233,7 @@ def process_reimbursement_payment(
 @router.delete(
     "/reimbursements/{reimbursement_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.HR_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_DELETE))],
 )
 def delete_reimbursement(
     reimbursement_id: int,
@@ -250,7 +250,7 @@ def delete_reimbursement(
     "/payroll",
     response_model=schemas.EmployeePayrollResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.HR_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_CREATE))],
 )
 def create_payroll(
     payroll: schemas.EmployeePayrollCreate, db: Session = Depends(get_db)
@@ -283,7 +283,7 @@ def list_payrolls(
 @router.put(
     "/payroll/{payroll_id}",
     response_model=schemas.EmployeePayrollResponse,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_UPDATE))],
 )
 def update_payroll(
     payroll_id: int,
@@ -298,7 +298,7 @@ def update_payroll(
 @router.delete(
     "/payroll/{payroll_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.HR_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_DELETE))],
 )
 def delete_payroll(payroll_id: int, db: Session = Depends(get_db)):
     """Delete a payroll record"""
@@ -313,7 +313,7 @@ def delete_payroll(payroll_id: int, db: Session = Depends(get_db)):
     "/payroll/run",
     response_model=schemas.PayrollBatchResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.HR_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_PROCESSING_CREATE))],
 )
 def trigger_payroll_run(
     data: schemas.PayrollRunRequest,
@@ -361,7 +361,7 @@ def get_payroll_batch(
 @router.post(
     "/payroll/batches/{batch_id}/submit",
     response_model=schemas.PayrollBatchResponse,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_PROCESSING_CREATE))],
 )
 def submit_payroll_batch(
     batch_id: int,
@@ -376,7 +376,7 @@ def submit_payroll_batch(
 @router.post(
     "/payroll/batches/{batch_id}/approve",
     response_model=schemas.PayrollBatchResponse,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_APPROVAL_APPROVE))],
 )
 def approve_payroll_batch(
     batch_id: int,
@@ -392,7 +392,7 @@ def approve_payroll_batch(
 @router.post(
     "/payroll/batches/{batch_id}/reject",
     response_model=schemas.PayrollBatchResponse,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_APPROVAL_APPROVE))],
 )
 def reject_payroll_batch(
     batch_id: int,
@@ -408,7 +408,7 @@ def reject_payroll_batch(
 @router.post(
     "/payroll/batches/{batch_id}/process-payment",
     response_model=schemas.PayrollBatchResponse,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_PROCESSING_CREATE))],
 )
 def process_salary_payment(
     batch_id: int,
@@ -424,7 +424,7 @@ def process_salary_payment(
 @router.post(
     "/payroll/batches/{batch_id}/process-statutory",
     response_model=schemas.PayrollBatchResponse,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_PROCESSING_CREATE))],
 )
 def process_statutory_payment(
     batch_id: int,
@@ -440,7 +440,7 @@ def process_statutory_payment(
 @router.post(
     "/payroll/batches/{batch_id}/complete",
     response_model=schemas.PayrollBatchResponse,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_PROCESSING_CREATE))],
 )
 def complete_payroll_batch(
     batch_id: int,
@@ -455,7 +455,7 @@ def complete_payroll_batch(
 @router.post(
     "/payroll/batches/{batch_id}/cancel",
     response_model=schemas.PayrollBatchResponse,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PAYROLL_PROCESSING_CREATE))],
 )
 def cancel_payroll_batch(
     batch_id: int,
@@ -472,7 +472,7 @@ def cancel_payroll_batch(
     "/salary-profiles",
     response_model=schemas.EmployeeSalaryProfile,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.HR_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.SALARY_PROFILE_CREATE))],
 )
 def create_salary_profile(
     profile: schemas.EmployeeSalaryProfileCreate, db: Session = Depends(get_db)
@@ -511,7 +511,7 @@ def get_employee_salary_profile(employee_id: str, db: Session = Depends(get_db))
 @router.put(
     "/salary-profiles/{profile_id}",
     response_model=schemas.EmployeeSalaryProfile,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.SALARY_PROFILE_UPDATE))],
 )
 def update_salary_profile(
     profile_id: int,
@@ -526,7 +526,7 @@ def update_salary_profile(
 @router.delete(
     "/salary-profiles/{profile_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.HR_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.SALARY_PROFILE_DELETE))],
 )
 def delete_salary_profile(profile_id: int, db: Session = Depends(get_db)):
     """Delete a salary profile"""
@@ -539,7 +539,7 @@ def delete_salary_profile(profile_id: int, db: Session = Depends(get_db)):
     "/promotions",
     response_model=schemas.EmployeePromotion,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.HR_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.PROMOTION_CREATE))],
 )
 def create_promotion(
     promotion: schemas.EmployeePromotionCreate, db: Session = Depends(get_db)
@@ -580,7 +580,7 @@ def list_promotions(
 @router.put(
     "/promotions/{promotion_id}",
     response_model=schemas.EmployeePromotion,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PROMOTION_UPDATE))],
 )
 def update_promotion(
     promotion_id: int,
@@ -595,7 +595,7 @@ def update_promotion(
 @router.delete(
     "/promotions/{promotion_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.HR_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.PROMOTION_DELETE))],
 )
 def delete_promotion(promotion_id: int, db: Session = Depends(get_db)):
     """Delete a promotion record"""
@@ -608,7 +608,7 @@ def delete_promotion(promotion_id: int, db: Session = Depends(get_db)):
     "/employee-assets",
     response_model=schemas.EmployeeAsset,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.HR_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.HR_ASSET_CREATE))],
 )
 def create_asset_assignment(
     asset: schemas.EmployeeAssetCreate, db: Session = Depends(get_db)
@@ -641,7 +641,7 @@ def list_asset_assignments(
 @router.put(
     "/employee-assets/{assignment_id}",
     response_model=schemas.EmployeeAsset,
-    dependencies=[Depends(require_permission(*Permissions.HR_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.HR_ASSET_UPDATE))],
 )
 def update_asset_assignment(
     assignment_id: int,
@@ -656,7 +656,7 @@ def update_asset_assignment(
 @router.delete(
     "/employee-assets/{assignment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.HR_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.HR_ASSET_DELETE))],
 )
 def delete_asset_assignment(assignment_id: int, db: Session = Depends(get_db)):
     """Delete an employee asset assignment"""

@@ -41,6 +41,7 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
+import { usePermission } from "@/auth/permissions";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -141,15 +142,19 @@ export default function SalesTrackPage() {
   const orders = ordersData?.items || [];
 
   // Fetch customers (needed for names)
+  const canViewCustomers = usePermission("customers", "view");
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
+    enabled: canViewCustomers,
   });
 
   // Fetch products
+  const canViewProducts = usePermission("products", "view");
   const { data: productsResult } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.getAll(1, 1000),
+    enabled: canViewProducts,
   });
   const products = (productsResult as any)?.items || (Array.isArray(productsResult) ? productsResult : []) || [];
 

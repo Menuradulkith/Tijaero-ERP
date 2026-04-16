@@ -560,6 +560,21 @@ export default function ProductsPage({
       });
       return;
     }
+    
+    // Validate prices
+    if (productState.formData.selling_price < productState.formData.cost_price) {
+      showErrorToast("Selling price cannot be less than cost price");
+      return;
+    }
+    if (typeof productState.formData.website_price === "number" && productState.formData.website_price > 0 && productState.formData.website_price < productState.formData.cost_price) {
+      showErrorToast("Website price cannot be less than cost price");
+      return;
+    }
+    if (productState.isCreating && typeof createMinPrice === "number" && createMinPrice < productState.formData.cost_price) {
+      showErrorToast("Minimum selling price cannot be less than cost price");
+      return;
+    }
+
     // Ensure website_active is false if product is inactive
     const dataToSave = { ...productState.formData };
     if (!dataToSave.active) {
@@ -1338,6 +1353,20 @@ export default function ProductsPage({
                         : undefined,
                     })
                   }
+                  error={
+                    typeof productState.formData.website_price === "number" &&
+                    productState.formData.website_price > 0 &&
+                    typeof productState.formData.cost_price === "number" &&
+                    productState.formData.website_price < productState.formData.cost_price
+                  }
+                  helperText={
+                    typeof productState.formData.website_price === "number" &&
+                    productState.formData.website_price > 0 &&
+                    typeof productState.formData.cost_price === "number" &&
+                    productState.formData.website_price < productState.formData.cost_price
+                      ? `Cannot be less than cost price`
+                      : ""
+                  }
                   disabled={!productState.isEditing && !productState.isCreating}
                   InputProps={{
                     startAdornment: (
@@ -1362,16 +1391,23 @@ export default function ProductsPage({
                   disabled={!productState.isEditing && !productState.isCreating}
                   required
                   error={
-                    productTouched.selling_price &&
+                    (productTouched.selling_price &&
                     (productState.formData.selling_price === undefined ||
-                      productState.formData.selling_price === null)
+                      productState.formData.selling_price === null)) ||
+                    (typeof productState.formData.selling_price === "number" &&
+                    typeof productState.formData.cost_price === "number" &&
+                    productState.formData.selling_price < productState.formData.cost_price)
                   }
                   helperText={
                     productTouched.selling_price &&
                     (productState.formData.selling_price === undefined ||
                       productState.formData.selling_price === null)
                       ? "Selling price is required"
-                      : ""
+                      : typeof productState.formData.selling_price === "number" &&
+                        typeof productState.formData.cost_price === "number" &&
+                        productState.formData.selling_price < productState.formData.cost_price
+                        ? "Cannot be less than cost price"
+                        : ""
                   }
                   InputProps={{
                     startAdornment: (
@@ -1397,6 +1433,8 @@ export default function ProductsPage({
                         Number.isFinite(parsed) ? Math.max(0, parsed) : "",
                       );
                     }}
+                    error={typeof createMinPrice === "number" && createMinPrice < (productState.formData.cost_price || 0)}
+                    helperText={typeof createMinPrice === "number" && createMinPrice < (productState.formData.cost_price || 0) ? `Cannot be less than cost price (Rs. ${productState.formData.cost_price || 0})` : ""}
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">Rs.</InputAdornment>
@@ -2107,6 +2145,12 @@ export default function ProductsPage({
               ),
             }}
             sx={{ mt: 2 }}
+            error={productState.selectedItem ? newMinPrice < productState.selectedItem.cost_price : false}
+            helperText={
+              productState.selectedItem && newMinPrice < productState.selectedItem.cost_price
+                ? `Minimum price cannot be less than cost price (Rs. ${productState.selectedItem.cost_price})`
+                : ""
+            }
           />
         </DialogContent>
         <DialogActions>
@@ -2114,7 +2158,10 @@ export default function ProductsPage({
           <Button
             variant="contained"
             onClick={() => setMinimumPriceMutation.mutate(newMinPrice)}
-            disabled={setMinimumPriceMutation.isPending}
+            disabled={
+              setMinimumPriceMutation.isPending || 
+              (productState.selectedItem ? newMinPrice < productState.selectedItem.cost_price : false)
+            }
           >
             Save
           </Button>

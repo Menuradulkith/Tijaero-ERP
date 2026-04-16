@@ -26,9 +26,43 @@ class ProductService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Product with item_code {product.item_code} already exists"
             )
+            
+        if product.selling_price is not None and product.selling_price < product.cost_price:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Selling price cannot be less than cost price."
+            )
+        if product.website_price is not None and product.website_price > 0 and product.website_price < product.cost_price:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Website price cannot be less than cost price."
+            )
+            
         return repository.product_repository.create(db, product, user_id)
     
     def update_product(self, db: Session, product_id: int, product: schemas.ProductUpdate, user_id: int) -> schemas.Product:
+        curr_product = repository.product_repository.get_by_id(db, product_id)
+        if not curr_product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product with id {product_id} not found"
+            )
+            
+        new_cost_price = product.cost_price if product.cost_price is not None else curr_product.cost_price
+        new_selling_price = product.selling_price if product.selling_price is not None else curr_product.selling_price
+        new_website_price = product.website_price if product.website_price is not None else curr_product.website_price
+        
+        if new_selling_price is not None and new_selling_price < new_cost_price:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Selling price cannot be less than cost price."
+            )
+        if new_website_price is not None and new_website_price > 0 and new_website_price < new_cost_price:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Website price cannot be less than cost price."
+            )
+
         updated_product = repository.product_repository.update(db, product_id, product, user_id)
         if not updated_product:
             raise HTTPException(
@@ -106,6 +140,12 @@ class CategoryService:
         return repository.category_repository.get_all(db, skip, limit, active_only)
     
     def create_category(self, db: Session, category: schemas.CategoryCreate, user_id: int) -> schemas.Category:
+        existing = repository.category_repository.get_by_code(db, category.category_code)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Category with code '{category.category_code}' already exists"
+            )
         from sqlalchemy.exc import IntegrityError
         try:
             return repository.category_repository.create(db, category, user_id)
@@ -162,6 +202,12 @@ class BrandService:
         return repository.brand_repository.get_all(db, skip, limit)
     
     def create_brand(self, db: Session, brand: schemas.BrandCreate) -> schemas.Brand:
+        existing = repository.brand_repository.get_by_code(db, brand.brand_code)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Brand with code '{brand.brand_code}' already exists"
+            )
         from sqlalchemy.exc import IntegrityError
         try:
             return repository.brand_repository.create(db, brand)
@@ -234,6 +280,13 @@ class MinimumPriceService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Product with id {product_id} not found"
             )
+            
+        if minimum_price < product.cost_price:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Minimum selling price cannot be less than cost price."
+            )
+            
         return repository.minimum_price_repository.create(db, product_id, minimum_price)
     
     def delete_minimum_price(self, db: Session, price_id: int) -> dict:

@@ -41,6 +41,7 @@ import {
   useConfirmDialog,
   fmtLKR,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 
 import { advancePaymentsApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
@@ -90,6 +91,7 @@ const resetFormFromItem = (item: CustomerAdvancePayment): Partial<CustomerAdvanc
 export default function CustomerAdvancePaymentsPage() {
   const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
+  const canViewCustomers = usePermission("customers", "view");
 
   // Validation state
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -149,6 +151,7 @@ export default function CustomerAdvancePaymentsPage() {
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
+    enabled: canViewCustomers,
   });
 
   // Fetch customer advance payments

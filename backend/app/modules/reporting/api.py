@@ -29,7 +29,7 @@ _limit_60 = rate_limit(60)
 @router.post(
     "/sales",
     response_model=schemas.SalesReportResponse,
-    dependencies=[Depends(require_permission(*Permissions.REPORTING_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_SALES_VIEW))],
 )
 def generate_sales_report(
     body: schemas.SalesReportRequest,
@@ -44,7 +44,7 @@ def generate_sales_report(
 @router.post(
     "/finance",
     response_model=schemas.FinanceReportResponse,
-    dependencies=[Depends(require_permission(*Permissions.REPORTING_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_FINANCE_VIEW))],
 )
 def generate_finance_report(
     body: schemas.FinanceReportRequest,
@@ -59,7 +59,7 @@ def generate_finance_report(
 @router.post(
     "/inventory",
     response_model=schemas.InventoryReportResponse,
-    dependencies=[Depends(require_permission(*Permissions.REPORTING_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_INVENTORY_VIEW))],
 )
 def generate_inventory_report(
     body: schemas.InventoryReportRequest,
@@ -74,7 +74,7 @@ def generate_inventory_report(
 @router.post(
     "/hr",
     response_model=schemas.HRReportResponse,
-    dependencies=[Depends(require_permission(*Permissions.REPORTING_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_HR_VIEW))],
 )
 def generate_hr_report(
     body: schemas.HRReportRequest,
@@ -89,7 +89,7 @@ def generate_hr_report(
 @router.post(
     "/warehouse",
     response_model=schemas.WarehouseReportResponse,
-    dependencies=[Depends(require_permission(*Permissions.REPORTING_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_WAREHOUSE_VIEW))],
 )
 def generate_warehouse_report(
     body: schemas.WarehouseReportRequest,
@@ -104,7 +104,7 @@ def generate_warehouse_report(
 @router.post(
     "/support",
     response_model=schemas.SupportReportResponse,
-    dependencies=[Depends(require_permission(*Permissions.REPORTING_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_SUPPORT_VIEW))],
 )
 def generate_support_report(
     body: schemas.SupportReportRequest,

@@ -3,10 +3,12 @@
  */
 
 import { useMemo, useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
+  Button,
   TextField,
   MenuItem,
   Switch,
@@ -15,6 +17,9 @@ import {
   Chip,
 } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import { useAuthStore } from "@/state/authStore";
+import { hasPermission, PERMISSIONS } from "@/auth/permissions";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 
 import {
@@ -105,6 +110,29 @@ const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
 
 export default function SuppliersPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+
+  const canCreateSupplier = hasPermission(
+    user,
+    PERMISSIONS.SUPPLIERS_CREATE.resource,
+    PERMISSIONS.SUPPLIERS_CREATE.action,
+  );
+  const canUpdateSupplier = hasPermission(
+    user,
+    PERMISSIONS.SUPPLIERS_UPDATE.resource,
+    PERMISSIONS.SUPPLIERS_UPDATE.action,
+  );
+  const canDeleteSupplier = hasPermission(
+    user,
+    PERMISSIONS.SUPPLIERS_DELETE.resource,
+    PERMISSIONS.SUPPLIERS_DELETE.action,
+  );
+  const canCreatePO = hasPermission(
+    user,
+    PERMISSIONS.PURCHASE_ORDERS_CREATE.resource,
+    PERMISSIONS.PURCHASE_ORDERS_CREATE.action,
+  );
 
   // Confirm dialog for unsaved changes and delete actions
   const confirmDialog = useTConfirmDialog();
@@ -221,11 +249,27 @@ export default function SuppliersPage() {
 
   const handleSave = useCallback(() => {
     if (isCreating) {
+      if (!canCreateSupplier) {
+        showErrorToast("You don't have permission to create suppliers");
+        return;
+      }
       createMutation.mutate(formData);
     } else if (selectedSupplier) {
+      if (!canUpdateSupplier) {
+        showErrorToast("You don't have permission to update suppliers");
+        return;
+      }
       updateMutation.mutate({ id: selectedSupplier.id, data: formData });
     }
-  }, [isCreating, selectedSupplier, formData, createMutation, updateMutation]);
+  }, [
+    isCreating,
+    selectedSupplier,
+    formData,
+    createMutation,
+    updateMutation,
+    canCreateSupplier,
+    canUpdateSupplier,
+  ]);
 
   // Internal selection handler - wraps hook's handler to reset validation state
   const handleSelectSupplierWithCheck = useCallback(async (supplier: Supplier) => {
@@ -234,6 +278,10 @@ export default function SuppliersPage() {
   }, [handleSelectSupplier]);
 
   const handleDelete = useCallback(async () => {
+    if (!canDeleteSupplier) {
+      showErrorToast("You don't have permission to delete suppliers");
+      return;
+    }
     if (selectedSupplier) {
       const confirmed = await confirmDialog.confirm({
         title: "Delete Supplier",
@@ -245,7 +293,7 @@ export default function SuppliersPage() {
         deleteMutation.mutate(selectedSupplier.id);
       }
     }
-  }, [selectedSupplier, deleteMutation, confirmDialog]);
+  }, [selectedSupplier, deleteMutation, confirmDialog, canDeleteSupplier]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedSupplier) {
@@ -443,12 +491,36 @@ export default function SuppliersPage() {
         isEditing={isEditing}
         isSaving={isSaving}
         isFormValid={!!isFormValid}
-        onNew={handleNewSupplier}
+        onNew={canCreateSupplier ? handleNewSupplier : undefined}
         onDuplicate={handleDuplicate}
-        onDelete={handleDelete}
+        onDelete={canDeleteSupplier ? handleDelete : undefined}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredSuppliers)}
-        onEdit={handleStartEdit}
+        onEdit={canUpdateSupplier ? handleStartEdit : undefined}
+        canDelete={canDeleteSupplier}
+        endActions={
+          !isCreating &&
+          !isEditing &&
+          selectedSupplier &&
+          canCreatePO && (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<LocalShippingIcon />}
+              onClick={() =>
+                navigate("/purchasing/orders", {
+                  state: {
+                    createPOFromSupplier: true,
+                    supplierId: selectedSupplier.id,
+                  },
+                })
+              }
+              sx={{ ml: 1 }}
+            >
+              Create Purchase Order
+            </Button>
+          )
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>

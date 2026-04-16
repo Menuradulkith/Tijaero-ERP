@@ -73,6 +73,7 @@ interface SubMenuItem {
   text: string;
   icon: JSX.Element;
   path: string;
+  permission?: { resource: string; action: string };
   subItems?: SubMenuItem[];
 }
 
@@ -85,29 +86,32 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
-  { text: "Dashboard", icon: <DashboardIcon />, path: "/dashboard" },
+  { text: "Dashboard", icon: <DashboardIcon />, path: "/dashboard", permission: PERMISSIONS.DASHBOARD_VIEW },
   {
     text: "Sales",
     icon: <ShoppingCartIcon />,
     path: "/sales",
-    permission: PERMISSIONS.SALES_VIEW,
+    permission: PERMISSIONS.SALES_DASHBOARD_VIEW,
     subItems: [
-      { text: "Dashboard", icon: <SpeedIcon />, path: "/sales/dashboard" },
-      { text: "Customers", icon: <PeopleIcon />, path: "/sales/customers" },
+      { text: "Dashboard", icon: <SpeedIcon />, path: "/sales/dashboard", permission: PERMISSIONS.SALES_DASHBOARD_VIEW },
+      { text: "Customers", icon: <PeopleIcon />, path: "/sales/customers", permission: PERMISSIONS.CUSTOMERS_VIEW },
       {
         text: "Quotations",
         icon: <ReceiptLongIcon />,
         path: "/sales/quotations",
+        permission: PERMISSIONS.QUOTATIONS_VIEW,
       },
       {
         text: "Proforma Invoices",
         icon: <ReceiptLongIcon />,
         path: "/sales/proforma",
+        permission: PERMISSIONS.PROFORMA_INVOICES_VIEW,
       },
       {
         text: "Sales Orders",
         icon: <PointOfSaleIcon />,
         path: "/sales/orders",
+        permission: PERMISSIONS.SALES_ORDERS_VIEW,
       },
       {
         text: "Approvals",
@@ -118,16 +122,19 @@ const menuItems: MenuItem[] = [
             text: "SO Approvals",
             icon: <FactCheckIcon />,
             path: "/sales/approvals/so-approvals",
+            permission: PERMISSIONS.SO_APPROVALS_VIEW,
           },
           {
             text: "Return Approvals",
             icon: <FactCheckIcon />,
             path: "/sales/approvals/return-approvals",
+            permission: PERMISSIONS.SALES_RETURN_APPROVALS_VIEW,
           },
           {
             text: "Commission Approvals",
             icon: <FactCheckIcon />,
             path: "/sales/approvals/commission-approvals",
+            permission: PERMISSIONS.COMMISSION_APPROVALS_VIEW,
           },
         ],
       },
@@ -135,29 +142,32 @@ const menuItems: MenuItem[] = [
         text: "Sales Returns",
         icon: <AssignmentReturnIcon />,
         path: "/sales/returns",
+        permission: PERMISSIONS.SALES_RETURNS_VIEW,
       },
-      { text: "Coupons", icon: <LocalOfferIcon />, path: "/sales/coupons" },
-      { text: "Gift Vouchers", icon: <ReceiptIcon />, path: "/sales/vouchers" },
+      { text: "Coupons", icon: <LocalOfferIcon />, path: "/sales/coupons", permission: PERMISSIONS.COUPONS_VIEW },
+      { text: "Gift Vouchers", icon: <ReceiptIcon />, path: "/sales/vouchers", permission: PERMISSIONS.GIFT_VOUCHERS_VIEW },
       {
         text: "Agent Commissions",
         icon: <MonetizationOnIcon />,
         path: "/sales/agent-commissions",
+        permission: PERMISSIONS.AGENT_COMMISSIONS_VIEW,
       },
-      { text: "Settings", icon: <SettingsIcon />, path: "/sales/settings" },
+      { text: "Settings", icon: <SettingsIcon />, path: "/sales/settings", permission: PERMISSIONS.SALES_SETTINGS_VIEW },
     ],
   },
   {
     text: "Purchasing",
     icon: <LocalShippingIcon />,
     path: "/purchasing",
-    permission: PERMISSIONS.PURCHASING_VIEW,
+    permission: PERMISSIONS.PURCHASING_DASHBOARD_VIEW,
     subItems: [
-      { text: "Dashboard", icon: <SpeedIcon />, path: "/purchasing" },
-      { text: "Suppliers", icon: <StoreIcon />, path: "/purchasing/suppliers" },
+      { text: "Dashboard", icon: <SpeedIcon />, path: "/purchasing", permission: PERMISSIONS.PURCHASING_DASHBOARD_VIEW },
+      { text: "Suppliers", icon: <StoreIcon />, path: "/purchasing/suppliers", permission: PERMISSIONS.SUPPLIERS_VIEW },
       {
         text: "Purchase Orders",
         icon: <ReceiptLongIcon />,
         path: "/purchasing/orders",
+        permission: PERMISSIONS.PURCHASE_ORDERS_VIEW,
       },
       {
         text: "Approvals",
@@ -168,11 +178,13 @@ const menuItems: MenuItem[] = [
             text: "PO Approvals",
             icon: <FactCheckIcon />,
             path: "/purchasing/approvals/po-approvals",
+            permission: PERMISSIONS.PO_APPROVALS_VIEW,
           },
           {
             text: "Return Approvals",
             icon: <FactCheckIcon />,
             path: "/purchasing/approvals/return-approvals",
+            permission: PERMISSIONS.PURCHASE_RETURN_APPROVALS_VIEW,
           },
         ],
       },
@@ -180,11 +192,13 @@ const menuItems: MenuItem[] = [
         text: "Good Received Notes",
         icon: <LocalShippingOutlinedIcon />,
         path: "/purchasing/grn",
+        permission: PERMISSIONS.GRN_VIEW,
       },
       {
         text: "Purchase Returns",
         icon: <AssignmentReturnIcon />,
         path: "/purchasing/returns",
+        permission: PERMISSIONS.PURCHASE_RETURNS_VIEW,
       },
     ],
   },
@@ -192,33 +206,36 @@ const menuItems: MenuItem[] = [
     text: "Product Catalogs",
     icon: <InventoryIcon />,
     path: "/product-catalogs",
-    permission: PERMISSIONS.INVENTORY_VIEW,
+    permission: PERMISSIONS.PRODUCTS_VIEW,
     subItems: [
-      { text: "Products", icon: <Inventory2Icon />, path: "/product-catalogs" },
+      { text: "Products", icon: <Inventory2Icon />, path: "/product-catalogs", permission: PERMISSIONS.PRODUCTS_VIEW },
       {
         text: "Categories",
         icon: <CategoryIcon />,
         path: "/product-catalogs/categories",
+        permission: PERMISSIONS.CATEGORIES_VIEW,
       },
-      { text: "Brands", icon: <SellIcon />, path: "/product-catalogs/brands" },
+      { text: "Brands", icon: <SellIcon />, path: "/product-catalogs/brands", permission: PERMISSIONS.BRANDS_VIEW },
     ],
   },
   {
     text: "Finance",
     icon: <AccountBalanceIcon />,
     path: "/finance",
-    permission: PERMISSIONS.FINANCE_VIEW,
+    permission: PERMISSIONS.FINANCE_DASHBOARD_VIEW,
     subItems: [
-      { text: "Dashboard", icon: <SpeedIcon />, path: "/finance" },
+      { text: "Dashboard", icon: <SpeedIcon />, path: "/finance", permission: PERMISSIONS.FINANCE_DASHBOARD_VIEW },
       {
         text: "Cashbook",
         icon: <AccountBalanceWalletIcon />,
         path: "/finance/cashbook",
+        permission: PERMISSIONS.CASHBOOK_VIEW,
       },
       {
         text: "Expenses",
         icon: <ReceiptLongIcon />,
         path: "/finance/expenses",
+        permission: PERMISSIONS.EXPENSES_VIEW,
       },
       {
         text: "Payment Methods",
@@ -229,21 +246,25 @@ const menuItems: MenuItem[] = [
             text: "Bank Deposits",
             icon: <AccountBalanceIcon />,
             path: "/finance/payment-methods/bank-deposits",
+            permission: PERMISSIONS.BANK_DEPOSITS_VIEW,
           },
           {
             text: "Card Payments",
             icon: <PaymentIcon />,
             path: "/finance/payment-methods/card-payments",
+            permission: PERMISSIONS.CARD_PAYMENTS_VIEW,
           },
           {
             text: "Cheque Payments",
             icon: <ReceiptIcon />,
             path: "/finance/payment-methods/cheque-payments",
+            permission: PERMISSIONS.CHEQUE_PAYMENTS_VIEW,
           },
           {
             text: "Credit Notes",
             icon: <ReceiptIcon />,
             path: "/finance/payment-methods/credit-notes",
+            permission: PERMISSIONS.CREDIT_NOTES_VIEW,
           },
         ],
       },
@@ -256,11 +277,13 @@ const menuItems: MenuItem[] = [
             text: "Customer Advances",
             icon: <PaymentIcon />,
             path: "/finance/advance-payments/customer",
+            permission: PERMISSIONS.CUSTOMER_ADVANCES_VIEW,
           },
           {
             text: "Supplier Advances",
             icon: <PaymentIcon />,
             path: "/finance/advance-payments/supplier",
+            permission: PERMISSIONS.SUPPLIER_ADVANCES_VIEW,
           },
         ],
       },
@@ -268,11 +291,13 @@ const menuItems: MenuItem[] = [
         text: "Supplier Payments",
         icon: <PaymentIcon />,
         path: "/finance/supplier-payments",
+        permission: PERMISSIONS.SUPPLIER_PAYMENTS_VIEW,
       },
       {
         text: "Customer Payments",
         icon: <PaymentIcon />,
         path: "/finance/customer-payments",
+        permission: PERMISSIONS.CUSTOMER_PAYMENTS_VIEW,
       },
       {
         text: "Accounting",
@@ -283,26 +308,31 @@ const menuItems: MenuItem[] = [
             text: "Chart of Accounts",
             icon: <AccountTreeIcon />,
             path: "/finance/chart-of-accounts",
+            permission: PERMISSIONS.CHART_OF_ACCOUNTS_VIEW,
           },
           {
             text: "Journal Entries",
             icon: <ReceiptLongIcon />,
             path: "/finance/journal-entries",
+            permission: PERMISSIONS.JOURNAL_ENTRIES_VIEW,
           },
           {
             text: "General Ledger",
             icon: <BalanceIcon />,
             path: "/finance/general-ledger",
+            permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
           },
           {
             text: "Accounting Periods",
             icon: <CalendarMonthIcon />,
             path: "/finance/accounting-periods",
+            permission: PERMISSIONS.ACCOUNTING_PERIODS_VIEW,
           },
           {
             text: "Cash Flow",
             icon: <TrendingUpIcon />,
             path: "/finance/cash-flow",
+            permission: PERMISSIONS.CASH_FLOW_VIEW,
           },
         ],
       },
@@ -315,21 +345,25 @@ const menuItems: MenuItem[] = [
             text: "Payment Approvals",
             icon: <FactCheckIcon />,
             path: "/finance/approvals/payment-approvals",
+            permission: PERMISSIONS.PAYMENT_APPROVALS_VIEW,
           },
           {
             text: "Expense Approvals",
             icon: <FactCheckIcon />,
             path: "/finance/approvals/expense-approvals",
+            permission: PERMISSIONS.EXPENSE_APPROVALS_VIEW,
           },
           {
             text: "Bank Transfer Verify",
             icon: <AccountBalanceIcon />,
             path: "/finance/approvals/bank-transfer-verify",
+            permission: PERMISSIONS.BANK_TRANSFER_VERIFY_VIEW,
           },
           {
             text: "Commission Payment Approvals",
             icon: <FactCheckIcon />,
             path: "/finance/approvals/commission-payment-approvals",
+            permission: PERMISSIONS.COMMISSION_PAYMENT_APPROVALS_VIEW,
           },
         ],
       },
@@ -337,6 +371,7 @@ const menuItems: MenuItem[] = [
         text: "Commission Payments",
         icon: <PaymentIcon />,
         path: "/finance/commission-payments",
+        permission: PERMISSIONS.COMMISSION_PAYMENTS_VIEW,
       },
     ],
   },
@@ -344,65 +379,74 @@ const menuItems: MenuItem[] = [
     text: "HR",
     icon: <GroupIcon />,
     path: "/hr",
-    permission: PERMISSIONS.HR_VIEW,
+    permission: PERMISSIONS.HR_DASHBOARD_VIEW,
     subItems: [
-      { text: "Dashboard", icon: <SpeedIcon />, path: "/hr" },
+      { text: "Dashboard", icon: <SpeedIcon />, path: "/hr", permission: PERMISSIONS.HR_DASHBOARD_VIEW },
       {
         text: "Salary Profiles",
         icon: <PersonIcon />,
         path: "/hr/salary-profiles",
+        permission: PERMISSIONS.SALARY_PROFILES_VIEW,
       },
-      { text: "Deductions", icon: <ReceiptIcon />, path: "/hr/deductions" },
+      { text: "Deductions", icon: <ReceiptIcon />, path: "/hr/deductions", permission: PERMISSIONS.DEDUCTIONS_VIEW },
       {
         text: "Payroll Records",
         icon: <ReceiptLongIcon />,
         path: "/hr/payroll",
+        permission: PERMISSIONS.PAYROLL_VIEW,
       },
       {
         text: "Payroll Processing",
         icon: <PaymentIcon />,
         path: "/hr/payroll-processing",
+        permission: PERMISSIONS.PAYROLL_PROCESSING_VIEW,
       },
       {
         text: "Sales Commissions",
         icon: <SellIcon />,
         path: "/hr/sales-commissions",
+        permission: PERMISSIONS.HR_SALES_COMMISSIONS_VIEW,
       },
       {
         text: "Reimbursements",
         icon: <AccountBalanceWalletIcon />,
         path: "/hr/reimbursements",
+        permission: PERMISSIONS.REIMBURSEMENTS_VIEW,
       },
-      { text: "Promotions", icon: <SellIcon />, path: "/hr/promotions" },
-      { text: "Assets", icon: <Inventory2Icon />, path: "/hr/assets" },
+      { text: "Promotions", icon: <SellIcon />, path: "/hr/promotions", permission: PERMISSIONS.PROMOTIONS_VIEW },
+      { text: "Assets", icon: <Inventory2Icon />, path: "/hr/assets", permission: PERMISSIONS.HR_ASSETS_VIEW },
     ],
   },
   {
     text: "Sales Stock",
     icon: <WarehouseIcon />,
     path: "/warehouse",
-    permission: PERMISSIONS.WAREHOUSE_VIEW,
+    permission: PERMISSIONS.SALES_STOCK_VIEW,
     subItems: [
-      { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse" },
+      { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse", permission: PERMISSIONS.SALES_STOCK_VIEW },
       {
         text: "Sales Track",
         icon: <ReceiptLongIcon />,
         path: "/warehouse/sales-track",
+        permission: PERMISSIONS.WAREHOUSE_SALES_TRACK_VIEW,
       },
       {
         text: "Item Transfer Notes",
         icon: <SwapHorizIcon />,
         path: "/warehouse/item-transfer-notes",
+        permission: PERMISSIONS.ITN_VIEW,
       },
       {
         text: "ITN Approvals",
         icon: <FactCheckIcon />,
         path: "/warehouse/itn-approvals",
+        permission: PERMISSIONS.ITN_APPROVALS_VIEW,
       },
       {
         text: "Receive Notes",
         icon: <InventoryIcon />,
         path: "/warehouse/receive-notes",
+        permission: PERMISSIONS.RECEIVE_NOTES_VIEW,
       },
     ],
   },
@@ -410,19 +454,19 @@ const menuItems: MenuItem[] = [
     text: "Company Assets",
     icon: <BusinessCenterIcon />,
     path: "/warehouse/company-assets",
-    permission: PERMISSIONS.WAREHOUSE_VIEW,
+    permission: PERMISSIONS.COMPANY_ASSETS_VIEW,
   },
   {
     text: "Support",
     icon: <SupportAgentIcon />,
     path: "/support",
-    permission: PERMISSIONS.SUPPORT_VIEW,
+    permission: PERMISSIONS.SUPPORT_DASHBOARD_VIEW,
   },
   {
     text: "Reporting",
     icon: <AssessmentIcon />,
     path: "/reporting",
-    permission: PERMISSIONS.REPORTING_VIEW,
+    permission: PERMISSIONS.REPORTING_DASHBOARD_VIEW,
   },
   {
     text: "Branches",
@@ -557,19 +601,40 @@ export default function Sidebar({
     }
   };
 
-  // Filter menu items based on user permissions
-  const visibleMenuItems = menuItems.filter((item) => {
-    // Dashboard: only show if user has access to at least one module
-    if (item.path === "/dashboard") {
-      return hasAnyModuleAccess(user);
-    }
-    if (!item.permission) return true;
-    return hasPermission(
-      user,
-      item.permission.resource,
-      item.permission.action,
+  // Helper: check if user has a given permission (undefined = always accessible)
+  const canView = (perm?: { resource: string; action: string }) =>
+    !perm || hasPermission(user, perm.resource, perm.action);
+
+  // Helper: true if at least one leaf sub-item is accessible
+  const hasVisibleChild = (subs: SubMenuItem[]): boolean =>
+    subs.some((s) =>
+      s.subItems?.length ? hasVisibleChild(s.subItems) : canView(s.permission),
     );
-  });
+
+  // Recursively filter sub-items to only accessible ones
+  const filterSubs = (subs: SubMenuItem[]): SubMenuItem[] =>
+    subs
+      .filter((s) =>
+        s.subItems?.length ? hasVisibleChild(s.subItems) : canView(s.permission),
+      )
+      .map((s): SubMenuItem =>
+        s.subItems?.length ? { ...s, subItems: filterSubs(s.subItems) } : s,
+      );
+
+  // Filter menu items based on user permissions, pre-filtering sub-items
+  const visibleMenuItems = menuItems
+    .filter((item) => {
+      if (item.path === "/dashboard") return hasAnyModuleAccess(user);
+      if (item.subItems?.length) {
+        return canView(item.permission) || hasVisibleChild(item.subItems);
+      }
+      return canView(item.permission);
+    })
+    .map((item): MenuItem =>
+      item.subItems?.length
+        ? { ...item, subItems: filterSubs(item.subItems) }
+        : item,
+    );
 
   const drawer = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>

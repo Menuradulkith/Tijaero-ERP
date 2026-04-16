@@ -49,6 +49,7 @@ import {
     showSuccessToast,
     useTConfirmDialog,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { customersApi } from "@/modules/customers/api";
@@ -72,6 +73,7 @@ const SO_STATUS_FILTER_OPTIONS = [
 
 export default function SalesOrderApprovalsPage() {
     const queryClient = useQueryClient();
+    const canViewCustomers = usePermission("customers", "view");
     const [searchQuery, setSearchQuery] = useState("");
     const [sortField, setSortField] = useState("created_date");
     const [selectedOrder, setSelectedOrder] = useState<InvoiceWithItems | null>(null);
@@ -101,6 +103,7 @@ export default function SalesOrderApprovalsPage() {
     const { data: customers = [] } = useQuery({
         queryKey: ["customers"],
         queryFn: () => customersApi.getAll(),
+        enabled: canViewCustomers,
     });
 
     // OPTIMIZED: Single API call for products and branches

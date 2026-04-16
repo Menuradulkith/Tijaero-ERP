@@ -78,8 +78,9 @@ const SORT_OPTIONS: SortOption[] = [
 
 export default function CommissionPaymentApprovalsPage() {
   const queryClient = useQueryClient();
-  const canApprove = usePermission("sales", "approve");
-  const canUpdate = usePermission("customers", "update");
+  const canApprove = usePermission("commission_payment_approvals", "approve");
+  const canUpdate = usePermission("commission_payments", "update");
+  const canViewCustomers = usePermission("customers", "view");
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
@@ -110,6 +111,7 @@ export default function CommissionPaymentApprovalsPage() {
   const { data: allCustomers } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(0, 1000),
+    enabled: canViewCustomers,
   });
 
   const agents = useMemo(

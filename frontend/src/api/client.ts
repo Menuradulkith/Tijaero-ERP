@@ -128,7 +128,13 @@ apiClient.interceptors.response.use(
     }
 
     // Capture standard API error responses to display
-    if (error.response && !hideErrorToast && error.response.status !== 401) {
+    // Do not toast permission-denied (403) to avoid noisy cross-module lookups.
+    if (
+      error.response &&
+      !hideErrorToast &&
+      error.response.status !== 401 &&
+      error.response.status !== 403
+    ) {
       const data: any = error.response.data;
       if (data?.detail) {
         // FastAPI default throws 'detail' string or array

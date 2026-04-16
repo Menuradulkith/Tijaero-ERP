@@ -10,7 +10,7 @@ import {
   Grid,
 } from "@mui/material";
 import { brandsApi } from "../api";
-import { BrandCreate } from "../types";
+import { BrandCreate, Brand } from "../types";
 import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
 interface BrandDialogProps {
@@ -93,6 +93,11 @@ export default function BrandDialog({ open, onClose }: BrandDialogProps) {
                 rules={{
                   required: "Code is required",
                   maxLength: { value: 4, message: "Max 4 characters" },
+                  validate: (value) => {
+                    const brands = queryClient.getQueryData<Brand[]>(["brands"]) || [];
+                    const exists = brands.some(b => b.brand_code.toLowerCase() === value.toLowerCase());
+                    return !exists || "Brand code already exists";
+                  },
                 }}
                 render={({ field, fieldState }) => (
                   <TextField

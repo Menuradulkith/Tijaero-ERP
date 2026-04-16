@@ -153,33 +153,33 @@ export default function DashboardPage() {
   );
   const canViewSales = hasPermission(
     user,
-    PERMISSIONS.SALES_VIEW.resource,
-    PERMISSIONS.SALES_VIEW.action,
+    PERMISSIONS.SALES_DASHBOARD_VIEW.resource,
+    PERMISSIONS.SALES_DASHBOARD_VIEW.action,
   );
   const canViewPurchasing = hasPermission(
     user,
-    PERMISSIONS.PURCHASING_VIEW.resource,
-    PERMISSIONS.PURCHASING_VIEW.action,
+    PERMISSIONS.PURCHASING_DASHBOARD_VIEW.resource,
+    PERMISSIONS.PURCHASING_DASHBOARD_VIEW.action,
   );
   const canViewFinance = hasPermission(
     user,
-    PERMISSIONS.FINANCE_VIEW.resource,
-    PERMISSIONS.FINANCE_VIEW.action,
+    PERMISSIONS.FINANCE_DASHBOARD_VIEW.resource,
+    PERMISSIONS.FINANCE_DASHBOARD_VIEW.action,
   );
   const canViewInventory = hasPermission(
     user,
-    PERMISSIONS.INVENTORY_VIEW.resource,
-    PERMISSIONS.INVENTORY_VIEW.action,
+    PERMISSIONS.PRODUCTS_VIEW.resource,
+    PERMISSIONS.PRODUCTS_VIEW.action,
   );
   const canViewWarehouse = hasPermission(
     user,
-    PERMISSIONS.WAREHOUSE_VIEW.resource,
-    PERMISSIONS.WAREHOUSE_VIEW.action,
+    PERMISSIONS.SALES_STOCK_VIEW.resource,
+    PERMISSIONS.SALES_STOCK_VIEW.action,
   );
   const canViewSupport = hasPermission(
     user,
-    PERMISSIONS.SUPPORT_VIEW.resource,
-    PERMISSIONS.SUPPORT_VIEW.action,
+    PERMISSIONS.SUPPORT_DASHBOARD_VIEW.resource,
+    PERMISSIONS.SUPPORT_DASHBOARD_VIEW.action,
   );
 
   const { metrics, loading, error, refresh } = useDashboardMetrics({

@@ -515,12 +515,12 @@ def delete_coupon(
     response_model=schemas.CouponValidationResponse,
     summary="Validate Coupon",
     description="Validate a coupon for use on an invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.COUPON_VIEW))],
 )
 def validate_coupon(
     request: schemas.CouponValidationRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.COUPON_VIEW)),
 ):
     """Validate a coupon code for use on an invoice"""
     return service.coupon_service.validate_coupon(db, request)
@@ -659,12 +659,12 @@ def delete_voucher(
     response_model=schemas.VoucherValidationResponse,
     summary="Validate Gift Voucher",
     description="Validate a gift voucher for use on an invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW))],
 )
 def validate_voucher(
     request: schemas.VoucherValidationRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW)),
 ):
     """Validate a gift voucher code for use on an invoice"""
     return service.voucher_service.validate_voucher(db, request)
@@ -675,12 +675,12 @@ def validate_voucher(
     response_model=schemas.VoucherRedeemResponse,
     summary="Redeem Gift Voucher",
     description="Redeem a gift voucher on an invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_UPDATE))],
 )
 def redeem_voucher(
     redemption: schemas.VoucherRedeemRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_CREATE)),
+    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_UPDATE)),
 ):
     """Redeem a gift voucher on an invoice"""
     return service.voucher_service.redeem_voucher_api(db, redemption)
