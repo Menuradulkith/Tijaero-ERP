@@ -253,7 +253,7 @@ def get_pending_approvals(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.COMMON_VIEW)),
 ):
     """
     Get list of all pending approvals across the ERP.
@@ -278,7 +278,7 @@ def get_pending_approvals(
 )
 def get_approval_statistics(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.COMMON_VIEW)),
 ):
     """Get statistics on pending approvals across all modules."""
     return centralized_approval_service.get_approval_statistics(db)
@@ -290,7 +290,7 @@ def get_approval_statistics(
     summary="Get Approval Types",
 )
 def get_approval_types(
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.COMMON_VIEW)),
 ):
     """Get list of all available approval types."""
     return [t.value for t in ApprovalType]
@@ -305,7 +305,7 @@ def approve_request(
     approval_id: int,
     request: ApprovalActionRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE)),
+    current_user: User = Depends(require_permission(*Permissions.COMMON_UPDATE)),
 ):
     """
     Approve a pending approval request through the centralized system.
@@ -406,7 +406,7 @@ def reject_request(
     approval_id: int,
     request: ApprovalActionRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE)),
+    current_user: User = Depends(require_permission(*Permissions.COMMON_UPDATE)),
 ):
     """
     Reject a pending approval request.

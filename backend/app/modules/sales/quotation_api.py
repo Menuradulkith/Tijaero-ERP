@@ -38,7 +38,7 @@ router = APIRouter()
     "/",
     response_model=SalesQuoteList,
     summary="List All Quotes",
-    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def list_quotes(
     quote_type: Optional[QuoteTypeEnum] = Query(None, description="Filter by quote type"),
@@ -50,7 +50,7 @@ def list_quotes(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=500, description="Items per page"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
     """
     Get list of all sales quotes (quotations and proforma invoices) with filtering and pagination.
@@ -79,14 +79,14 @@ def list_quotes(
     "/quotations",
     response_model=SalesQuoteList,
     summary="List Quotations Only",
-    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def list_quotations(
     status: Optional[QuoteStatusEnum] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
     """Get list of quotations (estimates) only."""
     filters = SalesQuoteFilter(quote_type=QuoteTypeEnum.QUOTATION, status=status)
@@ -99,14 +99,14 @@ def list_quotations(
     "/proforma",
     response_model=SalesQuoteList,
     summary="List Proforma Invoices Only",
-    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def list_proforma_invoices(
     status: Optional[QuoteStatusEnum] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
     """Get list of proforma invoices (exact pricing) only."""
     filters = SalesQuoteFilter(quote_type=QuoteTypeEnum.PROFORMA, status=status)
@@ -119,12 +119,12 @@ def list_proforma_invoices(
     "/expiring",
     response_model=List[SalesQuote],
     summary="Get Expiring Quotes",
-    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def get_expiring_quotes(
     days: int = Query(7, ge=1, le=90, description="Days until expiry"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
     """Get quotes expiring within specified days."""
     return sales_quote_service.get_expiring_soon(db, days)
@@ -136,12 +136,12 @@ def get_expiring_quotes(
     "/{quote_id}",
     response_model=SalesQuoteWithItems,
     summary="Get Quote by ID",
-    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def get_quote(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
     """Get quote details with items."""
     quote = sales_quote_service.get_quote_by_id(db, quote_id)
@@ -158,12 +158,12 @@ def get_quote(
     response_model=SalesQuoteWithItems,
     status_code=status.HTTP_201_CREATED,
     summary="Create Quote",
-    dependencies=[Depends(require_permission(*Permissions.SALES_CREATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
 )
 def create_quote(
     quote_data: SalesQuoteCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_CREATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
     """
     Create a new sales quote (quotation or proforma invoice).
@@ -179,12 +179,12 @@ def create_quote(
     response_model=SalesQuoteWithItems,
     status_code=status.HTTP_201_CREATED,
     summary="Create Quotation",
-    dependencies=[Depends(require_permission(*Permissions.SALES_CREATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
 )
 def create_quotation(
     quote_data: SalesQuoteCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_CREATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
     """Create a new quotation (estimate) - shorthand endpoint."""
     quote_data.quote_type = QuoteTypeEnum.QUOTATION
@@ -197,12 +197,12 @@ def create_quotation(
     response_model=SalesQuoteWithItems,
     status_code=status.HTTP_201_CREATED,
     summary="Create Proforma Invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_CREATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
 )
 def create_proforma(
     quote_data: SalesQuoteCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_CREATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
     """Create a new proforma invoice (exact pricing) - shorthand endpoint."""
     quote_data.quote_type = QuoteTypeEnum.PROFORMA
@@ -214,13 +214,13 @@ def create_proforma(
     "/{quote_id}",
     response_model=SalesQuoteWithItems,
     summary="Update Quote",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def update_quote(
     quote_id: int,
     quote_data: SalesQuoteUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Update an existing quote. Only draft quotes can be edited."""
     return sales_quote_service.update_quote(db, quote_id, quote_data)
@@ -230,12 +230,12 @@ def update_quote(
     "/{quote_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete Quote",
-    dependencies=[Depends(require_permission(*Permissions.SALES_DELETE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_DELETE))]
 )
 def delete_quote(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_DELETE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_DELETE))
 ):
     """Delete a quote. Only draft quotes can be deleted."""
     sales_quote_service.delete_quote(db, quote_id)
@@ -248,13 +248,13 @@ def delete_quote(
     "/{quote_id}/status",
     response_model=SalesQuote,
     summary="Update Quote Status",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def update_quote_status(
     quote_id: int,
     status_update: SalesQuoteStatusUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Update quote status."""
     return sales_quote_service.update_status(db, quote_id, status_update)
@@ -264,12 +264,12 @@ def update_quote_status(
     "/{quote_id}/submit",
     response_model=SalesQuote,
     summary="Submit for Approval",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def submit_for_approval(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Submit quote for approval."""
     return sales_quote_service.submit_for_approval(db, quote_id)
@@ -279,12 +279,12 @@ def submit_for_approval(
     "/{quote_id}/approve",
     response_model=SalesQuote,
     summary="Approve Quote",
-    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def approve_quote(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Approve a quote."""
     return sales_quote_service.approve_quote(db, quote_id)
@@ -294,13 +294,13 @@ def approve_quote(
     "/{quote_id}/reject",
     response_model=SalesQuote,
     summary="Reject Quote",
-    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def reject_quote(
     quote_id: int,
     reason: Optional[str] = Query(None, description="Rejection reason"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Reject a quote."""
     return sales_quote_service.reject_quote(db, quote_id, reason)
@@ -310,12 +310,12 @@ def reject_quote(
     "/{quote_id}/send",
     response_model=SalesQuote,
     summary="Mark as Sent",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def mark_as_sent(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Mark quote as sent to customer."""
     return sales_quote_service.mark_as_sent(db, quote_id)
@@ -325,12 +325,12 @@ def mark_as_sent(
     "/{quote_id}/accept",
     response_model=SalesQuote,
     summary="Mark as Accepted",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def mark_as_accepted(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Mark quote as accepted by customer."""
     return sales_quote_service.mark_as_accepted(db, quote_id)
@@ -340,12 +340,12 @@ def mark_as_accepted(
     "/{quote_id}/submit-to-customer",
     response_model=SalesQuote,
     summary="Submit Quotation to Customer",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def submit_to_customer(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Submit quotation to customer. Sets status to 'submitted' and records submitted_date."""
     return sales_quote_service.submit_to_customer(db, quote_id)
@@ -355,12 +355,12 @@ def submit_to_customer(
     "/{quote_id}/under-review",
     response_model=SalesQuote,
     summary="Mark as Under Review",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def mark_under_review(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Mark quote as under review by customer (proforma stage)."""
     return sales_quote_service.mark_under_review(db, quote_id)
@@ -370,13 +370,13 @@ def mark_under_review(
     "/{quote_id}/toggle-proforma",
     response_model=ToggleProformaResponse,
     summary="Toggle Proforma Invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def toggle_proforma(
     quote_id: int,
     data: ToggleProformaRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """
     Toggle between quotation and proforma invoice type.
@@ -396,13 +396,13 @@ def toggle_proforma(
     "/{quote_id}/customer-approve",
     response_model=SalesQuote,
     summary="Customer Approval",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def customer_approve(
     quote_id: int,
     data: Optional[CustomerApprovalRequest] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """
     Record customer approval. Customer agrees to proceed with purchase.
@@ -417,13 +417,13 @@ def customer_approve(
     "/{quote_id}/reject-quote",
     response_model=SalesQuote,
     summary="Reject Quote with Options",
-    dependencies=[Depends(require_permission(*Permissions.SALES_APPROVE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def reject_quote_with_options(
     quote_id: int,
     data: Optional[RejectQuoteRequest] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_APPROVE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """
     Reject a quote with optional reason and option to cancel linked PO.
@@ -438,13 +438,13 @@ def reject_quote_with_options(
     "/{quote_id}/cancel",
     response_model=SalesQuote,
     summary="Cancel Quote",
-    dependencies=[Depends(require_permission(*Permissions.SALES_DELETE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_DELETE))]
 )
 def cancel_quote(
     quote_id: int,
     reason: Optional[str] = Query(None, description="Cancellation reason"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_DELETE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_DELETE))
 ):
     """Cancel a quote."""
     return sales_quote_service.cancel_quote(db, quote_id, reason)
@@ -456,13 +456,13 @@ def cancel_quote(
     "/{quote_id}/convert",
     response_model=ConvertToInvoiceResponse,
     summary="Convert to Invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_CREATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
 )
 def convert_to_invoice(
     quote_id: int,
     conversion_data: ConvertToInvoiceRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_CREATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
     """
     Convert quote/proforma to invoice.
@@ -496,12 +496,12 @@ def convert_to_invoice(
     "/{quote_id}/stock-availability",
     response_model=StockAvailabilityResponse,
     summary="Check Stock Availability",
-    dependencies=[Depends(require_permission(*Permissions.SALES_VIEW))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def check_stock_availability(
     quote_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
     """
     Check stock availability for all items in a quote.
@@ -516,13 +516,13 @@ def check_stock_availability(
     "/{quote_id}/create-po",
     response_model=CreatePOFromQuoteResponse,
     summary="Create PO from Quotation",
-    dependencies=[Depends(require_permission(*Permissions.SALES_CREATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
 )
 def create_po_from_quotation(
     quote_id: int,
     po_data: CreatePOFromQuoteRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_CREATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
     """
     Create a Purchasing Order from an accepted/approved quotation.
@@ -557,13 +557,13 @@ def create_po_from_quotation(
     "/{quote_id}/revise",
     response_model=CreateRevisionResponse,
     summary="Create Revision",
-    dependencies=[Depends(require_permission(*Permissions.SALES_CREATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
 )
 def create_revision(
     quote_id: int,
     revision_data: Optional[CreateRevisionRequest] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_CREATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
     """
     Create a new revision of a quotation.
@@ -596,11 +596,11 @@ def create_revision(
 @router.post(
     "/mark-expired",
     summary="Mark Expired Quotes",
-    dependencies=[Depends(require_permission(*Permissions.SALES_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def mark_expired_quotes(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SALES_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Mark all expired quotes as expired. Can be called by a scheduled job."""
     count = sales_quote_service.mark_expired_quotes(db)

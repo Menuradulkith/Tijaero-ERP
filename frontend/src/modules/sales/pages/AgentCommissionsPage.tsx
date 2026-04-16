@@ -145,10 +145,10 @@ export default function AgentCommissionsPage() {
   const queryClient = useQueryClient();
 
   // Permissions
-  const canCreate = usePermission("customers", "create");
-  const canUpdate = usePermission("customers", "update");
-  const canDelete = usePermission("customers", "delete");
-  const canApprove = usePermission("sales", "approve");
+  const canCreate = usePermission("agent_commissions", "create");
+  const canUpdate = usePermission("agent_commissions", "update");
+  const canDelete = usePermission("agent_commissions", "delete");
+  const canApprove = usePermission("commission_approvals", "approve");
 
   // Filter states
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
@@ -198,9 +198,11 @@ export default function AgentCommissionsPage() {
   const commissions = commissionsData?.items || [];
 
   // Fetch agents for filter dropdown
+  const canViewCustomers = usePermission("customers", "view");
   const { data: allCustomers } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(0, 1000),
+    enabled: canViewCustomers,
   });
 
   const agents = useMemo(

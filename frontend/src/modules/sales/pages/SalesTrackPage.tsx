@@ -62,6 +62,7 @@ import {
   modernTableStyles,
   showErrorToast,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { useReferenceData } from "@/hooks";
@@ -247,16 +248,20 @@ export default function SalesTrackPage() {
   const invoices = invoicesData?.items || [];
 
   // Customers
+  const canViewCustomers = usePermission("customers", "view");
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
+    enabled: canViewCustomers,
     staleTime: 300000,
   });
 
   // Products
+  const canViewProducts = usePermission("products", "view");
   const { data: productsResult } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.getAll(1, 1000),
+    enabled: canViewProducts,
     staleTime: 300000,
   });
   const products: Product[] =

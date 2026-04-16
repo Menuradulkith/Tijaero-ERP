@@ -10,7 +10,8 @@ class ProductRepository:
         return db.query(Product).filter(Product.id == product_id).first()
     
     def get_by_item_code(self, db: Session, item_code: str) -> Optional[Product]:
-        return db.query(Product).filter(Product.item_code == item_code).first()
+        from sqlalchemy import func
+        return db.query(Product).filter(func.lower(Product.item_code) == func.lower(item_code)).first()
     
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = True) -> List[Product]:
         query = db.query(Product)
@@ -69,6 +70,10 @@ class CategoryRepository:
     def get_by_id(self, db: Session, category_id: int) -> Optional[Category]:
         return db.query(Category).filter(Category.id == category_id).first()
     
+    def get_by_code(self, db: Session, category_code: str) -> Optional[Category]:
+        from sqlalchemy import func
+        return db.query(Category).filter(func.lower(Category.category_code) == func.lower(category_code)).first()
+    
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Category]:
         query = db.query(Category)
         if active_only:
@@ -109,6 +114,10 @@ class CategoryRepository:
 class BrandRepository:
     def get_by_id(self, db: Session, brand_id: int) -> Optional[ItemsBrand]:
         return db.query(ItemsBrand).filter(ItemsBrand.id == brand_id).first()
+    
+    def get_by_code(self, db: Session, brand_code: str) -> Optional[ItemsBrand]:
+        from sqlalchemy import func
+        return db.query(ItemsBrand).filter(func.lower(ItemsBrand.brand_code) == func.lower(brand_code)).first()
     
     def get_all(self, db: Session, skip: int = 0, limit: int = 100) -> List[ItemsBrand]:
         return db.query(ItemsBrand).offset(skip).limit(limit).all()

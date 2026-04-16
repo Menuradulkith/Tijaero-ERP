@@ -1190,11 +1190,11 @@ export default function SalesStockDashboard() {
           >
             <PackageIcon sx={{ fontSize: 64, opacity: 0.3 }} />
             <Typography color="text.secondary">No stock items found</Typography>
-            <Typography variant="body2" color="text.secondary">
-              {salesStock.length === 0
-                ? "Sales stock is created when Goods Received Notes (GRN) are approved. Add inventory through the Purchasing → GRN workflow."
-                : "Try adjusting your filters"}
-            </Typography>
+            {salesStock.length > 0 && (
+              <Typography variant="body2" color="text.secondary">
+                Try adjusting your filters
+              </Typography>
+            )}
           </Box>
         ) : (
           <TableContainer sx={{ flex: 1 }}>

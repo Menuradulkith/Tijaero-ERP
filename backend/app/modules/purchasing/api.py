@@ -21,11 +21,11 @@ router = APIRouter(prefix="/purchasing", tags=["purchasing"])
     "/statistics",
     response_model=Dict[str, Any],
     summary="Get Purchasing Statistics",
-    dependencies=[Depends(require_permission(*Permissions.PURCHASING_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.PURCHASING_DASHBOARD_VIEW))],
 )
 def get_purchasing_statistics(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.PURCHASING_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.PURCHASING_DASHBOARD_VIEW)),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
     branch_code: Optional[str] = Query(
         None, description="Filter statistics by a specific branch"
@@ -43,22 +43,41 @@ def get_purchasing_statistics(
 
 
 @router.post(
-    "/suppliers", response_model=schemas.Supplier, status_code=status.HTTP_201_CREATED
+    "/suppliers",
+    response_model=schemas.Supplier,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_CREATE))],
 )
-def create_supplier(supplier: schemas.SupplierCreate, db: Session = Depends(get_db)):
+def create_supplier(
+    supplier: schemas.SupplierCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_CREATE)),
+):
 
     supplier_service = service.SupplierService(db)
     return supplier_service.create_supplier(supplier)
 
 
-@router.get("/suppliers/{supplier_id}", response_model=schemas.Supplier)
-def get_supplier(supplier_id: int, db: Session = Depends(get_db)):
+@router.get(
+    "/suppliers/{supplier_id}",
+    response_model=schemas.Supplier,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
+)
+def get_supplier(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
+):
 
     supplier_service = service.SupplierService(db)
     return supplier_service.get_supplier(supplier_id)
 
 
-@router.get("/suppliers", response_model=List[schemas.Supplier])
+@router.get(
+    "/suppliers",
+    response_model=List[schemas.Supplier],
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
+)
 def list_suppliers(
     active: Optional[bool] = None,
     country_id: Optional[int] = None,
@@ -67,6 +86,7 @@ def list_suppliers(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
 ):
     supplier_service = service.SupplierService(db)
     filters = schemas.SupplierListFilter(
@@ -80,18 +100,31 @@ def list_suppliers(
     return supplier_service.list_suppliers(filters)
 
 
-@router.patch("/suppliers/{supplier_id}", response_model=schemas.Supplier)
+@router.patch(
+    "/suppliers/{supplier_id}",
+    response_model=schemas.Supplier,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_UPDATE))],
+)
 def update_supplier(
     supplier_id: int,
     supplier_update: schemas.SupplierUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
 ):
     supplier_service = service.SupplierService(db)
     return supplier_service.update_supplier(supplier_id, supplier_update)
 
 
-@router.delete("/suppliers/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_supplier(supplier_id: int, db: Session = Depends(get_db)):
+@router.delete(
+    "/suppliers/{supplier_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_DELETE))],
+)
+def delete_supplier(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_DELETE)),
+):
     supplier_service = service.SupplierService(db)
     supplier_service.delete_supplier(supplier_id)
     return None
@@ -872,7 +905,7 @@ def export_po_csv(
     limit: int = Query(100000),
     branch_codes: Optional[List[str]] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.PURCHASING_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW)),
 ):
     pos = service.purchasing_service.get_all_purchasing_orders(
         db, skip, limit, branch_codes

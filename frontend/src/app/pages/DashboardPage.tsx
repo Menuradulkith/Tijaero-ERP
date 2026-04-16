@@ -153,33 +153,33 @@ export default function DashboardPage() {
   );
   const canViewSales = hasPermission(
     user,
-    PERMISSIONS.SALES_VIEW.resource,
-    PERMISSIONS.SALES_VIEW.action,
+    PERMISSIONS.SALES_DASHBOARD_VIEW.resource,
+    PERMISSIONS.SALES_DASHBOARD_VIEW.action,
   );
   const canViewPurchasing = hasPermission(
     user,
-    PERMISSIONS.PURCHASING_VIEW.resource,
-    PERMISSIONS.PURCHASING_VIEW.action,
+    PERMISSIONS.PURCHASING_DASHBOARD_VIEW.resource,
+    PERMISSIONS.PURCHASING_DASHBOARD_VIEW.action,
   );
   const canViewFinance = hasPermission(
     user,
-    PERMISSIONS.FINANCE_VIEW.resource,
-    PERMISSIONS.FINANCE_VIEW.action,
+    PERMISSIONS.FINANCE_DASHBOARD_VIEW.resource,
+    PERMISSIONS.FINANCE_DASHBOARD_VIEW.action,
   );
   const canViewInventory = hasPermission(
     user,
-    PERMISSIONS.INVENTORY_VIEW.resource,
-    PERMISSIONS.INVENTORY_VIEW.action,
+    PERMISSIONS.PRODUCTS_VIEW.resource,
+    PERMISSIONS.PRODUCTS_VIEW.action,
   );
   const canViewWarehouse = hasPermission(
     user,
-    PERMISSIONS.WAREHOUSE_VIEW.resource,
-    PERMISSIONS.WAREHOUSE_VIEW.action,
+    PERMISSIONS.SALES_STOCK_VIEW.resource,
+    PERMISSIONS.SALES_STOCK_VIEW.action,
   );
   const canViewSupport = hasPermission(
     user,
-    PERMISSIONS.SUPPORT_VIEW.resource,
-    PERMISSIONS.SUPPORT_VIEW.action,
+    PERMISSIONS.SUPPORT_DASHBOARD_VIEW.resource,
+    PERMISSIONS.SUPPORT_DASHBOARD_VIEW.action,
   );
 
   const { metrics, loading, error, refresh } = useDashboardMetrics({
@@ -952,183 +952,9 @@ export default function DashboardPage() {
               )}
             </Paper>
           </Grid>
-
-          {/* ═══════ ROW 4 — Quick Actions ═══════ */}
-          <Grid item xs={12}>
-            <Paper
-              sx={{ p: 2.5, borderRadius: 2 }}
-              elevation={0}
-              variant="outlined"
-            >
-              <Typography variant="h6" fontWeight={600} gutterBottom>
-                Quick Actions
-              </Typography>
-              <Grid container spacing={1.5}>
-                {canViewSales &&
-                  hasPermission(
-                    user,
-                    PERMISSIONS.SALES_CREATE.resource,
-                    PERMISSIONS.SALES_CREATE.action,
-                  ) && (
-                    <Grid item xs={6} sm={4} md={2}>
-                      <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                        <CardActionArea
-                          sx={{ p: 2, textAlign: "center" }}
-                          onClick={() => navigate("/sales?action=new")}
-                        >
-                          <ShoppingCartIcon
-                            color="success"
-                            sx={{ fontSize: 32, mb: 0.5 }}
-                          />
-                          <Typography
-                            variant="caption"
-                            fontWeight={600}
-                            display="block"
-                          >
-                            New Sale
-                          </Typography>
-                        </CardActionArea>
-                      </Card>
-                    </Grid>
-                  )}
-                {canViewSales &&
-                  hasPermission(
-                    user,
-                    PERMISSIONS.CUSTOMER_CREATE.resource,
-                    PERMISSIONS.CUSTOMER_CREATE.action,
-                  ) && (
-                    <Grid item xs={6} sm={4} md={2}>
-                      <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                        <CardActionArea
-                          sx={{ p: 2, textAlign: "center" }}
-                          onClick={() =>
-                            navigate("/sales/customers?action=new")
-                          }
-                        >
-                          <PersonAddIcon
-                            color="primary"
-                            sx={{ fontSize: 32, mb: 0.5 }}
-                          />
-                          <Typography
-                            variant="caption"
-                            fontWeight={600}
-                            display="block"
-                          >
-                            Add Customer
-                          </Typography>
-                        </CardActionArea>
-                      </Card>
-                    </Grid>
-                  )}
-                {canViewPurchasing &&
-                  hasPermission(
-                    user,
-                    PERMISSIONS.PURCHASING_CREATE.resource,
-                    PERMISSIONS.PURCHASING_CREATE.action,
-                  ) && (
-                    <Grid item xs={6} sm={4} md={2}>
-                      <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                        <CardActionArea
-                          sx={{ p: 2, textAlign: "center" }}
-                          onClick={() => navigate("/purchasing?action=new")}
-                        >
-                          <LocalShippingIcon
-                            color="info"
-                            sx={{ fontSize: 32, mb: 0.5 }}
-                          />
-                          <Typography
-                            variant="caption"
-                            fontWeight={600}
-                            display="block"
-                          >
-                            New PO
-                          </Typography>
-                        </CardActionArea>
-                      </Card>
-                    </Grid>
-                  )}
-                {canViewInventory &&
-                  hasPermission(
-                    user,
-                    PERMISSIONS.INVENTORY_CREATE.resource,
-                    PERMISSIONS.INVENTORY_CREATE.action,
-                  ) && (
-                    <Grid item xs={6} sm={4} md={2}>
-                      <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                        <CardActionArea
-                          sx={{ p: 2, textAlign: "center" }}
-                          onClick={() => navigate("/inventory?action=new")}
-                        >
-                          <InventoryIcon
-                            color="warning"
-                            sx={{ fontSize: 32, mb: 0.5 }}
-                          />
-                          <Typography
-                            variant="caption"
-                            fontWeight={600}
-                            display="block"
-                          >
-                            Add Product
-                          </Typography>
-                        </CardActionArea>
-                      </Card>
-                    </Grid>
-                  )}
-                {canViewWarehouse && (
-                  <Grid item xs={6} sm={4} md={2}>
-                    <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                      <CardActionArea
-                        sx={{ p: 2, textAlign: "center" }}
-                        onClick={() => navigate("/warehouse/sales-stock")}
-                      >
-                        <ConfirmationNumberIcon
-                          sx={{
-                            fontSize: 32,
-                            mb: 0.5,
-                            color: "text.secondary",
-                          }}
-                        />
-                        <Typography
-                          variant="caption"
-                          fontWeight={600}
-                          display="block"
-                        >
-                          Sales Stock
-                        </Typography>
-                      </CardActionArea>
-                    </Card>
-                  </Grid>
-                )}
-                {canViewSupport && (
-                  <Grid item xs={6} sm={4} md={2}>
-                    <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                      <CardActionArea
-                        sx={{ p: 2, textAlign: "center" }}
-                        onClick={() => navigate("/support")}
-                      >
-                        <SupportAgentIcon
-                          sx={{
-                            fontSize: 32,
-                            mb: 0.5,
-                            color: "secondary.main",
-                          }}
-                        />
-                        <Typography
-                          variant="caption"
-                          fontWeight={600}
-                          display="block"
-                        >
-                          Support
-                        </Typography>
-                      </CardActionArea>
-                    </Card>
-                  </Grid>
-                )}
-              </Grid>
-            </Paper>
-          </Grid>
         </Grid>
       )}
     </Box>
   );
 }
+

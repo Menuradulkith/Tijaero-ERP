@@ -12,7 +12,7 @@ import {
   Checkbox,
 } from "@mui/material";
 import { categoriesApi } from "../api";
-import { CategoryCreate } from "../types";
+import { CategoryCreate, Category } from "../types";
 import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
 interface CategoryDialogProps {
@@ -100,7 +100,12 @@ export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
                     value: /^[A-Z0-9-_]+$/,
                     message: "Use only uppercase letters, numbers, hyphens and underscores"
                   },
-                  maxLength: { value: 10, message: "Code cannot exceed 10 characters" }
+                  maxLength: { value: 10, message: "Code cannot exceed 10 characters" },
+                  validate: (value) => {
+                    const categories = queryClient.getQueryData<Category[]>(["categories"]) || [];
+                    const exists = categories.some(c => c.category_code.toLowerCase() === value.toLowerCase());
+                    return !exists || "Category code already exists";
+                  },
                 }}
                 render={({ field, fieldState }) => (
                   <TextField

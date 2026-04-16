@@ -43,6 +43,7 @@ import {
   useConfirmDialog,
   fmtLKR,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 
 import { suppliersApi, supplierAdvancePaymentsApi } from "@/modules/purchasing/api";
 import {
@@ -94,6 +95,7 @@ const resetFormFromItem = (item: SupplierAdvancePayment): Partial<SupplierAdvanc
 export default function SupplierAdvancePaymentsPage() {
   const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
+  const canViewSuppliers = usePermission("suppliers", "view");
 
   // Validation state
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -155,6 +157,7 @@ export default function SupplierAdvancePaymentsPage() {
   const { data: suppliers = [] } = useQuery({
     queryKey: ["suppliers"],
     queryFn: () => suppliersApi.getAll(),
+    enabled: canViewSuppliers,
   });
 
   // Fetch supplier advance payments

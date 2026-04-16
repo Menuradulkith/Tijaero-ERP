@@ -172,7 +172,12 @@ export default function ProductDialog({
                     value: /^[A-Z0-9-_]+$/,
                     message: "Use only uppercase letters, numbers, hyphens and underscores"
                   },
-                  maxLength: { value: 20, message: "Code cannot exceed 20 characters" }
+                  maxLength: { value: 20, message: "Code cannot exceed 20 characters" },
+                  validate: (value) => {
+                    const products = queryClient.getQueryData<Product[]>(["products"]) || [];
+                    const exists = products.some(p => p.item_code.toLowerCase() === value.toLowerCase() && (!isEdit || p.id !== product?.id));
+                    return !exists || "Item code already exists";
+                  },
                 }}
                 render={({ field, fieldState }) => (
                   <TextField
@@ -296,6 +301,32 @@ export default function ProductDialog({
                     inputProps={{ min: 0, step: 0.01 }}
                     error={!!fieldState.error}
                     helperText={fieldState.error?.message || "Purchase cost of the product"}
+                  />
+                )}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Controller
+                name="selling_price"
+                control={control}
+                rules={{
+                  min: { value: 0, message: "Selling price cannot be negative" },
+                  validate: (value, formValues) => {
+                    if (value && value > 0 && formValues?.cost_price && value < formValues.cost_price) {
+                      return "Selling price should not be less than cost price";
+                    }
+                    return true;
+                  }
+                }}
+                render={({ field, fieldState }) => (
+                  <TextField
+                    {...field}
+                    label="Selling Price"
+                    type="number"
+                    fullWidth
+                    inputProps={{ min: 0, step: 0.01 }}
+                    error={!!fieldState.error}
+                    helperText={fieldState.error?.message || "Default selling price"}
                   />
                 )}
               />

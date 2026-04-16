@@ -243,10 +243,16 @@ export default function SalesPage() {
     number | null
   >(null);
 
+  // Cross-module view permissions for optional reference data
+  const canViewSalesSettings = usePermission("sales_settings", "view");
+  const canViewCustomers = usePermission("customers", "view");
+  const canViewCreditNotes = usePermission("credit_notes", "view");
+
   // Fetch active payment cards from settings
   const { data: paymentCards = [] } = useQuery({
     queryKey: ["payment-cards-active"],
     queryFn: () => paymentCardsApi.getAll(true), // Only active cards
+    enabled: canViewSalesSettings,
   });
 
   // Get selected payment card details
@@ -288,10 +294,10 @@ export default function SalesPage() {
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
   // Permissions
-  const canCreate = usePermission("sales", "create");
-  const canDelete = usePermission("sales", "delete");
-  const canUpdate = usePermission("sales", "update");
-  const canApprove = usePermission("sales", "approve");
+  const canCreate = usePermission("sales_orders", "create");
+  const canDelete = usePermission("sales_orders", "delete");
+  const canUpdate = usePermission("sales_orders", "update");
+  const canApprove = usePermission("so_approvals", "approve");
 
   // Confirm dialogs
   const deleteDialog = useTConfirmDialog();
@@ -347,6 +353,7 @@ export default function SalesPage() {
   const { data: customers } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
+    enabled: canViewCustomers,
   });
 
   // Fetch credit notes for selected customer when using credit_note payment
@@ -356,7 +363,9 @@ export default function SalesPage() {
     queryFn: () =>
       creditNotesApi.getCustomerCreditNotes(selectedCustomerId as number),
     enabled:
-      !!selectedCustomerId && state.formData.payment_method === "credit_note",
+      canViewCreditNotes &&
+      !!selectedCustomerId &&
+      state.formData.payment_method === "credit_note",
   });
 
   // Fetch customer credit status for credit sales validation
@@ -364,6 +373,7 @@ export default function SalesPage() {
     queryKey: ["customer-credit-status", selectedCustomerId],
     queryFn: () => customersApi.getCreditSummary(selectedCustomerId as number),
     enabled:
+      canViewCustomers &&
       !!selectedCustomerId &&
       selectedCustomerId > 0 &&
       (state.isCreating || state.isEditing),

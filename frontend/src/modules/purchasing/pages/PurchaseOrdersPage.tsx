@@ -12,6 +12,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import DeleteIcon from "@mui/icons-material/Delete";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import {
     Alert,
@@ -39,7 +40,7 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 // Import tijaero components
 import {
     ActionToolbar,
@@ -81,6 +82,9 @@ import {
     PurchasingOrderWithItems,
     Supplier,
 } from "@/modules/purchasing/types";
+
+import { useAuthStore } from "@/state/authStore";
+import { hasPermission, PERMISSIONS } from "@/auth/permissions";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "added_date", label: "Date" },
@@ -156,6 +160,15 @@ const resetFormFromOrder = (
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+
+  const canApprovePO = hasPermission(
+    user,
+    PERMISSIONS.PO_APPROVALS_APPROVE.resource,
+    PERMISSIONS.PO_APPROVALS_APPROVE.action
+  );
+
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
   const [formStep, setFormStep] = useState(0);
 
@@ -327,9 +340,11 @@ export default function PurchaseOrdersPage() {
   );
 
   // OPTIMIZED: Fetch suppliers separately (has complex filters) but use aggregated endpoint for products/branches
+  const canViewSuppliers = hasPermission(user, "suppliers", "view");
   const { data: suppliers } = useQuery({
     queryKey: ["suppliers"],
     queryFn: () => suppliersApi.getAll(),
+    enabled: canViewSuppliers,
   });
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
@@ -550,6 +565,25 @@ export default function PurchaseOrdersPage() {
       );
 
       // Clear navigation state to prevent re-triggering
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, startNewOrderInternal, setFormData]);
+
+  // Handle navigation from Suppliers page — auto-create PO for supplier
+  const supplierNavHandled = useRef(false);
+  useEffect(() => {
+    const navState = location.state as {
+      createPOFromSupplier?: boolean;
+      supplierId?: number;
+    } | null;
+    
+    if (navState?.createPOFromSupplier && navState.supplierId && !supplierNavHandled.current) {
+      supplierNavHandled.current = true;
+      startNewOrderInternal();
+      setFormData(prev => ({
+        ...prev,
+        first_suppliers_id: navState.supplierId as number,
+      }));
       window.history.replaceState({}, document.title);
     }
   }, [location.state, startNewOrderInternal, setFormData]);
@@ -1167,13 +1201,25 @@ export default function PurchaseOrdersPage() {
             </Button>
           ) :
           selectedOrder && !isCreating && !isEditing ? (
-            <TPrintButton
-              documentType="purchase-order"
-              documentId={selectedOrder.id}
-              disabled={!canPrintDocument(selectedOrder.status, ["cancelled"])}
-              disabledReason={`Cannot print: order is ${(selectedOrder.status || "").replace(/_/g, " ")}`}
-              onClick={() => handlePrint(selectedOrder.id)}
-            />
+            <Box sx={{ display: "flex", gap: 1 }}>
+              {canApprovePO && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<FactCheckIcon />}
+                  onClick={() => navigate("/purchasing/approvals/po-approvals")}
+                >
+                  PO Approvals
+                </Button>
+              )}
+              <TPrintButton
+                documentType="purchase-order"
+                documentId={selectedOrder.id}
+                disabled={!canPrintDocument(selectedOrder.status, ["cancelled"])}
+                disabledReason={`Cannot print: order is ${(selectedOrder.status || "").replace(/_/g, " ")}`}
+                onClick={() => handlePrint(selectedOrder.id)}
+              />
+            </Box>
           ) : undefined
         }
       />

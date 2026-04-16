@@ -111,8 +111,9 @@ export default function CommissionPaymentsPage() {
   const queryClient = useQueryClient();
 
   // Permissions
-  const canCreate = usePermission("customers", "create");
-  const canUpdate = usePermission("customers", "update");
+  const canCreate = usePermission("commission_payments", "create");
+  const canUpdate = usePermission("commission_payments", "update");
+  const canViewCustomers = usePermission("customers", "view");
 
   // Filter states
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
@@ -165,6 +166,7 @@ export default function CommissionPaymentsPage() {
   const { data: allCustomers } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(0, 1000),
+    enabled: canViewCustomers,
   });
 
   const agents = useMemo(

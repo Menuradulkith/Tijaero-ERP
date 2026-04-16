@@ -33,6 +33,7 @@ import {
   TFilterPanel,
   fmtLKR,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 
 import { creditNotesApi } from "@/modules/finance/api";
 import { CustomerCreditNote, CustomerCreditNoteCreate } from "@/modules/finance/types";
@@ -64,6 +65,7 @@ const resetFormFromItem = (item: CustomerCreditNote): Partial<CustomerCreditNote
 });
 
 export default function CreditNotesPage() {
+  const canViewCustomers = usePermission("customers", "view");
   const [filterCustomerId, setFilterCustomerId] = useState<number | null>(null);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [selectedItemForPrint, setSelectedItemForPrint] = useState<CustomerCreditNote | null>(null);
@@ -89,6 +91,7 @@ export default function CreditNotesPage() {
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
+    enabled: canViewCustomers,
   });
 
   const { data: creditNotes = [], isLoading, refetch } = useQuery({

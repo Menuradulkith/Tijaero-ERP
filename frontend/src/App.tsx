@@ -66,7 +66,7 @@ function App() {
           <Route
             path="/sales/*"
             element={
-              <ProtectedRoute resource="sales" action="view">
+              <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <SalesRoutes />
                 </Suspense>
@@ -76,7 +76,7 @@ function App() {
           <Route
             path="/product-catalogs/*"
             element={
-              <ProtectedRoute resource="inventory" action="view">
+              <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <InventoryRoutes />
                 </Suspense>
@@ -86,7 +86,7 @@ function App() {
           <Route
             path="/purchasing/*"
             element={
-              <ProtectedRoute resource="purchasing" action="view">
+              <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <PurchasingRoutes />
                 </Suspense>
@@ -96,7 +96,7 @@ function App() {
           <Route
             path="/finance/*"
             element={
-              <ProtectedRoute resource="finance" action="view">
+              <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <FinanceRoutes />
                 </Suspense>
@@ -106,7 +106,7 @@ function App() {
           <Route
             path="/hr/*"
             element={
-              <ProtectedRoute resource="hr" action="view">
+              <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <HRRoutes />
                 </Suspense>
@@ -116,7 +116,7 @@ function App() {
           <Route
             path="/warehouse/*"
             element={
-              <ProtectedRoute resource="warehouse" action="view">
+              <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <WarehouseRoutes />
                 </Suspense>
@@ -126,7 +126,7 @@ function App() {
           <Route
             path="/support/*"
             element={
-              <ProtectedRoute resource="support" action="view">
+              <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <SupportRoutes />
                 </Suspense>
@@ -136,7 +136,7 @@ function App() {
           <Route
             path="/reporting/*"
             element={
-              <ProtectedRoute resource="reporting" action="view">
+              <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <ReportingRoutes />
                 </Suspense>

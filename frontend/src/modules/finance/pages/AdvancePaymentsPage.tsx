@@ -55,6 +55,7 @@ import {
   useConfirmDialog,
   fmtLKR,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 
 // Types
 interface Branch {
@@ -108,6 +109,8 @@ const SUPPLIER_INITIAL_FORM: Partial<SupplierAdvancePaymentCreate> = {
 export default function AdvancePaymentsPage() {
   const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
+  const canViewCustomers = usePermission("customers", "view");
+  const canViewSuppliers = usePermission("suppliers", "view");
 
   // Tab: customer vs supplier
   const [advanceType, setAdvanceType] = useState<"customer" | "supplier">("customer");
@@ -152,12 +155,14 @@ export default function AdvancePaymentsPage() {
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(),
+    enabled: canViewCustomers,
   });
 
   // Fetch suppliers
   const { data: suppliers = [] } = useQuery({
     queryKey: ["suppliers"],
     queryFn: () => suppliersApi.getAll(),
+    enabled: canViewSuppliers,
   });
 
   // Fetch customer advance payments

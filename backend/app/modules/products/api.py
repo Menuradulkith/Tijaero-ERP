@@ -14,14 +14,14 @@ router = APIRouter()
     "/products/",
     response_model=List[schemas.Product],
     summary="List All Products",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
 )
 def list_products(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     active_only: bool = Query(True),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
 ):
     return service.product_service.get_all_products(db, skip, limit, active_only)
 
@@ -30,14 +30,14 @@ def list_products(
     "/products/search",
     response_model=List[schemas.Product],
     summary="Search Products",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
 )
 def search_products(
     q: str = Query(..., min_length=1),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
 ):
     return service.product_service.search_products(db, q, skip, limit)
 
@@ -46,12 +46,12 @@ def search_products(
     "/products/{product_id}",
     response_model=schemas.Product,
     summary="Get Product by ID",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
 )
 def get_product(
     product_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
 ):
     return service.product_service.get_product(db, product_id)
 
@@ -61,12 +61,12 @@ def get_product(
     response_model=schemas.Product,
     status_code=status.HTTP_201_CREATED,
     summary="Create Product",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_CREATE))],
 )
 def create_product(
     product: schemas.ProductCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_CREATE)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_CREATE)),
 ):
     return service.product_service.create_product(db, product, current_user.id)
 
@@ -75,13 +75,13 @@ def create_product(
     "/products/{product_id}",
     response_model=schemas.Product,
     summary="Update Product",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
 )
 def update_product(
     product_id: int,
     product: schemas.ProductUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_UPDATE)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
 ):
     return service.product_service.update_product(
         db, product_id, product, current_user.id
@@ -92,12 +92,12 @@ def update_product(
     "/products/{product_id}",
     status_code=status.HTTP_200_OK,
     summary="Delete Product",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_DELETE))],
 )
 def delete_product(
     product_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_DELETE)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_DELETE)),
 ):
     return service.product_service.delete_product(db, product_id)
 
@@ -106,14 +106,14 @@ def delete_product(
     "/categories/",
     response_model=List[schemas.Category],
     summary="List All Categories",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.CATEGORY_VIEW))],
 )
 def list_categories(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     active_only: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.CATEGORY_VIEW)),
 ):
     return service.category_service.get_all_categories(db, skip, limit, active_only)
 
@@ -122,12 +122,12 @@ def list_categories(
     "/categories/{category_id}",
     response_model=schemas.Category,
     summary="Get Category by ID",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.CATEGORY_VIEW))],
 )
 def get_category(
     category_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.CATEGORY_VIEW)),
 ):
     return service.category_service.get_category(db, category_id)
 
@@ -137,12 +137,12 @@ def get_category(
     response_model=schemas.Category,
     status_code=status.HTTP_201_CREATED,
     summary="Create Category",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.CATEGORY_CREATE))],
 )
 def create_category(
     category: schemas.CategoryCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_CREATE)),
+    current_user: User = Depends(require_permission(*Permissions.CATEGORY_CREATE)),
 ):
     return service.category_service.create_category(db, category, current_user.id)
 
@@ -151,13 +151,13 @@ def create_category(
     "/categories/{category_id}",
     response_model=schemas.Category,
     summary="Update Category",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.CATEGORY_UPDATE))],
 )
 def update_category(
     category_id: int,
     category: schemas.CategoryUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_UPDATE)),
+    current_user: User = Depends(require_permission(*Permissions.CATEGORY_UPDATE)),
 ):
     return service.category_service.update_category(
         db, category_id, category, current_user.id
@@ -168,12 +168,12 @@ def update_category(
     "/categories/{category_id}",
     status_code=status.HTTP_200_OK,
     summary="Delete Category",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.CATEGORY_DELETE))],
 )
 def delete_category(
     category_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_DELETE)),
+    current_user: User = Depends(require_permission(*Permissions.CATEGORY_DELETE)),
 ):
     return service.category_service.delete_category(db, category_id)
 
@@ -182,13 +182,13 @@ def delete_category(
     "/brands/",
     response_model=List[schemas.Brand],
     summary="List All Brands",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.BRAND_VIEW))],
 )
 def list_brands(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.BRAND_VIEW)),
 ):
     return service.brand_service.get_all_brands(db, skip, limit)
 
@@ -197,12 +197,12 @@ def list_brands(
     "/brands/{brand_id}",
     response_model=schemas.Brand,
     summary="Get Brand",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.BRAND_VIEW))],
 )
 def get_brand(
     brand_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.BRAND_VIEW)),
 ):
     return service.brand_service.get_brand(db, brand_id)
 
@@ -212,12 +212,12 @@ def get_brand(
     response_model=schemas.Brand,
     status_code=status.HTTP_201_CREATED,
     summary="Create Brand",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.BRAND_CREATE))],
 )
 def create_brand(
     brand: schemas.BrandCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_CREATE)),
+    current_user: User = Depends(require_permission(*Permissions.BRAND_CREATE)),
 ):
     return service.brand_service.create_brand(db, brand)
 
@@ -226,13 +226,13 @@ def create_brand(
     "/brands/{brand_id}",
     response_model=schemas.Brand,
     summary="Update Brand",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.BRAND_UPDATE))],
 )
 def update_brand(
     brand_id: int,
     brand: schemas.BrandUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_UPDATE)),
+    current_user: User = Depends(require_permission(*Permissions.BRAND_UPDATE)),
 ):
     return service.brand_service.update_brand(db, brand_id, brand)
 
@@ -241,12 +241,12 @@ def update_brand(
     "/brands/{brand_id}",
     status_code=status.HTTP_200_OK,
     summary="Delete Brand",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.BRAND_DELETE))],
 )
 def delete_brand(
     brand_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_DELETE)),
+    current_user: User = Depends(require_permission(*Permissions.BRAND_DELETE)),
 ):
     return service.brand_service.delete_brand(db, brand_id)
 
@@ -255,12 +255,12 @@ def delete_brand(
     "/products/{product_id}/minimum-prices",
     response_model=List[schemas.MinimumPrice],
     summary="Get Product Minimum Price History",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
 )
 def get_product_minimum_price_history(
     product_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
 ):
     return service.minimum_price_service.get_product_price_history(db, product_id)
 
@@ -269,12 +269,12 @@ def get_product_minimum_price_history(
     "/products/{product_id}/minimum-prices/current",
     response_model=schemas.MinimumPrice,
     summary="Get Current Minimum Price",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
 )
 def get_current_minimum_price(
     product_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
 ):
     price = service.minimum_price_service.get_current_minimum_price(db, product_id)
     if not price:
@@ -291,13 +291,13 @@ def get_current_minimum_price(
     response_model=schemas.MinimumPrice,
     status_code=status.HTTP_201_CREATED,
     summary="Set Product Minimum Price",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
 )
 def set_product_minimum_price(
     product_id: int,
     price_data: schemas.MinimumPriceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_UPDATE)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
 ):
     return service.minimum_price_service.set_minimum_price(
         db, product_id, price_data.minimum_price
@@ -308,12 +308,12 @@ def set_product_minimum_price(
     "/minimum-prices/{price_id}",
     status_code=status.HTTP_200_OK,
     summary="Delete Minimum Price",
-    dependencies=[Depends(require_permission(*Permissions.INVENTORY_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_DELETE))],
 )
 def delete_minimum_price(
     price_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_DELETE)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_DELETE)),
 ):
     return service.minimum_price_service.delete_minimum_price(db, price_id)
 
@@ -333,7 +333,7 @@ def export_products_csv(
     limit: int = Query(100000),
     active_only: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.INVENTORY_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
 ):
     products = service.product_service.get_all_products(db, skip, limit, active_only)
     output = io.StringIO()

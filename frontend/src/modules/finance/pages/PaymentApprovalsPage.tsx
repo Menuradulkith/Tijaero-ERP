@@ -51,6 +51,7 @@ import {
   useConfirmDialog,
   fmtLKR,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 
 import { supplierPaymentsApi, suppliersApi, supplierCreditsSettleApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
@@ -87,6 +88,7 @@ const getPaymentStatusProps = (status: string) => {
 
 export default function PaymentApprovalsPage() {
   const queryClient = useQueryClient();
+  const canViewSuppliers = usePermission("suppliers", "view");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_date");
 
@@ -141,6 +143,7 @@ export default function PaymentApprovalsPage() {
   const { data: suppliers = [] } = useQuery({
     queryKey: ["suppliers"],
     queryFn: () => suppliersApi.getAll(),
+    enabled: canViewSuppliers,
   });
 
   // OPTIMIZED: Single API call for branches

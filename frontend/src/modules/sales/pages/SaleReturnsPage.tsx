@@ -416,7 +416,7 @@ export default function SaleReturnsPage() {
     const deleteDialog2 = useTConfirmDialog();
 
     // Permissions
-    const canDelete = usePermission("sales", "delete");
+    const canDelete = usePermission("sales_returns", "delete");
 
     // Helper functions
     const getInvoiceNo = useCallback((invoiceId: number) => {

@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import ProtectedRoute from "@/auth/components/ProtectedRoute";
 import ReportingDashboard from "./pages/ReportingDashboard";
 import SalesReportPage from "./pages/SalesReportPage";
 import FinanceReportPage from "./pages/FinanceReportPage";
@@ -10,13 +11,13 @@ import SupportReportPage from "./pages/SupportReportPage";
 export default function ReportingRoutes() {
   return (
     <Routes>
-      <Route index element={<ReportingDashboard />} />
-      <Route path="sales" element={<SalesReportPage />} />
-      <Route path="finance" element={<FinanceReportPage />} />
-      <Route path="inventory" element={<InventoryReportPage />} />
-      <Route path="hr" element={<HRReportPage />} />
-      <Route path="warehouse" element={<WarehouseReportPage />} />
-      <Route path="support" element={<SupportReportPage />} />
+      <Route index element={<ProtectedRoute resource="reporting_dashboard" action="view"><ReportingDashboard /></ProtectedRoute>} />
+      <Route path="sales" element={<ProtectedRoute resource="reporting_sales" action="view"><SalesReportPage /></ProtectedRoute>} />
+      <Route path="finance" element={<ProtectedRoute resource="reporting_finance" action="view"><FinanceReportPage /></ProtectedRoute>} />
+      <Route path="inventory" element={<ProtectedRoute resource="reporting_inventory" action="view"><InventoryReportPage /></ProtectedRoute>} />
+      <Route path="hr" element={<ProtectedRoute resource="reporting_hr" action="view"><HRReportPage /></ProtectedRoute>} />
+      <Route path="warehouse" element={<ProtectedRoute resource="reporting_warehouse" action="view"><WarehouseReportPage /></ProtectedRoute>} />
+      <Route path="support" element={<ProtectedRoute resource="reporting_support" action="view"><SupportReportPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );
