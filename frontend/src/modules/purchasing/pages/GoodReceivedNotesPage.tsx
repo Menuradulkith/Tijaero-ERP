@@ -225,6 +225,8 @@ export default function GoodReceivedNotesPage() {
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
+  const [filterPOId, setFilterPOId] = useState<number | null>(null);
+  const [filterCreatedByUser, setFilterCreatedByUser] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   const {
@@ -387,6 +389,37 @@ export default function GoodReceivedNotesPage() {
     queryFn: () => purchaseOrdersApi.getAll(),
   });
 
+  const purchaseOrderMap = useMemo(() => {
+    const map = new Map<number, PurchasingOrder>();
+    (purchaseOrders || []).forEach((po: PurchasingOrder) => map.set(po.id, po));
+    return map;
+  }, [purchaseOrders]);
+
+  const poFilterOptions = useMemo(() => {
+    if (!grns || !purchaseOrders) return [];
+    const linkedPOIds = new Set<number>(grns.map((grn) => grn.purchasingorders_id));
+    return purchaseOrders
+      .filter((po: PurchasingOrder) => linkedPOIds.has(po.id))
+      .sort((a: PurchasingOrder, b: PurchasingOrder) =>
+        String(a.purchasing_order_no || "").localeCompare(String(b.purchasing_order_no || "")),
+      );
+  }, [grns, purchaseOrders]);
+
+  const createdByUserOptions = useMemo(() => {
+    if (!grns) return [];
+
+    const users = new Set<string>();
+    grns.forEach((grn) => {
+      const po = purchaseOrderMap.get(grn.purchasingorders_id);
+      const creatorName = po?.created_by_name?.trim();
+      if (creatorName) {
+        users.add(creatorName);
+      }
+    });
+
+    return Array.from(users).sort((a, b) => a.localeCompare(b));
+  }, [grns, purchaseOrderMap]);
+
   const filteredGRNs = useMemo(() => {
     if (!grns) return [];
 
@@ -396,7 +429,7 @@ export default function GoodReceivedNotesPage() {
           String(grn.id).includes(searchQuery);
 
         // Also search by PO number
-        const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === grn.purchasingorders_id);
+        const po = purchaseOrderMap.get(grn.purchasingorders_id);
         const poNumber = po?.purchasing_order_no || "";
         const poMatch = poNumber.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -419,6 +452,19 @@ export default function GoodReceivedNotesPage() {
       filtered = filtered.filter(grn => poIdsForSupplier.has(grn.purchasingorders_id));
     }
 
+    // Apply PO filter
+    if (filterPOId) {
+      filtered = filtered.filter((grn) => grn.purchasingorders_id === filterPOId);
+    }
+
+    // Apply creator filter (based on PO created_by_name)
+    if (filterCreatedByUser) {
+      filtered = filtered.filter((grn) => {
+        const po = purchaseOrderMap.get(grn.purchasingorders_id);
+        return (po?.created_by_name || "").trim() === filterCreatedByUser;
+      });
+    }
+
     filtered.sort((a, b) => {
       if (sortField === "good_received_date") {
         return new Date(b.good_received_date || "").getTime() - new Date(a.good_received_date || "").getTime();
@@ -429,7 +475,17 @@ export default function GoodReceivedNotesPage() {
     });
 
     return filtered;
-  }, [grns, searchQuery, sortField, filterBranch, filterSupplier, purchaseOrders]);
+  }, [
+    grns,
+    searchQuery,
+    sortField,
+    filterBranch,
+    filterSupplier,
+    filterPOId,
+    filterCreatedByUser,
+    purchaseOrders,
+    purchaseOrderMap,
+  ]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -1239,6 +1295,37 @@ export default function GoodReceivedNotesPage() {
               />
             )}
             isOptionEqualToValue={(option, value) => option.id === value.id}
+          />
+          <Autocomplete
+            size="small"
+            options={poFilterOptions}
+            getOptionLabel={(option: PurchasingOrder) => option.purchasing_order_no || `PO-${option.id}`}
+            value={poFilterOptions.find((po: PurchasingOrder) => po.id === filterPOId) || null}
+            onChange={(_, newValue) => setFilterPOId(newValue?.id || null)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Filter by PO"
+                placeholder="All POs"
+                sx={{ minWidth: 200 }}
+              />
+            )}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+          />
+          <Autocomplete
+            size="small"
+            options={createdByUserOptions}
+            value={filterCreatedByUser}
+            onChange={(_, newValue) => setFilterCreatedByUser(newValue || null)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Created by user"
+                placeholder="All Users"
+                sx={{ minWidth: 200 }}
+              />
+            )}
+            isOptionEqualToValue={(option, value) => option === value}
           />
         </TFilterPanel>
       }
