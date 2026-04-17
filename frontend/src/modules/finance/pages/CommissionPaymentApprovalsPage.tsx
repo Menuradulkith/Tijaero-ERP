@@ -25,7 +25,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
@@ -48,6 +48,7 @@ import {
   modernTableStyles,
   showErrorToast,
   showSuccessToast,
+  useCrudMutation,
   useTConfirmDialog,
 } from "@/components/tijaero";
 
@@ -78,7 +79,6 @@ const SORT_OPTIONS: SortOption[] = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function CommissionPaymentApprovalsPage() {
-  const queryClient = useQueryClient();
   const canApprove = usePermission("commission_payment_approvals", "approve");
   const canUpdate = usePermission("commission_payments", "update");
   const canViewCustomers = usePermission("customers", "view");
@@ -172,33 +172,33 @@ export default function CommissionPaymentApprovalsPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
-  const verifyMutation = useMutation({
+  const verifyMutation = useCrudMutation({
     mutationFn: (id: number) => commissionPaymentsApi.verify(id),
+    invalidateQueryKeys: [
+      ["commission-payment-approvals"],
+      ["commission-payments"],
+      ["agent-commissions"],
+      ["agent-commission-summaries"],
+    ],
+    successMessage: "Payment verified successfully",
+    errorMessage: "Failed to verify payment",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["commission-payment-approvals"] });
-      queryClient.invalidateQueries({ queryKey: ["commission-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Payment verified successfully");
       setSelectedPayment(null);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to verify payment"));
     },
   });
 
-  const cancelMutation = useMutation({
+  const cancelMutation = useCrudMutation({
     mutationFn: (id: number) => commissionPaymentsApi.cancel(id),
+    invalidateQueryKeys: [
+      ["commission-payment-approvals"],
+      ["commission-payments"],
+      ["agent-commissions"],
+      ["agent-commission-summaries"],
+    ],
+    successMessage: "Payment cancelled successfully",
+    errorMessage: "Failed to cancel payment",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["commission-payment-approvals"] });
-      queryClient.invalidateQueries({ queryKey: ["commission-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Payment cancelled successfully");
       setSelectedPayment(null);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to cancel payment"));
     },
   });
 

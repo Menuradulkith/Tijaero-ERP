@@ -26,7 +26,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -50,6 +50,7 @@ import {
   modernTableStyles,
   TConfirmDialog,
   useConfirmDialog,
+  useCrudMutation,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -85,7 +86,6 @@ const getStatusColor = (status: CashFlowStatementStatus) => {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function CashFlowStatementsPage() {
-  const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
 
   // State
@@ -153,54 +153,45 @@ export default function CashFlowStatementsPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["cash-flow-statements"] });
-    queryClient.invalidateQueries({ queryKey: ["cash-flow-statement-detail"] });
-  };
-
-  const generateMutation = useMutation({
+  const generateMutation = useCrudMutation({
     mutationFn: cashFlowStatementsApi.generate,
+    invalidateQueryKeys: [["cash-flow-statements"], ["cash-flow-statement-detail"]],
+    successMessage: "Cash flow statement generated",
+    errorMessage: "Failed to generate cash flow statement",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Cash flow statement generated");
       setGenerateDialogOpen(false);
       setSelectedStatement(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to generate cash flow statement")),
   });
 
-  const finalizeMutation = useMutation({
+  const finalizeMutation = useCrudMutation({
     mutationFn: cashFlowStatementsApi.finalize,
+    invalidateQueryKeys: [["cash-flow-statements"], ["cash-flow-statement-detail"]],
+    successMessage: "Statement finalized",
+    errorMessage: "Failed to finalize statement",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Statement finalized");
       setSelectedStatement(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to finalize statement")),
   });
 
-  const approveMutation = useMutation({
+  const approveMutation = useCrudMutation({
     mutationFn: (id: number) => cashFlowStatementsApi.approve(id),
+    invalidateQueryKeys: [["cash-flow-statements"], ["cash-flow-statement-detail"]],
+    successMessage: "Statement approved",
+    errorMessage: "Failed to approve statement",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Statement approved");
       setSelectedStatement(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to approve statement")),
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: cashFlowStatementsApi.delete,
+    invalidateQueryKeys: [["cash-flow-statements"], ["cash-flow-statement-detail"]],
+    successMessage: "Statement deleted",
+    errorMessage: "Failed to delete statement",
     onSuccess: () => {
-      invalidate();
-      showSuccessToast("Statement deleted");
       setSelectedStatement(null);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to delete statement")),
   });
 
   // ─── Handlers ──────────────────────────────────────────────────────────────

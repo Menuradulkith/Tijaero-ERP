@@ -6,7 +6,7 @@
 
 import { useMemo, useCallback, useState, useEffect } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   TextField,
@@ -46,10 +46,10 @@ import {
   PO_STATUS_FILTER_OPTIONS,
   getStatusProps,
   SortOption,
-  showSuccessToast,
   showErrorToast,
   modernTableStyles,
   TConfirmDialog,
+  useCrudMutation,
   useTConfirmDialog,
 } from "@/components/tijaero";
 // ConfirmDialog now uses TConfirmDialog from tijaero
@@ -186,24 +186,27 @@ export default function POApprovalsPage() {
   }, [filteredOrders, selectedOrder, handleSelectOrder]);
 
   // Approve mutation
-  const approveMutation = useMutation({
+  const approveMutation = useCrudMutation({
     mutationFn: ({ approvalId }: { approvalId: number; poId: number }) =>
       approvalsApi.approve(approvalId),
+    invalidateQueryKeys: [["purchaseOrders"]],
+    successMessage: "Purchase order approved successfully",
+    errorMessage: "Failed to approve order",
     onSuccess: (_data, { poId }) => {
       queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
         (prev || []).map((o) => (o.id === poId ? { ...o, status: "approved" } : o))
       );
       setSelectedOrder((prev) => (prev && prev.id === poId ? { ...prev, status: "approved" } : prev));
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      showSuccessToast("Purchase order approved successfully");
     },
-    onError: () => showErrorToast("Failed to approve order"),
   });
 
   // Reject mutation
-  const rejectMutation = useMutation({
+  const rejectMutation = useCrudMutation({
     mutationFn: ({ approvalId, remarks }: { approvalId: number; poId: number; remarks: string }) =>
       approvalsApi.reject(approvalId, remarks),
+    invalidateQueryKeys: [["purchaseOrders"]],
+    successMessage: "Purchase order rejected",
+    errorMessage: "Failed to reject order",
     onSuccess: (_data, { poId, remarks }) => {
       queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
         (prev || []).map((o) => (o.id === poId ? { ...o, status: "rejected" } : o))
@@ -211,12 +214,9 @@ export default function POApprovalsPage() {
       setSelectedOrder((prev) =>
         prev && prev.id === poId ? { ...prev, status: "rejected", remarks: remarks } : prev
       );
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      showSuccessToast("Purchase order rejected");
       setRejectDialogOpen(false);
       setRejectReason("");
     },
-    onError: () => showErrorToast("Failed to reject order"),
   });
 
   const handleApprove = async () => {

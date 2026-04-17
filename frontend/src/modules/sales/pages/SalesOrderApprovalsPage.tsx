@@ -27,7 +27,7 @@ import {
     Tooltip,
     Typography
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 // Import tijaero components
@@ -46,7 +46,7 @@ import {
     getStatusProps,
     modernTableStyles,
     showErrorToast,
-    showSuccessToast,
+    useCrudMutation,
     useTConfirmDialog,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
@@ -180,8 +180,11 @@ export default function SalesOrderApprovalsPage() {
     }, [filteredOrders, selectedOrder, handleSelectOrder]);
 
     // Approve mutation
-    const approveMutation = useMutation({
+    const approveMutation = useCrudMutation({
         mutationFn: (id: number) => salesApi.approve(id),
+        invalidateQueryKeys: [["sales-orders"]],
+        successMessage: "Sales order approved successfully",
+        errorMessage: "Failed to approve order",
         onSuccess: (_data, id) => {
             // Update list by removing approved item
             queryClient.setQueryData<Invoice[]>(["sales-orders-pending"], (prev) =>
@@ -191,17 +194,17 @@ export default function SalesOrderApprovalsPage() {
             if (selectedOrder?.id === id) {
                 setSelectedOrder(null);
             }
-            queryClient.invalidateQueries({ queryKey: ["sales-orders"] }); // Invalidate main list too
-            showSuccessToast("Sales order approved successfully");
         },
-        onError: () => showErrorToast("Failed to approve order"),
     });
 
     // Reject mutation (Delete/Cancel)
-    const rejectMutation = useMutation({
+    const rejectMutation = useCrudMutation({
         mutationFn: ({ id }: { id: number }) =>
             // Using delete for rejection as per discussion/assumption
             salesApi.delete(id),
+        invalidateQueryKeys: [["sales-orders"]],
+        successMessage: "Sales order rejected (deleted)",
+        errorMessage: "Failed to reject order",
         onSuccess: (_data, variables) => {
             queryClient.setQueryData<Invoice[]>(["sales-orders-pending"], (prev) =>
                 (prev || []).filter((o) => o.id !== variables.id)
@@ -209,12 +212,9 @@ export default function SalesOrderApprovalsPage() {
             if (selectedOrder?.id === variables.id) {
                 setSelectedOrder(null);
             }
-            queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-            showSuccessToast("Sales order rejected (deleted)");
             setRejectDialogOpen(false);
             setRejectReason("");
         },
-        onError: () => showErrorToast("Failed to reject order"),
     });
 
     const handleApprove = () => {

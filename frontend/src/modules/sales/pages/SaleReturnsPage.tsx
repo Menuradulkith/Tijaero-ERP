@@ -34,7 +34,7 @@ import {
     Tooltip,
     Typography
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -59,8 +59,8 @@ import {
     TSteps,
     canPrintDocument,
     getStatusProps,
-    handleApiError,
     modernTableStyles,
+    useCrudMutation,
     useMasterDetailState,
     useTConfirmDialog,
 } from "@/components/tijaero";
@@ -385,30 +385,25 @@ export default function SaleReturnsPage() {
         }
     }, [filteredReturns, selectedReturn, isCreating]);
 
-    const createMutation = useMutation({
+    const createMutation = useCrudMutation({
         mutationFn: saleReturnsApi.create,
+        invalidateQueryKeys: [["sale-returns"], ["sales"]],
+        successMessage: "Sale return created successfully",
+        errorMessage: "Failed to create sale return",
         onSuccess: (newReturn) => {
-            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-            queryClient.invalidateQueries({ queryKey: ["sales"] });
-            showSuccessToast("Sale return created successfully");
             setIsCreating(false);
             setIsEditing(false);
             setTimeout(() => handleSelectReturnWithItems(newReturn), 0);
         },
-        onError: (error: unknown) => {
-            showErrorToast(handleApiError(error, "Failed to create sale return"));
-        },
     });
 
-    const deleteMutation = useMutation({
+    const deleteMutation = useCrudMutation({
         mutationFn: saleReturnsApi.delete,
+        invalidateQueryKeys: [["sale-returns"]],
+        successMessage: "Sale return deleted",
+        errorMessage: "Failed to delete sale return",
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-            showSuccessToast("Sale return deleted");
             handleSelectReturn(null as any);
-        },
-        onError: (error: unknown) => {
-            showErrorToast(handleApiError(error, "Failed to delete sale return"));
         },
     });
 

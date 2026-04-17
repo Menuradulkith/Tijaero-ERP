@@ -1,8 +1,10 @@
 from app.auth import schemas, service
+from app.core.config import settings
 from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_refresh_token,
+    get_password_marker,
 )
 from app.core.simple_rate_limit import rate_limit
 from app.db.session import get_db
@@ -11,6 +13,14 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 router = APIRouter()
+
+
+def _use_secure_cookie() -> bool:
+    """Use Secure cookies only when at least one configured frontend origin is HTTPS.
+    This keeps production secure and allows local HTTP development to work.
+    """
+    origins = settings.BACKEND_CORS_ORIGINS
+    return any(str(origin).startswith("https://") for origin in origins)
 
 
 @router.post(
@@ -35,15 +45,21 @@ def login(
     user = service.auth_service.authenticate_user(
         db, form_data.username, form_data.password
     )
-    access_token = create_access_token(data={"sub": str(user.id)})
-    refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    password_marker = get_password_marker(user.hashed_password)
+    access_token = create_access_token(
+        data={"sub": str(user.id), "pwd": password_marker}
+    )
+    refresh_token = create_refresh_token(
+        data={"sub": str(user.id), "pwd": password_marker}
+    )
+    secure_cookie = _use_secure_cookie()
 
     # Industry Standard: Send refresh token securely via HttpOnly cookie
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,  # Should be True in production (HTTPS)
+        secure=secure_cookie,
         samesite="lax",  # Prevents CSRF while allowing seamless navigation
         max_age=7 * 24 * 60 * 60,  # 7 Days
         path="/",
@@ -104,15 +120,29 @@ def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    token_password_marker = payload.get("pwd")
+    current_password_marker = get_password_marker(user.hashed_password)
+    if not token_password_marker or token_password_marker != current_password_marker:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired due to password change. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Issue new token pair (rotation)
-    new_access_token = create_access_token(data={"sub": str(user.id)})
-    new_refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    new_access_token = create_access_token(
+        data={"sub": str(user.id), "pwd": current_password_marker}
+    )
+    new_refresh_token = create_refresh_token(
+        data={"sub": str(user.id), "pwd": current_password_marker}
+    )
+    secure_cookie = _use_secure_cookie()
 
     response.set_cookie(
         key="refresh_token",
         value=new_refresh_token,
         httponly=True,
-        secure=True,
+        secure=secure_cookie,
         samesite="lax",
         max_age=7 * 24 * 60 * 60,
         path="/",
@@ -130,8 +160,13 @@ def refresh_token(
     description="Clears the HttpOnly refresh token cookie.",
 )
 def logout(response: Response):
+    secure_cookie = _use_secure_cookie()
     response.delete_cookie(
-        "refresh_token", path="/", httponly=True, secure=True, samesite="lax"
+        "refresh_token",
+        path="/",
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax",
     )
     return {"message": "Successfully logged out"}
 

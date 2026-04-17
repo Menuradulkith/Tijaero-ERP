@@ -34,7 +34,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
@@ -61,6 +61,7 @@ import {
   modernTableStyles,
   TConfirmDialog,
   useConfirmDialog,
+  useCrudMutation,
 } from "@/components/tijaero";
 
 import { journalEntriesApi, chartOfAccountsApi } from "@/modules/finance/api";
@@ -272,60 +273,51 @@ export default function JournalEntriesPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
-    queryClient.invalidateQueries({ queryKey: ["journal-entry-detail"] });
-  };
-
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: journalEntriesApi.create,
+    invalidateQueryKeys: [["journal-entries"], ["journal-entry-detail"]],
+    successMessage: "Journal entry created",
+    errorMessage: "Failed to create journal entry",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Journal entry created");
       setIsCreating(false);
       setIsEditing(false);
       setLineItems([]);
       setFormStep(0);
       setTimeout(() => handleSelectJE(data), 0);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to create journal entry")),
   });
 
-  const postMutation = useMutation({
+  const postMutation = useCrudMutation({
     mutationFn: (id: number) => journalEntriesApi.post(id),
+    invalidateQueryKeys: [["journal-entries"], ["journal-entry-detail"]],
+    successMessage: "Journal entry posted to General Ledger",
+    errorMessage: "Failed to post journal entry",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Journal entry posted to General Ledger");
       setSelectedJE(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to post journal entry")),
   });
 
-  const reverseMutation = useMutation({
+  const reverseMutation = useCrudMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       journalEntriesApi.reverse(id, reason),
+    invalidateQueryKeys: [["journal-entries"], ["journal-entry-detail"]],
+    successMessage: "Journal entry reversed",
+    errorMessage: "Failed to reverse journal entry",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Journal entry reversed");
       setReverseDialogOpen(false);
       setReverseReason("");
       setSelectedJE(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to reverse journal entry")),
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: journalEntriesApi.delete,
+    invalidateQueryKeys: [["journal-entries"], ["journal-entry-detail"]],
+    successMessage: "Journal entry deleted",
+    errorMessage: "Failed to delete journal entry",
     onSuccess: () => {
-      invalidate();
-      showSuccessToast("Journal entry deleted");
       setSelectedJE(null);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to delete journal entry")),
   });
 
   // ─── Handlers ──────────────────────────────────────────────────────────────

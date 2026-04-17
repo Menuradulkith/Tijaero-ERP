@@ -61,14 +61,14 @@ import {
     Info as InfoIcon,
     ArrowBack as ArrowBackIcon,
 } from "@mui/icons-material";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { format } from "date-fns";
 import { salesApi } from "../api";
 import { customersApi } from "@/modules/customers/api";
 import { useReferenceData } from "@/hooks";
-import { fmtLKR, handleApiError, showErrorToast, showSuccessToast, TPageSkeleton, TConfirmDialog, useTConfirmDialog } from "@/components/tijaero";
+import { fmtLKR, showErrorToast, TPageSkeleton, TConfirmDialog, useCrudMutation, useTConfirmDialog } from "@/components/tijaero";
 
 // Payment method types
 type PaymentMethodType = "cash" | "card_visa" | "card_mastercard" | "card_amex" | "cheque" | "bank_transfer" | "credit";
@@ -101,8 +101,6 @@ const paymentMethodsConfig = [
 export default function SalesPaymentPage() {
     const { invoiceId } = useParams<{ invoiceId: string }>();
     const navigate = useNavigate();
-    const queryClient = useQueryClient();
-
     const [currentTab, setCurrentTab] = useState(0);
     const [paymentEntries, setPaymentEntries] = useState<PaymentEntry[]>([
         { method: "cash", amount: 0 }
@@ -180,20 +178,17 @@ export default function SalesPaymentPage() {
     };
 
     // Process payment mutation
-    const processPaymentMutation = useMutation({
+    const processPaymentMutation = useCrudMutation({
         mutationFn: async () => {
             // Here you would call the actual payment processing API
             // For now, we'll simulate with the complete endpoint
             return salesApi.completeInvoice(Number(invoiceId));
         },
+        getInvalidateQueryKeys: () => [["invoice", invoiceId], ["payment-history", invoiceId]],
+        successMessage: "Payment processed successfully!",
+        errorMessage: "Failed to process payment",
         onSuccess: () => {
-            showSuccessToast("Payment processed successfully!");
-            queryClient.invalidateQueries({ queryKey: ["invoice", invoiceId] });
-            queryClient.invalidateQueries({ queryKey: ["payment-history", invoiceId] });
             setShowReceiptPreview(true);
-        },
-        onError: (error: unknown) => {
-            showErrorToast(handleApiError(error, "Failed to process payment"));
         },
     });
 

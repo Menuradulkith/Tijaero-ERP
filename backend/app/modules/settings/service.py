@@ -195,13 +195,13 @@ class ProfileService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        if not verify_password(password_change.current_password, user.password):
+        if not verify_password(password_change.current_password, user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Current password is incorrect",
             )
 
-        user.password = get_password_hash(password_change.new_password)
+        user.hashed_password = get_password_hash(password_change.new_password)
         self.db.commit()
         return {"message": "Password changed successfully"}
 

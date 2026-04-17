@@ -32,7 +32,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
@@ -56,6 +56,7 @@ import {
   TStatusChip,
   TStatusFilter,
   modernTableStyles,
+  useCrudMutation,
   useMasterDetailState,
 } from "@/components/tijaero";
 
@@ -108,8 +109,6 @@ const resetFormFromPayment = (
 });
 
 export default function CommissionPaymentsPage() {
-  const queryClient = useQueryClient();
-
   // Permissions
   const canCreate = usePermission("commission_payments", "create");
   const canUpdate = usePermission("commission_payments", "update");
@@ -263,19 +262,21 @@ export default function CommissionPaymentsPage() {
   }, [filteredPayments, selectedPayment, isCreating]);
 
   // Mutations
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: commissionPaymentsApi.create,
+    invalidateQueryKeys: [
+      ["commission-payments"],
+      ["agent-commissions"],
+      ["agent-commission-summaries"],
+    ],
+    successMessage: "Payment created successfully",
+    errorMessage: "Failed to create payment",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["commission-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Payment created successfully");
       setIsCreating(false);
       setIsEditing(false);
       setSelectedCommissionIds(new Set());
       setPaymentItemAmounts({});
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create payment")),
   });
 
   // Handlers

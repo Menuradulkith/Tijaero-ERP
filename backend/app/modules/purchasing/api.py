@@ -7,13 +7,110 @@ from app.auth.dependencies import (
 )
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
+from app.common.audit import AuditLog
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from . import schemas, service
 
 router = APIRouter(prefix="/purchasing", tags=["purchasing"])
+
+
+def _user_display_name(user: User) -> str:
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    return full_name or user.username
+
+
+def _serialize_order_with_user_fields(
+    order,
+    created_by: Optional[int],
+    approved_by: Optional[int],
+    user_name_map: Dict[int, str],
+) -> Dict[str, Any]:
+    payload = schemas.PurchasingOrder.model_validate(order).model_dump()
+    payload["created_by"] = created_by
+    payload["created_by_name"] = user_name_map.get(created_by) if created_by else None
+    payload["approved_by"] = approved_by
+    payload["approved_by_name"] = user_name_map.get(approved_by) if approved_by else None
+    return payload
+
+
+def _enrich_purchase_orders_with_user_fields(
+    db: Session, orders: List[Any]
+) -> List[Dict[str, Any]]:
+    if not orders:
+        return []
+
+    from app.modules.common.models import Approvals
+
+    order_ids = [order.id for order in orders]
+    approval_ids = [order.approval_id for order in orders if order.approval_id]
+
+    created_by_map: Dict[int, int] = {}
+    create_logs = (
+        db.query(AuditLog.entity_id, AuditLog.user_id)
+        .filter(
+            AuditLog.entity_type == "purchase_order",
+            AuditLog.action == "create",
+            AuditLog.entity_id.in_(order_ids),
+        )
+        .order_by(AuditLog.entity_id.asc(), desc(AuditLog.timestamp))
+        .all()
+    )
+    for entity_id, user_id in create_logs:
+        if entity_id not in created_by_map and user_id:
+            created_by_map[entity_id] = user_id
+
+    approval_user_map: Dict[int, int] = {}
+    if approval_ids:
+        approval_records = (
+            db.query(Approvals.id, Approvals.status, Approvals.status_changed_by)
+            .filter(Approvals.id.in_(approval_ids))
+            .all()
+        )
+        for approval_id, status_value, status_changed_by in approval_records:
+            if (
+                status_changed_by
+                and status_value
+                and str(status_value).lower() in {"approved", "rejected"}
+            ):
+                approval_user_map[approval_id] = status_changed_by
+
+    user_ids = set(created_by_map.values()) | set(approval_user_map.values())
+    user_name_map: Dict[int, str] = {}
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(list(user_ids))).all()
+        user_name_map = {user.id: _user_display_name(user) for user in users}
+
+    return [
+        _serialize_order_with_user_fields(
+            order,
+            created_by=created_by_map.get(order.id),
+            approved_by=approval_user_map.get(order.approval_id)
+            if order.approval_id
+            else None,
+            user_name_map=user_name_map,
+        )
+        for order in orders
+    ]
+
+
+def _enrich_single_purchase_order_with_user_fields(
+    db: Session, order: Any
+) -> Dict[str, Any]:
+    enriched = _enrich_purchase_orders_with_user_fields(db, [order])
+    if not enriched:
+        return schemas.PurchasingOrder.model_validate(order).model_dump()
+
+    order_payload = enriched[0]
+    if hasattr(order, "items") and order.items is not None:
+        order_payload["items"] = [
+            schemas.PurchasingOrderItem.model_validate(item).model_dump()
+            for item in order.items
+        ]
+    return order_payload
 
 
 # ── Statistics endpoint ────────────────────────────────────────────────────
@@ -166,7 +263,8 @@ def create_purchase_order(
 @router.get("/orders/{order_id}", response_model=schemas.PurchasingOrderWithItems)
 def get_purchase_order(order_id: int, db: Session = Depends(get_db)):
     order_service = service.PurchasingOrderService(db)
-    return order_service.get_order(order_id)
+    order = order_service.get_order(order_id)
+    return _enrich_single_purchase_order_with_user_fields(db, order)
 
 
 @router.get("/orders", response_model=List[schemas.PurchasingOrder])
@@ -209,7 +307,8 @@ def list_purchase_orders(
         skip=skip,
         limit=limit,
     )
-    return order_service.list_orders(filters)
+    orders = order_service.list_orders(filters)
+    return _enrich_purchase_orders_with_user_fields(db, orders)
 
 
 @router.patch("/orders/{order_id}", response_model=schemas.PurchasingOrder)
@@ -274,7 +373,8 @@ def get_supplier_orders(
     filters = schemas.PurchaseOrderListFilter(
         supplier_id=supplier_id, skip=skip, limit=limit
     )
-    return order_service.list_orders(filters)
+    orders = order_service.list_orders(filters)
+    return _enrich_purchase_orders_with_user_fields(db, orders)
 
 
 @router.post(

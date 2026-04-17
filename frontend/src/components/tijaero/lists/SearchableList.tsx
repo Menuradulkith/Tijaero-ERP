@@ -46,12 +46,18 @@ export function SearchableList<T extends BaseEntity>({
   emptyMessage = "No items found",
   width = 280,
   listHeader,
+  virtualize = false,
+  estimatedItemHeight = 84,
+  overscanCount = 6,
   sx,
 }: SearchableListProps<T>) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
-  
+
   const [sortAnchorEl, setSortAnchorEl] = React.useState<null | HTMLElement>(null);
+  const [scrollTop, setScrollTop] = React.useState(0);
+  const [viewportHeight, setViewportHeight] = React.useState(0);
+  const listRef = React.useRef<HTMLUListElement | null>(null);
 
   // Support both searchValue and searchQuery
   const currentSearchValue = searchValue ?? searchQuery ?? "";
@@ -73,8 +79,57 @@ export function SearchableList<T extends BaseEntity>({
     handleSortClose();
   };
 
+  const childNodes = React.useMemo(() => React.Children.toArray(children), [children]);
+  const itemNodes = React.useMemo(
+    () =>
+      items && renderItem
+        ? items.map((item) => renderItem(item, selectedItem?.id === item.id))
+        : [],
+    [items, renderItem, selectedItem],
+  );
+  const listNodes = children ? childNodes : itemNodes;
+
   // Determine if list is empty
-  const isEmpty = items ? items.length === 0 : !children || (Array.isArray(children) && children.length === 0);
+  const isEmpty = listNodes.length === 0;
+
+  const shouldVirtualize = virtualize && !isLoading && !isEmpty;
+
+  React.useEffect(() => {
+    if (!shouldVirtualize) return;
+
+    const listElement = listRef.current;
+    if (!listElement) return;
+
+    const updateHeight = () => setViewportHeight(listElement.clientHeight);
+    updateHeight();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(updateHeight);
+      observer.observe(listElement);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", updateHeight);
+    return () => window.removeEventListener("resize", updateHeight);
+  }, [shouldVirtualize]);
+
+  const totalRows = listNodes.length;
+  const rowHeight = Math.max(estimatedItemHeight, 1);
+  const totalHeight = totalRows * rowHeight;
+  const visibleRows = Math.max(1, Math.ceil(viewportHeight / rowHeight));
+  const startIndex = shouldVirtualize
+    ? Math.max(0, Math.floor(scrollTop / rowHeight) - overscanCount)
+    : 0;
+  const endIndex = shouldVirtualize
+    ? Math.min(totalRows, startIndex + visibleRows + overscanCount * 2)
+    : totalRows;
+  const visibleNodes = shouldVirtualize
+    ? listNodes.slice(startIndex, endIndex)
+    : listNodes;
+  const topSpacerHeight = shouldVirtualize ? startIndex * rowHeight : 0;
+  const bottomSpacerHeight = shouldVirtualize
+    ? Math.max(0, totalHeight - endIndex * rowHeight)
+    : 0;
 
   return (
     <Paper
@@ -155,7 +210,15 @@ export function SearchableList<T extends BaseEntity>({
       {listHeader}
 
       {/* List */}
-      <List sx={{ flex: 1, overflow: "auto", py: 0 }}>
+      <List
+        ref={listRef}
+        onScroll={
+          shouldVirtualize
+            ? (event) => setScrollTop(event.currentTarget.scrollTop)
+            : undefined
+        }
+        sx={{ flex: 1, overflow: "auto", py: 0 }}
+      >
         {isLoading ? (
           <Box sx={{ p: 1 }}>
             {Array.from({ length: 5 }).map((_, i) => (
@@ -180,15 +243,19 @@ export function SearchableList<T extends BaseEntity>({
           >
             <Typography variant="body2">{emptyMessage}</Typography>
           </Box>
-        ) : children ? (
-          // Render children directly if provided
-          children
-        ) : items ? (
-          // Render items using renderItem function
-          items.map((item) =>
-            renderItem?.(item, selectedItem?.id === item.id)
-          )
-        ) : null}
+        ) : shouldVirtualize ? (
+          <>
+            {topSpacerHeight > 0 && (
+              <Box component="li" sx={{ height: topSpacerHeight, p: 0, m: 0, listStyle: "none" }} />
+            )}
+            {visibleNodes}
+            {bottomSpacerHeight > 0 && (
+              <Box component="li" sx={{ height: bottomSpacerHeight, p: 0, m: 0, listStyle: "none" }} />
+            )}
+          </>
+        ) : (
+          listNodes
+        )}
       </List>
     </Paper>
   );

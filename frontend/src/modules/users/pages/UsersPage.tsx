@@ -34,12 +34,13 @@ import {
     TConfirmDialog,
     useConfirmDialog,
     handleApiError,
+    useCrudMutation,
     showErrorToast,
-    showSuccessToast,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/components/PermissionGuard";
 import { PERMISSIONS } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 import type { Branch } from "../../../api/types";
 import { branchApi } from "../../branches/api";
 import { Group, groupsApi } from "../../groups/api";
@@ -115,6 +116,8 @@ const validatePassword = (password: string): string | null => {
 };
 
 export default function UsersPage() {
+  const currentUser = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
   const [users, setUsers] = useState<UserList[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -243,6 +246,61 @@ export default function UsersPage() {
     return filtered;
   }, [users, searchQuery, sortField, filterBranchId, filterRoleId]);
 
+  const createUserMutation = useCrudMutation({
+    mutationFn: (user: UserCreate) => usersApi.createUser(user),
+    invalidateQueryKeys: [["users"]],
+    successMessage: "User created successfully",
+    errorMessage: "Failed to save user",
+    onSuccess: async () => {
+      markAsSaved();
+      setIsCreating(false);
+      setIsEditing(false);
+      await loadData();
+    },
+  });
+
+  const updateUserMutation = useCrudMutation({
+    mutationFn: ({ id, user }: { id: number; user: UserUpdate }) =>
+      usersApi.updateUser(id, user),
+    invalidateQueryKeys: [["users"]],
+    getSuccessMessage: (_data, variables) => {
+      const isPasswordReset = Boolean(variables.user.password?.trim());
+      const isSelfReset =
+        Boolean(currentUser) && variables.id === currentUser!.id;
+      if (isPasswordReset && isSelfReset) {
+        return "Password reset successfully. Please log in again.";
+      }
+      return "User updated successfully";
+    },
+    errorMessage: "Failed to save user",
+    onSuccess: async (_data, variables) => {
+      const isPasswordReset = Boolean(variables.user.password?.trim());
+      const isSelfReset =
+        Boolean(currentUser) && variables.id === currentUser!.id;
+
+      if (isPasswordReset && isSelfReset) {
+        logout();
+        window.location.href = "/login";
+        return;
+      }
+
+      markAsSaved();
+      setIsEditing(false);
+      await loadData(variables.id);
+    },
+  });
+
+  const deleteUserMutation = useCrudMutation({
+    mutationFn: (id: number) => usersApi.deleteUser(id),
+    invalidateQueryKeys: [["users"]],
+    successMessage: "User deleted successfully",
+    errorMessage: "Failed to delete user",
+    onSuccess: async () => {
+      setSelectedUser(null);
+      await loadData();
+    },
+  });
+
   // Handlers
   const handleSelectUser = useCallback((user: UserList) => {
     setPasswordError(null);
@@ -327,8 +385,8 @@ export default function UsersPage() {
         validationErrors.push(employeeIdValidation);
       }
       
-      // Validate password when creating
-      if (isCreating) {
+      // Validate password when creating or when resetting during edit
+      if (isCreating || (!!formData.password && formData.password.trim().length > 0)) {
         const passwordValidation = validatePassword(formData.password || '');
         if (passwordValidation) {
           setPasswordError(passwordValidation);
@@ -371,30 +429,31 @@ export default function UsersPage() {
       };
       
       if (isCreating) {
-        await usersApi.createUser(cleanedData as UserCreate);
-        showSuccessToast("User created successfully");
-        markAsSaved();
-        setIsCreating(false);
-        setIsEditing(false);
-        loadData();
+        await createUserMutation.mutateAsync(cleanedData as UserCreate);
       } else if (selectedUser) {
-        await usersApi.updateUser(selectedUser.id, cleanedData as UserUpdate);
-        showSuccessToast("User updated successfully");
-        markAsSaved();
-        setIsEditing(false);
-        // Refresh with selected user ID to update the view
-        loadData(selectedUser.id);
+        await updateUserMutation.mutateAsync({
+          id: selectedUser.id,
+          user: cleanedData as UserUpdate,
+        });
       } else {
-        loadData();
+        await loadData();
       }
     } catch (err: unknown) {
       const errorMsg = handleApiError(err, "Failed to save user");
       setError(errorMsg);
-      showErrorToast(errorMsg);
     } finally {
       setSaving(false);
     }
-  }, [isCreating, selectedUser, formData, setIsCreating, setIsEditing]);
+  }, [
+    isCreating,
+    selectedUser,
+    formData,
+    createUserMutation,
+    updateUserMutation,
+    setIsCreating,
+    setIsEditing,
+    markAsSaved,
+  ]);
 
   const handleCancel = useCallback(() => {
     setPasswordError(null);
@@ -414,17 +473,14 @@ export default function UsersPage() {
       });
       if (confirmed) {
         try {
-          await usersApi.deleteUser(selectedUser.id);
-          showSuccessToast("User deleted successfully");
-          setSelectedUser(null);
-          loadData();
+          await deleteUserMutation.mutateAsync(selectedUser.id);
         } catch (err: unknown) {
           const errorMessage = handleApiError(err, "Failed to delete user");
-          showErrorToast(errorMessage);
+          setError(errorMessage);
         }
       }
     }
-  }, [selectedUser, setSelectedUser, confirmDialog]);
+  }, [selectedUser, deleteUserMutation, confirmDialog]);
 
   if (loading) {
     return <TPageSkeleton variant="detail" />;
@@ -633,6 +689,19 @@ export default function UsersPage() {
                   autoComplete="new-password"
                   error={!!passwordError}
                   helperText={passwordError || "Min 8 chars, uppercase, lowercase, number, special char"}
+                />
+              )}
+              {isEditing && (
+                <TextField
+                  label="Reset Password (Optional)"
+                  type="password"
+                  value={formData.password || ""}
+                  onChange={(e) => handlePasswordChange(e.target.value)}
+                  size="small"
+                  fullWidth
+                  autoComplete="new-password"
+                  error={!!passwordError}
+                  helperText={passwordError || "Leave empty to keep current password"}
                 />
               )}
               <TextField

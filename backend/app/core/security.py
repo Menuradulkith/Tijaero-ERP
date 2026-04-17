@@ -1,4 +1,5 @@
 import secrets
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -24,6 +25,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+
+
+def get_password_marker(hashed_password: str) -> str:
+    """Return a stable, non-reversible marker for the stored password hash.
+    Used to invalidate JWTs after password changes without exposing the hash.
+    """
+    return hashlib.sha256(hashed_password.encode("utf-8")).hexdigest()[:24]
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

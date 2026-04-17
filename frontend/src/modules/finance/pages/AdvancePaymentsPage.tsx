@@ -6,7 +6,7 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
   Box,
@@ -53,6 +53,7 @@ import {
   GENERIC_PAYMENT_METHOD,
   TConfirmDialog,
   useConfirmDialog,
+  useCrudMutation,
   fmtLKR,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
@@ -107,7 +108,6 @@ const SUPPLIER_INITIAL_FORM: Partial<SupplierAdvancePaymentCreate> = {
 };
 
 export default function AdvancePaymentsPage() {
-  const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
   const canViewCustomers = usePermission("customers", "view");
   const canViewSuppliers = usePermission("suppliers", "view");
@@ -335,45 +335,39 @@ export default function AdvancePaymentsPage() {
   );
 
   // --- Mutations ---
-  const createCustomerMutation = useMutation({
+  const createCustomerMutation = useCrudMutation({
     mutationFn: (data: CustomerAdvancePaymentCreate) => advancePaymentsApi.create(data),
+    invalidateQueryKeys: [["customer-advance-payments"]],
+    successMessage: "Customer advance payment recorded successfully",
+    errorMessage: "Failed to record customer advance",
     onSuccess: (newItem: any) => {
-      queryClient.invalidateQueries({ queryKey: ["customer-advance-payments"] });
-      showSuccessToast("Customer advance payment recorded successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTouched({});
       setTimeout(() => handleSelectItem(newItem), 0);
     },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to record customer advance"));
-    },
   });
 
-  const createSupplierMutation = useMutation({
+  const createSupplierMutation = useCrudMutation({
     mutationFn: (data: SupplierAdvancePaymentCreate) => supplierAdvancePaymentsApi.create(data),
+    invalidateQueryKeys: [["supplier-advance-payments"]],
+    successMessage: "Supplier advance payment created successfully",
+    errorMessage: "Failed to create supplier advance",
     onSuccess: (newItem: any) => {
-      queryClient.invalidateQueries({ queryKey: ["supplier-advance-payments"] });
-      showSuccessToast("Supplier advance payment created successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTouched({});
       setTimeout(() => handleSelectItem(newItem), 0);
     },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create supplier advance"));
-    },
   });
 
-  const deleteSupplierMutation = useMutation({
+  const deleteSupplierMutation = useCrudMutation({
     mutationFn: (id: number) => supplierAdvancePaymentsApi.delete(id),
+    invalidateQueryKeys: [["supplier-advance-payments"]],
+    successMessage: "Advance payment deleted",
+    errorMessage: "Failed to delete advance payment",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["supplier-advance-payments"] });
-      showSuccessToast("Advance payment deleted");
       setSelectedItem(null);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete advance payment"));
     },
   });
 

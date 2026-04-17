@@ -6,7 +6,7 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
   Box,
@@ -41,6 +41,7 @@ import {
   GENERIC_PAYMENT_METHOD,
   TConfirmDialog,
   useConfirmDialog,
+  useCrudMutation,
   fmtLKR,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
@@ -93,7 +94,6 @@ const resetFormFromItem = (item: SupplierAdvancePayment): Partial<SupplierAdvanc
 });
 
 export default function SupplierAdvancePaymentsPage() {
-  const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
   const canViewSuppliers = usePermission("suppliers", "view");
 
@@ -211,30 +211,26 @@ export default function SupplierAdvancePaymentsPage() {
   }, [filteredAdvances, selectedItem, isCreating]);
 
   // Mutations
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: (data: SupplierAdvancePaymentCreate) => supplierAdvancePaymentsApi.create(data),
+    invalidateQueryKeys: [["supplier-advance-payments"]],
+    successMessage: "Supplier advance payment created successfully",
+    errorMessage: "Failed to create advance payment",
     onSuccess: (newItem) => {
-      queryClient.invalidateQueries({ queryKey: ["supplier-advance-payments"] });
-      showSuccessToast("Supplier advance payment created successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTouched({});
       setTimeout(() => handleSelectItem(newItem), 0);
     },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create advance payment"));
-    },
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: (id: number) => supplierAdvancePaymentsApi.delete(id),
+    invalidateQueryKeys: [["supplier-advance-payments"]],
+    successMessage: "Advance payment deleted successfully",
+    errorMessage: "Failed to delete advance payment",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["supplier-advance-payments"] });
-      showSuccessToast("Advance payment deleted successfully");
       setSelectedItem(null);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete advance payment"));
     },
   });
 

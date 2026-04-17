@@ -21,6 +21,7 @@ import {
     TPrintPreviewDialog,
     TStatusChip,
     TSteps,
+    useCrudMutation,
     useMasterDetailState,
     useTConfirmDialog,
 } from "@/components/tijaero";
@@ -79,7 +80,7 @@ import {
     Tooltip,
     Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -670,33 +671,30 @@ export default function SalesPage() {
   }, [location.state]);
 
   // Mutations
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: salesApi.delete,
+    invalidateQueryKeys: [["sales"]],
+    successMessage: "Sales order deleted successfully",
+    errorMessage: "Failed to delete sales order",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-      showSuccessToast("Sales order deleted successfully");
       state.setSelectedItem(null);
-    },
-    onError: () => {
-      showErrorToast("Failed to delete sales order");
     },
   });
 
   // Store payment method for navigation after create
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>("");
 
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: salesApi.create,
-    onSuccess: (createdInvoice) => {
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-      queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
-      // Invalidate the specific invoice detail query
+    getInvalidateQueryKeys: (createdInvoice) => {
+      const keys: Array<(string | number)[]> = [["sales"], ["sales-approved"]];
       if (createdInvoice?.id) {
-        queryClient.invalidateQueries({
-          queryKey: ["sales", createdInvoice.id],
-        });
+        keys.push(["sales", createdInvoice.id]);
       }
-
+      return keys;
+    },
+    errorMessage: "Failed to create sales order",
+    onSuccess: (createdInvoice) => {
       const paymentMethod = pendingPaymentMethod.toLowerCase();
       const isCreditPayment = paymentMethod === "credit";
 
@@ -729,24 +727,22 @@ export default function SalesPage() {
       setPendingPaymentMethod("");
     },
     onError: () => {
-      showErrorToast("Failed to create sales order");
       setPendingPaymentMethod("");
     },
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) =>
       salesApi.update(id, data),
-    onSuccess: (updatedInvoice) => {
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-      queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
-      // Invalidate the specific invoice detail query
+    getInvalidateQueryKeys: () => {
+      const keys: Array<(string | number)[]> = [["sales"], ["sales-approved"]];
       if (state.selectedItem?.id) {
-        queryClient.invalidateQueries({
-          queryKey: ["sales", state.selectedItem.id],
-        });
+        keys.push(["sales", state.selectedItem.id]);
       }
-
+      return keys;
+    },
+    errorMessage: "Failed to update sales order",
+    onSuccess: (updatedInvoice) => {
       const paymentMethod = pendingPaymentMethod.toLowerCase();
       const isCreditPayment = paymentMethod === "credit";
 
@@ -769,35 +765,28 @@ export default function SalesPage() {
       setPendingPaymentMethod("");
     },
     onError: () => {
-      showErrorToast("Failed to update sales order");
       setPendingPaymentMethod("");
     },
   });
 
   // Workflow mutations - Approve, Complete, Cancel
-  const approveMutation = useMutation({
+  const approveMutation = useCrudMutation({
     mutationFn: salesApi.approve,
+    invalidateQueryKeys: [["sales"], ["sales-approved"]],
+    successMessage: "Sales order approved successfully",
+    errorMessage: "Failed to approve sales order",
     onSuccess: (updatedInvoice) => {
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-      queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
-      showSuccessToast("Sales order approved successfully");
       state.setSelectedItem(updatedInvoice as Invoice);
-    },
-    onError: () => {
-      showErrorToast("Failed to approve sales order");
     },
   });
 
-  const cancelMutation = useMutation({
+  const cancelMutation = useCrudMutation({
     mutationFn: salesApi.cancel,
+    invalidateQueryKeys: [["sales"], ["sales-approved"]],
+    successMessage: "Sales order cancelled and stock restored",
+    errorMessage: "Failed to cancel sales order",
     onSuccess: (updatedInvoice) => {
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-      queryClient.invalidateQueries({ queryKey: ["sales-approved"] });
-      showSuccessToast("Sales order cancelled and stock restored");
       state.setSelectedItem(updatedInvoice as Invoice);
-    },
-    onError: () => {
-      showErrorToast("Failed to cancel sales order");
     },
   });
 

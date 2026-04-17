@@ -109,6 +109,12 @@ export interface SearchableListProps<T extends BaseEntity> {
   onToggleFavorite?: (id: number, e: React.MouseEvent) => void;
   /** Custom list header */
   listHeader?: ReactNode;
+  /** Enable lightweight list virtualization (windowed rendering) */
+  virtualize?: boolean;
+  /** Estimated row height in pixels for virtualization */
+  estimatedItemHeight?: number;
+  /** Extra rows rendered above and below viewport when virtualizing */
+  overscanCount?: number;
   /** Custom styles */
   sx?: SxProps<Theme>;
 }

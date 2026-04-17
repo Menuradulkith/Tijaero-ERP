@@ -26,6 +26,7 @@ import { authApi } from "../api";
 export default function LoginPage() {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -44,7 +45,8 @@ export default function LoginPage() {
         showSuccessToast("Login successful");
         navigate("/dashboard");
       } catch (error: unknown) {
-        showErrorToast("Failed to fetch user data");
+        clearAuth();
+        showErrorToast(handleApiError(error, "Failed to fetch user data"));
       }
     },
     onError: (error: unknown) => {
