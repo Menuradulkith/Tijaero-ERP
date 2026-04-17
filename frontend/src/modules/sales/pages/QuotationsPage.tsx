@@ -72,7 +72,7 @@ import {
   Tooltip,
   Typography
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { addDays, format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -374,89 +374,79 @@ export default function QuotationsPage() {
   };
 
   // Mutations
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: (data: SalesQuoteCreate) => quotationApi.create(data),
+    getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType]],
+    getSuccessMessage: (newQuote) => `${QUOTE_TYPE_LABELS[newQuote.quote_type]} created successfully`,
+    errorMessage: "Failed to create quote",
     onSuccess: (newQuote) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
       handleSelectQuote(newQuote);
       setIsCreating(false);
       setLineItems([]);
-      showSuccessToast(`${QUOTE_TYPE_LABELS[newQuote.quote_type]} created successfully`);
-    },
-    onError: (error: Error) => {
-      showErrorToast(handleApiError(error, "Failed to create quote"));
     },
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<SalesQuoteCreate> }) =>
       quotationApi.update(id, data),
+    getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType]],
+    successMessage: "Quote updated successfully",
+    errorMessage: "Failed to update quote",
     onSuccess: (updatedQuote) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
       handleSelectQuote(updatedQuote);
       setIsEditing(false);
       setLineItemsDirty(false);
       setLineItems([]);
-      showSuccessToast("Quote updated successfully");
-    },
-    onError: (error: Error) => {
-      showErrorToast(handleApiError(error, "Failed to update quote"));
     },
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: (id: number) => quotationApi.delete(id),
+    getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType]],
+    successMessage: "Quote deleted successfully",
+    errorMessage: "Failed to delete quote",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
-      showSuccessToast("Quote deleted successfully");
       baseHandleCancel(filteredQuotes);
-    },
-    onError: (error: Error) => {
-      showErrorToast(handleApiError(error, "Failed to delete quote"));
     },
   });
 
   // ==================== Workflow Mutations ====================
 
-  const toggleProformaMutation = useMutation({
+  const toggleProformaMutation = useCrudMutation({
     mutationFn: ({ id, is_proforma }: { id: number; is_proforma: boolean }) =>
       quotationApi.toggleProforma(id, { is_proforma }),
+    invalidateQueryKeys: [["sales-quotes"], ["sales-quote-details"]],
+    successMessage: "Converted to Proforma Invoice",
+    errorMessage: "Failed to update type",
     onSuccess: (_data, variables) => {
-      // Invalidate both lists since toggling moves the item between lists
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
-      queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
-      showSuccessToast("Converted to Proforma Invoice");
       // Navigate to the Proforma Invoice page and auto-select the converted quote
       navigate("/sales/proforma", { state: { selectedQuoteId: variables.id } });
     },
-    onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to update type")),
   });
 
-  const rejectMutation = useMutation({
+  const rejectMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: { reason?: string; cancel_linked_po?: boolean } }) =>
       quotationApi.rejectWithOptions(id, data),
+    getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType], ["sales-quote-details"]],
+    successMessage: "Quote rejected",
+    errorMessage: "Failed to reject",
     onSuccess: (updatedQuote) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
-      queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
       handleSelectQuote(updatedQuote);
       setRejectDialogOpen(false);
       setRejectReason("");
       setCancelLinkedPO(false);
-      showSuccessToast("Quote rejected");
     },
-    onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to reject")),
   });
 
-  const cancelMutation = useMutation({
+  const cancelMutation = useCrudMutation({
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
       quotationApi.cancel(id, reason),
+    getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType], ["sales-quote-details"]],
+    successMessage: "Quote cancelled",
+    errorMessage: "Failed to cancel",
     onSuccess: (updatedQuote) => {
-      queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
-      queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
       handleSelectQuote(updatedQuote);
-      showSuccessToast("Quote cancelled");
     },
-    onError: (error: Error) => showErrorToast(handleApiError(error, "Failed to cancel")),
   });
 
   // ==================== Workflow Handlers ====================
@@ -992,6 +982,7 @@ export default function QuotationsPage() {
                   documentType="quotation"
                   documentId={selectedQuote.id}
                   disabled={!canPrintDocument(selectedQuote.status, ["cancelled"])}
+                useCrudMutation,
                   disabledReason={`Cannot print: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}`}
                   onClick={() => {
                     setSelectedQuoteForPrint(selectedQuote);

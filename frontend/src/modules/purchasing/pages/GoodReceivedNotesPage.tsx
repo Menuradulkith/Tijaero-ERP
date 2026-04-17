@@ -57,7 +57,7 @@ import {
   TextField,
   Typography
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 
@@ -81,6 +81,7 @@ import {
   TFilterPanel,
   TPrintButton,
   TPrintPreviewDialog,
+  useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
 } from "@/components/tijaero";
@@ -437,7 +438,7 @@ export default function GoodReceivedNotesPage() {
     }
   }, [filteredGRNs, selectedGRN, isCreating]);
 
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: async ({ data, allowCreditOverride = false }: { data: GoodReceivedNoteCreate; allowCreditOverride?: boolean }) => {
       // Check for any items still being validated (Checking... state)
       const itemsStillChecking = lineItems.filter(item => item.barcodeError === "Checking...");
@@ -548,6 +549,10 @@ export default function GoodReceivedNotesPage() {
 
       return { grn: newGRN, grnItemCount, salesStockCount, companyAssetCount };
     },
+    invalidateQueryKeys: [["goodReceivedNotes"], ["purchaseOrders"], ["purchase-orders"]],
+    errorMessage: "Failed to create GRN",
+    showSuccess: false,
+    showError: false,
     onSuccess: async ({ grn: newGRN, grnItemCount, salesStockCount, companyAssetCount }) => {
       const messages = [`${grnItemCount} items received`];
       if (salesStockCount > 0) messages.push(`${salesStockCount} to Sales Stock`);
@@ -558,11 +563,6 @@ export default function GoodReceivedNotesPage() {
       setLineItems([]);
       setProductGroups([]);
       setCreditLimitDialog({ open: false, errorMessage: "", pendingData: null });
-
-      // Refetch the GRN list to get the complete data
-      await queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
-      await queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
 
       // Wait for refetch to complete
       await refetch();

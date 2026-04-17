@@ -38,6 +38,7 @@ interface AuthState {
   isAuthenticated: boolean;
   login: (token: string, user: User) => void;
   logout: () => void;
+  clearAuth: () => void;
   updateUser: (user: User) => void;
   updateTokens: (token: string) => void;
 }
@@ -52,6 +53,9 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         _set({ token: null, user: null, isAuthenticated: false });
         apiClient.post("/auth/logout").catch(() => {}); // Clear secure cookie on backend
+      },
+      clearAuth: () => {
+        _set({ token: null, user: null, isAuthenticated: false });
       },
       updateUser: (user) => _set({ user }),
       updateTokens: (token) => _set({ token }),

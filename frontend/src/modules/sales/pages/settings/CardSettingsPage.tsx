@@ -6,7 +6,7 @@
  */
 
 import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Box,
   TextField,
@@ -34,8 +34,7 @@ import {
   TFormDialog,
   TPageSkeleton,
   TEmptyState,
-  showSuccessToast,
-  showErrorToast,
+  useCrudMutation,
 } from "@/components/tijaero";
 import { TDataGridColumn } from "@/components/tijaero/data";
 import { paymentCardsApi } from "../../api";
@@ -52,7 +51,6 @@ const INITIAL_FORM_DATA: PaymentCardCreate = {
 };
 
 export default function CardSettingsPage() {
-  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<PaymentCard | null>(null);
   const [formData, setFormData] = useState<PaymentCardCreate>(INITIAL_FORM_DATA);
@@ -65,28 +63,24 @@ export default function CardSettingsPage() {
   });
 
   // Mutations
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: paymentCardsApi.create,
+    invalidateQueryKeys: [["payment-cards"]],
+    successMessage: "Payment card created successfully",
+    errorMessage: "Failed to create payment card",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payment-cards"] });
-      showSuccessToast("Payment card created successfully");
       handleCloseDialog();
-    },
-    onError: (error: Error) => {
-      showErrorToast(error.message || "Failed to create payment card");
     },
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: PaymentCardUpdate }) =>
       paymentCardsApi.update(id, data),
+    invalidateQueryKeys: [["payment-cards"]],
+    successMessage: "Payment card updated successfully",
+    errorMessage: "Failed to update payment card",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payment-cards"] });
-      showSuccessToast("Payment card updated successfully");
       handleCloseDialog();
-    },
-    onError: (error: Error) => {
-      showErrorToast(error.message || "Failed to update payment card");
     },
   });
 

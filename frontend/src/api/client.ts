@@ -57,6 +57,8 @@ apiClient.interceptors.response.use(
     // Skip refresh logic for the refresh endpoint itself, or if already retried
     const isRefreshCall =
       originalRequest?.headers?.["X-Skip-Auth-Intercept"] === "true";
+    const requestUrl = originalRequest?.url || "";
+    const isLoginCall = requestUrl.includes("/auth/login");
 
     // Hide default toast if requested
     const hideErrorToast =
@@ -65,7 +67,8 @@ apiClient.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       !originalRequest?._retry &&
-      !isRefreshCall
+      !isRefreshCall &&
+      !isLoginCall
     ) {
       if (isRefreshing) {
         // Another refresh is in progress — queue this request
@@ -104,8 +107,20 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        // Do not call full logout() to avoid infinite loops, but just reset local state
-        useAuthStore.getState().updateTokens("");
+        useAuthStore.getState().clearAuth();
+
+        const refreshAxiosError = refreshError as AxiosError;
+        const refreshData = refreshAxiosError.response?.data as
+          | { detail?: string }
+          | undefined;
+        const refreshDetail = refreshData?.detail;
+        if (
+          typeof refreshDetail === "string" &&
+          refreshDetail.toLowerCase().includes("password change")
+        ) {
+          toast.error("Your password was changed by an administrator. Please log in again.");
+        }
+
         window.location.href = "/login";
         return Promise.reject(refreshError);
       } finally {

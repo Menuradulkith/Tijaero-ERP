@@ -5,7 +5,7 @@
  */
 
 import { useMemo, useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Box,
   TextField,
@@ -44,6 +44,7 @@ import {
   showSuccessToast,
   showErrorToast,
   modernTableStyles,
+  useCrudMutation,
   useTConfirmDialog,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
@@ -71,7 +72,6 @@ const BT_STATUS_FILTER_OPTIONS = [
 ];
 
 export default function BankTransferConfirmationPage() {
-  const queryClient = useQueryClient();
   const canViewCustomers = usePermission("customers", "view");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_date");
@@ -133,31 +133,27 @@ export default function BankTransferConfirmationPage() {
   }, [products]);
 
   // Verify mutation
-  const verifyMutation = useMutation({
+  const verifyMutation = useCrudMutation({
     mutationFn: (invoiceId: number) => bankTransferApi.verify(invoiceId),
+    invalidateQueryKeys: [["pendingBankTransfers"]],
+    getSuccessMessage: (data) => data.message,
+    errorMessage: "Failed to verify bank transfer",
     onSuccess: (data) => {
-      showSuccessToast(data.message);
-      queryClient.invalidateQueries({ queryKey: ["pendingBankTransfers"] });
       setSelectedTransfer(null);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to verify bank transfer"));
     },
   });
 
   // Reject mutation
-  const rejectMutation = useMutation({
+  const rejectMutation = useCrudMutation({
     mutationFn: ({ invoiceId, reason }: { invoiceId: number; reason: string }) =>
       bankTransferApi.reject(invoiceId, reason),
+    invalidateQueryKeys: [["pendingBankTransfers"]],
+    getSuccessMessage: (data) => data.message,
+    errorMessage: "Failed to reject bank transfer",
     onSuccess: (data) => {
-      showSuccessToast(data.message);
-      queryClient.invalidateQueries({ queryKey: ["pendingBankTransfers"] });
       setSelectedTransfer(null);
       setRejectDialogOpen(false);
       setRejectReason("");
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to reject bank transfer"));
     },
   });
 

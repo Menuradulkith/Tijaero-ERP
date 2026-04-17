@@ -38,7 +38,7 @@ import {
     Tooltip,
     Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 // Import tijaero components
@@ -50,7 +50,6 @@ import {
     fmtLKR,
     FormSection,
     getStatusProps,
-    handleApiError,
     MasterDetailLayout,
     modernTableStyles,
     PURCHASING_PAYMENT_METHOD,
@@ -67,6 +66,7 @@ import {
     TPrintPreviewDialog,
     TStatusChip,
     TSupplierFilter,
+    useCrudMutation,
     useMasterDetailState,
     useTConfirmDialog,
 } from "@/components/tijaero";
@@ -662,16 +662,13 @@ export default function PurchaseOrdersPage() {
     checkCreditLimit,
   ]);
 
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: purchaseOrdersApi.create,
+    invalidateQueryKeys: [["purchaseOrders"]],
+    successMessage:
+      "Purchase order created successfully. Status set to 'Pending Approval' - requires manager approval.",
+    errorMessage: "Failed to create purchase order",
     onSuccess: (newOrder) => {
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-
-      // All orders are created with pending_approval status
-      showSuccessToast(
-        "Purchase order created successfully. Status set to 'Pending Approval' - requires manager approval.",
-      );
-
       setIsCreating(false);
       setIsEditing(false);
       setCreditWarning({
@@ -682,33 +679,26 @@ export default function PurchaseOrdersPage() {
       });
       setTimeout(() => handleSelectOrderWithItems(newOrder), 0);
     },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create purchase order"));
-    },
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) =>
       purchaseOrdersApi.update(id, data),
+    invalidateQueryKeys: [["purchaseOrders"]],
+    successMessage: "Purchase order updated successfully",
+    errorMessage: "Failed to update purchase order",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      showSuccessToast("Purchase order updated successfully");
       setIsEditing(false);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to update purchase order"));
     },
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: (id: number) => purchaseOrdersApi.delete(id),
+    invalidateQueryKeys: [["purchaseOrders"]],
+    successMessage: "Purchase order deleted successfully",
+    errorMessage: "Failed to delete purchase order",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      showSuccessToast("Purchase order deleted successfully");
       setSelectedOrder(null);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete purchase order"));
     },
   });
 
@@ -1533,6 +1523,20 @@ export default function PurchaseOrdersPage() {
                         disabled
                         InputProps={{ readOnly: true }}
                       />
+                      <TextField
+                        label="Created By"
+                        size="small"
+                        value={selectedOrder.created_by_name || "-"}
+                        disabled
+                        InputProps={{ readOnly: true }}
+                      />
+                      <TextField
+                        label="Approved By"
+                        size="small"
+                        value={selectedOrder.approved_by_name || "-"}
+                        disabled
+                        InputProps={{ readOnly: true }}
+                      />
                     </FormSection>
                   </>
                 )}
@@ -1786,7 +1790,7 @@ export default function PurchaseOrdersPage() {
                         )}
                         <TableRow sx={modernTableStyles.footerRow}>
                           <TableCell
-                            colSpan={isEditing || isCreating ? 5 : 5}
+                            colSpan={4}
                             align="right"
                           >
                             <Typography fontWeight="bold">Total:</Typography>

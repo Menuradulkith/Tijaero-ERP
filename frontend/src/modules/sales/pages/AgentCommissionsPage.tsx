@@ -26,7 +26,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
@@ -51,6 +51,7 @@ import {
   TStatCard,
   TStatusChip,
   TStatusFilter,
+  useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
 } from "@/components/tijaero";
@@ -142,8 +143,6 @@ const resetFormFromCommission = (
 });
 
 export default function AgentCommissionsPage() {
-  const queryClient = useQueryClient();
-
   // Permissions
   const canCreate = usePermission("agent_commissions", "create");
   const canUpdate = usePermission("agent_commissions", "update");
@@ -287,51 +286,43 @@ export default function AgentCommissionsPage() {
   }, [formData.commission_type, formData.commission_rate, formData.invoice_amount, isCreating, isEditing]);
 
   // Mutations
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: commissionsApi.create,
+    invalidateQueryKeys: [["agent-commissions"], ["agent-commission-summaries"]],
+    successMessage: "Commission created successfully",
+    errorMessage: "Failed to create commission",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Commission created successfully");
       setIsCreating(false);
       setIsEditing(false);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create commission")),
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) =>
       commissionsApi.update(id, data),
+    invalidateQueryKeys: [["agent-commissions"], ["agent-commission-summaries"]],
+    successMessage: "Commission updated successfully",
+    errorMessage: "Failed to update commission",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Commission updated successfully");
       setIsEditing(false);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update commission")),
   });
 
-  const approveMutation = useMutation({
+  const approveMutation = useCrudMutation({
     mutationFn: commissionsApi.approve,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Commission approved successfully");
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to approve commission"));
-    },
+    invalidateQueryKeys: [["agent-commissions"], ["agent-commission-summaries"]],
+    successMessage: "Commission approved successfully",
+    errorMessage: "Failed to approve commission",
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: commissionsApi.delete,
+    invalidateQueryKeys: [["agent-commissions"], ["agent-commission-summaries"]],
+    successMessage: "Commission deleted successfully",
+    errorMessage: "Failed to delete commission",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Commission deleted successfully");
       baseHandleCancel(filteredCommissions);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to delete commission")),
   });
 
   const confirmDialog = useTConfirmDialog();

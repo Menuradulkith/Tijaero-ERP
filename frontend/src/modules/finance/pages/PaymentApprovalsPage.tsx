@@ -5,7 +5,7 @@
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   TextField,
@@ -49,6 +49,7 @@ import {
   modernTableStyles,
   TConfirmDialog,
   useConfirmDialog,
+  useCrudMutation,
   fmtLKR,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
@@ -264,60 +265,60 @@ export default function PaymentApprovalsPage() {
   }, [filteredPayments, selectedPayment, handleSelectPayment]);
 
   // Verify mutation for direct payments
-  const verifyPaymentMutation = useMutation({
+  const verifyPaymentMutation = useCrudMutation({
     mutationFn: (id: number) => supplierPaymentsApi.verify(id),
+    invalidateQueryKeys: [["supplier-payments"]],
+    successMessage: "Payment verified successfully",
+    errorMessage: "Failed to verify payment",
     onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ["supplier-payments"] });
       if (selectedPayment && selectedPayment.payment_type === "payment" && selectedPayment.id === id) {
         setSelectedPayment((prev) => prev ? { ...prev, status: "verified" } : null);
       }
-      showSuccessToast("Payment verified successfully");
     },
-    onError: () => showErrorToast("Failed to verify payment"),
   });
 
   // Verify mutation for credit settlements
-  const verifyCreditMutation = useMutation({
+  const verifyCreditMutation = useCrudMutation({
     mutationFn: (id: number) => supplierCreditsSettleApi.verify(id),
+    invalidateQueryKeys: [["credit-settlements"]],
+    successMessage: "Credit settlement verified successfully",
+    errorMessage: "Failed to verify credit settlement",
     onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ["credit-settlements"] });
       if (selectedPayment && selectedPayment.payment_type === "credit" && selectedPayment.id === id) {
         setSelectedPayment((prev) => prev ? { ...prev, status: "verified" } : null);
       }
-      showSuccessToast("Credit settlement verified successfully");
     },
-    onError: () => showErrorToast("Failed to verify credit settlement"),
   });
 
   // Cancel/Reject mutation for direct payments
-  const cancelPaymentMutation = useMutation({
+  const cancelPaymentMutation = useCrudMutation({
     mutationFn: ({ id, remarks }: { id: number; remarks?: string }) =>
       supplierPaymentsApi.update(id, { status: "cancelled", remarks }),
+    invalidateQueryKeys: [["supplier-payments"]],
+    successMessage: "Payment cancelled successfully",
+    errorMessage: "Failed to cancel payment",
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["supplier-payments"] });
       if (selectedPayment && selectedPayment.payment_type === "payment" && selectedPayment.id === variables.id) {
         setSelectedPayment((prev) => prev ? { ...prev, status: "cancelled" } : null);
       }
-      showSuccessToast("Payment cancelled successfully");
       setRejectDialogOpen(false);
       setRejectReason("");
     },
-    onError: () => showErrorToast("Failed to cancel payment"),
   });
 
   // Cancel mutation for credit settlements
-  const cancelCreditMutation = useMutation({
+  const cancelCreditMutation = useCrudMutation({
     mutationFn: (id: number) => supplierCreditsSettleApi.cancel(id),
+    invalidateQueryKeys: [["credit-settlements"]],
+    successMessage: "Credit settlement cancelled successfully",
+    errorMessage: "Failed to cancel credit settlement",
     onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ["credit-settlements"] });
       if (selectedPayment && selectedPayment.payment_type === "credit" && selectedPayment.id === id) {
         setSelectedPayment((prev) => prev ? { ...prev, status: "cancelled" } : null);
       }
-      showSuccessToast("Credit settlement cancelled successfully");
       setRejectDialogOpen(false);
       setRejectReason("");
     },
-    onError: () => showErrorToast("Failed to cancel credit settlement"),
   });
 
   const handleVerify = async () => {

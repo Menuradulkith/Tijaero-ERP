@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { Box, useMediaQuery, useTheme } from "@mui/material";
+import IdleSessionManager from "@/auth/components/IdleSessionManager";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import IconNav from "./IconNav";
@@ -40,6 +41,8 @@ export default function MainLayout() {
 
   return (
     <Box sx={{ display: "flex", minHeight: "100dvh", width: "100%" }}>
+      <IdleSessionManager />
+
       {/* Icon navigation rail on far left */}
       <IconNav
         width={ICON_NAV_WIDTH}

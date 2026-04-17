@@ -118,7 +118,7 @@ export {
 export * from "./types";
 
 // Hooks
-export { useMasterDetailState } from "./hooks";
+export { useCrudMutation, useMasterDetailState } from "./hooks";
 
 // Layouts
 export { MasterDetailLayout } from "./layouts";

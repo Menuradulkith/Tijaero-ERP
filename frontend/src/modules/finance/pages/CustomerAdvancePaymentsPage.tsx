@@ -6,7 +6,7 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
   Box,
@@ -39,6 +39,7 @@ import {
   GENERIC_PAYMENT_METHOD,
   TConfirmDialog,
   useConfirmDialog,
+  useCrudMutation,
   fmtLKR,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
@@ -89,7 +90,6 @@ const resetFormFromItem = (item: CustomerAdvancePayment): Partial<CustomerAdvanc
 });
 
 export default function CustomerAdvancePaymentsPage() {
-  const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
   const canViewCustomers = usePermission("customers", "view");
 
@@ -203,18 +203,16 @@ export default function CustomerAdvancePaymentsPage() {
   }, [filteredAdvances, selectedItem, isCreating]);
 
   // Mutations
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: (data: CustomerAdvancePaymentCreate) => advancePaymentsApi.create(data),
+    invalidateQueryKeys: [["customer-advance-payments"]],
+    successMessage: "Customer advance payment recorded successfully",
+    errorMessage: "Failed to record advance payment",
     onSuccess: (newItem) => {
-      queryClient.invalidateQueries({ queryKey: ["customer-advance-payments"] });
-      showSuccessToast("Customer advance payment recorded successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTouched({});
       setTimeout(() => handleSelectItem(newItem), 0);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to record advance payment"));
     },
   });
 

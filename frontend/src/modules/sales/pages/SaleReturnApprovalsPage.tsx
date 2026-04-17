@@ -5,7 +5,7 @@
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     Box,
     TextField,
@@ -53,6 +53,7 @@ import {
     showSuccessToast,
     showErrorToast,
     modernTableStyles,
+    useCrudMutation,
     useTConfirmDialog,
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
@@ -173,24 +174,26 @@ export default function SaleReturnApprovalsPage() {
     }, [filteredReturns, selectedReturn, handleSelectReturn]);
 
     // Approve mutation
-    const approveMutation = useMutation({
+    const approveMutation = useCrudMutation({
         mutationFn: (id: number) => saleReturnsApi.approve(id),
+        invalidateQueryKeys: [["sale-returns"], ["sales-stock"]],
+        successMessage: "Sale return approved successfully",
+        errorMessage: "Failed to approve return",
         onSuccess: (_data, id) => {
             queryClient.setQueryData<SaleReturn[]>(["sale-returns"], (prev) =>
                 (prev || []).map((r) => (r.id === id ? { ...r, status: "approved" as const } : r))
             );
             setSelectedReturn((prev) => (prev && prev.id === id ? { ...prev, status: "approved" as const } : prev));
-            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-            queryClient.invalidateQueries({ queryKey: ["sales-stock"] });
-            showSuccessToast("Sale return approved successfully");
         },
-        onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to approve return")),
     });
 
     // Reject mutation
-    const rejectMutation = useMutation({
+    const rejectMutation = useCrudMutation({
         mutationFn: ({ id, remarks }: { id: number; remarks: string }) =>
             saleReturnsApi.reject(id, remarks),
+        invalidateQueryKeys: [["sale-returns"]],
+        successMessage: "Sale return rejected",
+        errorMessage: "Failed to reject return",
         onSuccess: (_data, variables) => {
             queryClient.setQueryData<SaleReturn[]>(["sale-returns"], (prev) =>
                 (prev || []).map((r) => (r.id === variables.id ? { ...r, status: "rejected" as const } : r))
@@ -198,27 +201,23 @@ export default function SaleReturnApprovalsPage() {
             setSelectedReturn((prev) =>
                 prev && prev.id === variables.id ? { ...prev, status: "rejected" as const } : prev
             );
-            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-            showSuccessToast("Sale return rejected");
             setRejectDialogOpen(false);
             setRejectReason("");
         },
-        onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to reject return")),
     });
 
     // Process mutation (for approved returns)
-    const processMutation = useMutation({
+    const processMutation = useCrudMutation({
         mutationFn: (id: number) => saleReturnsApi.process(id),
+        invalidateQueryKeys: [["sale-returns"], ["sales-stock"]],
+        getSuccessMessage: (data) => `Sale return processed. ${data.items_restocked} items restocked.`,
+        errorMessage: "Failed to process return",
         onSuccess: (data, id) => {
             queryClient.setQueryData<SaleReturn[]>(["sale-returns"], (prev) =>
                 (prev || []).map((r) => (r.id === id ? { ...r, status: "processed" as const } : r))
             );
             setSelectedReturn((prev) => (prev && prev.id === id ? { ...prev, status: "processed" as const } : prev));
-            queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-            queryClient.invalidateQueries({ queryKey: ["sales-stock"] });
-            showSuccessToast(`Sale return processed. ${data.items_restocked} items restocked.`);
         },
-        onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to process return")),
     });
 
     const handleApprove = () => {

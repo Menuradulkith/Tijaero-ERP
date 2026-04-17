@@ -19,7 +19,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -45,6 +45,7 @@ import {
   TFilterPanel,
   TSearchableSelect,
   TStatusChip,
+  useCrudMutation,
   useTConfirmDialog,
 } from "@/components/tijaero";
 
@@ -156,35 +157,27 @@ export default function ExpenseApprovalsPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["expense-approvals"] });
-    queryClient.invalidateQueries({ queryKey: ["expense-approval-detail"] });
-    queryClient.invalidateQueries({ queryKey: ["expenses"] });
-  };
-
-  const approveMutation = useMutation({
+  const approveMutation = useCrudMutation({
     mutationFn: (id: number) => expensesApi.approve(id),
+    invalidateQueryKeys: [["expense-approvals"], ["expense-approval-detail"], ["expenses"]],
+    getSuccessMessage: (data) => `Expense ${data.expenses_no} approved`,
+    errorMessage: "Failed to approve expense",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast(`Expense ${data.expenses_no} approved`);
       setSelectedExpense(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to approve expense")),
   });
 
-  const rejectMutation = useMutation({
+  const rejectMutation = useCrudMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       expensesApi.reject(id, reason),
+    invalidateQueryKeys: [["expense-approvals"], ["expense-approval-detail"], ["expenses"]],
+    getSuccessMessage: (data) => `Expense ${data.expenses_no} rejected`,
+    errorMessage: "Failed to reject expense",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast(`Expense ${data.expenses_no} rejected`);
       setRejectDialogOpen(false);
       setRejectReason("");
       setSelectedExpense(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to reject expense")),
   });
 
   // ─── Handlers ──────────────────────────────────────────────────────────────

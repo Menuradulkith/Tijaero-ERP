@@ -119,6 +119,10 @@ class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
     created_date: date
     added_date: datetime
     approval_id: Optional[int] = None
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    approved_by: Optional[int] = None
+    approved_by_name: Optional[str] = None
     status: PurchaseOrderStatus = PurchaseOrderStatus.PENDING
     total_amount: Decimal = Decimal("0.00")
     paid_amount: Decimal = Decimal("0.00")

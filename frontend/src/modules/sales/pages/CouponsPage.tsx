@@ -27,7 +27,7 @@ import {
   Autocomplete,
   Chip,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 
@@ -47,6 +47,7 @@ import {
   TDetailSkeleton,
   TConfirmDialog,
   TSearchableSelect,
+  useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
   modernTableStyles,
@@ -119,7 +120,6 @@ const getCouponStatus = (coupon: CustomerCuponCodes): string => {
 };
 
 export default function CouponsPage() {
-  const queryClient = useQueryClient();
   const canViewProducts = usePermission("products", "view");
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -214,37 +214,37 @@ export default function CouponsPage() {
   }, [filteredCoupons, selectedCoupon, isCreating]);
 
   // Mutations
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: couponsApi.create,
+    invalidateQueryKeys: [["coupons"]],
+    successMessage: "Coupon created successfully",
+    errorMessage: "Failed to create coupon",
     onSuccess: (newCoupon) => {
-      queryClient.invalidateQueries({ queryKey: ["coupons"] });
-      showSuccessToast("Coupon created successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTimeout(() => handleSelectCoupon(newCoupon), 0);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to create coupon")),
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: CustomerCuponCodesCreate }) =>
       couponsApi.update(id, data),
+    invalidateQueryKeys: [["coupons"]],
+    successMessage: "Coupon updated successfully",
+    errorMessage: "Failed to update coupon",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["coupons"] });
-      showSuccessToast("Coupon updated successfully");
       setIsEditing(false);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to update coupon")),
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: couponsApi.delete,
+    invalidateQueryKeys: [["coupons"]],
+    successMessage: "Coupon deleted successfully",
+    errorMessage: "Failed to delete coupon",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["coupons"] });
-      showSuccessToast("Coupon deleted successfully");
       baseHandleCancel(filteredCoupons);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to delete coupon")),
   });
 
   const confirmDialog = useTConfirmDialog();

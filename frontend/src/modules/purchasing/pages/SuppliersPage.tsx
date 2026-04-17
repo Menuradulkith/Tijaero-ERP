@@ -5,7 +5,7 @@
 import { useMemo, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDateTimeReadable } from "@/utils/formatters";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Box,
   Button,
@@ -30,16 +30,15 @@ import {
   ActionToolbar,
   FormSection,
   EmptyState,
-  handleApiError,
   useMasterDetailState,
   showErrorToast,
-  showSuccessToast,
   SortOption,
   TConfirmDialog,
   TDetailSkeleton,
   TITLE_CHOICES,
   GENDER_CHOICES,
   CIVIL_CHOICES,
+  useCrudMutation,
   useTConfirmDialog,
 } from "@/components/tijaero";
 
@@ -109,7 +108,6 @@ const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
 });
 
 export default function SuppliersPage() {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
 
@@ -208,42 +206,36 @@ export default function SuppliersPage() {
     }
   }, [filteredSuppliers, selectedSupplier, isCreating]);
 
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: suppliersApi.create,
+    invalidateQueryKeys: [["suppliers"]],
+    successMessage: "Supplier created successfully",
+    errorMessage: "Failed to create supplier",
     onSuccess: (newSupplier) => {
-      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-      showSuccessToast("Supplier created successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTimeout(() => handleSelectSupplier(newSupplier), 0);
     },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create supplier"));
-    },
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: SupplierCreate }) =>
       suppliersApi.update(id, data),
+    invalidateQueryKeys: [["suppliers"]],
+    successMessage: "Supplier updated successfully",
+    errorMessage: "Failed to update supplier",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-      showSuccessToast("Supplier updated successfully");
       setIsEditing(false);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to update supplier"));
     },
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: suppliersApi.delete,
+    invalidateQueryKeys: [["suppliers"]],
+    successMessage: "Supplier deleted successfully",
+    errorMessage: "Failed to delete supplier",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-      showSuccessToast("Supplier deleted successfully");
       handleCancel(filteredSuppliers);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete supplier"));
     },
   });
 

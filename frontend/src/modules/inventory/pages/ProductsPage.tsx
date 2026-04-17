@@ -6,17 +6,16 @@ import {
     EmptyState,
     fmtLKR,
     FormSection,
-    handleApiError,
     MasterDetailLayout,
     PRODUCT_ITEM_TYPE,
     SearchableList,
     SelectableListItem,
     showErrorToast,
-    showSuccessToast,
     SortOption,
     TabConfig,
     TConfirmDialog,
     useConfirmDialog,
+  useCrudMutation,
     useMasterDetailState,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
@@ -43,7 +42,7 @@ import {
     TextField,
     Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+  import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { brandsApi, categoriesApi, minimumPriceApi, productsApi } from "../api";
 import {
@@ -112,11 +111,16 @@ interface ProductsPageProps {
   hideTabs?: boolean;
 }
 
+const productAddedDateFormatter = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
 export default function ProductsPage({
   view = "products",
   hideTabs = false,
 }: ProductsPageProps) {
-  const queryClient = useQueryClient();
   const viewToTab = (v: InventoryView) =>
     v === "products" ? 0 : v === "categories" ? 1 : 2;
   const [activeTab, setActiveTab] = useState<number>(viewToTab(view));
@@ -212,6 +216,8 @@ export default function ProductsPage({
     queryKey: ["products"],
     queryFn: () => productsApi.getAll(0, 1000, false), // Get all including inactive
     enabled: activeTab === 0,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const {
@@ -221,6 +227,8 @@ export default function ProductsPage({
   } = useQuery({
     queryKey: ["categories"],
     queryFn: () => categoriesApi.getAll(0, 1000), // Get all including inactive
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const {
@@ -230,6 +238,8 @@ export default function ProductsPage({
   } = useQuery({
     queryKey: ["brands"],
     queryFn: () => brandsApi.getAll(),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   //consctive categories and brands for dropdowns (only active items can be selected for new products)
@@ -245,6 +255,8 @@ export default function ProductsPage({
     queryFn: () => minimumPriceApi.getCurrent(productState.selectedItem!.id),
     enabled: !!productState.selectedItem?.id,
     retry: false,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   //consiltered and sorted data
@@ -269,6 +281,15 @@ export default function ProductsPage({
     });
     return filtered;
   }, [products, productState.searchQuery, productState.sortField]);
+
+  const preparedProducts = useMemo(
+    () =>
+      filteredProducts.map((product) => ({
+        product,
+        addedDateLabel: productAddedDateFormatter.format(new Date(product.added_date)),
+      })),
+    [filteredProducts],
+  );
 
   const filteredCategories = useMemo(() => {
     if (!categories) return [];
@@ -313,11 +334,12 @@ export default function ProductsPage({
   }, [brands, brandState.searchQuery, brandState.sortField]);
 
   // Mutations
-  const createProductMutation = useMutation({
+  const createProductMutation = useCrudMutation({
     mutationFn: productsApi.create,
+    invalidateQueryKeys: [["products"]],
+    successMessage: "Product created successfully",
+    errorMessage: "Failed to create product",
     onSuccess: (newProduct) => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      showSuccessToast("Product created successfully");
       productState.setIsCreating(false);
       productState.setIsEditing(false);
       productState.setSelectedItem(newProduct);
@@ -332,144 +354,120 @@ export default function ProductsPage({
       }
       setCreateMinPrice("");
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to create product")),
   });
 
-  const updateProductMutation = useMutation({
+  const updateProductMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<ProductCreate> }) =>
       productsApi.update(id, data),
+    invalidateQueryKeys: [["products"]],
+    successMessage: "Product updated successfully",
+    errorMessage: "Failed to update product",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      showSuccessToast("Product updated successfully");
       productState.setIsEditing(false);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to update product")),
   });
 
-  const deleteProductMutation = useMutation({
+  const deleteProductMutation = useCrudMutation({
     mutationFn: productsApi.delete,
+    invalidateQueryKeys: [["products"]],
+    getSuccessMessage: (data) =>
+      data?.message || "Product deleted successfully",
+    errorMessage: "Failed to delete product",
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      // Use the success message from backend if available, otherwise use default
-      showSuccessToast(data?.message || "Product deleted successfully");
       productState.setSelectedItem(null);
     },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete product"));
-    },
   });
 
-  const createCategoryMutation = useMutation({
+  const createCategoryMutation = useCrudMutation({
     mutationFn: categoriesApi.create,
+    invalidateQueryKeys: [["categories"]],
+    successMessage: "Category created successfully",
+    errorMessage: "Failed to create category",
     onSuccess: (newCategory) => {
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-      showSuccessToast("Category created successfully");
       categoryState.setIsCreating(false);
       categoryState.setIsEditing(false);
       categoryState.setSelectedItem(newCategory);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to create category")),
   });
 
-  const updateCategoryMutation = useMutation({
+  const updateCategoryMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: CategoryUpdate }) =>
       categoriesApi.update(id, data),
+    invalidateQueryKeys: [["categories"]],
+    successMessage: "Category updated successfully",
+    errorMessage: "Failed to update category",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-      showSuccessToast("Category updated successfully");
       categoryState.setIsEditing(false);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to update category")),
   });
 
-  const deleteCategoryMutation = useMutation({
+  const deleteCategoryMutation = useCrudMutation({
     mutationFn: categoriesApi.delete,
+    invalidateQueryKeys: [["categories"]],
+    getSuccessMessage: (data) =>
+      data?.message || "Category deleted successfully",
+    errorMessage: "Failed to delete category",
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-      // Use the success message from backend if available, otherwise use default
-      showSuccessToast(data?.message || "Category deleted successfully");
       categoryState.setSelectedItem(null);
     },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete category"));
-    },
   });
 
-  const createBrandMutation = useMutation({
+  const createBrandMutation = useCrudMutation({
     mutationFn: brandsApi.create,
+    invalidateQueryKeys: [["brands"]],
+    successMessage: "Brand created successfully",
+    errorMessage: "Failed to create brand",
     onSuccess: (newBrand) => {
-      queryClient.invalidateQueries({ queryKey: ["brands"] });
-      showSuccessToast("Brand created successfully");
       brandState.setIsCreating(false);
       brandState.setIsEditing(false);
       brandState.setSelectedItem(newBrand);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to create brand")),
   });
 
-  const updateBrandMutation = useMutation({
+  const updateBrandMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: BrandUpdate }) =>
       brandsApi.update(id, data),
+    invalidateQueryKeys: [["brands"]],
+    successMessage: "Brand updated successfully",
+    errorMessage: "Failed to update brand",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["brands"] });
-      showSuccessToast("Brand updated successfully");
       brandState.setIsEditing(false);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to update brand")),
   });
 
-  const deleteBrandMutation = useMutation({
+  const deleteBrandMutation = useCrudMutation({
     mutationFn: brandsApi.delete,
+    invalidateQueryKeys: [["brands"]],
+    getSuccessMessage: (data) => data?.message || "Brand deleted successfully",
+    errorMessage: "Failed to delete brand",
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["brands"] });
-      // Use the success message from backend if available, otherwise use default
-      showSuccessToast(data?.message || "Brand deleted successfully");
       brandState.setSelectedItem(null);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete brand"));
     },
   });
 
   // Minimum selling price mutation
-  const setMinimumPriceForProductMutation = useMutation({
+  const setMinimumPriceForProductMutation = useCrudMutation({
     mutationFn: ({ productId, price }: { productId: number; price: number }) =>
       minimumPriceApi.set(productId, { minimum_price: price }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["minimum-price", variables.productId],
-      });
-      showSuccessToast("Minimum selling price set successfully");
-    },
-    onError: (error: unknown) =>
-      showErrorToast(
-        handleApiError(error, "Failed to set minimum selling price"),
-      ),
+    getInvalidateQueryKeys: (_data, variables) => [
+      ["minimum-price", variables.productId],
+    ],
+    successMessage: "Minimum selling price set successfully",
+    errorMessage: "Failed to set minimum selling price",
   });
 
-  const setMinimumPriceMutation = useMutation({
+  const setMinimumPriceMutation = useCrudMutation({
     mutationFn: (price: number) =>
       minimumPriceApi.set(productState.selectedItem!.id, {
         minimum_price: price,
       }),
+    invalidateQueryKeys: [["minimum-price", productState.selectedItem?.id]],
+    successMessage: "Minimum selling price set successfully",
+    errorMessage: "Failed to set minimum selling price",
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["minimum-price", productState.selectedItem?.id],
-      });
-      showSuccessToast("Minimum selling price set successfully");
       setMinPriceDialogOpen(false);
       setNewMinPrice(0);
     },
-    onError: (error: unknown) =>
-      showErrorToast(
-        handleApiError(error, "Failed to set minimum selling price"),
-      ),
   });
 
   // Product handlers
@@ -895,8 +893,11 @@ export default function ProductsPage({
         onSortChange={productState.setSortField}
         isLoading={productsLoading}
         emptyMessage="No products found"
+        virtualize
+        estimatedItemHeight={90}
+        overscanCount={8}
       >
-        {filteredProducts.map((product) => {
+        {preparedProducts.map(({ product, addedDateLabel }) => {
           const isSelected = productState.selectedItem?.id === product.id;
           return (
             <SelectableListItem
@@ -937,12 +938,7 @@ export default function ProductsPage({
                     variant="caption"
                     sx={{ opacity: 0.55, fontSize: "0.68rem" }}
                   >
-                    Added:{" "}
-                    {new Date(product.added_date).toLocaleDateString("en-GB", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                    })}
+                    Added: {addedDateLabel}
                   </Typography>
                   {/* Additional fields when selected */}
                   {isSelected && (

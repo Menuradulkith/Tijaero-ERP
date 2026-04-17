@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 from app.auth.models import Group, User
-from app.core.security import decode_token
+from app.core.security import decode_token, get_password_marker
 from app.db.session import get_db
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -62,6 +62,13 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
+    token_password_marker = payload.get("pwd")
+    current_password_marker = get_password_marker(user.hashed_password)
+    if not token_password_marker or token_password_marker != current_password_marker:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired due to password change. Please log in again.",
+        )
     return user
 
 
@@ -108,6 +115,13 @@ def get_current_user_flexible(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
+    token_password_marker = payload.get("pwd")
+    current_password_marker = get_password_marker(user.hashed_password)
+    if not token_password_marker or token_password_marker != current_password_marker:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired due to password change. Please log in again.",
         )
     if not user.is_active:
         raise HTTPException(

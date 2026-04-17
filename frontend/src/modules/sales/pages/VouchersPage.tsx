@@ -24,7 +24,7 @@ import {
   Paper,
   Chip,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 
@@ -45,6 +45,7 @@ import {
   TConfirmDialog,
   TPrintButton,
   TPrintPreviewDialog,
+  useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
   modernTableStyles,
@@ -120,7 +121,6 @@ const calculateExpiryDate = (issueDate: string, months: number): Date => {
 };
 
 export default function VouchersPage() {
-  const queryClient = useQueryClient();
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Permissions
@@ -219,42 +219,36 @@ export default function VouchersPage() {
   }, [filteredVouchers, selectedVoucher, isCreating]);
 
   // Mutations
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: vouchersApi.create,
+    invalidateQueryKeys: [["vouchers"]],
+    getSuccessMessage: (newVoucher) => `Voucher ${newVoucher.barcode_no} created successfully`,
+    errorMessage: "Failed to create voucher",
     onSuccess: async (newVoucher) => {
-      await queryClient.invalidateQueries({ queryKey: ["vouchers"] });
-      showSuccessToast(`Voucher ${newVoucher.barcode_no} created successfully`);
       setIsCreating(false);
       handleSelectVoucher(newVoucher);
     },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create voucher"));
-    },
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) =>
       vouchersApi.update(id, data),
+    invalidateQueryKeys: [["vouchers"]],
+    successMessage: "Voucher updated successfully",
+    errorMessage: "Failed to update voucher",
     onSuccess: async (updatedVoucher) => {
-      await queryClient.invalidateQueries({ queryKey: ["vouchers"] });
-      showSuccessToast("Voucher updated successfully");
       setIsEditing(false);
       handleSelectVoucher(updatedVoucher);
     },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to update voucher"));
-    },
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: vouchersApi.delete,
+    invalidateQueryKeys: [["vouchers"]],
+    successMessage: "Voucher deleted successfully",
+    errorMessage: "Failed to delete voucher",
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["vouchers"] });
-      showSuccessToast("Voucher deleted successfully");
       baseHandleCancel(filteredVouchers);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete voucher"));
     },
   });
 

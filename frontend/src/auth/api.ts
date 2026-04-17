@@ -11,7 +11,11 @@ export const authApi = {
       "/auth/login",
       formData,
       {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Skip-Auth-Intercept": "true",
+          "X-Hide-Error-Toast": "true",
+        },
       },
     );
     return response.data;

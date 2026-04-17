@@ -22,7 +22,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -43,6 +43,7 @@ import {
   useMasterDetailState,
   TConfirmDialog,
   useConfirmDialog,
+  useCrudMutation,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -108,7 +109,6 @@ const resetFormFromAccount = (account: ChartOfAccount): AccountFormData => ({
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ChartOfAccountsPage() {
-  const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
 
   // Filter states
@@ -205,58 +205,49 @@ export default function ChartOfAccountsPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["chart-of-accounts"] });
-    queryClient.invalidateQueries({ queryKey: ["chart-of-accounts-all"] });
-  };
-
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: chartOfAccountsApi.create,
+    invalidateQueryKeys: [["chart-of-accounts"], ["chart-of-accounts-all"]],
+    successMessage: "Account created successfully",
+    errorMessage: "Failed to create account",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Account created successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTimeout(() => handleSelectAccount(data), 0);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to create account")),
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<ChartOfAccountCreate> }) =>
       chartOfAccountsApi.update(id, data),
+    invalidateQueryKeys: [["chart-of-accounts"], ["chart-of-accounts-all"]],
+    successMessage: "Account updated",
+    errorMessage: "Failed to update account",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Account updated");
       setIsEditing(false);
       setSelectedAccount(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to update account")),
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: chartOfAccountsApi.delete,
+    invalidateQueryKeys: [["chart-of-accounts"], ["chart-of-accounts-all"]],
+    successMessage: "Account deleted",
+    errorMessage: "Failed to delete account",
     onSuccess: () => {
-      invalidate();
-      showSuccessToast("Account deleted");
       setSelectedAccount(null);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to delete account")),
   });
 
-  const seedMutation = useMutation({
+  const seedMutation = useCrudMutation({
     mutationFn: () => chartOfAccountsApi.seed(true),
+    invalidateQueryKeys: [["chart-of-accounts"], ["chart-of-accounts-all"]],
+    getSuccessMessage: (result) =>
+      `COA seeded: ${result.created} created, ${result.parent_links_set} parent links set (${result.total} total)`,
+    errorMessage: "Failed to seed Chart of Accounts",
     onSuccess: (result) => {
-      invalidate();
-      showSuccessToast(
-        `COA seeded: ${result.created} created, ${result.parent_links_set} parent links set (${result.total} total)`
-      );
+      void result;
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to seed Chart of Accounts")),
   });
 
   // ─── Handlers ──────────────────────────────────────────────────────────────

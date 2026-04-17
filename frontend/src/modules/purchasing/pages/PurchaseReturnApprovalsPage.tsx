@@ -6,7 +6,7 @@
 
 import { useMemo, useCallback, useState, useEffect } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   TextField,
@@ -46,12 +46,11 @@ import {
   TStatusFilter,
   RETURN_STATUS_FILTER_OPTIONS,
   getStatusProps,
-  handleApiError,
   SortOption,
   TDetailSkeleton,
-  showSuccessToast,
   showErrorToast,
   modernTableStyles,
+  useCrudMutation,
 } from "@/components/tijaero";
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
@@ -170,24 +169,26 @@ export default function PurchaseReturnApprovalsPage() {
   }, [filteredReturns, selectedReturn, handleSelectReturn]);
 
   // Approve mutation
-  const approveMutation = useMutation({
+  const approveMutation = useCrudMutation({
     mutationFn: (id: number) => purchaseReturnsApi.approve(id, { approve: true }),
+    invalidateQueryKeys: [["purchaseReturns"], ["sales-stock"]],
+    successMessage: "Purchase return approved successfully",
+    errorMessage: "Failed to approve return",
     onSuccess: (_data, id) => {
       queryClient.setQueryData<PurchasingReturn[]>(["purchase-returns"], (prev) =>
         (prev || []).map((r) => (r.id === id ? { ...r, status: "approved" as const } : r))
       );
       setSelectedReturn((prev) => (prev && prev.id === id ? { ...prev, status: "approved" as const } : prev));
-      queryClient.invalidateQueries({ queryKey: ["purchaseReturns"] });
-      queryClient.invalidateQueries({ queryKey: ["sales-stock"] });
-      showSuccessToast("Purchase return approved successfully");
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to approve return")),
   });
 
   // Reject mutation
-  const rejectMutation = useMutation({
+  const rejectMutation = useCrudMutation({
     mutationFn: ({ id, remarks }: { id: number; remarks: string }) =>
       purchaseReturnsApi.approve(id, { approve: false, remarks }),
+    invalidateQueryKeys: [["purchaseReturns"], ["sales-stock"]],
+    successMessage: "Purchase return rejected",
+    errorMessage: "Failed to reject return",
     onSuccess: (_data, variables) => {
       queryClient.setQueryData<PurchasingReturn[]>(["purchase-returns"], (prev) =>
         (prev || []).map((r) => (r.id === variables.id ? { ...r, status: "rejected" as const } : r))
@@ -195,13 +196,9 @@ export default function PurchaseReturnApprovalsPage() {
       setSelectedReturn((prev) =>
         prev && prev.id === variables.id ? { ...prev, status: "rejected" as const } : prev
       );
-      queryClient.invalidateQueries({ queryKey: ["purchaseReturns"] });
-      queryClient.invalidateQueries({ queryKey: ["sales-stock"] });
-      showSuccessToast("Purchase return rejected");
       setRejectDialogOpen(false);
       setRejectReason("");
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to reject return")),
   });
 
   const handleApprove = () => {

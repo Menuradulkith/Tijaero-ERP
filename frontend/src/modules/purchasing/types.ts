@@ -123,6 +123,10 @@ export interface PurchasingOrder {
   created_date: string;
   added_date: string;
   approval_id?: number;
+  created_by?: number;
+  created_by_name?: string;
+  approved_by?: number;
+  approved_by_name?: string;
   status: string;
   total_amount: number;
   paid_amount: number;

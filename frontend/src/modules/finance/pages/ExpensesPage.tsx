@@ -22,7 +22,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -56,6 +56,7 @@ import {
   useConfirmDialog,
   useTConfirmDialog,
   useMasterDetailState,
+  useCrudMutation,
 } from "@/components/tijaero";
 
 
@@ -263,87 +264,76 @@ export default function ExpensesPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["expenses"] });
-    queryClient.invalidateQueries({ queryKey: ["expense-detail"] });
-  };
-
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: expensesApi.create,
+    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    successMessage: "Expense recorded successfully",
+    errorMessage: "Failed to create expense",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Expense recorded successfully");
       setIsCreating(false);
       setSelectedExpense(data);
       setFormStep(0);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to create expense")),
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<ExpenseCreate> }) =>
       expensesApi.update(id, data),
+    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    successMessage: "Expense updated",
+    errorMessage: "Failed to update expense",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Expense updated");
       setIsEditing(false);
       setSelectedExpense(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to update expense")),
   });
 
-  const submitMutation = useMutation({
+  const submitMutation = useCrudMutation({
     mutationFn: (id: number) => expensesApi.submit(id),
+    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    successMessage: "Expense submitted for approval",
+    errorMessage: "Failed to submit expense",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Expense submitted for approval");
       setSelectedExpense(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to submit expense")),
   });
 
-  const approveMutation = useMutation({
+  const approveMutation = useCrudMutation({
     mutationFn: (id: number) => expensesApi.approve(id),
+    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    successMessage: "Expense approved",
+    errorMessage: "Failed to approve expense",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Expense approved");
       setSelectedExpense(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to approve expense")),
   });
 
-  const rejectMutation = useMutation({
+  const rejectMutation = useCrudMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       expensesApi.reject(id, reason),
+    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    successMessage: "Expense rejected",
+    errorMessage: "Failed to reject expense",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Expense rejected");
       setRejectDialogOpen(false);
       setRejectReason("");
       setSelectedExpense(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to reject expense")),
   });
 
-  const paymentMutation = useMutation({
+  const paymentMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: ExpensePaymentData }) =>
       expensesApi.processPayment(id, data),
+    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    successMessage: "Payment processed",
+    errorMessage: "Failed to process payment",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Payment processed");
       setPaymentDialogOpen(false);
       setSelectedExpense(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to process payment")),
   });
 
-  const recordMutation = useMutation({
+  const recordMutation = useCrudMutation({
     mutationFn: ({
       id,
       data,
@@ -351,25 +341,23 @@ export default function ExpensesPage() {
       id: number;
       data: { account_code: string; cost_center?: string };
     }) => expensesApi.record(id, data),
+    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    successMessage: "Expense recorded in accounting",
+    errorMessage: "Failed to record expense",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Expense recorded in accounting");
       setRecordDialogOpen(false);
       setSelectedExpense(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to record expense")),
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: (id: number) => expensesApi.delete(id),
+    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    successMessage: "Expense deleted",
+    errorMessage: "Failed to delete expense",
     onSuccess: () => {
-      invalidate();
-      showSuccessToast("Expense deleted");
       setSelectedExpense(null);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to delete expense")),
   });
 
   // ─── Handlers ──────────────────────────────────────────────────────────────

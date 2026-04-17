@@ -15,7 +15,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -36,6 +36,7 @@ import {
   TDetailSkeleton,
   TITLE_CHOICES,
   TStatusFilter,
+  useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
 } from "@/components/tijaero";
@@ -241,41 +242,38 @@ export default function CustomersPage() {
   }, [filteredCustomers, selectedCustomer, isCreating]);
 
   // Mutations
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: customersApi.create,
+    invalidateQueryKeys: [["customers"]],
+    successMessage: "Customer created successfully",
+    errorMessage: "Failed to create customer",
     onSuccess: (newCustomer) => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-      showSuccessToast("Customer created successfully");
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
       setIsEditing(false);
       setTimeout(() => handleSelectCustomer(newCustomer), 0);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to create customer")),
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: CustomerCreate }) =>
       customersApi.update(id, data),
+    invalidateQueryKeys: [["customers"]],
+    successMessage: "Customer updated successfully",
+    errorMessage: "Failed to update customer",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-      showSuccessToast("Customer updated successfully");
       setIsEditing(false);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to update customer")),
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useCrudMutation({
     mutationFn: customersApi.delete,
+    invalidateQueryKeys: [["customers"]],
+    successMessage: "Customer deleted successfully",
+    errorMessage: "Failed to delete customer",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-      showSuccessToast("Customer deleted successfully");
       baseHandleCancel(filteredCustomers);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to delete customer")),
   });
 
   const confirmDialog = useTConfirmDialog();

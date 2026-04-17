@@ -24,7 +24,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -45,6 +45,7 @@ import {
   TDetailSkeleton,
   TConfirmDialog,
   useConfirmDialog,
+  useCrudMutation,
 } from "@/components/tijaero";
 
 import { accountingPeriodsApi } from "@/modules/finance/api";
@@ -76,7 +77,6 @@ const getStatusColor = (status: PeriodStatus) => {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function AccountingPeriodsPage() {
-  const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
 
   // State
@@ -134,52 +134,44 @@ export default function AccountingPeriodsPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["accounting-periods"] });
-  };
-
-  const generateMutation = useMutation({
+  const generateMutation = useCrudMutation({
     mutationFn: accountingPeriodsApi.generate,
+    invalidateQueryKeys: [["accounting-periods"]],
+    successMessage: "Accounting periods generated successfully",
+    errorMessage: "Failed to generate periods",
     onSuccess: () => {
-      invalidate();
-      showSuccessToast("Accounting periods generated successfully");
       setGenerateDialogOpen(false);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to generate periods")),
   });
 
-  const closeMutation = useMutation({
+  const closeMutation = useCrudMutation({
     mutationFn: accountingPeriodsApi.close,
+    invalidateQueryKeys: [["accounting-periods"]],
+    successMessage: "Period closed",
+    errorMessage: "Failed to close period",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Period closed");
       setSelectedPeriod(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to close period")),
   });
 
-  const reopenMutation = useMutation({
+  const reopenMutation = useCrudMutation({
     mutationFn: accountingPeriodsApi.reopen,
+    invalidateQueryKeys: [["accounting-periods"]],
+    successMessage: "Period reopened",
+    errorMessage: "Failed to reopen period",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Period reopened");
       setSelectedPeriod(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to reopen period")),
   });
 
-  const lockMutation = useMutation({
+  const lockMutation = useCrudMutation({
     mutationFn: accountingPeriodsApi.lock,
+    invalidateQueryKeys: [["accounting-periods"]],
+    successMessage: "Period locked",
+    errorMessage: "Failed to lock period",
     onSuccess: (data) => {
-      invalidate();
-      showSuccessToast("Period locked");
       setSelectedPeriod(data);
     },
-    onError: (err: unknown) =>
-      showErrorToast(handleApiError(err, "Failed to lock period")),
   });
 
   // ─── Handlers ──────────────────────────────────────────────────────────────

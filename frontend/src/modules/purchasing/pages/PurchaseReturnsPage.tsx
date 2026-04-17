@@ -33,7 +33,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -62,6 +62,7 @@ import {
   modernTableStyles,
   showErrorToast,
   showSuccessToast,
+  useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
 } from "@/components/tijaero";
@@ -390,17 +391,15 @@ export default function PurchaseReturnsPage() {
     }
   }, [filteredReturns, selectedReturn, isCreating]);
 
-  const createMutation = useMutation({
+  const createMutation = useCrudMutation({
     mutationFn: purchaseReturnsApi.create,
+    invalidateQueryKeys: [["purchaseReturns"]],
+    successMessage: "Purchase return created successfully",
+    errorMessage: "Failed to create purchase return",
     onSuccess: (newReturn) => {
-      queryClient.invalidateQueries({ queryKey: ["purchaseReturns"] });
-      showSuccessToast("Purchase return created successfully");
       setIsCreating(false);
       setIsEditing(false);
       setTimeout(() => handleSelectReturnWithItems(newReturn), 0);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create purchase return"));
     },
   });
 

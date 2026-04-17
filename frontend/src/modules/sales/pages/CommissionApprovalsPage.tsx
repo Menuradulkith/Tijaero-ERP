@@ -22,7 +22,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
@@ -42,8 +42,7 @@ import {
   TSearchableSelect,
   TStatusChip,
   modernTableStyles,
-  showErrorToast,
-  showSuccessToast,
+  useCrudMutation,
   useTConfirmDialog,
 } from "@/components/tijaero";
 
@@ -69,7 +68,6 @@ const SORT_OPTIONS: SortOption[] = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function CommissionApprovalsPage() {
-  const queryClient = useQueryClient();
   const canApprove = usePermission("commission_approvals", "approve");
   const canDelete = usePermission("commission_approvals", "delete");
   const canViewCustomers = usePermission("customers", "view");
@@ -153,30 +151,32 @@ export default function CommissionApprovalsPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
-  const approveMutation = useMutation({
+  const approveMutation = useCrudMutation({
     mutationFn: (id: number) => commissionsApi.approve(id),
+    invalidateQueryKeys: [
+      ["commission-approvals"],
+      ["agent-commissions"],
+      ["agent-commission-summaries"],
+    ],
+    successMessage: "Commission approved successfully",
+    errorMessage: "Failed to approve commission",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["commission-approvals"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Commission approved successfully");
       setSelectedCommission(null);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to approve commission")),
   });
 
-  const rejectMutation = useMutation({
+  const rejectMutation = useCrudMutation({
     mutationFn: (id: number) => commissionsApi.delete(id),
+    invalidateQueryKeys: [
+      ["commission-approvals"],
+      ["agent-commissions"],
+      ["agent-commission-summaries"],
+    ],
+    successMessage: "Commission rejected (deleted)",
+    errorMessage: "Failed to reject commission",
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["commission-approvals"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-commission-summaries"] });
-      showSuccessToast("Commission rejected (deleted)");
       setSelectedCommission(null);
     },
-    onError: (error: unknown) =>
-      showErrorToast(handleApiError(error, "Failed to reject commission")),
   });
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
