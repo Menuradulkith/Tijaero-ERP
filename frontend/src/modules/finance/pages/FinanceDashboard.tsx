@@ -7,7 +7,6 @@ import {
   Typography,
   Card,
   CardContent,
-  CardActionArea,
   LinearProgress,
   Chip,
   IconButton,
@@ -15,6 +14,7 @@ import {
   Divider,
   Stack,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   AccountBalance as BankIcon,
   CreditCard as CardIcon,
@@ -68,41 +68,52 @@ interface StatCardProps {
 
 function StatCard({ title, value, subtitle, icon, color, trend, onClick }: StatCardProps) {
   const colorMap = {
-    primary: { bg: '#e3f2fd', iconBg: '#1976d2', iconColor: '#fff' },
-    success: { bg: '#e8f5e9', iconBg: '#2e7d32', iconColor: '#fff' },
-    error: { bg: '#ffebee', iconBg: '#d32f2f', iconColor: '#fff' },
-    warning: { bg: '#fff3e0', iconBg: '#ed6c02', iconColor: '#fff' },
-    info: { bg: '#e1f5fe', iconBg: '#0288d1', iconColor: '#fff' },
+    primary: { iconBg: '#1976d2', iconColor: '#fff', ring: '#90caf9' },
+    success: { iconBg: '#2e7d32', iconColor: '#fff', ring: '#a5d6a7' },
+    error: { iconBg: '#d32f2f', iconColor: '#fff', ring: '#ef9a9a' },
+    warning: { iconBg: '#ed6c02', iconColor: '#fff', ring: '#ffcc80' },
+    info: { iconBg: '#0288d1', iconColor: '#fff', ring: '#81d4fa' },
   };
 
   const colors = colorMap[color];
 
   return (
     <Card
+      variant="outlined"
       sx={{
         height: '100%',
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'all 0.2s ease-in-out',
-        '&:hover': onClick ? { transform: 'translateY(-2px)', boxShadow: 3 } : {},
+        borderRadius: 3,
+        borderColor: 'divider',
+        background: 'linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)',
+        transition: 'all 0.25s ease-in-out',
+        boxShadow: '0 2px 12px rgba(15, 23, 42, 0.05)',
+        '&:hover': onClick
+          ? {
+              transform: 'translateY(-3px)',
+              boxShadow: `0 8px 24px ${alpha(colors.ring, 0.35)}`,
+              borderColor: alpha(colors.iconBg, 0.35),
+            }
+          : {},
       }}
       onClick={onClick}
     >
-      <CardContent>
+      <CardContent sx={{ p: 2.25, '&:last-child': { pb: 2.25 } }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box sx={{ flex: 1 }}>
-            <Typography variant="body2" color="text.secondary" gutterBottom>
+            <Typography variant="caption" sx={{ color: 'text.secondary', letterSpacing: 0.4, textTransform: 'uppercase' }}>
               {title}
             </Typography>
-            <Typography variant="h4" fontWeight="bold" color="text.primary">
+            <Typography variant="h5" fontWeight={800} color="text.primary" sx={{ mt: 0.75, lineHeight: 1.15 }}>
               {value}
             </Typography>
             {subtitle && (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
                 {subtitle}
               </Typography>
             )}
             {trend && (
-              <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, gap: 0.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mt: 1.1, gap: 0.5 }}>
                 {trend.direction === 'up' ? (
                   <TrendingUpIcon sx={{ fontSize: 16, color: 'success.main' }} />
                 ) : (
@@ -122,12 +133,13 @@ function StatCard({ title, value, subtitle, icon, color, trend, onClick }: StatC
           </Box>
           <Box
             sx={{
-              backgroundColor: colors.iconBg,
-              borderRadius: 2,
-              p: 1.5,
+              background: `linear-gradient(135deg, ${colors.iconBg} 0%, ${alpha(colors.iconBg, 0.75)} 100%)`,
+              borderRadius: 2.5,
+              p: 1.25,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              boxShadow: `0 8px 16px ${alpha(colors.iconBg, 0.35)}`,
             }}
           >
             {React.cloneElement(icon as React.ReactElement, {
@@ -136,64 +148,6 @@ function StatCard({ title, value, subtitle, icon, color, trend, onClick }: StatC
           </Box>
         </Box>
       </CardContent>
-    </Card>
-  );
-}
-
-// Module Quick Access Card
-interface ModuleCardProps {
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  path: string;
-  count?: number;
-  color: string;
-}
-
-function ModuleCard({ title, description, icon, path, count, color }: ModuleCardProps) {
-  const navigate = useNavigate();
-
-  return (
-    <Card sx={{ height: '100%' }}>
-      <CardActionArea onClick={() => navigate(path)} sx={{ height: '100%' }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box
-              sx={{
-                backgroundColor: `${color}15`,
-                borderRadius: 2,
-                p: 1.5,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {React.cloneElement(icon as React.ReactElement, {
-                sx: { color: color, fontSize: 28 },
-              })}
-            </Box>
-            <Box sx={{ flex: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="subtitle1" fontWeight="medium">
-                  {title}
-                </Typography>
-                {count !== undefined && (
-                  <Chip
-                    label={count}
-                    size="small"
-                    color="primary"
-                    sx={{ minWidth: 40 }}
-                  />
-                )}
-              </Box>
-              <Typography variant="body2" color="text.secondary">
-                {description}
-              </Typography>
-            </Box>
-            <ArrowForwardIcon sx={{ color: 'text.secondary' }} />
-          </Box>
-        </CardContent>
-      </CardActionArea>
     </Card>
   );
 }
@@ -243,6 +197,58 @@ function PaymentBreakdownItem({ label, amount, total, color, icon }: PaymentBrea
   );
 }
 
+interface TransactionBreakdownCardProps {
+  label: string;
+  amount: number;
+  count: number;
+  color: 'success' | 'info' | 'primary' | 'warning' | 'error' | 'secondary';
+  icon: React.ReactNode;
+  isOut?: boolean;
+}
+
+function TransactionBreakdownCard({
+  label,
+  amount,
+  count,
+  color,
+  icon,
+  isOut,
+}: TransactionBreakdownCardProps) {
+  return (
+    <Card
+      variant="outlined"
+      sx={{
+        borderRadius: 2.5,
+        borderColor: `${color}.100`,
+        background: `linear-gradient(180deg, ${alpha('#ffffff', 0.95)} 0%, ${alpha('#f8fafc', 0.9)} 100%)`,
+        boxShadow: '0 1px 8px rgba(15, 23, 42, 0.04)',
+      }}
+    >
+      <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          {React.cloneElement(icon as React.ReactElement, {
+            sx: { color: `${color}.main`, fontSize: 18 },
+          })}
+          <Typography variant="caption" color="text.secondary" noWrap>
+            {label}
+          </Typography>
+        </Box>
+        <Typography
+          variant="body1"
+          fontWeight={700}
+          color={isOut ? 'error.main' : 'success.main'}
+          sx={{ mb: 0.25 }}
+        >
+          {isOut ? '-' : '+'}<TCurrency value={amount} showSymbol={false} />
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {count} {count === 1 ? 'entry' : 'entries'}
+        </Typography>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Chart Colors
 const CHART_COLORS = {
   moneyIn: '#4caf50',
@@ -251,6 +257,15 @@ const CHART_COLORS = {
 };
 
 const PIE_COLORS = ['#4caf50', '#2196f3', '#ff9800', '#9c27b0', '#00bcd4'];
+
+const surfaceCardSx = {
+  p: 3,
+  borderRadius: 3,
+  border: '1px solid',
+  borderColor: 'divider',
+  background: 'linear-gradient(180deg, #ffffff 0%, #fbfcff 100%)',
+  boxShadow: '0 2px 16px rgba(15, 23, 42, 0.05)',
+} as const;
 
 export default function FinanceDashboard() {
   const navigate = useNavigate();
@@ -450,7 +465,15 @@ export default function FinanceDashboard() {
   }
 
   return (
-    <Box sx={{ overflow: "auto" }}>
+    <Box
+      sx={{
+        overflow: 'auto',
+        minHeight: '100%',
+        background: 'radial-gradient(circle at 10% 0%, #f3f7ff 0%, #f8fafc 35%, #ffffff 100%)',
+        borderRadius: 2,
+        p: { xs: 1, md: 1.5 },
+      }}
+    >
       {/* Header */}
       <TPageHeader
         title="Finance Dashboard"
@@ -465,7 +488,16 @@ export default function FinanceDashboard() {
               />
             </Box>
             <Tooltip title="Refresh Data">
-              <IconButton onClick={handleRefresh} color="primary">
+              <IconButton
+                onClick={handleRefresh}
+                color="primary"
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 2,
+                  backgroundColor: '#fff',
+                }}
+              >
                 <RefreshIcon />
               </IconButton>
             </Tooltip>
@@ -474,7 +506,7 @@ export default function FinanceDashboard() {
       />
 
       {/* KPI Cards */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
+      <Grid container spacing={2.5} sx={{ mb: 3.5 }}>
         <Grid item xs={12} sm={6} md={3}>
           <StatCard
             title="Total Money In"
@@ -519,18 +551,84 @@ export default function FinanceDashboard() {
         </Grid>
       </Grid>
 
+      <Paper sx={{ ...surfaceCardSx, mb: 3.5 }}>
+        <Typography variant="h6" gutterBottom>
+          Transaction Breakdown
+        </Typography>
+        <Divider sx={{ mb: 2 }} />
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <TransactionBreakdownCard
+              label="Invoice Receipts"
+              amount={cashbookData?.summary?.invoice_receipts || 0}
+              count={cashbookData?.summary?.invoice_receipts_count || 0}
+              color="success"
+              icon={<CashIcon />}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <TransactionBreakdownCard
+              label="Customer Advances"
+              amount={cashbookData?.summary?.customer_advances || 0}
+              count={cashbookData?.summary?.customer_advances_count || 0}
+              color="info"
+              icon={<AdvanceIcon />}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <TransactionBreakdownCard
+              label="Credit Settlements"
+              amount={cashbookData?.summary?.customer_credit_settlements || 0}
+              count={cashbookData?.summary?.customer_credit_settlements_count || 0}
+              color="primary"
+              icon={<CreditNoteIcon />}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <TransactionBreakdownCard
+              label="Supplier Payments"
+              amount={cashbookData?.summary?.supplier_payments || 0}
+              count={cashbookData?.summary?.supplier_payments_count || 0}
+              color="warning"
+              icon={<WalletIcon />}
+              isOut
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <TransactionBreakdownCard
+              label="Expenses"
+              amount={cashbookData?.summary?.expenses || 0}
+              count={cashbookData?.summary?.expenses_count || 0}
+              color="error"
+              icon={<ExpenseIcon />}
+              isOut
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <TransactionBreakdownCard
+              label="Bank Deposits"
+              amount={cashbookData?.summary?.bank_deposits || 0}
+              count={cashbookData?.summary?.bank_deposits_count || 0}
+              color="secondary"
+              icon={<BankIcon />}
+              isOut
+            />
+          </Grid>
+        </Grid>
+      </Paper>
+
       {/* Charts and Breakdown Row */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
+      <Grid container spacing={2.5} sx={{ mb: 3.5 }}>
         {/* Cashflow Chart */}
         <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3, height: 400 }}>
-            <Typography variant="h6" gutterBottom>
+          <Paper sx={{ ...surfaceCardSx, height: 420 }}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
               Daily Cashflow (Last 14 Days)
             </Typography>
             {cashflowChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={320}>
+              <ResponsiveContainer width="100%" height={330}>
                 <BarChart data={cashflowChartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
                   <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <RechartsTooltip
@@ -544,7 +642,7 @@ export default function FinanceDashboard() {
             ) : (
               <Box
                 sx={{
-                  height: 320,
+                  height: 330,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -558,12 +656,12 @@ export default function FinanceDashboard() {
 
         {/* Payment Method Breakdown */}
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, height: 400 }}>
-            <Typography variant="h6" gutterBottom>
+          <Paper sx={{ ...surfaceCardSx, height: 420 }}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
               Money In by Payment Method
             </Typography>
             {pieChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={320}>
+              <ResponsiveContainer width="100%" height={330}>
                 <PieChart>
                   <Pie
                     data={pieChartData}
@@ -587,7 +685,7 @@ export default function FinanceDashboard() {
             ) : (
               <Box
                 sx={{
-                  height: 320,
+                  height: 330,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -601,10 +699,10 @@ export default function FinanceDashboard() {
       </Grid>
 
       {/* Payment Breakdown and Recent Transactions */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
+      <Grid container spacing={2.5} sx={{ mb: 1 }}>
         {/* Payment Breakdown Details */}
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3 }}>
+          <Paper sx={surfaceCardSx}>
             <Typography variant="h6" gutterBottom>
               Payment Method Breakdown
             </Typography>
@@ -630,7 +728,7 @@ export default function FinanceDashboard() {
 
         {/* Recent Transactions */}
         <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3 }}>
+          <Paper sx={surfaceCardSx}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="h6">Recent Transactions</Typography>
               <Chip
@@ -643,7 +741,7 @@ export default function FinanceDashboard() {
             </Box>
             <Divider sx={{ mb: 2 }} />
             {recentTransactions.length > 0 ? (
-              <Box sx={{ maxHeight: 300, overflow: 'auto' }}>
+              <Box sx={{ maxHeight: 320, overflow: 'auto' }}>
                 {recentTransactions.map((entry, index) => {
                   const isMoneyIn = entry.money_in > 0;
                   const amount = isMoneyIn ? entry.money_in : entry.money_out;
@@ -655,6 +753,9 @@ export default function FinanceDashboard() {
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         py: 1.5,
+                        px: 1,
+                        borderRadius: 2,
+                        backgroundColor: index % 2 === 0 ? alpha('#f8fafc', 0.75) : '#fff',
                         borderBottom: index < recentTransactions.length - 1 ? '1px solid' : 'none',
                         borderColor: 'divider',
                       }}
@@ -699,85 +800,6 @@ export default function FinanceDashboard() {
         </Grid>
       </Grid>
 
-      {/* Quick Access Modules */}
-      <Typography variant="h6" sx={{ mb: 2 }}>
-        Finance Modules
-      </Typography>
-      <Grid container spacing={2}>
-        <Grid item xs={12} sm={6} md={4}>
-          <ModuleCard
-            title="Cashbook"
-            description="Track all money in/out transactions"
-            icon={<WalletIcon />}
-            path="/finance/cashbook"
-            color="#4caf50"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <ModuleCard
-            title="Bank Deposits"
-            description="Manage and verify bank deposits"
-            icon={<BankIcon />}
-            path="/finance/bank-deposits"
-            count={summary.pendingDepositsCount}
-            color="#2196f3"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <ModuleCard
-            title="Bank Transfer Verify"
-            description="Verify pending bank transfers"
-            icon={<TransferIcon />}
-            path="/finance/bank-transfer-verify"
-            color="#9c27b0"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <ModuleCard
-            title="Card Payments"
-            description="Track card payment settlements"
-            icon={<CardIcon />}
-            path="/finance/card-payments"
-            color="#ff9800"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <ModuleCard
-            title="Cheque Payments"
-            description="Manage cheque processing"
-            icon={<ChequeIcon />}
-            path="/finance/cheque-payments"
-            color="#00bcd4"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <ModuleCard
-            title="Expenses"
-            description="Track business expenses"
-            icon={<ExpenseIcon />}
-            path="/finance/expenses"
-            color="#f44336"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <ModuleCard
-            title="Advance Payments"
-            description="Manage customer advances"
-            icon={<AdvanceIcon />}
-            path="/finance/advance-payments"
-            color="#607d8b"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <ModuleCard
-            title="Credit Notes"
-            description="Handle refunds and credits"
-            icon={<CreditNoteIcon />}
-            path="/finance/credit-notes"
-            color="#795548"
-          />
-        </Grid>
-      </Grid>
     </Box>
   );
 }

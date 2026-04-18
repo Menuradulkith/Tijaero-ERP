@@ -22,6 +22,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Box,
   TextField,
@@ -93,6 +94,7 @@ import {
   supplierCreditsSettleApi,
   supplierCreditApi,
   supplierPaymentsApi,
+  supplierAdvancePaymentsApi,
   SupplierPaymentStatusData,
 } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
@@ -103,6 +105,7 @@ import {
   SupplierPaymentCreate,
   SupplierPayment,
   SupplierCreditsSettle,
+  SupplierAdvancePaymentWithApplications,
 } from "@/modules/purchasing/types";
 
 // Configuration
@@ -139,6 +142,9 @@ interface OutstandingDocument {
   payment_method?: string;
   total_amount: number;
   paid_amount: number;
+  pending_payment_amount?: number;
+  has_pending_payment?: boolean;
+  supplier_advance_amount: number;
   remaining_amount: number;
   days_overdue: number;
   is_overdue: boolean;
@@ -157,10 +163,13 @@ interface PaymentLine {
 // Steps in the workflow
 const STEPS = ["Select Documents", "Payment Details", "Review & Post"];
 
+type PaymentHistoryType = "credit_settlement" | "payment" | "advance_payment" | "advance_application";
+
 // View mode enum
 type ViewMode = "overview" | "documents" | "payment" | "review" | "history";
 
 export default function SupplierPaymentsPage() {
+  const location = useLocation();
   // Data state
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -214,11 +223,6 @@ export default function SupplierPaymentsPage() {
 
   const confirmDialog = useConfirmDialog();
 
-  // Load suppliers
-  useEffect(() => {
-    loadSuppliers();
-  }, []);
-
   const loadSuppliers = useCallback(async () => {
     try {
       setLoading(true);
@@ -244,6 +248,11 @@ export default function SupplierPaymentsPage() {
     }
   }, []);
 
+  // Load/refresh suppliers whenever this route is entered.
+  useEffect(() => {
+    loadSuppliers();
+  }, [location.key, loadSuppliers]);
+
   // Load payment status for selected supplier
   const loadPaymentStatus = useCallback(async (supplierId: number) => {
     try {
@@ -262,11 +271,11 @@ export default function SupplierPaymentsPage() {
     try {
       setLoadingHistory(true);
 
-      // Load both credit settlements and non-credit payments (all statuses for history)
-      const [creditSettlements, nonCreditPayments] = await Promise.all([
+      // Load settlements, direct payments, and supplier advances for unified history.
+      const [creditSettlements, nonCreditPayments, supplierAdvances] = await Promise.all([
         supplierCreditsSettleApi.getBySupplier(supplierId).catch(() => []),
-        // Get ALL payment statuses for history - no status filter
         supplierPaymentsApi.getAll({ supplier_id: supplierId }).catch(() => []),
+        supplierAdvancePaymentsApi.getBySupplier(supplierId, { skip: 0, limit: 1000 }).catch(() => []),
       ]);
 
       // Fetch full details for each credit settlement to get transaction info
@@ -305,10 +314,59 @@ export default function SupplierPaymentsPage() {
         })
       );
 
+      const advancesWithApplications = await Promise.all(
+        (supplierAdvances || []).map(async (advance) => {
+          try {
+            return await supplierAdvancePaymentsApi.getById(advance.id);
+          } catch {
+            return {
+              ...advance,
+              applications: [],
+            } as SupplierAdvancePaymentWithApplications;
+          }
+        })
+      );
+
+      const advancePayments = advancesWithApplications.map((a) => ({
+        type: "advance_payment" as PaymentHistoryType,
+        id: a.id,
+        payment_no: a.advance_no,
+        date: a.payment_date,
+        amount: a.original_amount,
+        payment_method: a.payment_method,
+        reference_number: a.reference_number,
+        bank_name: a.bank_name,
+        invoice_reference: a.po_no,
+        remarks: a.remarks,
+        status: a.is_fully_applied ? "verified" : "pending",
+        po_no: a.po_no,
+        branch_code: a.branch_code,
+      }));
+
+      const advanceApplications = advancesWithApplications.flatMap((a) =>
+        (a.applications || []).map((app) => ({
+          type: "advance_application" as PaymentHistoryType,
+          id: app.id,
+          payment_no: app.advance_no ? `${app.advance_no}/APP` : `APP-${app.id}`,
+          date: app.application_date,
+          amount: app.applied_amount,
+          payment_method: "Advance Apply",
+          reference_number: app.grn_no,
+          invoice_reference: app.grn_no,
+          remarks: app.remarks || (app.grn_no ? `Applied to ${app.grn_no}` : "Advance applied to GRN"),
+          status: "verified",
+          po_no: a.po_no,
+          branch_code: a.branch_code,
+        }))
+      );
+
       // Combine and sort by date
       const combined: any[] = [
         ...settlementsWithDetails,
-        ...(nonCreditPayments || []).map((p: SupplierPayment) => ({
+        ...(nonCreditPayments || [])
+          .filter((p: SupplierPayment) => p.status === "verified")
+          .filter((p: SupplierPayment) => !(p.remarks || "").startsWith("Auto-recorded cash payment on GRN "))
+          .map((p: SupplierPayment) => ({
           type: "payment",
           id: p.id,
           payment_no: p.payment_no,
@@ -323,6 +381,8 @@ export default function SupplierPaymentsPage() {
           po_no: p.po_no,
           branch_code: p.branch_code,
         })),
+        ...advancePayments,
+        ...advanceApplications,
       ];
 
       combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -334,6 +394,31 @@ export default function SupplierPaymentsPage() {
     }
   }, []);
 
+  const refreshSelectedSupplierData = useCallback(() => {
+    if (!selectedSupplier?.id) return;
+    loadPaymentStatus(selectedSupplier.id);
+    if (viewMode === "history") {
+      loadPaymentHistory(selectedSupplier.id);
+    }
+  }, [selectedSupplier?.id, viewMode, loadPaymentStatus, loadPaymentHistory]);
+
+  // Refresh selected supplier data whenever user re-enters this page.
+  useEffect(() => {
+    refreshSelectedSupplierData();
+  }, [location.key, refreshSelectedSupplierData]);
+
+  // Refresh immediately when approval actions happen in Payment Approvals page.
+  useEffect(() => {
+    const handler = () => {
+      loadSuppliers();
+      refreshSelectedSupplierData();
+    };
+
+    window.addEventListener("supplier-payment-approval-updated", handler as EventListener);
+    return () => {
+      window.removeEventListener("supplier-payment-approval-updated", handler as EventListener);
+    };
+  }, [loadSuppliers, refreshSelectedSupplierData]);
 
 
 
@@ -342,16 +427,17 @@ export default function SupplierPaymentsPage() {
 
 
 
-  // Transform API data to unified documents
-  const outstandingDocuments = useMemo((): OutstandingDocument[] => {
+
+  // Build purchase documents (GRN-gated for supplier payments)
+  const purchaseDocuments = useMemo((): OutstandingDocument[] => {
     if (!paymentStatus) return [];
 
     const docs: OutstandingDocument[] = [];
 
     // Add credit purchase orders
-    // Show if: approved (for payment) or not settled with remaining amount
+    // Show only when GRN exists
     paymentStatus.credit_purchase_orders?.forEach((po) => {
-      if ((po.status === "approved" || !po.is_settled) && po.remaining_amount > 0) {
+      if (po.has_grn && po.grn_id && (po.status === "approved" || !po.is_settled) && po.remaining_amount > 0) {
         docs.push({
           id: po.po_id,
           po_id: po.po_id,
@@ -363,6 +449,7 @@ export default function SupplierPaymentsPage() {
           payment_type: "credit",
           total_amount: po.total_amount,
           paid_amount: po.settled_amount,
+          supplier_advance_amount: po.advance_applied || 0,
           remaining_amount: po.remaining_amount,
           days_overdue: po.days_overdue,
           is_overdue: po.is_overdue,
@@ -373,10 +460,9 @@ export default function SupplierPaymentsPage() {
       }
     });
 
-    // Add non-credit purchase orders (exclude those with pending payments)
+    // Add non-credit purchase orders (show only when GRN exists)
     paymentStatus.non_credit_purchase_orders?.forEach((po) => {
-      // Show if: approved (for payment) or not fully paid with remaining amount
-      if ((po.status === "approved" || !po.is_paid) && po.remaining_amount > 0) {
+      if (po.has_grn && po.grn_id && (po.status === "approved" || !po.is_paid) && po.remaining_amount > 0) {
         docs.push({
           id: po.po_id,
           po_id: po.po_id,
@@ -389,6 +475,9 @@ export default function SupplierPaymentsPage() {
           payment_method: po.payment_method,
           total_amount: po.total_amount,
           paid_amount: po.paid_amount,
+          pending_payment_amount: po.pending_payment_amount || 0,
+          has_pending_payment: !!po.has_pending_payment,
+          supplier_advance_amount: po.advance_applied || 0,
           remaining_amount: po.remaining_amount,
           days_overdue: po.days_overdue,
           is_overdue: po.is_overdue,
@@ -398,6 +487,13 @@ export default function SupplierPaymentsPage() {
         });
       }
     });
+
+    return docs;
+  }, [paymentStatus]);
+
+  // Transform to current tab's document list
+  const outstandingDocuments = useMemo((): OutstandingDocument[] => {
+    const docs = [...purchaseDocuments];
 
     // Apply filters
     let filtered = docs;
@@ -425,7 +521,17 @@ export default function SupplierPaymentsPage() {
     filtered.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
 
     return filtered;
-  }, [paymentStatus, paymentTypeTab, selectedBranch, documentSearchQuery]);
+  }, [purchaseDocuments, paymentTypeTab, selectedBranch, documentSearchQuery]);
+
+  const creditPurchaseCount = useMemo(
+    () => purchaseDocuments.filter((d) => d.payment_type === "credit").length,
+    [purchaseDocuments]
+  );
+
+  const nonCreditPurchaseCount = useMemo(
+    () => purchaseDocuments.filter((d) => d.payment_type === "non_credit").length,
+    [purchaseDocuments]
+  );
 
   // Calculate totals
   const totalOutstanding = useMemo(() => {
@@ -433,8 +539,37 @@ export default function SupplierPaymentsPage() {
   }, [outstandingDocuments]);
 
   const overdueDocuments = useMemo(() => {
-    return outstandingDocuments.filter((doc) => doc.is_overdue);
+    return outstandingDocuments.filter((doc) => doc.payment_type === "credit" && doc.is_overdue);
   }, [outstandingDocuments]);
+
+  const showDueDateColumn = useMemo(
+    () => outstandingDocuments.some((doc) => doc.payment_type === "credit"),
+    [outstandingDocuments]
+  );
+
+  const isPendingVerificationDocument = useCallback((doc: OutstandingDocument): boolean => {
+    if (doc.payment_type !== "non_credit") return false;
+    return !!doc.has_pending_payment || (doc.pending_payment_amount || 0) > 0;
+  }, []);
+
+  const payableDocuments = useMemo(
+    () => outstandingDocuments.filter((doc) => !isPendingVerificationDocument(doc)),
+    [outstandingDocuments, isPendingVerificationDocument]
+  );
+
+  const selectedPayableCount = useMemo(
+    () => payableDocuments.filter((d) => selectedDocumentIds.has(d.id)).length,
+    [payableDocuments, selectedDocumentIds]
+  );
+
+  useEffect(() => {
+    setSelectedDocumentIds((prev) => {
+      const allowedIds = new Set(payableDocuments.map((d) => d.id));
+      const pruned = new Set(Array.from(prev).filter((id) => allowedIds.has(id)));
+      if (pruned.size === prev.size) return prev;
+      return pruned;
+    });
+  }, [payableDocuments]);
 
   // Total amount to pay
   const totalPaymentAmount = useMemo(() => {
@@ -534,6 +669,9 @@ export default function SupplierPaymentsPage() {
   }, []);
 
   const handleSelectDocument = useCallback((doc: OutstandingDocument) => {
+    if (isPendingVerificationDocument(doc)) {
+      return;
+    }
     setSelectedDocumentIds((prev) => {
       const next = new Set(prev);
       if (next.has(doc.id)) {
@@ -543,15 +681,15 @@ export default function SupplierPaymentsPage() {
       }
       return next;
     });
-  }, []);
+  }, [isPendingVerificationDocument]);
 
   const handleSelectAll = useCallback(() => {
-    if (selectedDocumentIds.size === outstandingDocuments.length) {
+    if (selectedPayableCount === payableDocuments.length) {
       setSelectedDocumentIds(new Set());
     } else {
-      setSelectedDocumentIds(new Set(outstandingDocuments.map((d) => d.id)));
+      setSelectedDocumentIds(new Set(payableDocuments.map((d) => d.id)));
     }
-  }, [outstandingDocuments, selectedDocumentIds.size]);
+  }, [payableDocuments, selectedPayableCount]);
 
   const allocateFIFO = useCallback((amount: number): PaymentLine[] => {
     const lines: PaymentLine[] = [];
@@ -559,6 +697,7 @@ export default function SupplierPaymentsPage() {
 
     for (const doc of outstandingDocuments) {
       if (remaining <= 0) break;
+      if (isPendingVerificationDocument(doc)) continue;
 
       const allocate = Math.min(remaining, doc.remaining_amount);
       if (allocate > 0) {
@@ -572,7 +711,7 @@ export default function SupplierPaymentsPage() {
     }
 
     return lines;
-  }, [outstandingDocuments]);
+  }, [outstandingDocuments, isPendingVerificationDocument]);
 
   const handleProceedToPayment = useCallback(async () => {
     if (!selectedSupplier) {
@@ -594,11 +733,17 @@ export default function SupplierPaymentsPage() {
       setPaymentLines(lines);
     } else {
       // Manual selection
-      if (selectedDocumentIds.size === 0) {
+      if (selectedPayableCount === 0) {
         showErrorToast("Please select at least one document");
         return;
       }
-      const selectedDocs = outstandingDocuments.filter((d) => selectedDocumentIds.has(d.id));
+      const selectedDocs = outstandingDocuments.filter(
+        (d) => selectedDocumentIds.has(d.id) && !isPendingVerificationDocument(d)
+      );
+      if (selectedDocs.length === 0) {
+        showErrorToast("Pending verification documents cannot be paid");
+        return;
+      }
       const lines: PaymentLine[] = selectedDocs.map((doc, idx) => ({
         id: `line-${idx}`,
         document: doc,
@@ -609,7 +754,16 @@ export default function SupplierPaymentsPage() {
 
     setViewMode("payment");
     setActiveStep(1);
-  }, [useFIFO, fifoAmount, selectedDocumentIds, outstandingDocuments, allocateFIFO, selectedSupplier]);
+  }, [
+    useFIFO,
+    fifoAmount,
+    selectedDocumentIds,
+    outstandingDocuments,
+    allocateFIFO,
+    selectedSupplier,
+    selectedPayableCount,
+    isPendingVerificationDocument,
+  ]);
 
   const handleLineAmountChange = useCallback((lineId: string, amount: number) => {
     setPaymentLines((prev) =>
@@ -628,6 +782,14 @@ export default function SupplierPaymentsPage() {
   }, []);
 
   const handleProceedToReview = useCallback(() => {
+    const hasPendingVerificationDoc = paymentLines.some((line) =>
+      isPendingVerificationDocument(line.document)
+    );
+    if (hasPendingVerificationDoc) {
+      showErrorToast("Pending verification documents cannot be paid");
+      return;
+    }
+
     if (totalPaymentAmount <= 0) {
       showErrorToast("Total payment amount must be greater than 0");
       return;
@@ -644,10 +806,25 @@ export default function SupplierPaymentsPage() {
 
     setViewMode("review");
     setActiveStep(2);
-  }, [totalPaymentAmount, paymentMethod, referenceNumber, bankName]);
+  }, [
+    totalPaymentAmount,
+    paymentMethod,
+    referenceNumber,
+    bankName,
+    paymentLines,
+    isPendingVerificationDocument,
+  ]);
 
   const handlePostPayment = useCallback(async () => {
     if (!selectedSupplier || paymentLines.length === 0) return;
+
+    const hasPendingVerificationDoc = paymentLines.some((line) =>
+      isPendingVerificationDocument(line.document)
+    );
+    if (hasPendingVerificationDoc) {
+      showErrorToast("Pending verification documents cannot be paid");
+      return;
+    }
 
     // Check if we have mixed payment types
     const paymentTypes = new Set(paymentLines.map((l) => l.document.payment_type));
@@ -679,7 +856,7 @@ export default function SupplierPaymentsPage() {
             payment_amount: line.allocated_amount,
             payment_method_number: referenceNumber || undefined,
             remarks: remarks || undefined,
-            good_received_id: line.document.po_id, // Use PO ID instead of GRN
+            good_received_id: line.document.grn_id as number,
           };
 
           const settlementData: SupplierCreditsSettleCreate = {
@@ -744,6 +921,7 @@ export default function SupplierPaymentsPage() {
     remarks,
     confirmDialog,
     loadPaymentStatus,
+    isPendingVerificationDocument,
   ]);
 
   const handleBack = useCallback(() => {
@@ -896,13 +1074,14 @@ export default function SupplierPaymentsPage() {
   });
   const [historyDateTo, setHistoryDateTo] = useState<string>(new Date().toISOString().split("T")[0]);
   const [historyBranchFilter, setHistoryBranchFilter] = useState<string>("all");
-  const [historyTypeFilter, setHistoryTypeFilter] = useState<string>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all");
-  const [historyPaymentMethodFilter, setHistoryPaymentMethodFilter] = useState<string>("all");
 
   // Filtered payment history based on selected filters
   const filteredPaymentHistory = useMemo(() => {
     return paymentHistory.filter((item) => {
+      // Pending records should not appear in history.
+      if ((item.status || "pending").toLowerCase() === "pending") return false;
+
       // Date filter
       const itemDate = new Date(item.date);
       const fromDate = historyDateFrom ? new Date(historyDateFrom) : null;
@@ -918,21 +1097,12 @@ export default function SupplierPaymentsPage() {
       // Branch filter
       if (historyBranchFilter !== "all" && item.branch_code !== historyBranchFilter) return false;
 
-      // Type filter
-      if (historyTypeFilter !== "all") {
-        if (historyTypeFilter === "credit_settlement" && item.type !== "credit_settlement") return false;
-        if (historyTypeFilter === "payment" && item.type !== "payment") return false;
-      }
-
       // Status filter
       if (historyStatusFilter !== "all" && item.status !== historyStatusFilter) return false;
 
-      // Payment method filter
-      if (historyPaymentMethodFilter !== "all" && item.payment_method !== historyPaymentMethodFilter) return false;
-
       return true;
     });
-  }, [paymentHistory, historyDateFrom, historyDateTo, historyBranchFilter, historyTypeFilter, historyStatusFilter, historyPaymentMethodFilter]);
+  }, [paymentHistory, historyDateFrom, historyDateTo, historyBranchFilter, historyStatusFilter]);
 
   // Calculate summary statistics for payment history
   const historySummary = useMemo(() => {
@@ -941,6 +1111,8 @@ export default function SupplierPaymentsPage() {
       totalAmount: 0,
       creditSettlements: { count: 0, amount: 0 },
       directPayments: { count: 0, amount: 0 },
+      advancePayments: { count: 0, amount: 0 },
+      advanceApplications: { count: 0, amount: 0 },
       byStatus: {
         pending: { count: 0, amount: 0 },
         verified: { count: 0, amount: 0 },
@@ -969,6 +1141,12 @@ export default function SupplierPaymentsPage() {
       if (item.type === "credit_settlement") {
         summary.creditSettlements.count++;
         summary.creditSettlements.amount += amount;
+      } else if (item.type === "advance_payment") {
+        summary.advancePayments.count++;
+        summary.advancePayments.amount += amount;
+      } else if (item.type === "advance_application") {
+        summary.advanceApplications.count++;
+        summary.advanceApplications.amount += amount;
       } else {
         summary.directPayments.count++;
         summary.directPayments.amount += amount;
@@ -1000,6 +1178,32 @@ export default function SupplierPaymentsPage() {
 
     return summary;
   }, [filteredPaymentHistory]);
+
+  const historyNonPendingCount = useMemo(() => {
+    return paymentHistory.filter(
+      (item) => (item.status || "pending").toLowerCase() !== "pending"
+    ).length;
+  }, [paymentHistory]);
+
+  const hasHistoryFiltersApplied = useMemo(() => {
+    const defaultFromDate = (() => {
+      const date = new Date();
+      date.setMonth(date.getMonth() - 3);
+      return date.toISOString().split("T")[0];
+    })();
+
+    return (
+      historyDateFrom !== defaultFromDate ||
+      historyDateTo !== new Date().toISOString().split("T")[0] ||
+      historyBranchFilter !== "all" ||
+      historyStatusFilter !== "all"
+    );
+  }, [
+    historyDateFrom,
+    historyDateTo,
+    historyBranchFilter,
+    historyStatusFilter,
+  ]);
 
   // Print payment history report
   const handlePrintPaymentHistory = () => {
@@ -1177,6 +1381,8 @@ export default function SupplierPaymentsPage() {
           }
           .type-credit { background: #e3f2fd; color: #1565c0; }
           .type-payment { background: #e8f5e9; color: #2e7d32; }
+          .type-advance { background: #ede7f6; color: #5e35b1; }
+          .type-application { background: #f3e5f5; color: #8e24aa; }
           .totals-row {
             background: #f5f5f5 !important;
             font-weight: bold;
@@ -1269,8 +1475,24 @@ export default function SupplierPaymentsPage() {
                 <tr>
                   <td>${new Date(item.date).toLocaleDateString()}</td>
                   <td>
-                    <span class="type-badge ${item.type === 'credit_settlement' ? 'type-credit' : 'type-payment'}">
-                      ${item.type === 'credit_settlement' ? 'Credit Settlement' : 'Payment'}
+                    <span class="type-badge ${
+                      item.type === 'credit_settlement'
+                        ? 'type-credit'
+                        : item.type === 'advance_payment'
+                          ? 'type-advance'
+                          : item.type === 'advance_application'
+                            ? 'type-application'
+                            : 'type-payment'
+                    }">
+                      ${
+                        item.type === 'credit_settlement'
+                          ? 'Credit Settlement'
+                          : item.type === 'advance_payment'
+                            ? 'Advance Payment'
+                            : item.type === 'advance_application'
+                              ? 'Advance Application'
+                              : 'Payment'
+                      }
                     </span>
                   </td>
                   <td>${item.type === 'credit_settlement' ? item.settle_no || '-' : item.payment_no || '-'}</td>
@@ -1316,252 +1538,224 @@ export default function SupplierPaymentsPage() {
   // Render payment history
   const renderHistory = () => (
     <Box sx={{ p: 2 }}>
-      {/* Header with actions */}
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
-        <Button
-          variant="text"
-          startIcon={<ArrowBackIcon />}
-          onClick={() => setViewMode("overview")}
-          size="small"
-        >
-          Back to Overview
-        </Button>
-        <Button
-          variant="contained"
-          color="primary"
-          size="small"
-          startIcon={<PrintIcon />}
-          onClick={handlePrintPaymentHistory}
-          disabled={filteredPaymentHistory.length === 0}
-        >
-          Print Report
-        </Button>
-      </Box>
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2,
+          mb: 2,
+          borderRadius: 2,
+          border: "1px solid",
+          borderColor: "divider",
+          background: "linear-gradient(180deg, rgba(25,118,210,0.06) 0%, rgba(25,118,210,0.01) 100%)",
+        }}
+      >
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 1.5 }}>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>
+              Payment History
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Unified history of direct payments, credit settlements, advances, and applications
+            </Typography>
+          </Box>
 
-      {/* Summary Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={6} sm={3}>
-          <Card sx={{
-            background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
-            color: 'white',
-          }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Total Payments
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<ArrowBackIcon />}
+              onClick={() => setViewMode("overview")}
+            >
+              Back
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              size="small"
+              startIcon={<PrintIcon />}
+              onClick={handlePrintPaymentHistory}
+              disabled={filteredPaymentHistory.length === 0}
+            >
+              Print Report
+            </Button>
+          </Box>
+        </Box>
+      </Paper>
+
+      <Grid container spacing={2} sx={{ mb: 2 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card variant="outlined" sx={{ borderRadius: 2 }}>
+            <CardContent sx={{ py: 1.75 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>
+                Total Amount
               </Typography>
-              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
+              <Typography variant="h5" fontWeight={700} color="primary.main" sx={{ mt: 0.5 }}>
                 Rs. {fmtLKR(historySummary.totalAmount)}
               </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                {historySummary.totalCount} Transaction{historySummary.totalCount !== 1 ? 's' : ''}
+              <Typography variant="caption" color="text.secondary">
+                {historySummary.totalCount} record{historySummary.totalCount !== 1 ? "s" : ""}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={6} sm={3}>
-          <Card sx={{
-            background: 'linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)',
-            color: 'white',
-          }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card variant="outlined" sx={{ borderRadius: 2 }}>
+            <CardContent sx={{ py: 1.75 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>
                 Verified
               </Typography>
-              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
+              <Typography variant="h6" fontWeight={700} color="success.main" sx={{ mt: 0.5 }}>
                 Rs. {fmtLKR(historySummary.byStatus.verified.amount)}
               </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                {historySummary.byStatus.verified.count} Transaction{historySummary.byStatus.verified.count !== 1 ? 's' : ''}
+              <Typography variant="caption" color="text.secondary">
+                {historySummary.byStatus.verified.count} transaction{historySummary.byStatus.verified.count !== 1 ? "s" : ""}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={6} sm={3}>
-          <Card sx={{
-            background: 'linear-gradient(135deg, #ed6c02 0%, #e65100 100%)',
-            color: 'white',
-          }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card variant="outlined" sx={{ borderRadius: 2 }}>
+            <CardContent sx={{ py: 1.75 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>
                 Pending
               </Typography>
-              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
+              <Typography variant="h6" fontWeight={700} color="warning.main" sx={{ mt: 0.5 }}>
                 Rs. {fmtLKR(historySummary.byStatus.pending.amount)}
               </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                {historySummary.byStatus.pending.count} Transaction{historySummary.byStatus.pending.count !== 1 ? 's' : ''}
+              <Typography variant="caption" color="text.secondary">
+                {historySummary.byStatus.pending.count} transaction{historySummary.byStatus.pending.count !== 1 ? "s" : ""}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={6} sm={3}>
-          <Card sx={{
-            background: 'linear-gradient(135deg, #0288d1 0%, #01579b 100%)',
-            color: 'white',
-          }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card variant="outlined" sx={{ borderRadius: 2 }}>
+            <CardContent sx={{ py: 1.75 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>
                 Credit Settlements
               </Typography>
-              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 0.5 }}>
+              <Typography variant="h6" fontWeight={700} color="info.main" sx={{ mt: 0.5 }}>
                 Rs. {fmtLKR(historySummary.creditSettlements.amount)}
               </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                {historySummary.creditSettlements.count} Settlement{historySummary.creditSettlements.count !== 1 ? 's' : ''}
+              <Typography variant="caption" color="text.secondary">
+                {historySummary.creditSettlements.count} settlement{historySummary.creditSettlements.count !== 1 ? "s" : ""}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
       </Grid>
 
-      {/* Breakdown Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <PaymentIcon fontSize="small" />
-              By Payment Method
-            </Typography>
-            <Divider sx={{ my: 1 }} />
-            {Object.entries(historySummary.byMethod).length > 0 ? (
-              Object.entries(historySummary.byMethod).map(([method, data]) => (
-                <Box key={method} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px dotted #eee' }}>
-                  <Typography variant="body2">{method}</Typography>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body2" fontWeight="bold">Rs. {fmtLKR(data.amount)}</Typography>
-                    <Typography variant="caption" color="text.secondary">{data.count} transaction{data.count !== 1 ? 's' : ''}</Typography>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary">No data available</Typography>
-            )}
-          </Paper>
-        </Grid>
-        <Grid item xs={12} sm={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <BusinessIcon fontSize="small" />
-              By Branch
-            </Typography>
-            <Divider sx={{ my: 1 }} />
-            {Object.entries(historySummary.byBranch).length > 0 ? (
-              Object.entries(historySummary.byBranch).map(([branch, data]) => (
-                <Box key={branch} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px dotted #eee' }}>
-                  <Typography variant="body2">{branch}</Typography>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body2" fontWeight="bold">Rs. {fmtLKR(data.amount)}</Typography>
-                    <Typography variant="caption" color="text.secondary">{data.count} transaction{data.count !== 1 ? 's' : ''}</Typography>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary">No data available</Typography>
-            )}
-          </Paper>
-        </Grid>
-      </Grid>
-
-      {/* Filters */}
-      <TFilterPanel>
-        <TextField
-          size="small"
-          label="Date From"
-          type="date"
-          value={historyDateFrom}
-          onChange={(e) => setHistoryDateFrom(e.target.value)}
-          InputLabelProps={{ shrink: true }}
-        />
-        <TextField
-          size="small"
-          label="Date To"
-          type="date"
-          value={historyDateTo}
-          onChange={(e) => setHistoryDateTo(e.target.value)}
-          InputLabelProps={{ shrink: true }}
-        />
-        <TextField
-          select
-          size="small"
-          label="Branch"
-          value={historyBranchFilter}
-          onChange={(e) => setHistoryBranchFilter(e.target.value)}
-          sx={{ minWidth: 140 }}
-        >
-          <MenuItem value="all">All Branches</MenuItem>
-          {branches.map((b) => (
-            <MenuItem key={b.branch_code} value={b.branch_code}>
-              {b.branch_name}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          size="small"
-          label="Type"
-          value={historyTypeFilter}
-          onChange={(e) => setHistoryTypeFilter(e.target.value)}
-          sx={{ minWidth: 140 }}
-        >
-          <MenuItem value="all">All Types</MenuItem>
-          <MenuItem value="credit_settlement">Credit Settlement</MenuItem>
-          <MenuItem value="payment">Direct Payment</MenuItem>
-        </TextField>
-        <TextField
-          select
-          size="small"
-          label="Status"
-          value={historyStatusFilter}
-          onChange={(e) => setHistoryStatusFilter(e.target.value)}
-          sx={{ minWidth: 120 }}
-        >
-          <MenuItem value="all">All Status</MenuItem>
-          <MenuItem value="pending">Pending</MenuItem>
-          <MenuItem value="verified">Verified</MenuItem>
-          <MenuItem value="cancelled">Cancelled</MenuItem>
-        </TextField>
-        <TextField
-          select
-          size="small"
-          label="Payment Method"
-          value={historyPaymentMethodFilter}
-          onChange={(e) => setHistoryPaymentMethodFilter(e.target.value)}
-          sx={{ minWidth: 140 }}
-        >
-          <MenuItem value="all">All Methods</MenuItem>
-          <MenuItem value="Cash">Cash</MenuItem>
-          <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
-          <MenuItem value="Cheque">Cheque</MenuItem>
-        </TextField>
-      </TFilterPanel>
-
-      {/* Payment History Table */}
-      {loadingHistory ? (
-        <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-          <CircularProgress />
+      <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5, flexWrap: "wrap", gap: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            Filters
+          </Typography>
+          <Button
+            size="small"
+            variant="text"
+            disabled={!hasHistoryFiltersApplied}
+            onClick={() => {
+              const date = new Date();
+              date.setMonth(date.getMonth() - 3);
+              setHistoryDateFrom(date.toISOString().split("T")[0]);
+              setHistoryDateTo(new Date().toISOString().split("T")[0]);
+              setHistoryBranchFilter("all");
+              setHistoryStatusFilter("all");
+            }}
+          >
+            Reset Filters
+          </Button>
         </Box>
+
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 1.5,
+            flexWrap: "nowrap",
+            overflowX: "auto",
+            overflowY: "visible",
+            pt: 0.75,
+            pb: 0.5,
+            "& .MuiTextField-root": {
+              minWidth: 170,
+              flex: "0 0 170px",
+            },
+          }}
+        >
+          <TextField
+            size="small"
+            label="Date From"
+            type="date"
+            value={historyDateFrom}
+            onChange={(e) => setHistoryDateFrom(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+          />
+          <TextField
+            size="small"
+            label="Date To"
+            type="date"
+            value={historyDateTo}
+            onChange={(e) => setHistoryDateTo(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+          />
+          <TextField
+            select
+            size="small"
+            label="Branch"
+            value={historyBranchFilter}
+            onChange={(e) => setHistoryBranchFilter(e.target.value)}
+          >
+            <MenuItem value="all">All Branches</MenuItem>
+            {branches.map((b) => (
+              <MenuItem key={b.branch_code} value={b.branch_code}>
+                {b.branch_name}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            size="small"
+            label="Status"
+            value={historyStatusFilter}
+            onChange={(e) => setHistoryStatusFilter(e.target.value)}
+          >
+            <MenuItem value="all">All Status</MenuItem>
+            <MenuItem value="verified">Verified</MenuItem>
+            <MenuItem value="cancelled">Cancelled</MenuItem>
+          </TextField>
+        </Box>
+      </Paper>
+
+      {loadingHistory ? (
+        <Paper variant="outlined" sx={{ p: 4, borderRadius: 2, textAlign: "center" }}>
+          <CircularProgress size={28} />
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+            Loading payment history...
+          </Typography>
+        </Paper>
       ) : filteredPaymentHistory.length === 0 ? (
-        <Paper sx={{ p: 4, textAlign: "center" }}>
-          <Typography variant="body1" color="text.secondary" gutterBottom>
-            No payment history found
+        <Paper variant="outlined" sx={{ p: 5, borderRadius: 2, textAlign: "center" }}>
+          <Typography variant="body1" sx={{ mb: 0.5, fontWeight: 600 }}>
+            No payment history records found
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {paymentHistory.length > 0
-              ? "Try adjusting the filters to see more results."
-              : "No payments have been recorded for this supplier yet."}
+              ? "Try changing filters or date range to view more records."
+              : "No payment activity has been recorded for this supplier yet."}
           </Typography>
         </Paper>
       ) : (
-        <Paper>
-          <TableContainer sx={{ maxHeight: 500 }}>
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+          <TableContainer sx={{ maxHeight: 540 }}>
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow sx={modernTableStyles.headerRow}>
                   <TableCell>Date</TableCell>
                   <TableCell>Type</TableCell>
-                  <TableCell>Document No.</TableCell>
+                  <TableCell>Document</TableCell>
                   <TableCell>PO/Invoice</TableCell>
-                  <TableCell>Payment Method</TableCell>
+                  <TableCell>Method</TableCell>
                   <TableCell>Reference</TableCell>
                   <TableCell align="right">Amount (Rs.)</TableCell>
                   <TableCell>Status</TableCell>
@@ -1571,18 +1765,39 @@ export default function SupplierPaymentsPage() {
               </TableHead>
               <TableBody>
                 {filteredPaymentHistory.map((item, index) => (
-                  <TableRow key={`${item.type}-${item.id}-${index}`} hover>
+                  <TableRow
+                    key={`${item.type}-${item.id}-${index}`}
+                    hover
+                    sx={{
+                      "&:nth-of-type(odd)": { bgcolor: "grey.50" },
+                      "& td": { borderColor: "divider" },
+                    }}
+                  >
                     <TableCell>{new Date(item.date).toLocaleDateString()}</TableCell>
                     <TableCell>
                       <Chip
-                        label={item.type === "credit_settlement" ? "Credit Settlement" : "Payment"}
+                        label={
+                          item.type === "credit_settlement"
+                            ? "Credit Settlement"
+                            : item.type === "advance_payment"
+                              ? "Advance Payment"
+                              : item.type === "advance_application"
+                                ? "Advance Application"
+                                : "Direct Payment"
+                        }
                         size="small"
-                        color={item.type === "credit_settlement" ? "info" : "success"}
+                        color={
+                          item.type === "credit_settlement"
+                            ? "info"
+                            : item.type === "advance_application"
+                              ? "secondary"
+                              : "success"
+                        }
                         variant="outlined"
                       />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2" fontWeight="medium">
+                      <Typography variant="body2" fontWeight={600}>
                         {item.type === "credit_settlement" ? item.settle_no : item.payment_no}
                       </Typography>
                     </TableCell>
@@ -1591,16 +1806,18 @@ export default function SupplierPaymentsPage() {
                         ? item.po_no || "-"
                         : item.po_no || item.invoice_reference || "-"}
                     </TableCell>
+                    <TableCell>{item.payment_method || "-"}</TableCell>
                     <TableCell>
-                      {item.payment_method || "-"}
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={item.reference_number || item.payment_method_number || "-"}
+                      >
                         {item.reference_number || item.payment_method_number || "-"}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography variant="body2" fontWeight="bold" color="primary.main">
+                      <Typography variant="body2" fontWeight={700} color="primary.main">
                         {item.type === "credit_settlement"
                           ? (item.total_amount > 0 ? fmtLKR(item.total_amount) : "-")
                           : fmtLKR(item.amount)}
@@ -1619,18 +1836,12 @@ export default function SupplierPaymentsPage() {
                         }
                       />
                     </TableCell>
-                    <TableCell>{item.branch_code}</TableCell>
+                    <TableCell>{item.branch_code || "-"}</TableCell>
                     <TableCell>
                       <Typography
                         variant="caption"
                         color="text.secondary"
-                        sx={{
-                          maxWidth: 150,
-                          display: 'block',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}
+                        sx={{ maxWidth: 180, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                         title={item.remarks || "-"}
                       >
                         {item.remarks || "-"}
@@ -1642,19 +1853,26 @@ export default function SupplierPaymentsPage() {
             </Table>
           </TableContainer>
 
-          {/* Table Footer with Totals */}
-          <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: 'grey.50' }}>
+          <Box
+            sx={{
+              px: 2,
+              py: 1.25,
+              borderTop: "1px solid",
+              borderColor: "divider",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              bgcolor: "grey.50",
+              flexWrap: "wrap",
+              gap: 1,
+            }}
+          >
             <Typography variant="body2" color="text.secondary">
-              Showing {filteredPaymentHistory.length} of {paymentHistory.length} record{paymentHistory.length !== 1 ? 's' : ''}
+              Showing {filteredPaymentHistory.length} of {historyNonPendingCount} record{historyNonPendingCount !== 1 ? "s" : ""}
             </Typography>
-            <Box sx={{ display: 'flex', gap: 3 }}>
-              <Box>
-                <Typography variant="caption" color="text.secondary">Total Amount</Typography>
-                <Typography variant="h6" color="primary.main" fontWeight="bold">
-                  Rs. {fmtLKR(historySummary.totalAmount)}
-                </Typography>
-              </Box>
-            </Box>
+            <Typography variant="subtitle1" color="primary.main" sx={{ fontWeight: 700 }}>
+              Total: Rs. {fmtLKR(historySummary.totalAmount)}
+            </Typography>
           </Box>
         </Paper>
       )}
@@ -1844,18 +2062,15 @@ export default function SupplierPaymentsPage() {
           onChange={(_, v) => setPaymentTypeTab(v)}
           sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}
         >
+          <Tab label={`All (${purchaseDocuments.length})`} value="all" />
           <Tab
-            label={`All (${paymentStatus ? (paymentStatus.credit_purchase_orders?.filter(p => !p.is_settled && p.remaining_amount > 0).length || 0) + (paymentStatus.non_credit_purchase_orders?.filter(p => !p.is_paid && p.remaining_amount > 0).length || 0) : 0})`}
-            value="all"
-          />
-          <Tab
-            label={`Credit (${paymentStatus?.credit_purchase_orders?.filter(p => !p.is_settled && p.remaining_amount > 0).length || 0})`}
+            label={`Credit (${creditPurchaseCount})`}
             value="credit"
             icon={<CreditCardIcon sx={{ fontSize: 16 }} />}
             iconPosition="start"
           />
           <Tab
-            label={`Non-Credit (${paymentStatus?.non_credit_purchase_orders?.filter(p => !p.is_paid && p.remaining_amount > 0).length || 0})`}
+            label={`Non-Credit (${nonCreditPurchaseCount})`}
             value="non_credit"
             icon={<AccountBalanceWalletIcon sx={{ fontSize: 16 }} />}
             iconPosition="start"
@@ -1876,9 +2091,10 @@ export default function SupplierPaymentsPage() {
                   <TableCell>Type</TableCell>
                   <TableCell>Document</TableCell>
                   <TableCell>Date</TableCell>
-                  <TableCell>Due Date</TableCell>
+                  {showDueDateColumn && <TableCell>Due Date</TableCell>}
                   <TableCell align="right">Amount (Rs.)</TableCell>
-                  <TableCell align="right">Paid/Applied</TableCell>
+                  <TableCell align="right">Paid (Rs.)</TableCell>
+                  <TableCell align="right">Supplier Advance (Rs.)</TableCell>
                   <TableCell align="right">Outstanding (Rs.)</TableCell>
                   <TableCell>Status</TableCell>
                 </TableRow>
@@ -1905,11 +2121,17 @@ export default function SupplierPaymentsPage() {
                       </Box>
                     </TableCell>
                     <TableCell>{new Date(doc.date).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <Typography color={doc.is_overdue ? "error" : "text.primary"}>
-                        {new Date(doc.due_date).toLocaleDateString()}
-                      </Typography>
-                    </TableCell>
+                    {showDueDateColumn && (
+                      <TableCell>
+                        {doc.payment_type === "credit" ? (
+                          <Typography color={doc.is_overdue ? "error" : "text.primary"}>
+                            {new Date(doc.due_date).toLocaleDateString()}
+                          </Typography>
+                        ) : (
+                          <Typography color="text.secondary">-</Typography>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell align="right">
                       {fmtLKR(doc.total_amount)}
                     </TableCell>
@@ -1919,20 +2141,39 @@ export default function SupplierPaymentsPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
+                      <Typography variant="body2">
+                        {fmtLKR(doc.supplier_advance_amount || 0)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
                       <Typography color="warning.main" fontWeight="bold">
                         {fmtLKR(doc.remaining_amount)}
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      {doc.is_overdue ? (
+                      {doc.payment_type === "credit" ? (
+                        doc.is_overdue ? (
+                          <Chip
+                            label={`${doc.days_overdue}d overdue`}
+                            size="small"
+                            color="error"
+                            icon={<WarningIcon />}
+                          />
+                        ) : (
+                          <Chip label="Due" size="small" color="warning" />
+                        )
+                      ) : (doc.has_pending_payment || (doc.pending_payment_amount || 0) > 0) ? (
                         <Chip
-                          label={`${doc.days_overdue}d overdue`}
+                          label="Pending Verification"
                           size="small"
-                          color="error"
-                          icon={<WarningIcon />}
+                          color="info"
                         />
                       ) : (
-                        <Chip label="Due" size="small" color="warning" />
+                        <Chip
+                          label={doc.remaining_amount <= 0 ? "Paid" : "Unpaid"}
+                          size="small"
+                          color={doc.remaining_amount <= 0 ? "success" : "warning"}
+                        />
                       )}
                     </TableCell>
                   </TableRow>
@@ -2031,46 +2272,52 @@ export default function SupplierPaymentsPage() {
             <FormControlLabel
               control={
                 <Checkbox
-                  checked={selectedDocumentIds.size === outstandingDocuments.length && outstandingDocuments.length > 0}
-                  indeterminate={selectedDocumentIds.size > 0 && selectedDocumentIds.size < outstandingDocuments.length}
+                  checked={selectedPayableCount === payableDocuments.length && payableDocuments.length > 0}
+                  indeterminate={selectedPayableCount > 0 && selectedPayableCount < payableDocuments.length}
                   onChange={handleSelectAll}
+                  disabled={payableDocuments.length === 0}
                 />
               }
               label="Select All"
             />
             <Typography variant="body2" color="text.secondary">
-              {selectedDocumentIds.size} of {outstandingDocuments.length} selected
+              {selectedPayableCount} of {payableDocuments.length} selectable
             </Typography>
           </Box>
         )}
 
-        <TableContainer sx={{ maxHeight: 400 }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                {!useFIFO && <TableCell padding="checkbox" />}
-                <TableCell>Type</TableCell>
-                <TableCell>Document</TableCell>
-                <TableCell>Due Date</TableCell>
-                <TableCell align="right">Total</TableCell>
-                <TableCell align="right">Outstanding</TableCell>
-                <TableCell>Status</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {outstandingDocuments.map((doc) => (
-                <TableRow
-                  key={`${doc.payment_type}-${doc.id}`}
-                  hover
-                  selected={selectedDocumentIds.has(doc.id)}
-                  onClick={() => !useFIFO && handleSelectDocument(doc)}
-                  sx={{ cursor: useFIFO ? "default" : "pointer" }}
-                >
-                  {!useFIFO && (
-                    <TableCell padding="checkbox">
-                      <Checkbox checked={selectedDocumentIds.has(doc.id)} />
-                    </TableCell>
-                  )}
+        {payableDocuments.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+            No payable documents available. Pending verification documents are hidden from payment creation.
+          </Typography>
+        ) : (
+          <TableContainer sx={{ maxHeight: 400 }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  {!useFIFO && <TableCell padding="checkbox" />}
+                  <TableCell>Type</TableCell>
+                  <TableCell>Document</TableCell>
+                  {showDueDateColumn && <TableCell>Due Date</TableCell>}
+                  <TableCell align="right">Total</TableCell>
+                  <TableCell align="right">Outstanding</TableCell>
+                  <TableCell>Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {payableDocuments.map((doc) => (
+                  <TableRow
+                    key={`${doc.payment_type}-${doc.id}`}
+                    hover
+                    selected={selectedDocumentIds.has(doc.id)}
+                    onClick={() => !useFIFO && handleSelectDocument(doc)}
+                    sx={{ cursor: useFIFO ? "default" : "pointer" }}
+                  >
+                    {!useFIFO && (
+                      <TableCell padding="checkbox">
+                        <Checkbox checked={selectedDocumentIds.has(doc.id)} />
+                      </TableCell>
+                    )}
                   <TableCell>
                     <Chip
                       label={doc.payment_type === "credit" ? "Credit" : doc.payment_method || "Cash"}
@@ -2083,11 +2330,17 @@ export default function SupplierPaymentsPage() {
                       <Typography variant="body2">{doc.po_no}</Typography>
                     </Box>
                   </TableCell>
-                  <TableCell>
-                    <Typography color={doc.is_overdue ? "error" : "text.primary"}>
-                      {new Date(doc.due_date).toLocaleDateString()}
-                    </Typography>
-                  </TableCell>
+                  {showDueDateColumn && (
+                    <TableCell>
+                      {doc.payment_type === "credit" ? (
+                        <Typography color={doc.is_overdue ? "error" : "text.primary"}>
+                          {new Date(doc.due_date).toLocaleDateString()}
+                        </Typography>
+                      ) : (
+                        <Typography color="text.secondary">-</Typography>
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell align="right">
                     <Typography variant="body2" color="text.secondary">
                       Rs. {fmtLKR(doc.remaining_amount)}
@@ -2098,16 +2351,27 @@ export default function SupplierPaymentsPage() {
                       Rs. {fmtLKR(doc.remaining_amount)}
                     </Typography>
                   </TableCell>
-                  <TableCell>
-                    {doc.is_overdue && (
-                      <Chip label={`${doc.days_overdue}d overdue`} size="small" color="error" />
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                    <TableCell>
+                      {doc.payment_type === "credit" ? (
+                        doc.is_overdue ? (
+                          <Chip label={`${doc.days_overdue}d overdue`} size="small" color="error" />
+                        ) : (
+                          <Chip label="Due" size="small" color="warning" />
+                        )
+                      ) : (
+                        <Chip
+                          label={doc.remaining_amount <= 0 ? "Paid" : "Unpaid"}
+                          size="small"
+                          color={doc.remaining_amount <= 0 ? "success" : "warning"}
+                        />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </Paper>
 
       {/* Summary */}
@@ -2116,12 +2380,12 @@ export default function SupplierPaymentsPage() {
           <Typography variant="subtitle1">
             {useFIFO
               ? `FIFO Amount: Rs. ${fmtLKR(fifoAmount)}`
-              : `Selected: ${selectedDocumentIds.size} documents`}
+              : `Selected: ${selectedPayableCount} documents`}
           </Typography>
           <Typography variant="h6" color="primary.main">
             {useFIFO
               ? `Will allocate to ${allocateFIFO(fifoAmount).length} document(s)`
-              : `Total: Rs. ${fmtLKR(outstandingDocuments
+              : `Total: Rs. ${fmtLKR(payableDocuments
                 .filter((d) => selectedDocumentIds.has(d.id))
                 .reduce((sum, d) => sum + d.remaining_amount, 0))}`}
           </Typography>
@@ -2136,7 +2400,7 @@ export default function SupplierPaymentsPage() {
         <Button
           variant="contained"
           onClick={handleProceedToPayment}
-          disabled={!useFIFO && selectedDocumentIds.size === 0}
+          disabled={!useFIFO && selectedPayableCount === 0}
         >
           Continue to Payment
         </Button>
@@ -2487,7 +2751,7 @@ export default function SupplierPaymentsPage() {
         chips={
           viewMode === "history"
             ? [
-              { label: `${paymentHistory.length} Payment${paymentHistory.length !== 1 ? "s" : ""}`, color: "info" as const },
+              { label: `${historyNonPendingCount} Record${historyNonPendingCount !== 1 ? "s" : ""}`, color: "info" as const },
             ]
             : selectedSupplier && viewMode === "overview"
                 ? [

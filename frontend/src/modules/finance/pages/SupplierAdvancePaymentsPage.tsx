@@ -46,7 +46,7 @@ import {
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
-import { suppliersApi, supplierAdvancePaymentsApi } from "@/modules/purchasing/api";
+import { suppliersApi, supplierAdvancePaymentsApi, supplierCreditApi } from "@/modules/purchasing/api";
 import {
   SupplierAdvancePayment,
   SupplierAdvancePaymentCreate,
@@ -65,6 +65,15 @@ interface Supplier {
   company_name?: string;
 }
 
+interface EligibleAdvancePOOption {
+  po_id: number;
+  po_no: string;
+  supplier_id: number;
+  supplier_name: string;
+  branch_code: string;
+  remaining_amount: number;
+}
+
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_at", label: "Date" },
   { value: "advance_no", label: "Advance No" },
@@ -73,6 +82,7 @@ const SORT_OPTIONS: SortOption[] = [
 
 const INITIAL_FORM_DATA: Partial<SupplierAdvancePaymentCreate> = {
   supplier_id: 0,
+  purchasing_order_id: undefined,
   payment_date: new Date().toISOString().split("T")[0],
   payment_method: "Bank Transfer",
   original_amount: 0,
@@ -84,6 +94,7 @@ const INITIAL_FORM_DATA: Partial<SupplierAdvancePaymentCreate> = {
 
 const resetFormFromItem = (item: SupplierAdvancePayment): Partial<SupplierAdvancePaymentCreate> => ({
   supplier_id: item.supplier_id || 0,
+  purchasing_order_id: item.purchasing_order_id,
   payment_date: item.payment_date?.split("T")[0] || new Date().toISOString().split("T")[0],
   payment_method: item.payment_method || "Bank Transfer",
   original_amount: Number(item.original_amount) || 0,
@@ -175,6 +186,94 @@ export default function SupplierAdvancePaymentsPage() {
     enabled: branchResolved,
     placeholderData: (prev) => prev,
   });
+
+  // Fetch full selected advance detail for accurate tracking values
+  const { data: selectedAdvanceDetail } = useQuery({
+    queryKey: ["supplier-advance-detail", selectedItem?.id],
+    queryFn: () => supplierAdvancePaymentsApi.getById(selectedItem!.id),
+    enabled: !!selectedItem?.id && !isCreating,
+    placeholderData: (prev) => prev,
+  });
+
+  const detailAdvance = selectedAdvanceDetail || selectedItem;
+
+  // Fetch payment status for selected advance supplier to derive linked PO totals
+  const { data: selectedSupplierPaymentStatus } = useQuery({
+    queryKey: ["selected-advance-supplier-payment-status", detailAdvance?.supplier_id],
+    queryFn: () => supplierCreditApi.getPaymentStatus(detailAdvance!.supplier_id),
+    enabled: !!detailAdvance?.supplier_id && !isCreating,
+    placeholderData: (prev) => prev,
+  });
+
+  const linkedPONonCreditStatus = useMemo(() => {
+    if (!detailAdvance?.purchasing_order_id) return null;
+    return (
+      selectedSupplierPaymentStatus?.non_credit_purchase_orders?.find(
+        (po) => po.po_id === detailAdvance.purchasing_order_id
+      ) || null
+    );
+  }, [detailAdvance?.purchasing_order_id, selectedSupplierPaymentStatus]);
+
+  const trackingOriginalAmount = linkedPONonCreditStatus
+    ? Number(linkedPONonCreditStatus.total_amount || 0)
+    : Number(detailAdvance?.original_amount || 0);
+
+  const trackingAppliedAmount = Number(detailAdvance?.original_amount || 0);
+
+  const trackingRemainingAmount = Math.max(0, trackingOriginalAmount - trackingAppliedAmount);
+
+  // Fetch eligible PO list globally for PO-first advance flow
+  const { data: eligibleAdvancePOs = [] } = useQuery({
+    queryKey: ["eligible-advance-pos", suppliers.length],
+    queryFn: async (): Promise<EligibleAdvancePOOption[]> => {
+      const statuses = await Promise.all(
+        suppliers.map(async (supplier: Supplier) => {
+          try {
+            return await supplierCreditApi.getPaymentStatus(supplier.id);
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      const options: EligibleAdvancePOOption[] = [];
+      for (const status of statuses) {
+        if (!status) continue;
+        for (const po of status.non_credit_purchase_orders || []) {
+          const isEligible = po.status === "approved" && !po.has_grn && po.remaining_amount > 0;
+          if (!isEligible) continue;
+          options.push({
+            po_id: po.po_id,
+            po_no: po.po_no,
+            supplier_id: status.supplier_id,
+            supplier_name: status.supplier_name,
+            branch_code: po.branch_code,
+            remaining_amount: po.remaining_amount,
+          });
+        }
+      }
+
+      options.sort((a, b) => a.po_no.localeCompare(b.po_no));
+      return options;
+    },
+    enabled: isCreating && suppliers.length > 0,
+  });
+
+  const selectedPOOption = useMemo(
+    () => eligibleAdvancePOs.find((po) => po.po_id === formData.purchasing_order_id) || null,
+    [eligibleAdvancePOs, formData.purchasing_order_id]
+  );
+
+  useEffect(() => {
+    if (!isCreating || !selectedPOOption) return;
+    setFormData((prev) => ({
+      ...prev,
+      purchasing_order_id: selectedPOOption.po_id,
+      supplier_id: selectedPOOption.supplier_id,
+      branch_code: selectedPOOption.branch_code,
+      original_amount: prev.original_amount && prev.original_amount > 0 ? prev.original_amount : selectedPOOption.remaining_amount,
+    }));
+  }, [isCreating, selectedPOOption, setFormData]);
 
   // Filtered & sorted list
   const filteredAdvances = useMemo(() => {
@@ -278,6 +377,9 @@ export default function SupplierAdvancePaymentsPage() {
       case "branch_code":
         if (!formData.branch_code) return "Branch is required";
         break;
+      case "purchasing_order_id":
+        if (!formData.purchasing_order_id) return "Purchase Order is required";
+        break;
       case "original_amount":
         if (!formData.original_amount || formData.original_amount <= 0) return "Amount must be greater than 0";
         break;
@@ -293,6 +395,8 @@ export default function SupplierAdvancePaymentsPage() {
   const isFormValid =
     !!formData.supplier_id &&
     formData.supplier_id > 0 &&
+    !!formData.purchasing_order_id &&
+    formData.purchasing_order_id > 0 &&
     !!formData.branch_code &&
     !!formData.original_amount &&
     formData.original_amount > 0 &&
@@ -302,9 +406,20 @@ export default function SupplierAdvancePaymentsPage() {
 
   const handleSave = useCallback(() => {
     if (isCreating) {
+      const selectedPO = eligibleAdvancePOs.find((po) => po.po_id === formData.purchasing_order_id);
+      if (!selectedPO) {
+        showErrorToast("Please select an approved non-credit PO without GRN");
+        return;
+      }
+
+      if (formData.original_amount && formData.original_amount > selectedPO.remaining_amount) {
+        showErrorToast(`Advance amount cannot exceed PO remaining amount: Rs. ${fmtLKR(selectedPO.remaining_amount)}`);
+        return;
+      }
+
       createMutation.mutate(formData as SupplierAdvancePaymentCreate);
     }
-  }, [isCreating, formData, createMutation]);
+  }, [isCreating, formData, createMutation, eligibleAdvancePOs]);
 
   const handleNewAdvance = useCallback(() => {
     handleNew();
@@ -394,6 +509,16 @@ export default function SupplierAdvancePaymentsPage() {
                       (Remaining)
                     </Typography>
                   </Box>
+                  {adv.purchasing_order_id && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {adv.po_no || `PO #${adv.purchasing_order_id}`}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Purchase Order)
+                      </Typography>
+                    </Box>
+                  )}
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
                       {adv.payment_date ? new Date(adv.payment_date).toLocaleDateString() : "-"}
@@ -417,7 +542,7 @@ export default function SupplierAdvancePaymentsPage() {
           }
           secondaryText={
             !isSelected
-              ? `${adv.supplier_name || getSupplierName(adv.supplier_id)} - Rs. ${fmtLKR(Number(adv.original_amount || 0))}`
+              ? `${adv.supplier_name || getSupplierName(adv.supplier_id)}${adv.po_no ? ` • ${adv.po_no}` : adv.purchasing_order_id ? ` • PO #${adv.purchasing_order_id}` : ""} - Rs. ${fmtLKR(Number(adv.original_amount || 0))}`
               : undefined
           }
           isFavorite={favorites.includes(adv.id)}
@@ -475,7 +600,34 @@ export default function SupplierAdvancePaymentsPage() {
           <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
-            <FormSection title="Supplier Information" columns={3}>
+            <FormSection title="Purchase Order Information" columns={3}>
+              <Autocomplete
+                size="small"
+                options={eligibleAdvancePOs}
+                getOptionLabel={(option) => `${option.po_no} - ${option.supplier_name} - Rs. ${fmtLKR(option.remaining_amount)} Remaining`}
+                value={selectedPOOption}
+                onChange={(_, newValue) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    purchasing_order_id: newValue?.po_id,
+                    supplier_id: newValue?.supplier_id || 0,
+                    branch_code: newValue?.branch_code || "",
+                    original_amount: newValue ? newValue.remaining_amount : 0,
+                  }));
+                  handleBlur("purchasing_order_id");
+                }}
+                disabled={!isEditing && !isCreating}
+                noOptionsText="No approved non-credit pre-GRN POs found"
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Purchase Order"
+                    required
+                    error={hasError("purchasing_order_id")}
+                    helperText={getFieldError("purchasing_order_id") || "Select PO first to auto-fill supplier and branch"}
+                  />
+                )}
+              />
               <Autocomplete
                 size="small"
                 options={suppliers}
@@ -485,11 +637,8 @@ export default function SupplierAdvancePaymentsPage() {
                     : option.full_name || ""
                 }
                 value={suppliers.find((s: Supplier) => s.id === formData.supplier_id) || null}
-                onChange={(_, newValue: Supplier | null) => {
-                  setFormData({ ...formData, supplier_id: newValue?.id || 0 });
-                  handleBlur("supplier_id");
-                }}
-                disabled={!isEditing && !isCreating}
+                onChange={() => undefined}
+                disabled
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -505,11 +654,8 @@ export default function SupplierAdvancePaymentsPage() {
                 options={branches}
                 getOptionLabel={(option: Branch) => `${option.branch_code} - ${option.branch_name}`}
                 value={branches.find((b) => b.branch_code === formData.branch_code) || null}
-                onChange={(_, newValue) => {
-                  setFormData({ ...formData, branch_code: newValue?.branch_code || "" });
-                  handleBlur("branch_code");
-                }}
-                disabled={!isEditing && !isCreating}
+                onChange={() => undefined}
+                disabled
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -534,6 +680,25 @@ export default function SupplierAdvancePaymentsPage() {
                 helperText={getFieldError("payment_date")}
               />
             </FormSection>
+
+            {detailAdvance && detailAdvance.purchasing_order_id && !isCreating && (
+              <FormSection title="Linked Purchase Order" columns={2}>
+                <TextField
+                  label="PO ID"
+                  size="small"
+                  value={detailAdvance.purchasing_order_id}
+                  disabled
+                  InputProps={{ readOnly: true }}
+                />
+                <TextField
+                  label="PO Number"
+                  size="small"
+                  value={detailAdvance.po_no || "-"}
+                  disabled
+                  InputProps={{ readOnly: true }}
+                />
+              </FormSection>
+            )}
 
             <FormSection title="Payment Details" columns={3}>
               <TextField
@@ -592,19 +757,19 @@ export default function SupplierAdvancePaymentsPage() {
             )}
 
             {/* View-only amount tracking section */}
-            {selectedItem && !isCreating && (
+            {detailAdvance && !isCreating && (
               <FormSection title="Amount Tracking" columns={4}>
                 <TextField
                   label="Original Amount"
                   size="small"
-                  value={`Rs. ${fmtLKR(Number(selectedItem.original_amount || 0))}`}
+                  value={`Rs. ${fmtLKR(trackingOriginalAmount)}`}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
                 <TextField
                   label="Applied Amount"
                   size="small"
-                  value={`Rs. ${fmtLKR(Number(selectedItem.applied_amount || 0))}`}
+                  value={`Rs. ${fmtLKR(trackingAppliedAmount)}`}
                   disabled
                   InputProps={{ readOnly: true }}
                   sx={{
@@ -616,7 +781,7 @@ export default function SupplierAdvancePaymentsPage() {
                 <TextField
                   label="Remaining Amount"
                   size="small"
-                  value={`Rs. ${fmtLKR(Number(selectedItem.remaining_amount || 0))}`}
+                  value={`Rs. ${fmtLKR(trackingRemainingAmount)}`}
                   disabled
                   InputProps={{ readOnly: true }}
                   sx={{
@@ -629,10 +794,10 @@ export default function SupplierAdvancePaymentsPage() {
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Status:</Typography>
                   <Chip
-                    label={selectedItem.is_fully_applied ? "Fully Applied" : "Active"}
+                    label={trackingRemainingAmount <= 0 ? "Fully Applied" : "Active"}
                     size="small"
-                    color={selectedItem.is_fully_applied ? "default" : "success"}
-                    icon={selectedItem.is_fully_applied ? <CheckCircleIcon /> : undefined}
+                    color={trackingRemainingAmount <= 0 ? "default" : "success"}
+                    icon={trackingRemainingAmount <= 0 ? <CheckCircleIcon /> : undefined}
                   />
                 </Box>
               </FormSection>

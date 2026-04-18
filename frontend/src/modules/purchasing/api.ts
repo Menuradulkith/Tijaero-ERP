@@ -480,6 +480,8 @@ export interface SupplierPaymentStatusData {
     payment_method: string;
     total_amount: number;
     paid_amount: number;
+    pending_payment_amount?: number;
+    has_pending_payment?: boolean;
     advance_applied?: number;
     remaining_amount: number;
     is_paid: boolean;
@@ -762,9 +764,10 @@ export const supplierPaymentsApi = {
     return response.data;
   },
 
-  cancel: async (id: number) => {
+  cancel: async (id: number, remarks?: string) => {
     const response = await apiClient.post<SupplierPayment>(
-      `/purchasing/supplier-payments/${id}/cancel`
+      `/purchasing/supplier-payments/${id}/cancel`,
+      remarks ? { remarks } : undefined
     );
     return response.data;
   },

@@ -30,7 +30,10 @@ import {
   useTheme,
   Alert,
   Button,
+  IconButton,
+  Tooltip,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import BusinessIcon from "@mui/icons-material/Business";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
@@ -40,6 +43,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 import CancelIcon from "@mui/icons-material/Cancel";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
+import RefreshIcon from "@mui/icons-material/Refresh";
 
 import { purchasingStatsApi } from "@/modules/purchasing/api";
 import { useReferenceData, BranchRef } from "@/hooks";
@@ -55,6 +59,20 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
+const panelSx = {
+  p: 2.25,
+  borderRadius: 3,
+  border: "1px solid",
+  borderColor: "divider",
+  background: "linear-gradient(180deg, #ffffff 0%, #fbfcff 100%)",
+  boxShadow: "0 2px 14px rgba(15, 23, 42, 0.05)",
+} as const;
+
+const sectionTitleSx = {
+  fontWeight: 700,
+  letterSpacing: 0.2,
+} as const;
 
 export default function PurchasingDashboard() {
   const navigate = useNavigate();
@@ -112,7 +130,15 @@ export default function PurchasingDashboard() {
   const totalPOStatuses = stats.pending_pos + stats.approved_pos + stats.completed_pos + stats.rejected_pos;
 
   return (
-    <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
+    <Box
+      sx={{
+        p: { xs: 1.5, md: 2.5 },
+        height: "100%",
+        overflow: "auto",
+        borderRadius: 2,
+        background: "radial-gradient(circle at 10% 0%, #f3f7ff 0%, #f8fafc 35%, #ffffff 100%)",
+      }}
+    >
       <TPageHeader
         title="Purchasing Dashboard"
         subtitle={
@@ -121,22 +147,38 @@ export default function PurchasingDashboard() {
             : "Overview of purchasing activities and spending"
         }
         actions={
-          <Autocomplete
-            size="small"
-            options={branches}
-            getOptionLabel={(option: BranchRef) => `${option.branch_code} - ${option.branch_name}`}
-            value={branches.find((b) => b.branch_code === filterBranch) || null}
-            onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
-            renderInput={(params) => (
-              <TextField {...params} placeholder="Filter by Branch" size="small" />
-            )}
-            sx={{ minWidth: 250 }}
-          />
+          <Stack direction="row" spacing={1.25} alignItems="center">
+            <Autocomplete
+              size="small"
+              options={branches}
+              getOptionLabel={(option: BranchRef) => `${option.branch_code} - ${option.branch_name}`}
+              value={branches.find((b) => b.branch_code === filterBranch) || null}
+              onChange={(_, newValue) => setFilterBranch(newValue?.branch_code || null)}
+              renderInput={(params) => (
+                <TextField {...params} placeholder="Filter by Branch" size="small" />
+              )}
+              sx={{ minWidth: 260, backgroundColor: "#fff", borderRadius: 2 }}
+            />
+            <Tooltip title="Refresh Statistics">
+              <IconButton
+                onClick={() => refetch()}
+                color="primary"
+                sx={{
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  backgroundColor: "#fff",
+                }}
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         }
       />
 
       {/* ── Row 1: KPI Stat Cards ─────────────────────────────────── */}
-      <Grid container spacing={3}>
+      <Grid container spacing={2.5}>
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
             title="This Month Spending"
@@ -184,8 +226,8 @@ export default function PurchasingDashboard() {
 
         {/* ── Row 2: Daily Order Trend + PO Status Breakdown ──────── */}
         <Grid item xs={12} md={8}>
-          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>
+          <Paper elevation={0} variant="outlined" sx={{ ...panelSx, height: "100%" }}>
+            <Typography variant="h6" sx={sectionTitleSx} gutterBottom>
               Purchase Orders — Last 7 Days
             </Typography>
             <Divider sx={{ mb: 2 }} />
@@ -203,7 +245,7 @@ export default function PurchasingDashboard() {
                       <stop offset="95%" stopColor={theme.palette.warning.main} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.8)} />
                   <XAxis dataKey="date" fontSize={12} tick={{ fill: theme.palette.text.secondary }} />
                   <YAxis fontSize={12} tick={{ fill: theme.palette.text.secondary }} allowDecimals={false} />
                   <RechartsTooltip
@@ -230,8 +272,8 @@ export default function PurchasingDashboard() {
         <Grid item xs={12} md={4}>
           <Stack spacing={3} sx={{ height: "100%" }}>
             {/* PO Status Breakdown */}
-            <Paper elevation={0} variant="outlined" sx={{ p: 2, flex: 1 }}>
-              <Typography variant="h6" fontWeight={700} gutterBottom>
+            <Paper elevation={0} variant="outlined" sx={{ ...panelSx, flex: 1 }}>
+              <Typography variant="h6" sx={sectionTitleSx} gutterBottom>
                 PO Status
               </Typography>
               <Divider sx={{ mb: 2 }} />
@@ -260,7 +302,7 @@ export default function PurchasingDashboard() {
             </Paper>
 
             {/* Returns Quick Stat */}
-            <Paper elevation={0} variant="outlined" sx={{ p: 2 }}>
+            <Paper elevation={0} variant="outlined" sx={panelSx}>
               <Stack direction="row" justifyContent="space-between" alignItems="center">
                 <Box>
                   <Typography variant="body2" color="text.secondary">Purchase Returns</Typography>
@@ -277,8 +319,8 @@ export default function PurchasingDashboard() {
 
         {/* ── Row 3: Monthly Spending Chart + Top Suppliers ────────── */}
         <Grid item xs={12} md={7}>
-          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>
+          <Paper elevation={0} variant="outlined" sx={{ ...panelSx, height: "100%" }}>
+            <Typography variant="h6" sx={sectionTitleSx} gutterBottom>
               Monthly Spending — Last 6 Months
             </Typography>
             <Divider sx={{ mb: 2 }} />
@@ -289,7 +331,7 @@ export default function PurchasingDashboard() {
             ) : (
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={stats.monthly_spending}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.8)} />
                   <XAxis dataKey="month" fontSize={12} tick={{ fill: theme.palette.text.secondary }} />
                   <YAxis
                     fontSize={12}
@@ -315,8 +357,8 @@ export default function PurchasingDashboard() {
         </Grid>
 
         <Grid item xs={12} md={5}>
-          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>
+          <Paper elevation={0} variant="outlined" sx={{ ...panelSx, height: "100%" }}>
+            <Typography variant="h6" sx={sectionTitleSx} gutterBottom>
               Top Suppliers
             </Typography>
             <Divider sx={{ mb: 1 }} />
@@ -361,9 +403,9 @@ export default function PurchasingDashboard() {
 
         {/* ── Row 4: Recent POs + Recent GRNs ─────────────────────── */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+          <Paper elevation={0} variant="outlined" sx={{ ...panelSx, height: "100%" }}>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-              <Typography variant="h6" fontWeight={700}>
+              <Typography variant="h6" sx={sectionTitleSx}>
                 Recent Purchase Orders
               </Typography>
               <Chip label={`${stats.total_pos} total`} size="small" color="warning" variant="outlined" />
@@ -381,7 +423,11 @@ export default function PurchasingDashboard() {
                     key={po.id}
                     divider
                     onClick={() => navigate("/purchasing/orders")}
-                    sx={{ borderRadius: 1 }}
+                    sx={{
+                      borderRadius: 1.5,
+                      mb: 0.35,
+                      '&:hover': { backgroundColor: alpha(theme.palette.warning.main, 0.08) },
+                    }}
                   >
                     <ListItemText
                       primary={po.po_no}
@@ -402,9 +448,9 @@ export default function PurchasingDashboard() {
         </Grid>
 
         <Grid item xs={12} md={6}>
-          <Paper elevation={0} variant="outlined" sx={{ p: 2, height: "100%" }}>
+          <Paper elevation={0} variant="outlined" sx={{ ...panelSx, height: "100%" }}>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-              <Typography variant="h6" fontWeight={700}>
+              <Typography variant="h6" sx={sectionTitleSx}>
                 Recent Good Received Notes
               </Typography>
               <Chip label={`${stats.total_grns} total`} size="small" color="info" variant="outlined" />
@@ -422,7 +468,11 @@ export default function PurchasingDashboard() {
                     key={grn.id}
                     divider
                     onClick={() => navigate("/purchasing/grn")}
-                    sx={{ borderRadius: 1 }}
+                    sx={{
+                      borderRadius: 1.5,
+                      mb: 0.35,
+                      '&:hover': { backgroundColor: alpha(theme.palette.info.main, 0.08) },
+                    }}
                   >
                     <ListItemText
                       primary={grn.grn_no}

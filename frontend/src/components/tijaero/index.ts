@@ -156,13 +156,13 @@ export {
   REIMBURSEMENT_TYPES, REIMBURSEMENT_EXPENSE_TYPES, REIMBURSEMENT_PAYMENT_METHODS,
   GENDER_CHOICES, GENERIC_PAYMENT_METHOD, OCCUPATION_CHOICES,
   // Product/Inventory
-  PRODUCT_ITEM_TYPE, PURCHASING_PAYMENT_METHOD, SALES_RETURN_PAYMENT_METHOD, SERVICE_JOB_FAULT_TYPE,
+  PRODUCT_ITEM_TYPE, PURCHASE_ORDER_PAYMENT_METHOD, PURCHASING_PAYMENT_METHOD, SALES_RETURN_PAYMENT_METHOD, SERVICE_JOB_FAULT_TYPE,
   // Service Job
   SERVICE_JOB_STATUS, SUPPLIER_PAYMENT_METHOD,
   // Person/Employee choices
   TITLE_CHOICES, choicesToAutocompleteOptions, choicesToSelectOptions,
   // Helper functions
-  getChoiceLabel, type CardType, type CivilChoice, type CustomerPaymentMethod, type ExpensesMethod, type GenderChoice, type GenericPaymentMethod, type OccupationChoice, type ProductItemType, type PurchasingPaymentMethod, type SalesReturnPaymentMethod, type ServiceJobFaultType, type ServiceJobStatus, type SupplierPaymentMethod,
+  getChoiceLabel, type CardType, type CivilChoice, type CustomerPaymentMethod, type ExpensesMethod, type GenderChoice, type GenericPaymentMethod, type OccupationChoice, type ProductItemType, type PurchaseOrderPaymentMethod, type PurchasingPaymentMethod, type SalesReturnPaymentMethod, type ServiceJobFaultType, type ServiceJobStatus, type SupplierPaymentMethod,
   // Types
   type TitleChoice
 } from "./constants";

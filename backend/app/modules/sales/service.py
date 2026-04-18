@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from fastapi import HTTPException, status
+import logging
 from app.modules.sales import repository, schemas
 from app.modules.sales.models import Invoice, InvoiceItems, InvoiceItemsBarcode, SaleReturn, SaleReturnItems
 from app.modules.inventory.models import SalesStock
@@ -14,6 +15,8 @@ from decimal import Decimal
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Initialize credit service
 customer_credit_service = CustomerCreditService()
@@ -882,7 +885,8 @@ class SalesService:
         if cheque_date_str:
             try:
                 invoice_dict['cheque_date'] = datetime.strptime(cheque_date_str, '%Y-%m-%d').date()
-            except:
+            except (ValueError, TypeError):
+                logger.warning("Invalid cheque_date %r, defaulting to today", cheque_date_str)
                 invoice_dict['cheque_date'] = tz.today()
         else:
             invoice_dict['cheque_date'] = tz.today()

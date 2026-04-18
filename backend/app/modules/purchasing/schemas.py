@@ -372,6 +372,10 @@ class SupplierPaymentUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class SupplierPaymentCancel(BaseModel):
+    remarks: Optional[str] = None
+
+
 class SupplierPayment(SupplierPaymentBase, TijaeroBaseSchema):
     id: int
     payment_no: str
@@ -401,6 +405,7 @@ class SupplierPaymentListFilter(BaseModel):
 
 class SupplierAdvancePaymentBase(BaseModel):
     supplier_id: int
+    purchasing_order_id: Optional[int] = None
     payment_date: date
     payment_method: str  # Cash, Bank Transfer, Cheque
     original_amount: Decimal  # Original advance amount
@@ -435,6 +440,7 @@ class SupplierAdvancePayment(SupplierAdvancePaymentBase, TijaeroBaseSchema):
     
     # Loaded from relationships
     supplier_name: Optional[str] = None
+    po_no: Optional[str] = None
 
 
 class SupplierAdvancePaymentWithApplications(SupplierAdvancePayment):

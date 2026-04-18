@@ -396,10 +396,14 @@ def validate_barcode_for_return(
     status_code=status.HTTP_201_CREATED,
 )
 def create_purchase_return(
-    return_data: schemas.PurchasingReturnCreate, db: Session = Depends(get_db)
+    return_data: schemas.PurchasingReturnCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(*Permissions.PURCHASE_RETURN_CREATE)
+    ),
 ):
     return_service = service.PurchasingReturnService(db)
-    return return_service.create_return(return_data)
+    return return_service.create_return(return_data, user_id=current_user.id)
 
 
 # NOTE: Purchase return approvals are handled through the centralized Approval Dashboard
@@ -791,18 +795,30 @@ def update_supplier_payment(
 @router.post(
     "/supplier-payments/{payment_id}/verify", response_model=schemas.SupplierPayment
 )
-def verify_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
+def verify_supplier_payment(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE)
+    ),
+):
     payment_service = service.SupplierPaymentService(db)
-    # TODO: Get verified_by from current user
-    return payment_service.verify_payment(payment_id, verified_by=1)
+    return payment_service.verify_payment(payment_id, verified_by=current_user.id)
 
 
 @router.post(
     "/supplier-payments/{payment_id}/cancel", response_model=schemas.SupplierPayment
 )
-def cancel_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
+def cancel_supplier_payment(
+    payment_id: int,
+    payload: schemas.SupplierPaymentCancel = None,
+    db: Session = Depends(get_db),
+):
     payment_service = service.SupplierPaymentService(db)
-    return payment_service.cancel_payment(payment_id)
+    return payment_service.cancel_payment(
+        payment_id,
+        remarks=payload.remarks if payload else None,
+    )
 
 
 @router.delete(
@@ -837,7 +853,11 @@ def get_supplier_payments(
     status_code=status.HTTP_201_CREATED,
 )
 def create_supplier_advance(
-    data: schemas.SupplierAdvancePaymentCreate, db: Session = Depends(get_db)
+    data: schemas.SupplierAdvancePaymentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(*Permissions.SUPPLIER_ADVANCE_CREATE)
+    ),
 ):
     """
     Create a new supplier advance payment.
@@ -846,8 +866,7 @@ def create_supplier_advance(
     The advance will be tracked and can later be applied against GRNs.
     """
     advance_service = service.SupplierAdvancePaymentService(db)
-    # TODO: Get created_by from current user
-    return advance_service.create_advance(data, created_by=1)
+    return advance_service.create_advance(data, created_by=current_user.id)
 
 
 @router.get("/supplier-advances", response_model=List[schemas.SupplierAdvancePayment])
@@ -957,7 +976,11 @@ def get_supplier_advances(
     status_code=status.HTTP_201_CREATED,
 )
 def create_advance_application(
-    data: schemas.SupplierAdvanceApplicationCreate, db: Session = Depends(get_db)
+    data: schemas.SupplierAdvanceApplicationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(*Permissions.SUPPLIER_ADVANCE_UPDATE)
+    ),
 ):
     """
     Create an application to apply advance against a GRN.
@@ -966,8 +989,7 @@ def create_advance_application(
     Validates that application amount doesn't exceed available balance.
     """
     advance_service = service.SupplierAdvancePaymentService(db)
-    # TODO: Get created_by from current user
-    return advance_service.create_application(data, created_by=1)
+    return advance_service.create_application(data, created_by=current_user.id)
 
 
 @router.get(

@@ -1,7 +1,10 @@
+import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from app.core import timezone as tz
+
+logger = logging.getLogger(__name__)
 from app.modules.customers.models import Customer
 from app.modules.employees.models import Employee, EmployeePayroll
 from app.modules.finance.models import (
@@ -582,6 +585,7 @@ class ReportingService:
                 .scalar()
             )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             total_purchases_month = 0
 
         try:
@@ -592,6 +596,7 @@ class ReportingService:
                 or 0
             )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             pending_po_count = 0
 
         # ── Receivables / Payables ───────────────────────────────────────
@@ -610,6 +615,7 @@ class ReportingService:
                 .scalar()
             )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             total_supplier_credit = 0
 
         # ── Pending Approvals ────────────────────────────────────────────
@@ -621,6 +627,7 @@ class ReportingService:
                 or 0
             )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             pending_sales = 0
 
         try:
@@ -631,6 +638,7 @@ class ReportingService:
                 or 0
             )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             pending_purchases = 0
 
         try:
@@ -648,6 +656,7 @@ class ReportingService:
             )
             pending_returns = pending_sale_returns + pending_purchase_returns
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             pending_returns = 0
 
         try:
@@ -658,6 +667,7 @@ class ReportingService:
                 or 0
             )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             pending_expenses = 0
 
         try:
@@ -668,6 +678,7 @@ class ReportingService:
                 or 0
             )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             pending_transfers = 0
 
         total_pending = (
@@ -734,6 +745,7 @@ class ReportingService:
                 for row in top_rows
             ]
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             top_products = []
 
         # ── Recent activities (real data) ────────────────────────────────
@@ -756,6 +768,7 @@ class ReportingService:
                     }
                 )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             pass
 
         try:
@@ -780,6 +793,7 @@ class ReportingService:
                     }
                 )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             pass
 
         try:
@@ -799,6 +813,7 @@ class ReportingService:
                     }
                 )
         except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
             pass
 
         # Sort by time descending and keep latest 8

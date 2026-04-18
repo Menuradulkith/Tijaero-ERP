@@ -24,7 +24,9 @@ def create_transfer_note(
             detail=f"Access denied to branch: {transfer_note.branch_code}"
         )
     transfer_note_service = service.ItemTransferNoteService(db)
-    return transfer_note_service.create_transfer_note(transfer_note)
+    return transfer_note_service.create_transfer_note(
+        transfer_note, user_id=current_user.id
+    )
 
 @router.get("/transfer-notes/{transfer_note_id}", response_model=schemas.ItemTransferNote)
 def get_transfer_note(transfer_note_id: int, db: Session = Depends(get_db)):

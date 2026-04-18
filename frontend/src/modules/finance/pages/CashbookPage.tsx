@@ -12,20 +12,10 @@ import {
   Button,
   ButtonGroup,
   Tooltip,
-  Collapse,
-  IconButton,
 } from "@mui/material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import PrintIcon from "@mui/icons-material/Print";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import ReceiptIcon from "@mui/icons-material/Receipt";
-import PaymentsIcon from "@mui/icons-material/Payments";
-import CreditCardIcon from "@mui/icons-material/CreditCard";
-import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
-import MoneyOffIcon from "@mui/icons-material/MoneyOff";
-import SavingsIcon from "@mui/icons-material/Savings";
 import { TPageHeader, TCurrency, TBranchFilter, showErrorToast, showSuccessToast, fmtLKR } from "@/components/tijaero";
 import { cashbookApi } from "@/modules/finance/api";
 import { CashbookEntryType, CashbookReport } from "@/modules/finance/types";
@@ -122,7 +112,6 @@ export default function CashbookPage() {
   const [branchCode, setBranchCode] = useState<string | null>(null);
   const [entryType, setEntryType] = useState<CashbookEntryType | "">("");
   const [paymentMethod, setPaymentMethod] = useState("");
-  const [showBreakdown, setShowBreakdown] = useState(true);
 
   const { filteredBranches } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
@@ -232,21 +221,33 @@ export default function CashbookPage() {
     { field: "reference_no", headerName: "Reference", width: 140 },
     { field: "description", headerName: "Description", width: 180, flex: 1 },
     { field: "party_name", headerName: "Party", width: 140 },
-    { field: "payment_method", headerName: "Payment", width: 110 },
+    {
+      field: "payment_method",
+      headerName: "Payment",
+      width: 110,
+      renderCell: (params) => (
+        <Typography variant="body2" sx={{ lineHeight: 1.2 }}>
+          {params.value || "-"}
+        </Typography>
+      ),
+    },
     {
       field: "money_in",
       headerName: "Money In",
       width: 120,
       align: "right",
       headerAlign: "right",
-      renderCell: (params) =>
-        params.value > 0 ? (
-          <Typography color="success.main" fontWeight="medium">
-            <TCurrency value={params.value} showSymbol={false} />
-          </Typography>
-        ) : (
-          "-"
-        ),
+      renderCell: (params) => (
+        <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+          {params.value > 0 ? (
+            <Typography variant="body2" color="success.main" fontWeight={600} sx={{ lineHeight: 1.2 }}>
+              <TCurrency value={params.value} showSymbol={false} />
+            </Typography>
+          ) : (
+            <Typography variant="body2" sx={{ lineHeight: 1.2 }}>-</Typography>
+          )}
+        </Box>
+      ),
     },
     {
       field: "money_out",
@@ -254,14 +255,17 @@ export default function CashbookPage() {
       width: 120,
       align: "right",
       headerAlign: "right",
-      renderCell: (params) =>
-        params.value > 0 ? (
-          <Typography color="error.main" fontWeight="medium">
-            <TCurrency value={params.value} showSymbol={false} />
-          </Typography>
-        ) : (
-          "-"
-        ),
+      renderCell: (params) => (
+        <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+          {params.value > 0 ? (
+            <Typography variant="body2" color="error.main" fontWeight={600} sx={{ lineHeight: 1.2 }}>
+              <TCurrency value={params.value} showSymbol={false} />
+            </Typography>
+          ) : (
+            <Typography variant="body2" sx={{ lineHeight: 1.2 }}>-</Typography>
+          )}
+        </Box>
+      ),
     },
     {
       field: "running_balance",
@@ -270,67 +274,220 @@ export default function CashbookPage() {
       align: "right",
       headerAlign: "right",
       renderCell: (params) => (
-        <Typography 
-          fontWeight="medium"
-          color={params.value >= 0 ? "text.primary" : "error.main"}
-        >
-          <TCurrency value={params.value} showSymbol={false} />
+        <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+          <Typography
+            variant="body2"
+            fontWeight={600}
+            lineHeight={1.2}
+            color={params.value >= 0 ? "text.primary" : "error.main"}
+          >
+            <TCurrency value={params.value} showSymbol={false} />
+          </Typography>
+        </Box>
+      ),
+    },
+    {
+      field: "branch_code",
+      headerName: "Branch",
+      width: 90,
+      renderCell: (params) => (
+        <Typography variant="body2" sx={{ lineHeight: 1.2 }}>
+          {params.value || "-"}
         </Typography>
       ),
     },
-    { field: "branch_code", headerName: "Branch", width: 90 },
   ];
 
   return (
-    <Box sx={{ overflow: "auto" }}>
-      <TPageHeader 
-        title="Cashbook" 
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+      <TPageHeader
+        title="Cashbook"
         actions={
-          <Box sx={{ display: "flex", gap: 1 }}>
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
             <Tooltip title="Export to CSV">
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<FileDownloadIcon />}
-                onClick={handleExport}
-                disabled={!report?.entries?.length}
-              >
-                Export
-              </Button>
+              <span>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<FileDownloadIcon />}
+                  onClick={handleExport}
+                  disabled={!report?.entries?.length}
+                >
+                  Export CSV
+                </Button>
+              </span>
             </Tooltip>
-            <Tooltip title="Print Report">
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<PrintIcon />}
-                onClick={handlePrint}
-                disabled={!report?.entries?.length}
-              >
-                Print
-              </Button>
+            <Tooltip title="Print report">
+              <span>
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<PrintIcon />}
+                  onClick={handlePrint}
+                  disabled={!report?.entries?.length}
+                >
+                  Print
+                </Button>
+              </span>
             </Tooltip>
           </Box>
         }
       />
 
-      {/* Summary Cards - Main */}
-      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2, mb: 2 }}>
-        <Card>
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 2,
+          borderRadius: 2,
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 1,
+            flexWrap: "wrap",
+          }}
+        >
+          <Typography variant="subtitle1" fontWeight={700}>
+            Report Filters
+          </Typography>
+
+          <ButtonGroup size="small" variant="outlined">
+            <Button
+              variant={datePreset === "today" ? "contained" : "outlined"}
+              onClick={() => handleDatePresetChange("today")}
+            >
+              Today
+            </Button>
+            <Button
+              variant={datePreset === "thisWeek" ? "contained" : "outlined"}
+              onClick={() => handleDatePresetChange("thisWeek")}
+            >
+              This Week
+            </Button>
+            <Button
+              variant={datePreset === "thisMonth" ? "contained" : "outlined"}
+              onClick={() => handleDatePresetChange("thisMonth")}
+            >
+              This Month
+            </Button>
+            <Button
+              variant={datePreset === "lastMonth" ? "contained" : "outlined"}
+              onClick={() => handleDatePresetChange("lastMonth")}
+            >
+              Last Month
+            </Button>
+            <Button
+              variant={datePreset === "last30Days" ? "contained" : "outlined"}
+              onClick={() => handleDatePresetChange("last30Days")}
+            >
+              Last 30 Days
+            </Button>
+            <Button
+              variant={datePreset === "custom" ? "contained" : "outlined"}
+              onClick={() => setDatePreset("custom")}
+            >
+              Custom
+            </Button>
+          </ButtonGroup>
+        </Box>
+
+        <Box
+          sx={{
+            display: "grid",
+            gap: 1.5,
+            gridTemplateColumns: {
+              xs: "1fr",
+              sm: "repeat(2, minmax(0, 1fr))",
+              lg: "repeat(5, minmax(0, 1fr))",
+            },
+          }}
+        >
+          <TextField
+            label="From Date"
+            type="date"
+            size="small"
+            value={dateFrom}
+            onChange={(e) => handleCustomDateChange("from", e.target.value)}
+            InputLabelProps={{ shrink: true }}
+          />
+          <TextField
+            label="To Date"
+            type="date"
+            size="small"
+            value={dateTo}
+            onChange={(e) => handleCustomDateChange("to", e.target.value)}
+            InputLabelProps={{ shrink: true }}
+          />
+          <TextField
+            select
+            label="Transaction Type"
+            size="small"
+            value={entryType}
+            onChange={(e) => setEntryType(e.target.value as CashbookEntryType | "")}
+          >
+            {ENTRY_TYPES.map((t) => (
+              <MenuItem key={t.value} value={t.value}>
+                {t.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            label="Payment Method"
+            size="small"
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+          >
+            {PAYMENT_METHODS.map((m) => (
+              <MenuItem key={m.value} value={m.value}>
+                {m.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Box>
+            <TBranchFilter
+              branches={branches}
+              value={branchCode}
+              onChange={setBranchCode}
+            />
+          </Box>
+        </Box>
+      </Paper>
+
+      <Box
+        sx={{
+          display: "grid",
+          gap: 1.5,
+          gridTemplateColumns: {
+            xs: "1fr",
+            sm: "repeat(2, minmax(0, 1fr))",
+            xl: "repeat(4, minmax(0, 1fr))",
+          },
+        }}
+      >
+        <Card variant="outlined" sx={{ borderRadius: 2 }}>
           <CardContent>
             <Typography color="text.secondary" variant="body2">
               Opening Balance
             </Typography>
-            <Typography variant="h5">
+            <Typography variant="h5" fontWeight={700}>
               <TCurrency value={report?.summary?.opening_balance || 0} />
             </Typography>
           </CardContent>
         </Card>
-        <Card>
+
+        <Card variant="outlined" sx={{ borderRadius: 2 }}>
           <CardContent>
             <Typography color="text.secondary" variant="body2">
               Total Money In
             </Typography>
-            <Typography variant="h5" color="success.main">
+            <Typography variant="h5" color="success.main" fontWeight={700}>
               <TCurrency value={report?.summary?.total_money_in || 0} />
             </Typography>
             <Typography variant="caption" color="text.secondary">
@@ -338,247 +495,95 @@ export default function CashbookPage() {
             </Typography>
           </CardContent>
         </Card>
-        <Card>
+
+        <Card variant="outlined" sx={{ borderRadius: 2 }}>
           <CardContent>
             <Typography color="text.secondary" variant="body2">
               Total Money Out
             </Typography>
-            <Typography variant="h5" color="error.main">
+            <Typography variant="h5" color="error.main" fontWeight={700}>
               <TCurrency value={report?.summary?.total_money_out || 0} />
             </Typography>
           </CardContent>
         </Card>
-        <Card sx={{ bgcolor: "primary.50", borderColor: "primary.200", borderWidth: 1, borderStyle: "solid" }}>
+
+        <Card
+          variant="outlined"
+          sx={{
+            borderRadius: 2,
+            bgcolor: "primary.50",
+            borderColor: "primary.200",
+          }}
+        >
           <CardContent>
             <Typography color="text.secondary" variant="body2">
               Closing Balance
             </Typography>
-            <Typography variant="h5" color="primary.main" fontWeight="bold">
+            <Typography variant="h5" color="primary.main" fontWeight={800}>
               <TCurrency value={report?.summary?.closing_balance || 0} />
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Net: <TCurrency value={report?.summary?.net_movement || 0} />
+              Net movement: <TCurrency value={report?.summary?.net_movement || 0} />
             </Typography>
           </CardContent>
         </Card>
       </Box>
 
-      {/* Breakdown Section - Collapsible */}
-      <Paper sx={{ mb: 2, p: 2 }}>
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: showBreakdown ? 2 : 0 }}>
-          <Typography variant="subtitle2" fontWeight="medium">
-            Transaction Breakdown
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+        <Box
+          sx={{
+            px: 2,
+            py: 1.25,
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 1,
+            flexWrap: "wrap",
+          }}
+        >
+          <Typography variant="subtitle1" fontWeight={700}>
+            Ledger Entries
           </Typography>
-          <IconButton size="small" onClick={() => setShowBreakdown(!showBreakdown)}>
-            {showBreakdown ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-          </IconButton>
-        </Box>
-        <Collapse in={showBreakdown}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 2 }}>
-            {/* Money IN breakdown */}
-            <BreakdownCard
-              icon={<ReceiptIcon color="success" />}
-              label="Invoice Receipts"
-              amount={report?.summary?.invoice_receipts || 0}
-              count={report?.summary?.invoice_receipts_count || 0}
-              color="success"
-            />
-            <BreakdownCard
-              icon={<PaymentsIcon color="info" />}
-              label="Customer Advances"
-              amount={report?.summary?.customer_advances || 0}
-              count={report?.summary?.customer_advances_count || 0}
-              color="info"
-            />
-            <BreakdownCard
-              icon={<CreditCardIcon color="primary" />}
-              label="Credit Settlements"
-              amount={report?.summary?.customer_credit_settlements || 0}
-              count={report?.summary?.customer_credit_settlements_count || 0}
-              color="primary"
-            />
-            {/* Money OUT breakdown */}
-            <BreakdownCard
-              icon={<MoneyOffIcon color="warning" />}
-              label="Supplier Payments"
-              amount={report?.summary?.supplier_payments || 0}
-              count={report?.summary?.supplier_payments_count || 0}
-              color="warning"
-              isOut
-            />
-            <BreakdownCard
-              icon={<SavingsIcon color="error" />}
-              label="Expenses"
-              amount={report?.summary?.expenses || 0}
-              count={report?.summary?.expenses_count || 0}
-              color="error"
-              isOut
-            />
-            <BreakdownCard
-              icon={<AccountBalanceIcon color="secondary" />}
-              label="Bank Deposits"
-              amount={report?.summary?.bank_deposits || 0}
-              count={report?.summary?.bank_deposits_count || 0}
-              color="secondary"
-              isOut
-            />
-          </Box>
-        </Collapse>
-      </Paper>
-
-      {/* Date Range Quick Filters */}
-      <Box sx={{ mb: 2 }}>
-        <ButtonGroup size="small" variant="outlined">
-          <Button 
-            variant={datePreset === "today" ? "contained" : "outlined"}
-            onClick={() => handleDatePresetChange("today")}
-          >
-            Today
-          </Button>
-          <Button 
-            variant={datePreset === "thisWeek" ? "contained" : "outlined"}
-            onClick={() => handleDatePresetChange("thisWeek")}
-          >
-            This Week
-          </Button>
-          <Button 
-            variant={datePreset === "thisMonth" ? "contained" : "outlined"}
-            onClick={() => handleDatePresetChange("thisMonth")}
-          >
-            This Month
-          </Button>
-          <Button 
-            variant={datePreset === "lastMonth" ? "contained" : "outlined"}
-            onClick={() => handleDatePresetChange("lastMonth")}
-          >
-            Last Month
-          </Button>
-          <Button 
-            variant={datePreset === "last30Days" ? "contained" : "outlined"}
-            onClick={() => handleDatePresetChange("last30Days")}
-          >
-            Last 30 Days
-          </Button>
-          <Button 
-            variant={datePreset === "custom" ? "contained" : "outlined"}
-            onClick={() => setDatePreset("custom")}
-          >
-            Custom
-          </Button>
-        </ButtonGroup>
-      </Box>
-
-      {/* Filters - Single Row */}
-      <Box sx={{ mb: 2, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
-        <TextField
-          label="From Date"
-          type="date"
-          size="small"
-          value={dateFrom}
-          onChange={(e) => handleCustomDateChange("from", e.target.value)}
-          InputLabelProps={{ shrink: true }}
-          sx={{ width: 160 }}
-        />
-        <TextField
-          label="To Date"
-          type="date"
-          size="small"
-          value={dateTo}
-          onChange={(e) => handleCustomDateChange("to", e.target.value)}
-          InputLabelProps={{ shrink: true }}
-          sx={{ width: 160 }}
-        />
-        <TextField
-          select
-          label="Entry Type"
-          size="small"
-          value={entryType}
-          onChange={(e) => setEntryType(e.target.value as CashbookEntryType | "")}
-          sx={{ width: 180 }}
-        >
-          {ENTRY_TYPES.map((t) => (
-            <MenuItem key={t.value} value={t.value}>
-              {t.label}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          label="Payment Method"
-          size="small"
-          value={paymentMethod}
-          onChange={(e) => setPaymentMethod(e.target.value)}
-          sx={{ width: 150 }}
-        >
-          {PAYMENT_METHODS.map((m) => (
-            <MenuItem key={m.value} value={m.value}>
-              {m.label}
-            </MenuItem>
-          ))}
-        </TextField>
-        <Box sx={{ minWidth: 280 }}>
-          <TBranchFilter
-            branches={branches}
-            value={branchCode}
-            onChange={setBranchCode}
+          <Chip
+            size="small"
+            color="primary"
+            variant="outlined"
+            label={`${report?.entry_count || 0} records`}
           />
         </Box>
-      </Box>
 
-      {/* Data Grid */}
-      <Paper sx={{ height: 500 }}>
-        <DataGrid
-          rows={report?.entries || []}
-          columns={columns}
-          loading={isLoading}
-          getRowId={(row) => `${row.source_table}-${row.source_id}`}
-          initialState={{
-            sorting: {
-              sortModel: [{ field: "transaction_date", sort: "desc" }],
-            },
-          }}
-          sx={{
-            "& .MuiDataGrid-row:hover": {
-              bgcolor: "action.hover",
-            },
-          }}
-        />
+        <Box sx={{ height: 520 }}>
+          <DataGrid
+            rows={report?.entries || []}
+            columns={columns}
+            loading={isLoading}
+            getRowId={(row) => `${row.source_table}-${row.source_id}`}
+            initialState={{
+              sorting: {
+                sortModel: [{ field: "transaction_date", sort: "desc" }],
+              },
+            }}
+            sx={{
+              border: 0,
+              "& .MuiDataGrid-columnHeaders": {
+                bgcolor: "grey.50",
+              },
+              "& .MuiDataGrid-cell": {
+                display: "flex",
+                alignItems: "center",
+              },
+              "& .MuiDataGrid-cell--textRight": {
+                justifyContent: "flex-end",
+              },
+              "& .MuiDataGrid-row:hover": {
+                bgcolor: "action.hover",
+              },
+            }}
+          />
+        </Box>
       </Paper>
-    </Box>
-  );
-}
-
-// Breakdown card sub-component
-interface BreakdownCardProps {
-  icon: React.ReactNode;
-  label: string;
-  amount: number;
-  count: number;
-  color: "success" | "info" | "primary" | "warning" | "error" | "secondary";
-  isOut?: boolean;
-}
-
-function BreakdownCard({ icon, label, amount, count, color, isOut }: BreakdownCardProps) {
-  return (
-    <Box sx={{ 
-      p: 1.5, 
-      borderRadius: 1, 
-      bgcolor: `${color}.50`,
-      border: 1,
-      borderColor: `${color}.100`,
-    }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
-        {icon}
-        <Typography variant="caption" color="text.secondary" noWrap>
-          {label}
-        </Typography>
-      </Box>
-      <Typography variant="body1" fontWeight="medium" color={isOut ? "error.main" : "success.main"}>
-        {isOut ? "-" : "+"}<TCurrency value={amount} showSymbol={false} />
-      </Typography>
-      <Typography variant="caption" color="text.secondary">
-        {count} {count === 1 ? "entry" : "entries"}
-      </Typography>
     </Box>
   );
 }

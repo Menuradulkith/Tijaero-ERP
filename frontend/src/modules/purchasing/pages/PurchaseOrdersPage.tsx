@@ -51,7 +51,7 @@ import {
     getStatusProps,
     MasterDetailLayout,
     modernTableStyles,
-    PURCHASING_PAYMENT_METHOD,
+    PURCHASE_ORDER_PAYMENT_METHOD,
     SearchableList,
     SelectableListItem,
     showErrorToast,
@@ -113,10 +113,14 @@ interface PurchaseOrderFormData extends PurchasingOrderCreate {
   status?: string;
 }
 
+const normalizePurchaseOrderPaymentMethod = (method?: string | null): string => {
+  return method?.toLowerCase() === "credit" ? "Credit" : "Non-credit";
+};
+
 const INITIAL_FORM_DATA: PurchaseOrderFormData = {
   purchasing_order_no: "",
   branch_code: "",
-  payment_method: "Cash",
+  payment_method: "Non-credit",
   purchasing_order_date: new Date().toISOString().split("T")[0],
   good_received_note_date: new Date().toISOString().split("T")[0],
   remarks: "",
@@ -136,7 +140,7 @@ const resetFormFromOrder = (
 ): PurchaseOrderFormData => ({
   purchasing_order_no: order.purchasing_order_no,
   branch_code: order.branch_code,
-  payment_method: order.payment_method,
+  payment_method: normalizePurchaseOrderPaymentMethod(order.payment_method),
   purchasing_order_date: order.purchasing_order_date?.split("T")[0] || "",
   good_received_note_date: order.good_received_note_date?.split("T")[0] || "",
   remarks: order.remarks || "",
@@ -1467,7 +1471,7 @@ export default function PurchaseOrdersPage() {
                     }
                     disabled={!isEditing && !isCreating}
                   >
-                    {PURCHASING_PAYMENT_METHOD.map((option) => (
+                    {PURCHASE_ORDER_PAYMENT_METHOD.map((option) => (
                       <MenuItem key={option.value} value={option.value}>
                         {option.label}
                       </MenuItem>

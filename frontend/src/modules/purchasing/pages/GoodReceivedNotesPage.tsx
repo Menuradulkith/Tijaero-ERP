@@ -1426,7 +1426,17 @@ export default function GoodReceivedNotesPage() {
         // onEdit disabled - GRNs are not editable after creation
         // onEdit={handleStartEdit}
         endActions={
-          selectedGRN && !isCreating && !isEditing ? (
+          isCreating && formStep === 0 ? (
+            <Button
+              size="small"
+              variant="contained"
+              onClick={handleNextStep}
+              disabled={!isStep1Valid}
+              endIcon={<ArrowForwardIcon />}
+            >
+              Next
+            </Button>
+          ) : selectedGRN && !isCreating && !isEditing ? (
             <TPrintButton
               documentType="grn"
               documentId={selectedGRN.id}
@@ -1584,25 +1594,6 @@ export default function GoodReceivedNotesPage() {
                   />
                 </FormSection>
 
-                {/* Next/Cancel buttons for step 1 in create mode */}
-                {isCreating && (
-                  <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}>
-                    <Button
-                      variant="outlined"
-                      onClick={() => handleCancel(filteredGRNs)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="contained"
-                      onClick={handleNextStep}
-                      disabled={!isStep1Valid}
-                      endIcon={<ArrowForwardIcon />}
-                    >
-                      Next
-                    </Button>
-                  </Box>
-                )}
               </>
             )}
 

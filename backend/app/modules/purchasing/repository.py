@@ -429,14 +429,14 @@ class SupplierPaymentRepository:
         self.db = db
     
     def _generate_payment_no(self) -> str:
-        today = tz.today()
-        prefix = f"SP-{today.strftime('%Y%m%d')}"
+        year = tz.year()
+        prefix = f"SP-{year}"
         
         # Advisory lock to prevent race conditions on sequence generation
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last_payment = self.db.query(models.SupplierPayment).filter(
-            models.SupplierPayment.payment_no.like(f"{prefix}%")
-        ).order_by(models.SupplierPayment.payment_no.desc()).first()
+            models.SupplierPayment.payment_no.like(f"{prefix}-%")
+        ).order_by(models.SupplierPayment.id.desc()).first()
         
         if last_payment:
             try:
@@ -447,7 +447,7 @@ class SupplierPaymentRepository:
         else:
             new_num = 1
         
-        return f"{prefix}-{new_num:03d}"
+        return f"{prefix}-{new_num:05d}"
     
     def create(self, payment: schemas.SupplierPaymentCreate, created_by: int = None) -> models.SupplierPayment:
         # Retry loop to handle concurrent payment number collisions
@@ -540,12 +540,14 @@ class SupplierPaymentRepository:
             self.db.refresh(db_payment)
         return db_payment
     
-    def cancel(self, payment_id: int) -> Optional[models.SupplierPayment]:
+    def cancel(self, payment_id: int, remarks: Optional[str] = None) -> Optional[models.SupplierPayment]:
         # Lock the payment row to prevent concurrent verify/cancel
         db_payment = self.db.query(models.SupplierPayment).filter(
             models.SupplierPayment.id == payment_id
         ).with_for_update().first()
         if db_payment and db_payment.status == "pending":
+            if remarks is not None:
+                db_payment.remarks = remarks
             db_payment.status = "cancelled"
             self.db.commit()
             self.db.refresh(db_payment)
@@ -574,15 +576,15 @@ class SupplierAdvancePaymentRepository:
         self.db = db
     
     def _generate_advance_no(self) -> str:
-        """Generate unique advance payment number: ADV-YYYYMMDD-XXX"""
-        today = tz.now()
-        prefix = f"ADV-{today.strftime('%Y%m%d')}-"
+        """Generate unique advance payment number: ADV-YYYY-XXXXX with advisory lock"""
+        year = tz.year()
+        prefix = f"ADV-{year}"
         
         # Advisory lock to prevent race conditions on sequence generation
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last_advance = self.db.query(models.SupplierAdvancePayment).filter(
-            models.SupplierAdvancePayment.advance_no.like(f"{prefix}%")
-        ).order_by(models.SupplierAdvancePayment.advance_no.desc()).first()
+            models.SupplierAdvancePayment.advance_no.like(f"{prefix}-%")
+        ).order_by(models.SupplierAdvancePayment.id.desc()).first()
         
         if last_advance:
             try:
@@ -593,7 +595,7 @@ class SupplierAdvancePaymentRepository:
         else:
             new_num = 1
         
-        return f"{prefix}{new_num:03d}"
+        return f"{prefix}-{new_num:05d}"
     
     def create(self, data: schemas.SupplierAdvancePaymentCreate, created_by: Optional[int] = None) -> models.SupplierAdvancePayment:
         # Retry loop to handle concurrent advance number collisions
@@ -603,6 +605,7 @@ class SupplierAdvancePaymentRepository:
             db_advance = models.SupplierAdvancePayment(
                 advance_no=advance_no,
                 supplier_id=data.supplier_id,
+                purchasing_order_id=data.purchasing_order_id,
                 payment_date=data.payment_date,
                 branch_code=data.branch_code,
                 payment_method=data.payment_method,
@@ -628,7 +631,8 @@ class SupplierAdvancePaymentRepository:
     
     def get_by_id(self, advance_id: int) -> Optional[models.SupplierAdvancePayment]:
         return self.db.query(models.SupplierAdvancePayment).options(
-            joinedload(models.SupplierAdvancePayment.applications)
+            joinedload(models.SupplierAdvancePayment.applications),
+            joinedload(models.SupplierAdvancePayment.purchasing_order),
         ).filter(models.SupplierAdvancePayment.id == advance_id).first()
     
     def get_by_advance_no(self, advance_no: str) -> Optional[models.SupplierAdvancePayment]:
@@ -638,7 +642,8 @@ class SupplierAdvancePaymentRepository:
     
     def get_all(self, filters: schemas.SupplierAdvancePaymentListFilter) -> List[models.SupplierAdvancePayment]:
         query = self.db.query(models.SupplierAdvancePayment).options(
-            joinedload(models.SupplierAdvancePayment.supplier)
+            joinedload(models.SupplierAdvancePayment.supplier),
+            joinedload(models.SupplierAdvancePayment.purchasing_order),
         )
         
         if filters.supplier_id:
