@@ -432,6 +432,7 @@ export interface SupplierAdvancePayment {
   id: number;
   advance_no: string;
   supplier_id: number;
+  purchasing_order_id?: number;
   payment_voucher_id?: number;
   payment_date: string;
   branch_code: string;
@@ -448,10 +449,12 @@ export interface SupplierAdvancePayment {
   updated_at?: string;
   // Loaded from relationships
   supplier_name?: string;
+  po_no?: string;
 }
 
 export interface SupplierAdvancePaymentCreate {
   supplier_id: number;
+  purchasing_order_id?: number;
   payment_date: string;
   payment_method: string;
   original_amount: number;

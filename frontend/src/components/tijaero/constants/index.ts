@@ -77,6 +77,12 @@ export const PURCHASING_PAYMENT_METHOD = [
   { value: 'Online Payment', label: 'Online Payment' },
 ] as const;
 
+// Purchase Order payment method options
+export const PURCHASE_ORDER_PAYMENT_METHOD = [
+  { value: 'Non-credit', label: 'Non-credit' },
+  { value: 'Credit', label: 'Credit' },
+] as const;
+
 // Generic payment methods (lowercase)
 export const GENERIC_PAYMENT_METHOD = [
   { value: 'cash', label: 'Cash' },
@@ -279,6 +285,7 @@ export type CustomerPaymentMethod = typeof CUSTOMER_PAYMENT_METHOD[number]['valu
 export type SupplierPaymentMethod = typeof SUPPLIER_PAYMENT_METHOD[number]['value'];
 export type SalesReturnPaymentMethod = typeof SALES_RETURN_PAYMENT_METHOD[number]['value'];
 export type PurchasingPaymentMethod = typeof PURCHASING_PAYMENT_METHOD[number]['value'];
+export type PurchaseOrderPaymentMethod = typeof PURCHASE_ORDER_PAYMENT_METHOD[number]['value'];
 export type GenericPaymentMethod = typeof GENERIC_PAYMENT_METHOD[number]['value'];
 export type CardType = typeof CARD_TYPE[number]['value'];
 export type ExpensesMethod = typeof EXPENSES_METHOD[number]['value'];

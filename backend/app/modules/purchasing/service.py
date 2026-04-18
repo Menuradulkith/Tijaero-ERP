@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
@@ -538,7 +538,11 @@ class PurchasingReturnService:
             status=stock_item.status
         )
     
-    def create_return(self, return_data: schemas.PurchasingReturnCreate) -> models.PurchasingReturn:
+    def create_return(
+        self,
+        return_data: schemas.PurchasingReturnCreate,
+        user_id: Optional[int] = None,
+    ) -> models.PurchasingReturn:
 
         from app.modules.purchasing.credit_service import SupplierCreditService
         from app.modules.inventory.models import SalesStock
@@ -621,7 +625,7 @@ class PurchasingReturnService:
                 reference_id=db_return.id,
                 reference_no=return_no,
                 branch_code=return_data.branch_code,
-                requested_by=0,  # TODO: Get from current user
+                requested_by=user_id or 0,  # 0 = system / unauthenticated context
                 remarks=f"Purchase return pending approval.",
                 approval_group="purchasing_approvers"
             )
@@ -812,6 +816,30 @@ class GoodReceivedNoteService:
                 detail=f"Cannot create GRN: Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier first."
             )
 
+        normalized_invoice_no = (grn.supplier_invoice_no or "").strip().lower()
+        if normalized_invoice_no:
+            duplicate_invoice_grn = (
+                self.db.query(models.GoodReceivedNote)
+                .join(
+                    models.PurchasingOrder,
+                    models.GoodReceivedNote.purchasingorders_id == models.PurchasingOrder.id,
+                )
+                .filter(
+                    func.lower(func.trim(models.GoodReceivedNote.supplier_invoice_no))
+                    == normalized_invoice_no,
+                    models.PurchasingOrder.first_suppliers_id == po.first_suppliers_id,
+                )
+                .first()
+            )
+            if duplicate_invoice_grn:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Supplier invoice number '{grn.supplier_invoice_no}' already exists "
+                        f"for this supplier (GRN: {duplicate_invoice_grn.good_received_no})."
+                    ),
+                )
+
         if po.payment_method and po.payment_method.lower() == "credit":
 
             po_items = self.db.query(models.PurchasingOrderItems).filter(
@@ -877,148 +905,13 @@ class GoodReceivedNoteService:
         # Update credit balance in the same transaction for atomicity
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
+
+        actor_user_id = getattr(grn, "created_by", None)
         
-        # ═══════════════════════════════════════════════════════════════
-        # Gap P2: Auto-record supplier payment when PO payment_method
-        # is "Cash". Cash payments are immediate at delivery time, so
-        # a verified SupplierPayment is created automatically on GRN.
-        # ═══════════════════════════════════════════════════════════════
-        if po.payment_method and po.payment_method.lower() == "cash":
-            import logging as _logging
-            try:
-                po_items_cash = self.db.query(models.PurchasingOrderItems).filter(
-                    models.PurchasingOrderItems.purchasingorders_id == po.id
-                ).all()
-                grn_total_cash = sum(
-                    Decimal(str(item.quantity)) * item.unit_price
-                    for item in po_items_cash
-                ) if po_items_cash else Decimal("0")
+        # Cash supplier payments are posted manually from Supplier Payments.
 
-                if grn_total_cash > 0:
-                    # Check if a payment already exists for this PO (avoid duplicates on partial GRNs)
-                    already_paid = self.db.query(
-                        func.coalesce(func.sum(models.SupplierPayment.payment_amount), 0)
-                    ).filter(
-                        models.SupplierPayment.purchasing_order_id == po.id,
-                        models.SupplierPayment.status.in_(["verified", "pending"])
-                    ).scalar() or Decimal("0")
-
-                    remaining_cash = grn_total_cash - Decimal(str(already_paid))
-                    if remaining_cash > Decimal("0"):
-                        # Generate a unique payment number inline (avoid repo commit inside GRN transaction)
-                        today_str = tz.today().strftime('%Y%m%d')
-                        prefix = f"SP-{today_str}"
-                        last_sp = self.db.query(models.SupplierPayment).filter(
-                            models.SupplierPayment.payment_no.like(f"{prefix}%")
-                        ).order_by(models.SupplierPayment.payment_no.desc()).first()
-                        sp_num = 1
-                        if last_sp:
-                            try:
-                                sp_num = int(last_sp.payment_no.split("-")[-1]) + 1
-                            except (ValueError, IndexError):
-                                sp_num = 1
-                        cash_payment_no = f"{prefix}-{sp_num:03d}"
-
-                        cash_payment = models.SupplierPayment(
-                            payment_no=cash_payment_no,
-                            supplier_id=po.first_suppliers_id,
-                            purchasing_order_id=po.id,
-                            payment_date=tz.today(),
-                            payment_method="Cash",
-                            payment_amount=remaining_cash,
-                            branch_code=po.branch_code,
-                            payment_for="Purchase",
-                            invoice_reference=created_grn.good_received_no,
-                            remarks=f"Auto-recorded cash payment on GRN {created_grn.good_received_no}",
-                            status="verified",
-                            verified_date=tz.now(),
-                            created_date=tz.now(),
-                            created_by=grn.created_by,
-                        )
-                        self.db.add(cash_payment)
-                        self.db.flush()
-                        _logging.getLogger(__name__).info(
-                            f"Auto-recorded cash payment Rs. {remaining_cash:,.2f} for GRN {created_grn.good_received_no}"
-                        )
-            except Exception as cash_pay_err:
-                _logging.getLogger(__name__).warning(
-                    f"Auto cash payment for GRN {created_grn.good_received_no} failed (non-blocking): {cash_pay_err}"
-                )
-
-        # ═══════════════════════════════════════════════════════════════
-        # Gap P1: Auto-deduct supplier advance when PO payment_method
-        # is "advance". Finds active advances for the supplier and
-        # auto-applies them against this GRN.
-        # ═══════════════════════════════════════════════════════════════
-        if po.payment_method and po.payment_method.lower() == "advance":
-            # Calculate GRN total from PO items
-            po_items = self.db.query(models.PurchasingOrderItems).filter(
-                models.PurchasingOrderItems.purchasingorders_id == po.id
-            ).all()
-            grn_total = sum(
-                Decimal(str(item.quantity)) * item.unit_price
-                for item in po_items
-            ) if po_items else Decimal("0")
-            
-            if grn_total > 0:
-                # Get IDs of active (non-fully-applied) advances for this supplier, oldest first
-                advance_ids = self.db.query(models.SupplierAdvancePayment.id).filter(
-                    models.SupplierAdvancePayment.supplier_id == po.first_suppliers_id,
-                    models.SupplierAdvancePayment.is_fully_applied == False
-                ).order_by(models.SupplierAdvancePayment.payment_date.asc()).all()
-                advance_ids = [a[0] for a in advance_ids]
-                
-                remaining_to_apply = grn_total
-                for advance_id in advance_ids:
-                    if remaining_to_apply <= 0:
-                        break
-                    # Lock each advance row individually to prevent race condition
-                    advance = self.db.query(models.SupplierAdvancePayment).filter(
-                        models.SupplierAdvancePayment.id == advance_id
-                    ).with_for_update().first()
-                    if not advance or advance.is_fully_applied:
-                        continue
-                    available = Decimal(str(advance.remaining_amount))
-                    apply_amount = min(available, remaining_to_apply)
-                    if apply_amount > 0:
-                        # Create application record
-                        application = models.SupplierAdvanceApplication(
-                            advance_id=advance.id,
-                            grn_id=created_grn.id,
-                            applied_amount=apply_amount,
-                            application_date=tz.today(),
-                            remarks=f"Auto-applied during GRN {created_grn.good_received_no} creation"
-                        )
-                        self.db.add(application)
-                        
-                        # Update advance balances
-                        advance.applied_amount = Decimal(str(advance.applied_amount)) + apply_amount
-                        advance.remaining_amount = Decimal(str(advance.original_amount)) - Decimal(str(advance.applied_amount))
-                        if advance.remaining_amount <= 0:
-                            advance.remaining_amount = Decimal("0")
-                            advance.is_fully_applied = True
-                        
-                        remaining_to_apply -= apply_amount
-                
-                import logging
-                applied_total = grn_total - remaining_to_apply
-                if applied_total > 0:
-                    logging.getLogger(__name__).info(
-                        f"Auto-applied Rs. {applied_total:,.2f} from supplier advances to GRN {created_grn.good_received_no}"
-                    )
-                    # GL Auto-Posting for each auto-applied advance application
-                    try:
-                        from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
-                        gl_adv_service = PurchaseExpensePayrollGL(self.db)
-                        auto_apps = self.db.query(models.SupplierAdvanceApplication).filter(
-                            models.SupplierAdvanceApplication.grn_id == created_grn.id
-                        ).all()
-                        for app_record in auto_apps:
-                            gl_adv_service.post_advance_application_to_gl(app_record, user_id=grn.created_by or 0)
-                    except Exception as gl_adv_err:
-                        logging.getLogger(__name__).warning(
-                            f"GL posting for auto advance applications on GRN {created_grn.good_received_no} failed (non-blocking): {gl_adv_err}"
-                        )
+        # Try auto-application at GRN create time as well (usually no-op until GRN items exist).
+        self._auto_apply_advances_to_grn(created_grn.id, created_by=actor_user_id)
         
         self.db.commit()
         self.db.refresh(created_grn)
@@ -1027,7 +920,7 @@ class GoodReceivedNoteService:
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
             gl_service = PurchaseExpensePayrollGL(self.db)
-            gl_service.post_grn_to_gl(created_grn, user_id=grn.created_by or 0)
+            gl_service.post_grn_to_gl(created_grn, user_id=actor_user_id or 0)
             self.db.commit()
         except Exception as gl_err:
             import logging
@@ -1036,6 +929,114 @@ class GoodReceivedNoteService:
         # ────────────────────────────────────────────────────────────────
         
         return created_grn
+
+    def _auto_apply_advances_to_grn(self, grn_id: int, created_by: Optional[int] = None) -> Decimal:
+        grn = self.db.query(models.GoodReceivedNote).filter(
+            models.GoodReceivedNote.id == grn_id
+        ).first()
+        if not grn:
+            return Decimal("0")
+
+        po = self.db.query(models.PurchasingOrder).filter(
+            models.PurchasingOrder.id == grn.purchasingorders_id
+        ).first()
+        if not po:
+            return Decimal("0")
+
+        if not po.payment_method or po.payment_method.lower() != "advance":
+            return Decimal("0")
+
+        grn_total = self.db.query(
+            func.coalesce(func.sum(models.PurchasingOrderItems.unit_price), 0)
+        ).join(
+            models.GoodReceivedItems,
+            models.GoodReceivedItems.purchasing_order_items_id == models.PurchasingOrderItems.id
+        ).filter(
+            models.PurchasingOrderItems.purchasingorders_id == po.id,
+            models.GoodReceivedItems.good_received_note == grn.good_received_no,
+            models.GoodReceivedItems.active == True
+        ).scalar() or Decimal("0")
+
+        if grn_total <= Decimal("0"):
+            return Decimal("0")
+
+        already_applied = self.db.query(
+            func.coalesce(func.sum(models.SupplierAdvanceApplication.applied_amount), 0)
+        ).filter(
+            models.SupplierAdvanceApplication.grn_id == grn.id
+        ).scalar() or Decimal("0")
+
+        remaining_to_apply = grn_total - Decimal(str(already_applied))
+        if remaining_to_apply <= Decimal("0"):
+            return Decimal("0")
+
+        advance_ids = self.db.query(models.SupplierAdvancePayment.id).filter(
+            models.SupplierAdvancePayment.supplier_id == po.first_suppliers_id,
+            models.SupplierAdvancePayment.is_fully_applied == False,
+            models.SupplierAdvancePayment.remaining_amount > 0,
+            (models.SupplierAdvancePayment.purchasing_order_id == None) |
+            (models.SupplierAdvancePayment.purchasing_order_id == po.id)
+        ).order_by(
+            models.SupplierAdvancePayment.payment_date.asc(),
+            models.SupplierAdvancePayment.id.asc()
+        ).all()
+        advance_ids = [row[0] for row in advance_ids]
+
+        created_applications: List[models.SupplierAdvanceApplication] = []
+        target_apply_amount = remaining_to_apply
+
+        for advance_id in advance_ids:
+            if remaining_to_apply <= Decimal("0"):
+                break
+
+            advance = self.db.query(models.SupplierAdvancePayment).filter(
+                models.SupplierAdvancePayment.id == advance_id
+            ).with_for_update().first()
+
+            if not advance or advance.is_fully_applied:
+                continue
+
+            available = Decimal(str(advance.remaining_amount))
+            apply_amount = min(available, remaining_to_apply)
+            if apply_amount <= Decimal("0"):
+                continue
+
+            application = models.SupplierAdvanceApplication(
+                advance_id=advance.id,
+                grn_id=grn.id,
+                applied_amount=apply_amount,
+                application_date=tz.today(),
+                remarks=f"Auto-applied during GRN {grn.good_received_no} receiving"
+            )
+            self.db.add(application)
+
+            advance.applied_amount = Decimal(str(advance.applied_amount)) + apply_amount
+            advance.remaining_amount = Decimal(str(advance.original_amount)) - Decimal(str(advance.applied_amount))
+            if advance.remaining_amount <= Decimal("0"):
+                advance.remaining_amount = Decimal("0")
+                advance.is_fully_applied = True
+
+            remaining_to_apply -= apply_amount
+            created_applications.append(application)
+
+        applied_total = target_apply_amount - remaining_to_apply
+        if applied_total > Decimal("0"):
+            import logging
+            logging.getLogger(__name__).info(
+                f"Auto-applied Rs. {applied_total:,.2f} from supplier advances to GRN {grn.good_received_no}"
+            )
+            try:
+                self.db.flush()
+                from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                gl_adv_service = PurchaseExpensePayrollGL(self.db)
+                for app_record in created_applications:
+                    gl_adv_service.post_advance_application_to_gl(app_record, user_id=created_by or 0)
+            except Exception as gl_adv_err:
+                logging.getLogger(__name__).warning(
+                    f"GL posting for auto advance applications on GRN {grn.good_received_no} failed (non-blocking): {gl_adv_err}"
+                )
+
+        return applied_total
     
     def _determine_po_completion_status(self, po_id: int) -> str:
         po_items = self.db.query(models.PurchasingOrderItems).filter(
@@ -1217,6 +1218,14 @@ class GoodReceivedNoteService:
                 if po:
                     po.status = po_status
                     self.db.commit()
+
+        grn = self.db.query(models.GoodReceivedNote).filter(
+            models.GoodReceivedNote.good_received_no == created_item.good_received_note
+        ).first()
+        if grn:
+            applied_amount = self._auto_apply_advances_to_grn(grn.id)
+            if applied_amount > Decimal("0"):
+                self.db.commit()
         
         return created_item
 
@@ -1474,6 +1483,72 @@ class SupplierPaymentService:
         self.supplier_repo = repository.SupplierRepository(db)
         self.order_repo = repository.PurchasingOrderRepository(db)
         self.db = db
+
+    def _ensure_cashbook_entry_for_verified_payment(self, payment: models.SupplierPayment) -> None:
+        if payment.status != "verified":
+            return
+
+        try:
+            from app.modules.finance.models import CashbookEntryRecord
+
+            existing_entry = self.db.query(CashbookEntryRecord.id).filter(
+                CashbookEntryRecord.source_table == "supplier_payments",
+                CashbookEntryRecord.source_id == payment.id,
+            ).first()
+            if existing_entry:
+                return
+
+            supplier_name = None
+            if payment.supplier:
+                supplier_name = payment.supplier.full_name or payment.supplier.company_name
+            if not supplier_name:
+                supplier_name = f"Supplier #{payment.supplier_id}"
+
+            description = f"Direct Payment {payment.payment_no}"
+            if payment.purchasing_order_id is not None:
+                description = f"{description} - PO #{payment.purchasing_order_id}"
+            if payment.payment_for:
+                description = f"{description} ({payment.payment_for})"
+
+            self.db.execute(
+                text(
+                    """
+                    SELECT fn_insert_cashbook_entry(
+                        :entry_type,
+                        :transaction_date,
+                        :source_table,
+                        :source_id,
+                        :reference_no,
+                        :description,
+                        :party_name,
+                        :payment_method,
+                        :money_in,
+                        :money_out,
+                        :branch_code
+                    )
+                    """
+                ),
+                {
+                    "entry_type": "supplier_payment",
+                    "transaction_date": datetime.combine(payment.payment_date, datetime.min.time()),
+                    "source_table": "supplier_payments",
+                    "source_id": payment.id,
+                    "reference_no": payment.payment_no,
+                    "description": description,
+                    "party_name": supplier_name,
+                    "payment_method": payment.payment_method,
+                    "money_in": Decimal("0"),
+                    "money_out": Decimal(str(payment.payment_amount)),
+                    "branch_code": payment.branch_code,
+                },
+            )
+            self.db.commit()
+        except Exception as cashbook_err:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Cashbook posting for supplier payment {payment.payment_no} failed (non-blocking): {cashbook_err}"
+            )
+            self.db.rollback()
     
     def create_payment(self, payment: schemas.SupplierPaymentCreate, created_by: int = None) -> models.SupplierPayment:
         supplier = self.supplier_repo.get_by_id(payment.supplier_id)
@@ -1626,10 +1701,12 @@ class SupplierPaymentService:
             logging.getLogger(__name__).warning(f"GL posting for supplier payment {result.payment_no} failed (non-blocking): {gl_err}")
             self.db.rollback()
         # ────────────────────────────────────────────────────────────────
+
+        self._ensure_cashbook_entry_for_verified_payment(result)
         
         return result
     
-    def cancel_payment(self, payment_id: int) -> models.SupplierPayment:
+    def cancel_payment(self, payment_id: int, remarks: str = None) -> models.SupplierPayment:
         payment = self.repo.get_by_id(payment_id)
         if not payment:
             raise HTTPException(
@@ -1643,7 +1720,7 @@ class SupplierPaymentService:
                 detail=f"Cannot cancel payment with status '{payment.status}'"
             )
         
-        return self.repo.cancel(payment_id)
+        return self.repo.cancel(payment_id, remarks=remarks)
     
     def delete_payment(self, payment_id: int) -> bool:
         payment = self.repo.get_by_id(payment_id)
@@ -1681,6 +1758,7 @@ class SupplierAdvancePaymentService:
         self.repo = repository.SupplierAdvancePaymentRepository(db)
         self.application_repo = repository.SupplierAdvanceApplicationRepository(db)
         self.supplier_repo = repository.SupplierRepository(db)
+        self.order_repo = repository.PurchasingOrderRepository(db)
     
     def create_advance(self, data: schemas.SupplierAdvancePaymentCreate, created_by: Optional[int] = None) -> models.SupplierAdvancePayment:
         # Validate supplier exists and is active
@@ -1695,6 +1773,41 @@ class SupplierAdvancePaymentService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Supplier '{supplier.full_name}' is inactive. Please reactivate the supplier before creating an advance payment."
             )
+
+        if data.purchasing_order_id:
+            order = self.order_repo.get_by_id(data.purchasing_order_id)
+            if not order:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Purchase order with id {data.purchasing_order_id} not found"
+                )
+
+            if order.first_suppliers_id != data.supplier_id and order.second_suppliers_id != data.supplier_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Purchase order does not belong to this supplier"
+                )
+
+            if (order.status or "").lower() != "approved":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Advance payment can only be created for approved purchase orders"
+                )
+
+            if (order.payment_method or "").lower() == "credit":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Advance payment is only allowed for non-credit purchase orders"
+                )
+
+            has_grn = self.db.query(models.GoodReceivedNote.id).filter(
+                models.GoodReceivedNote.purchasingorders_id == order.id
+            ).first()
+            if has_grn:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Advance payment cannot be created after GRN is generated for this purchase order"
+                )
         
         advance = self.repo.create(data, created_by)
         

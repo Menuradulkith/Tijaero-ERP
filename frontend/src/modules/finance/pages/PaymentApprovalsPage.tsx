@@ -6,6 +6,7 @@
 
 import { useMemo, useCallback, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "react-router-dom";
 import {
   Box,
   TextField,
@@ -89,6 +90,7 @@ const getPaymentStatusProps = (status: string) => {
 
 export default function PaymentApprovalsPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const canViewSuppliers = usePermission("suppliers", "view");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_date");
@@ -127,15 +129,27 @@ export default function PaymentApprovalsPage() {
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
 
   // Fetch direct payments
-  const { data: payments = [], isLoading: paymentsLoading } = useQuery({
+  const {
+    data: payments = [],
+    isLoading: paymentsLoading,
+    refetch: refetchPayments,
+  } = useQuery({
     queryKey: ["supplier-payments"],
     queryFn: () => supplierPaymentsApi.getAll(),
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Fetch credit settlements
-  const { data: creditSettlements = [], isLoading: creditsLoading } = useQuery({
+  const {
+    data: creditSettlements = [],
+    isLoading: creditsLoading,
+    refetch: refetchCreditSettlements,
+  } = useQuery({
     queryKey: ["credit-settlements"],
     queryFn: () => supplierCreditsSettleApi.getAll(),
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const isLoading = paymentsLoading || creditsLoading;
@@ -157,6 +171,12 @@ export default function PaymentApprovalsPage() {
       setFilterBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Force fresh data whenever this route is entered (fixes stale list on navigation).
+  useEffect(() => {
+    refetchPayments();
+    refetchCreditSettlements();
+  }, [location.key, refetchPayments, refetchCreditSettlements]);
 
   // Create supplier lookup map
   const supplierMap = useMemo(() => {
@@ -267,7 +287,7 @@ export default function PaymentApprovalsPage() {
   // Verify mutation for direct payments
   const verifyPaymentMutation = useCrudMutation({
     mutationFn: (id: number) => supplierPaymentsApi.verify(id),
-    invalidateQueryKeys: [["supplier-payments"]],
+    invalidateQueryKeys: [["supplier-payments"], ["cashbook"], ["finance-dashboard-cashbook"], ["finance-dashboard-cashbook-last-month"]],
     successMessage: "Payment verified successfully",
     errorMessage: "Failed to verify payment",
     onSuccess: (_data, id) => {
@@ -280,7 +300,7 @@ export default function PaymentApprovalsPage() {
   // Verify mutation for credit settlements
   const verifyCreditMutation = useCrudMutation({
     mutationFn: (id: number) => supplierCreditsSettleApi.verify(id),
-    invalidateQueryKeys: [["credit-settlements"]],
+    invalidateQueryKeys: [["credit-settlements"], ["cashbook"], ["finance-dashboard-cashbook"], ["finance-dashboard-cashbook-last-month"]],
     successMessage: "Credit settlement verified successfully",
     errorMessage: "Failed to verify credit settlement",
     onSuccess: (_data, id) => {
@@ -293,8 +313,8 @@ export default function PaymentApprovalsPage() {
   // Cancel/Reject mutation for direct payments
   const cancelPaymentMutation = useCrudMutation({
     mutationFn: ({ id, remarks }: { id: number; remarks?: string }) =>
-      supplierPaymentsApi.update(id, { status: "cancelled", remarks }),
-    invalidateQueryKeys: [["supplier-payments"]],
+      supplierPaymentsApi.cancel(id, remarks),
+    invalidateQueryKeys: [["supplier-payments"], ["cashbook"], ["finance-dashboard-cashbook"], ["finance-dashboard-cashbook-last-month"]],
     successMessage: "Payment cancelled successfully",
     errorMessage: "Failed to cancel payment",
     onSuccess: (_data, variables) => {
@@ -309,7 +329,7 @@ export default function PaymentApprovalsPage() {
   // Cancel mutation for credit settlements
   const cancelCreditMutation = useCrudMutation({
     mutationFn: (id: number) => supplierCreditsSettleApi.cancel(id),
-    invalidateQueryKeys: [["credit-settlements"]],
+    invalidateQueryKeys: [["credit-settlements"], ["cashbook"], ["finance-dashboard-cashbook"], ["finance-dashboard-cashbook-last-month"]],
     successMessage: "Credit settlement cancelled successfully",
     errorMessage: "Failed to cancel credit settlement",
     onSuccess: (_data, id) => {
@@ -768,6 +788,8 @@ export default function PaymentApprovalsPage() {
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["supplier-payments"] });
           queryClient.invalidateQueries({ queryKey: ["credit-settlements"] });
+          refetchPayments();
+          refetchCreditSettlements();
         }}
         isLoading={isLoading}
         masterPanel={masterPanel}

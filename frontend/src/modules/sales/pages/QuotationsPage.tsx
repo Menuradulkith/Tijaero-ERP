@@ -982,7 +982,6 @@ export default function QuotationsPage() {
                   documentType="quotation"
                   documentId={selectedQuote.id}
                   disabled={!canPrintDocument(selectedQuote.status, ["cancelled"])}
-                useCrudMutation,
                   disabledReason={`Cannot print: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}`}
                   onClick={() => {
                     setSelectedQuoteForPrint(selectedQuote);

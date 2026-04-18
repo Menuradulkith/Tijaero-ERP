@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
 from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
@@ -326,7 +327,7 @@ class CustomerCreditNoteService:
         Calculate customer's available credit note balance.
         Total credit issued minus credit already redeemed.
         """
-        from sqlalchemy import func
+        from sqlalchemy import func, or_
         from app.modules.sales.models import Invoice
         
         db = self.repo.db
@@ -398,6 +399,26 @@ class CashbookService:
             query = query.filter(models.CashbookEntryRecord.entry_type == filters.entry_type)
         if filters.payment_method:
             query = query.filter(models.CashbookEntryRecord.payment_method.ilike(f"%{filters.payment_method}%"))
+
+        # Enforce only the direct supplier-payment verification rule:
+        # block unverified rows from supplier_payments, but never block other cashflow sources.
+        from app.modules.purchasing import models as purchasing_models
+
+        direct_payment_visible = self.db.query(purchasing_models.SupplierPayment.id).filter(
+            purchasing_models.SupplierPayment.id == models.CashbookEntryRecord.source_id,
+            purchasing_models.SupplierPayment.status == "verified",
+        ).exists()
+
+        query = query.filter(
+            or_(
+                models.CashbookEntryRecord.entry_type != "supplier_payment",
+                and_(
+                    models.CashbookEntryRecord.source_table == "supplier_payments",
+                    direct_payment_visible,
+                ),
+                models.CashbookEntryRecord.source_table != "supplier_payments",
+            )
+        )
         
         # Order newest first for display
         query = query.order_by(
@@ -406,6 +427,36 @@ class CashbookService:
         )
         
         records = query.all()
+
+        # Backfill readable supplier names for legacy/fallback cashbook rows.
+        supplier_name_by_payment_id = {}
+        supplier_payment_ids_needing_name = [
+            r.source_id
+            for r in records
+            if r.source_table == "supplier_payments"
+            and (
+                not (r.party_name or "").strip()
+                or (r.party_name or "").strip().lower().startswith("supplier #")
+            )
+        ]
+        if supplier_payment_ids_needing_name:
+            supplier_rows = (
+                self.db.query(
+                    purchasing_models.SupplierPayment.id,
+                    purchasing_models.Supplier.full_name,
+                    purchasing_models.Supplier.company_name,
+                )
+                .join(
+                    purchasing_models.Supplier,
+                    purchasing_models.Supplier.id == purchasing_models.SupplierPayment.supplier_id,
+                )
+                .filter(purchasing_models.SupplierPayment.id.in_(supplier_payment_ids_needing_name))
+                .all()
+            )
+            supplier_name_by_payment_id = {
+                row.id: ((row.full_name or "").strip() or (row.company_name or "").strip())
+                for row in supplier_rows
+            }
         
         # Convert DB records to schema entries
         entries = [
@@ -415,7 +466,15 @@ class CashbookService:
                 transaction_date=r.transaction_date,
                 reference_no=r.reference_no,
                 description=r.description or "",
-                party_name=r.party_name,
+                party_name=(
+                    supplier_name_by_payment_id.get(r.source_id)
+                    if r.source_table == "supplier_payments"
+                    and (
+                        not (r.party_name or "").strip()
+                        or (r.party_name or "").strip().lower().startswith("supplier #")
+                    )
+                    else r.party_name
+                ),
                 payment_method=r.payment_method,
                 money_in=Decimal(str(r.money_in)) if r.money_in else Decimal("0"),
                 money_out=Decimal(str(r.money_out)) if r.money_out else Decimal("0"),

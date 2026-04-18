@@ -12,7 +12,6 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import DeleteIcon from "@mui/icons-material/Delete";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
-import FactCheckIcon from "@mui/icons-material/FactCheck";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import {
     Alert,
@@ -40,7 +39,7 @@ import {
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 // Import tijaero components
 import {
     ActionToolbar,
@@ -52,7 +51,7 @@ import {
     getStatusProps,
     MasterDetailLayout,
     modernTableStyles,
-    PURCHASING_PAYMENT_METHOD,
+    PURCHASE_ORDER_PAYMENT_METHOD,
     SearchableList,
     SelectableListItem,
     showErrorToast,
@@ -84,7 +83,7 @@ import {
 } from "@/modules/purchasing/types";
 
 import { useAuthStore } from "@/state/authStore";
-import { hasPermission, PERMISSIONS } from "@/auth/permissions";
+import { hasPermission } from "@/auth/permissions";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "added_date", label: "Date" },
@@ -114,10 +113,14 @@ interface PurchaseOrderFormData extends PurchasingOrderCreate {
   status?: string;
 }
 
+const normalizePurchaseOrderPaymentMethod = (method?: string | null): string => {
+  return method?.toLowerCase() === "credit" ? "Credit" : "Non-credit";
+};
+
 const INITIAL_FORM_DATA: PurchaseOrderFormData = {
   purchasing_order_no: "",
   branch_code: "",
-  payment_method: "Cash",
+  payment_method: "Non-credit",
   purchasing_order_date: new Date().toISOString().split("T")[0],
   good_received_note_date: new Date().toISOString().split("T")[0],
   remarks: "",
@@ -137,7 +140,7 @@ const resetFormFromOrder = (
 ): PurchaseOrderFormData => ({
   purchasing_order_no: order.purchasing_order_no,
   branch_code: order.branch_code,
-  payment_method: order.payment_method,
+  payment_method: normalizePurchaseOrderPaymentMethod(order.payment_method),
   purchasing_order_date: order.purchasing_order_date?.split("T")[0] || "",
   good_received_note_date: order.good_received_note_date?.split("T")[0] || "",
   remarks: order.remarks || "",
@@ -160,14 +163,7 @@ const resetFormFromOrder = (
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
-  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-
-  const canApprovePO = hasPermission(
-    user,
-    PERMISSIONS.PO_APPROVALS_APPROVE.resource,
-    PERMISSIONS.PO_APPROVALS_APPROVE.action
-  );
 
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
   const [formStep, setFormStep] = useState(0);
@@ -308,35 +304,70 @@ export default function PurchaseOrdersPage() {
     [handleCancelBase],
   );
 
+  const selectingOrderIdRef = useRef<number | null>(null);
+  const loadedOrderItemsIdRef = useRef<number | null>(null);
+  const orderItemsCacheRef = useRef<Map<number, OrderLineItem[]>>(new Map());
+
   // Handler that wraps hook's handler (which already handles unsaved changes confirm)
   const handleSelectOrderWithItems = useCallback(
     async (order: PurchasingOrder) => {
+      if (selectingOrderIdRef.current === order.id) return;
+
+      const cachedItems = orderItemsCacheRef.current.get(order.id);
+      if (cachedItems) {
+        const selected = await handleSelectOrder(order);
+        if (!selected) return;
+
+        setTouched({});
+        setLineItems(cachedItems.map((item) => ({ ...item })));
+        loadedOrderItemsIdRef.current = order.id;
+        return;
+      }
+
+      const isSameOrderSelected = selectedOrder?.id === order.id;
+      if (isSameOrderSelected && loadedOrderItemsIdRef.current === order.id) {
+        return;
+      }
+
+      selectingOrderIdRef.current = order.id;
+
       const selected = await handleSelectOrder(order);
-      if (!selected) return; // User cancelled
+      if (!selected) {
+        if (selectingOrderIdRef.current === order.id) {
+          selectingOrderIdRef.current = null;
+        }
+        return;
+      }
 
       // Load detailed items after selection
       setTouched({});
       try {
         const detailedOrder = await purchaseOrdersApi.getById(order.id);
+        let mappedItems: OrderLineItem[] = [];
         if (detailedOrder.items) {
-          setLineItems(
-            detailedOrder.items.map((item, idx) => ({
-              _id: `existing-${idx}`,
-              product_id: item.product_id,
-              quantity: item.quantity,
-              unit_price: item.unit_price,
-              warrenty_month: item.warrenty_month || "0",
-              remark: item.remark || "",
-            })),
-          );
+          mappedItems = detailedOrder.items.map((item, idx) => ({
+            _id: `existing-${idx}`,
+            product_id: item.product_id,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            warrenty_month: item.warrenty_month || "0",
+            remark: item.remark || "",
+          }));
+          setLineItems(mappedItems);
         } else {
           setLineItems([]);
         }
+        orderItemsCacheRef.current.set(order.id, mappedItems);
+        loadedOrderItemsIdRef.current = order.id;
       } catch {
         setLineItems([]);
+      } finally {
+        if (selectingOrderIdRef.current === order.id) {
+          selectingOrderIdRef.current = null;
+        }
       }
     },
-    [handleSelectOrder],
+    [handleSelectOrder, selectedOrder?.id],
   );
 
   // OPTIMIZED: Fetch suppliers separately (has complex filters) but use aggregated endpoint for products/branches
@@ -456,12 +487,29 @@ export default function PurchaseOrdersPage() {
     return filtered;
   }, [orders, searchQuery, sortField, filterBranch, filterSupplier]);
 
+  const approvalNavTargetId = useMemo(() => {
+    const navState = location.state as {
+      fromPOApproval?: boolean;
+      purchaseOrderId?: number | string;
+    } | null;
+    if (!navState?.fromPOApproval || navState.purchaseOrderId == null) {
+      return null;
+    }
+    const parsedId = Number(navState.purchaseOrderId);
+    return Number.isFinite(parsedId) ? parsedId : null;
+  }, [location.state]);
+
   // Auto-select first item when data loads
   useEffect(() => {
-    if (filteredOrders.length > 0 && !selectedOrder && !isCreating) {
+    if (
+      filteredOrders.length > 0 &&
+      !selectedOrder &&
+      !isCreating &&
+      approvalNavTargetId == null
+    ) {
       handleSelectOrderWithItems(filteredOrders[0]);
     }
-  }, [filteredOrders, selectedOrder, isCreating]);
+  }, [filteredOrders, selectedOrder, isCreating, approvalNavTargetId, handleSelectOrderWithItems]);
 
   // Handle navigation state from Quotation page (auto-select PO created from quotation)
   const navStateHandled = useRef(false);
@@ -510,6 +558,64 @@ export default function PurchaseOrdersPage() {
       }
     }
   }, [orders, location.state, handleSelectOrderWithItems]);
+
+  // Handle navigation from PO Approvals page — auto-select target PO
+  const approvalNavHandled = useRef(false);
+  useEffect(() => {
+    const navState = location.state as {
+      fromPOApproval?: boolean;
+      purchaseOrderId?: number | string;
+      purchaseOrderNo?: string;
+    } | null;
+
+    if (approvalNavTargetId == null || !navState?.fromPOApproval || approvalNavHandled.current) {
+      return;
+    }
+
+    approvalNavHandled.current = true;
+
+    let cancelled = false;
+
+    const openTargetPO = async () => {
+      const targetPOFromList = (orders || []).find(
+        (o: PurchasingOrder) => Number(o.id) === approvalNavTargetId,
+      );
+
+      if (targetPOFromList) {
+        await handleSelectOrderWithItems(targetPOFromList);
+        if (!cancelled) {
+          showSuccessToast(
+            `Opened ${navState.purchaseOrderNo || targetPOFromList.purchasing_order_no} from PO approvals`,
+          );
+          window.history.replaceState({}, document.title);
+        }
+        return;
+      }
+
+      try {
+        const targetPO = await purchaseOrdersApi.getById(approvalNavTargetId);
+        if (cancelled || !targetPO) return;
+
+        await handleSelectOrderWithItems(targetPO as PurchasingOrder);
+        showSuccessToast(
+          `Opened ${navState.purchaseOrderNo || targetPO.purchasing_order_no} from PO approvals`,
+        );
+        window.history.replaceState({}, document.title);
+      } catch {
+        if (!cancelled) {
+          approvalNavHandled.current = false;
+          window.history.replaceState({}, document.title);
+          showErrorToast("Unable to open the selected PO from approvals");
+        }
+      }
+    };
+
+    void openTargetPO();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orders, location.state, approvalNavTargetId, handleSelectOrderWithItems]);
 
   // Handle navigation from Proforma page — auto-create PO with pre-filled items
   const proformaNavHandled = useRef(false);
@@ -1192,16 +1298,6 @@ export default function PurchaseOrdersPage() {
           ) :
           selectedOrder && !isCreating && !isEditing ? (
             <Box sx={{ display: "flex", gap: 1 }}>
-              {canApprovePO && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<FactCheckIcon />}
-                  onClick={() => navigate("/purchasing/approvals/po-approvals")}
-                >
-                  PO Approvals
-                </Button>
-              )}
               <TPrintButton
                 documentType="purchase-order"
                 documentId={selectedOrder.id}
@@ -1375,7 +1471,7 @@ export default function PurchaseOrdersPage() {
                     }
                     disabled={!isEditing && !isCreating}
                   >
-                    {PURCHASING_PAYMENT_METHOD.map((option) => (
+                    {PURCHASE_ORDER_PAYMENT_METHOD.map((option) => (
                       <MenuItem key={option.value} value={option.value}>
                         {option.label}
                       </MenuItem>

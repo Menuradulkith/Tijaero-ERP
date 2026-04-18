@@ -3,6 +3,7 @@ Centralized Approval Service for ERP
 All approval workflows go through the Approvals table for audit trail and permission control.
 """
 
+import logging
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, Optional
@@ -13,6 +14,8 @@ from app.modules.settings.service import NotificationService
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 class ApprovalType(str, Enum):
@@ -172,9 +175,9 @@ class ApprovalService:
                         notification_type="success",
                     )
                 )
-            except Exception as e:
+            except Exception:
                 # Log error but don't fail the approval transaction
-                print(f"Failed to send approval notification: {str(e)}")
+                logger.exception("Failed to send approval notification for approval_id=%s", approval.id)
 
         db.flush()
         return approval
@@ -252,8 +255,8 @@ class ApprovalService:
                         notification_type="error",
                     )
                 )
-            except Exception as e:
-                print(f"Failed to send rejection notification: {str(e)}")
+            except Exception:
+                logger.exception("Failed to send rejection notification for approval_id=%s", approval.id)
 
         db.flush()
         return approval

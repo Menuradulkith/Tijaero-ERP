@@ -1,5 +1,6 @@
 from datetime import date
 from typing import List, Optional
+import logging
 
 from app.auth import models, schemas
 from app.core import timezone as tz
@@ -13,6 +14,8 @@ from app.core.security import (
 from app.modules.employees.models import Employee
 from app.modules.settings.schemas import NotificationCreate
 from app.modules.settings.service import NotificationService
+
+logger = logging.getLogger(__name__)
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -126,8 +129,8 @@ class AuthService:
                         notification_type="info",
                     )
                 )
-            except Exception as e:
-                print(f"Failed to send welcome notification: {str(e)}")
+            except Exception:
+                logger.exception("Failed to send welcome notification for user_id=%s", user.id)
 
             return user
         except IntegrityError:

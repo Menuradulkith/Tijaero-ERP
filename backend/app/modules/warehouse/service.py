@@ -44,7 +44,11 @@ class ItemTransferNoteService:
             next_seq = 1
         return f"{prefix}-{next_seq:05d}"
     
-    def create_transfer_note(self, transfer_note: schemas.ItemTransferNoteCreate) -> ItemTransferNote:
+    def create_transfer_note(
+        self,
+        transfer_note: schemas.ItemTransferNoteCreate,
+        user_id: int = 0,
+    ) -> ItemTransferNote:
         # ── Validate branch is active ──
         from app.common.branch_validation import validate_branch_is_active
         validate_branch_is_active(self.db, transfer_note.branch_code)
@@ -66,7 +70,7 @@ class ItemTransferNoteService:
             reference_id=db_transfer_note.id,
             reference_no=db_transfer_note.item_transfer_note,
             branch_code=db_transfer_note.branch_code,
-            requested_by=0,  # TODO: Use current user
+            requested_by=user_id,
             remarks=f"Item transfer pending approval - {db_transfer_note.item_transfer_note}",
             approval_group="warehouse_approvers",
         )

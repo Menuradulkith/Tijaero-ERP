@@ -5,6 +5,7 @@
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -30,6 +31,7 @@ import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 
 // Import tijaero components
 import {
@@ -70,6 +72,7 @@ const SORT_OPTIONS: SortOption[] = [
 // getStatusChipProps is now imported from common components
 
 export default function POApprovalsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("added_date");
@@ -96,6 +99,17 @@ export default function POApprovalsPage() {
     setSelectedItemRemark(remark || "");
     setItemRemarkModalOpen(true);
   };
+
+  const handleOpenPurchaseOrder = useCallback(() => {
+    if (!selectedOrder) return;
+    navigate("/purchasing/orders", {
+      state: {
+        fromPOApproval: true,
+        purchaseOrderId: selectedOrder.id,
+        purchaseOrderNo: selectedOrder.purchasing_order_no,
+      },
+    });
+  }, [navigate, selectedOrder]);
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
@@ -409,6 +423,18 @@ export default function POApprovalsPage() {
         title={selectedOrder?.purchasing_order_no || ""}
         titleIcon={<FactCheckIcon color="primary" />}
         noSelectionTitle="Select an Order to Review"
+        actions={
+          selectedOrder ? (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ShoppingCartIcon />}
+              onClick={handleOpenPurchaseOrder}
+            >
+              Open PO
+            </Button>
+          ) : undefined
+        }
         chips={
           selectedOrder
             ? (() => {

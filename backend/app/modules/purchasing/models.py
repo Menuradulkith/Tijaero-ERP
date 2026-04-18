@@ -241,8 +241,9 @@ class SupplierAdvancePayment(Base):
     __tablename__ = "supplier_advance_payment"
     
     id = Column(Integer, primary_key=True, index=True)
-    advance_no = Column(String(50), unique=True, nullable=False, index=True)  # Auto-generated: ADV-YYYYMMDD-XXX
+    advance_no = Column(String(50), unique=True, nullable=False, index=True)  # Auto-generated: ADV-YYYY-XXXXX
     supplier_id = Column(Integer, ForeignKey("supplier.id"), nullable=False, index=True)
+    purchasing_order_id = Column(Integer, ForeignKey("purchasing_orders.id"), nullable=True, index=True)
     payment_voucher_id = Column(Integer, nullable=True)  # Optional link to voucher (no FK constraint)
     payment_date = Column(Date, nullable=False, index=True)
     branch_code = Column(String(200), nullable=False)
@@ -260,7 +261,14 @@ class SupplierAdvancePayment(Base):
     
     # Relationships
     supplier = relationship("Supplier", back_populates="advance_payments")
+    purchasing_order = relationship("PurchasingOrder")
     applications = relationship("SupplierAdvanceApplication", back_populates="advance_payment", cascade="all, delete-orphan")
+
+    @property
+    def po_no(self):
+        if self.purchasing_order:
+            return self.purchasing_order.purchasing_order_no
+        return None
 
 
 class SupplierAdvanceApplication(Base):
