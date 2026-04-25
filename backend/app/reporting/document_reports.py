@@ -623,7 +623,7 @@ class DocumentReportService:
         return template.render(
             company=company,
             invoice={
-                "pageType":       'TAX INVOICE' if not invoice.is_tax_invoice else '',
+                "pageType":       'TAX INVOICE' if invoice.is_tax_invoice else '',
                 "invoiceNo":      invoice.invoice_no,
                 "soNo":           invoice.credit_payment_id if invoice.credit_payment_id else '',
                 # "ourVatNumber":   '', # Added by the template logic based on page type
