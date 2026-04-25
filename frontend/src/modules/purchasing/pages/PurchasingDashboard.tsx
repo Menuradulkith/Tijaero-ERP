@@ -2,7 +2,7 @@
  * Purchasing Dashboard — modernized.
  *
  * Inspired by SAP Ariba, Odoo Purchase and Zoho Inventory:
- * - Gradient hero with branch filter, refresh and "+ New PO" CTA
+ * - Header with branch filter and refresh
  * - KPI cards with inline sparklines and trend deltas
  * - Combined PO count + spending chart (last 7 days / 6 months)
  * - PO status donut + Payment-method donut
@@ -21,7 +21,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Chip,
   Divider,
   Grid,
   IconButton,
@@ -47,10 +46,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import BusinessIcon from "@mui/icons-material/Business";
-import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 import LaunchIcon from "@mui/icons-material/Launch";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
@@ -174,12 +171,14 @@ export default function PurchasingDashboard() {
 
   return (
     <Box
-      sx={{
+      sx={(theme) => ({
         p: { xs: 1.5, md: 2.5 },
         height: "100%",
         overflow: "auto",
-        background: "linear-gradient(180deg, #fff8ec 0%, #ffffff 280px)",
-      }}
+        background: theme.palette.mode === "dark"
+          ? `linear-gradient(180deg, ${theme.palette.background.default} 0%, ${theme.palette.background.paper} 280px)`
+          : "linear-gradient(180deg, #fff8ec 0%, #ffffff 280px)",
+      })}
     >
       {/* Header */}
       <Stack
@@ -205,16 +204,6 @@ export default function PurchasingDashboard() {
             sx={{ minWidth: 220, bgcolor: "background.paper", borderRadius: 2 }}
             renderInput={(p) => <TextField {...p} placeholder="All Branches" size="small" />}
           />
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<AddCircleOutlineIcon />}
-            onClick={() => navigate("/purchasing/orders/new")}
-            sx={{ borderRadius: 2, fontWeight: 700 }}
-            color="warning"
-          >
-            New PO
-          </Button>
           <Tooltip title="Refresh">
             <IconButton size="small" onClick={() => refetch()} disabled={isFetching}
               sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
@@ -225,41 +214,6 @@ export default function PurchasingDashboard() {
             </IconButton>
           </Tooltip>
         </Stack>
-      </Stack>
-
-      {/* Quick action chips */}
-      <Stack direction="row" spacing={1} sx={{ mb: 2.5, flexWrap: "wrap", rowGap: 1 }}>
-        <Chip
-          icon={<ShoppingCartIcon />}
-          label="Purchase Orders"
-          onClick={() => navigate("/purchasing/orders")}
-          variant="outlined"
-        />
-        <Chip
-          icon={<HourglassEmptyIcon />}
-          label={`Approvals (${stats.pending_pos})`}
-          color="warning"
-          variant={stats.pending_pos > 0 ? "filled" : "outlined"}
-          onClick={() => navigate("/purchasing/approvals")}
-        />
-        <Chip
-          icon={<ReceiptLongIcon />}
-          label="Goods Received"
-          onClick={() => navigate("/purchasing/grn")}
-          variant="outlined"
-        />
-        <Chip
-          icon={<BusinessIcon />}
-          label="Suppliers"
-          onClick={() => navigate("/purchasing/suppliers")}
-          variant="outlined"
-        />
-        <Chip
-          icon={<AssignmentReturnIcon />}
-          label={`Returns (${stats.total_returns})`}
-          onClick={() => navigate("/purchasing/returns")}
-          variant="outlined"
-        />
       </Stack>
 
       <Grid container spacing={2.25}>

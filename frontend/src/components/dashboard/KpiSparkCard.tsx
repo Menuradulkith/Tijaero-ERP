@@ -64,7 +64,9 @@ export default function KpiSparkCard({
         border: "1px solid",
         borderColor: "divider",
         cursor: onClick ? "pointer" : "default",
-        background: `linear-gradient(160deg, #ffffff 0%, ${alpha(palette.main, 0.04)} 100%)`,
+        background: theme.palette.mode === "dark"
+          ? `linear-gradient(160deg, ${theme.palette.background.paper} 0%, ${alpha(palette.main, 0.08)} 100%)`
+          : `linear-gradient(160deg, #ffffff 0%, ${alpha(palette.main, 0.04)} 100%)`,
         transition: "transform .18s ease, box-shadow .18s ease, border-color .18s ease",
         "&:hover": onClick
           ? {

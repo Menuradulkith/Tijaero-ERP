@@ -830,15 +830,17 @@ export default function SalesStockDashboard() {
 
   return (
     <Box
-      sx={{
+      sx={(theme) => ({
         display: "flex",
         flexDirection: "column",
         height: "100%",
         gap: 2,
         p: { xs: 1.5, md: 2 },
         overflow: "auto",
-        background: "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
-      }}
+        background: theme.palette.mode === "dark"
+          ? `linear-gradient(180deg, ${theme.palette.background.default} 0%, ${theme.palette.background.paper} 280px)`
+          : "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
+      })}
     >
       {/* Header */}
       <Stack

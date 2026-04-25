@@ -188,12 +188,14 @@ export default function HRDashboard() {
 
   return (
     <Box
-      sx={{
+      sx={(theme) => ({
         p: { xs: 1.5, md: 2.5 },
         height: "100%",
         overflow: "auto",
-        background: "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
-      }}
+        background: theme.palette.mode === "dark"
+          ? `linear-gradient(180deg, ${theme.palette.background.default} 0%, ${theme.palette.background.paper} 280px)`
+          : "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
+      })}
     >
       {/* Header */}
       <Box sx={{ mb: 2.5 }}>
