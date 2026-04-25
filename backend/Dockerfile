@@ -5,6 +5,11 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
+    libcairo2 \
+    libgdk-pixbuf-xlib-2.0-0 \
+    libgobject-2.0-0 \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
@@ -18,6 +23,9 @@ COPY pyproject.toml poetry.lock* ./
 RUN poetry config virtualenvs.create false \
     && poetry lock \
     && poetry install --no-interaction --no-ansi
+
+# Install Chromium for Playwright PDF rendering
+RUN playwright install --with-deps chromium
 
 # Copy application code
 COPY . .

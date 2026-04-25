@@ -11,8 +11,8 @@ from app.auth.rbac import Permissions, require_permission
 from app.core import timezone as tz
 from app.core.simple_rate_limit import rate_limit
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
 from . import schemas, service
@@ -284,6 +284,78 @@ def get_invoice_report(
         show_discount=show_discount,
         show_signatures=show_signatures,
         custom_remarks=custom_remarks,
+    )
+
+
+@router.get("/documents/invoice/{invoice_id}/pdf")
+def get_invoice_report_pdf(
+    invoice_id: int,
+    show_header: bool = Query(True),
+    show_discount: bool = Query(True),
+    show_signatures: bool = Query(True),
+    custom_remarks: Optional[str] = Query(None),
+    _user: User = Depends(get_current_user_flexible),
+    db: Session = Depends(get_db),
+):
+    """Generate a PDF invoice report."""
+    from app.reporting.document_reports import get_document_report_service
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="PDF generation is not available. Install the 'playwright' package.",
+        ) from exc
+
+    report_service = get_document_report_service(db)
+    html = report_service.generate_invoice_report(
+        invoice_id,
+        show_header=show_header,
+        show_discount=show_discount,
+        show_signatures=show_signatures,
+        custom_remarks=custom_remarks,
+    )
+    pdf_css = (
+        "<style>"
+        "@page{size:821px 768px;margin:0;}"
+        "html,body{margin:0;padding:0;}"
+        ".invoice-bg{margin-bottom:0;}"
+        "</style>"
+    )
+    if "</head>" in html:
+        html = html.replace("</head>", f"{pdf_css}</head>", 1)
+    else:
+        html = pdf_css + html
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 821, "height": 768})
+        page.emulate_media(media="screen")
+        page.set_content(html, wait_until="load")
+        page.wait_for_function(
+            """
+            () => {
+                const el = document.querySelector('#invoice-no');
+                return el && el.textContent && el.textContent.trim().length > 0;
+            }
+            """,
+            timeout=3000,
+        )
+        page.wait_for_timeout(100)
+        pdf_bytes = page.pdf(
+            print_background=True,
+            width="821px",
+            height="768px",
+            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+            prefer_css_page_size=True,
+        )
+        browser.close()
+    filename = f"invoice-{invoice_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename=\"{filename}\""},
     )
 
 

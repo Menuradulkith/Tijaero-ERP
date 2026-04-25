@@ -2,6 +2,7 @@ import base64
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional
+from collections import OrderedDict
 
 import app.models  # Ensures all relationships are resolving correctly
 from app.auth.models import Branch
@@ -47,18 +48,18 @@ class DocumentReportService:
             loader=FileSystemLoader(str(template_dir)), autoescape=True
         )
 
-    def _get_logo_data_uri(self) -> str:
+    def _get_header_data_uri(self) -> str:
         """Read logo.svg from templates dir and return as a base64 data URI."""
         try:
-            logo_path = Path(__file__).parent / "templates" / "logo.svg"
+            logo_path = Path(__file__).parent / "templates" / "Invoice_background_blue.jpg"
             svg_bytes = logo_path.read_bytes()
             b64 = base64.b64encode(svg_bytes).decode("utf-8")
-            return f"data:image/svg+xml;base64,{b64}"
+            return f"data:image/jpeg;base64,{b64}"
         except Exception:
             return ""
 
     def _get_company_info(self) -> dict:
-        logo = self._get_logo_data_uri()
+        logo = self._get_header_data_uri()
         try:
             settings = self.db.query(Settings).first()
             if settings:
@@ -569,23 +570,33 @@ class DocumentReportService:
         customer = self._get_customer_info(invoice.customer_id)
         branch = self._get_branch_info(invoice.branch_code)
 
-        items = []
+        item_arrangement = OrderedDict()
+
         for item in invoice.items:
-            product = item.product
-            items.append(
-                {
-                    "product_id": item.product_id,
-                    "product_name": (
-                        product.name if product else f"Product #{item.product_id}"
-                    ),
-                    "description": getattr(item, "description", "") or "",
-                    "quantity": item.quantity,
-                    "selling_price": item.selling_price,
-                    "warrenty_month": item.warrenty_month,
-                    "total": item.line_total or (item.quantity * item.selling_price),
-                    "serial": getattr(item, "serial_number", "") or "",
-                }
-            )
+            _discount_percentage = item.discount_percent or 0 if show_discount else 0
+            item_group_key = (item.product_id, item.selling_price, item.warrenty_month, _discount_percentage)
+            if not item_arrangement.get(item_group_key, []):
+                _product = item.product.name if item.product and item.product.name else f"Product #{item.product_id}"
+                _product_category = item.product.category.name if item.product and item.product.category else ""
+                _product_brand = item.product.brand.brand_name if item.product and item.product.brand else ""
+                _discount_txt = f" ({_discount_percentage}% Discount)" if _discount_percentage else ""
+                _product_full_description = ' '.join([_product_category, _product_brand, _product, _discount_txt]).strip()    
+                item_arrangement[item_group_key] = [
+                    len(item_arrangement) + 1, # Item No (will be updated later)
+                    _product_full_description, # Invoice description
+                    item.warrenty_month,
+                    0, # Invoice quantity
+                    item.selling_price,
+                    0, #Total price
+                ]
+            _barcode = item.barcode or ""
+            if _barcode:
+                item_arrangement[item_group_key][1] += '\n' + _barcode
+            item_arrangement[item_group_key][3] += item.quantity or 0
+            item_arrangement[item_group_key][5] += item.line_total or (item.quantity * item.selling_price)
+            
+
+        items = [list([str(_item) for _item in item]) for item in item_arrangement.values()]
 
         # Process payment methods for breakdown
         payments = []
@@ -608,33 +619,45 @@ class DocumentReportService:
         if invoice.credit_amount > 0:
             payments.append({"method": "Credit", "amount": invoice.credit_amount})
 
-        template = self.env.get_template("invoice.html")
+        template = self.env.get_template("printable_invoice.html")
         return template.render(
             company=company,
             invoice={
-                "id": invoice.id,
-                "invoice_no": invoice.invoice_no,
-                "created_date": str(invoice.created_date),
-                "status": invoice.status,
-                "branch_code": invoice.branch_code,
-                "sale_rep_id": invoice.sale_rep_id,
-                "payment_method": invoice.payment_method.replace("_", " ").title(),
-                "subtotal": invoice.subtotal,
-                "tax_amount": invoice.tax_amount,
-                "discount_amount": invoice.discount_amount,
-                "cupon_amount": invoice.cupon_amount,
-                "service_charge_rate": invoice.service_charge_rate,
-                "service_charge_amount": invoice.service_charge_amount,
-                "grand_total": invoice.grand_total,
-                "gift_voucher_amount": invoice.gift_voucher_amount,
-                "paid_amount": invoice.paid_amount,
-                "balance_due": invoice.balance_due,
-                "remarks": invoice.remarks,
+                "pageType":       'TAX INVOICE' if not invoice.is_tax_invoice else '',
+                "invoiceNo":      invoice.invoice_no,
+                "soNo":           invoice.credit_payment_id if invoice.credit_payment_id else '',
+                # "ourVatNumber":   '', # Added by the template logic based on page type
+                "date":           invoice.created_date.strftime("%d %b %Y") if invoice.created_date else "",
+                "time":           invoice.created_at.strftime("%I:%M %p") if invoice.created_at else "",
+                "terms":          '', # self._get_credit_terms(invoice.credit_payment_id) if invoice.credit_payment_id else '',
+                "ourRefPoNo":     '', #TODO NEED TO CHECK WHAT IS THIS
+                "ourRefPoDate":   '', #TODO NEED TO CHECK WHAT IS THIS
+                "repCode":        invoice.customer_agent_id or '',
+                "sysCode":        invoice.customer_agent_id or '',
+                "customerCode":   invoice.customer_id or '',
+                "customerName":   customer.get("customer_name", ""),
+                "customerAddress": f"{customer.get('customer_address', '') + ' ' + customer.get('email', '')}".strip(),
+                "customerContact": f"{customer.get('mobile_number', '') + '  ' + customer.get('land_number', '')}".strip(),
+                "chequeNumber":   '', #TODO
+                "chequeBankName": '', #TODO
+                "chequeAmount":   invoice.cheque_amount or '',
+                "chequeDate":     invoice.cheque_date.strftime("%d %b %Y") if invoice.cheque_date else '',
+                "subTotal":       invoice.subtotal,
+                "vat":            invoice.tax_amount,
+                "btt":            invoice.service_charge_amount,
+                "netTotal":       invoice.grand_total,
+                #TODO: NIY
+                "paymentMethod": invoice.payment_method.replace("_", " ").title(),
+                "discountAmount": invoice.discount_amount,
+                "cuponAmount": invoice.cupon_amount,
+                "giftVoucherAmount": invoice.gift_voucher_amount,
+                "paidAmount": invoice.paid_amount,
+                "balanceDue": invoice.balance_due,
             },
             customer=customer,
             branch=branch,
             items=items,
-            payments=payments,
+            payments=payments, #TODO: NIY - need to add payment method breakdown to invoice model
             options={
                 "show_header": show_header,
                 "show_discount": show_discount,

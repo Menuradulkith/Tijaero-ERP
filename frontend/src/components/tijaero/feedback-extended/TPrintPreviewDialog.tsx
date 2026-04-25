@@ -34,9 +34,9 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
     documentId,
     title = "Print Preview",
 }) => {
-    const [showHeader, setShowHeader] = useState(true);
+    const [showHeader, setShowHeader] = useState(false);
     const [showDiscount, setShowDiscount] = useState(true);
-    const [showSignatures, setShowSignatures] = useState(true);
+    const [showSignatures, setShowSignatures] = useState(false);
     const [customRemarks, setCustomRemarks] = useState("");
     const token = useAuthStore((s) => s.token);
 
@@ -58,7 +58,7 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
 
     const handlePrint = () => {
         const printUrl = new URL(reportUrl);
-        printUrl.searchParams.append("auto_print", "true");
+        printUrl.pathname = `${printUrl.pathname}/pdf`;
         window.open(printUrl.toString(), "_blank");
         onClose();
     };
@@ -124,7 +124,7 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
                                         size="small"
                                     />
                                 }
-                                label={<Typography variant="body2">Show Header</Typography>}
+                                label={<Typography variant="body2">Show Background</Typography>}
                             />
 
                             {(documentType === "quotation" || documentType === "invoice") && (

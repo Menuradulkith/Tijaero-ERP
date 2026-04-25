@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice - {{ invoice.invoice_no }}</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 821px;
+      height: auto;
+      overflow: visible;
+    }
+
+    .invoice-bg {
+      width: 821px;
+      height: 768px;
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-position: center;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+
+    .info-box {
+      position: absolute;
+      font-family: Arial, sans-serif;
+      font-size: 10px;
+      color: #000;
+      background-color: transparent;
+    }
+
+    .info-fixed-box {
+      position: absolute;
+      font-family: Arial;
+      font-size: 10px;
+      color: #000;
+      background-color: transparent;
+      padding: 0px;
+      overflow-wrap: break-word;
+      word-wrap: break-word;
+      overflow: hidden;
+      background-color: transparent;
+    }
+
+    .price-box {
+      position: absolute;
+      font-family: Arial;
+      font-size: 12px;
+      color: #000;
+      background-color: transparent;
+    }
+
+    .table-outer-box {
+      position: absolute;
+      font-family: Arial;
+      font-size: 10px;
+      padding: 0px;
+      overflow-wrap: break-word;
+      word-wrap: break-word;
+      overflow: hidden;
+    }
+
+    .invoice-table {
+      border-collapse: collapse;
+      font-family: Arial;
+      font-size: 10px;
+    }
+
+    .invoice-table thead tr {
+      text-align: left;
+    }
+
+    .invoice-table th,
+    .invoice-table td {
+      padding: 5px 4px;
+      vertical-align: top;
+    }
+
+    /* .invoice-table tbody tr.alt {
+      background-color: #f5f5f5;
+    } */
+  </style>
+</head>
+<body>
+<script>
+  const params = new URLSearchParams(location.search);
+  if (params.get('auto_print') === 'true') {
+    params.delete('auto_print');
+    const query = params.toString();
+    const pdfUrl = location.pathname + '/pdf' + (query ? '?' + query : '');
+    window.location.replace(pdfUrl);
+  }
+
+  if (window.frameElement) {
+    window.frameElement.style.width  = '821px';
+    window.frameElement.style.height = '768px';
+  }
+</script>
+  <div class="invoice-bg">
+    <div id="page-no" class="info-box" style="top: 15px; left: 700px;"></div>
+    <div id="page-type" class="info-fixed-box" style="top: 45px; left: 350px; width: 150px; height: 23px; text-align: center; font-size: 15px;"></div>
+    <div id="branch" class="info-box" style="top: 63px; left: 230px; width: 270px; text-align: center; font-size: 12px;"></div>
+    <div id="invoice-no" class="info-box" style="top: 36px; left: 633px;"></div>
+    <div id="so-no" class="info-box" style="top: 36px; left: 718px;"></div>
+    <div id="our-vat-number" class="info-box" style="top: 58px; left: 633px;"></div>
+    <div id="date" class="info-box" style="top: 80px; left: 633px;"></div>
+    <div id="time" class="info-box" style="top: 80px; left: 718px;"></div>
+    <div id="terms" class="info-box" style="top: 101px; left: 633px;"></div>
+    <div id="our-ref-po-no" class="info-box" style="top: 123px; left: 633px;"></div>
+    <div id="our-ref-po-date" class="info-box" style="top: 123px; left: 720px;"></div>
+    <div id="rep-code" class="info-box" style="top: 143px; left: 633px;"></div>
+    <div id="sys-code" class="info-box" style="top: 143px; left: 720px;"></div>
+
+    <div id="customer-code" class="info-box" style="top: 85px; left: 120px;"></div>
+    <div id="customer-name" class="info-box" style="top: 100px; left: 120px;"></div>
+    <div id="customer-address" class="info-fixed-box" style="top: 114px; left: 40px; width: 365px; height: 23px;"></div>
+    <div id="customer-contact" class="info-box" style="top: 140px; left: 120px;"></div>
+
+    <div id="table-area" class="table-outer-box" style="top: 190px; left: 33px; width: 755px; height: 365px;">
+      <table class="invoice-table" id="invoice-table-1">
+        <thead>
+          <tr>
+            <th style="width:35px"></th>
+            <th style="width:405px; max-width: 405px;"></th>
+            <th style="width:70px"></th>
+            <th style="width:57px"></th>
+            <th style="width:90px"></th>
+            <th style="width:95px"></th>
+          </tr>
+        </thead>
+        <tbody id="invoice-tbody-1"></tbody>
+      </table>
+    </div>
+
+    <div id="cheque-number" class="info-box" style="top: 590px; left: 38px;"></div>
+    <div id="cheque-bank-name" class="info-box" style="top: 590px; left: 143px;"></div>
+    <div id="cheque-amount" class="info-box" style="top: 590px; left: 340px;"></div>
+    <div id="cheque-date" class="info-box" style="top: 590px; left: 425px;"></div>
+    <div id="additional-remarks" class="info-box" style="top: 667px; left: 38px; max-width: 548px; overflow-wrap: break-word; word-wrap: break-word;"></div>
+
+    <div id="sub-total" class="price-box" style="top: 579px; left: 700px;"></div>
+    <div id="vat" class="price-box" style="top: 601px; left: 700px;"></div>
+    <div id="btt" class="price-box" style="top: 622px; left: 700px;"></div>
+    <div id="net-total" class="price-box" style="top: 645px; left: 700px; font-weight: bold;"></div>
+  </div><!-- end .invoice-bg page 1 -->
+
+  <script>
+    // ── Background control ────────────────────────────────────
+    const isBackgroundEnabled = '{{ options.show_header|lower }}' === 'true';
+    const bgImage = '{{ company.logo | safe }}';
+    const fallbackBgImage = 'Invoice_background_blue.jpg';
+    const resolvedBgImage = bgImage ? bgImage : fallbackBgImage;
+
+    if (isBackgroundEnabled) {
+      document.querySelectorAll('.invoice-bg').forEach(el => {
+        el.style.backgroundImage = "url('" + resolvedBgImage + "')";
+      });
+    }
+
+    // ── Invoice Data ─────────────────────────────────────────────
+    const invoiceData = {
+      pageType:       '{{ invoice.pageType }}',
+      branch:         '{{ branch.branch_name }} Stock',
+      invoiceNo:      '{{ invoice.invoiceNo }}',
+      soNo:           '{{ invoice.soNo }}',
+      ourVatNumber:   '{{ invoice.pageType }}' === 'TAX INVOICE' ? '108124245-7000' : '',
+      date:           '{{ invoice.date }}',
+      time:           '{{ invoice.time }}',
+      terms:          '{{ invoice.terms }}',
+      ourRefPoNo:     '{{ invoice.ourRefPoNo }}',
+      ourRefPoDate:   '{{ invoice.ourRefPoDate }}',
+      repCode:        '{{ invoice.repCode }}',
+      sysCode:        '{{ invoice.sysCode }}',
+      customerCode:   '{{ invoice.customerCode }}',
+      customerName:   '{{ invoice.customerName }}',
+      customerAddress:'{{ invoice.customerAddress }}',
+      customerContact:'{{ invoice.customerContact }}',
+      chequeNumber:   '{{ invoice.chequeNumber }}',
+      chequeBankName: '{{ invoice.chequeBankName }}',
+      chequeAmount:   '{{ invoice.chequeAmount }}',
+      chequeDate:     '{{ invoice.chequeDate }}',
+      subTotal:       '{{ invoice.subTotal }}',
+      vat:            '{{ invoice.vat }}',
+      btt:            '{{ invoice.btt }}',
+      netTotal:       '{{ invoice.netTotal }}',
+      additionalRemarks: '{{ options.custom_remarks | default("", true) }}',
+    };
+
+    // ── Populate header fields on first page ─────────────────────
+    function populateFields(pageEl, data) {
+      const set = (id, val) => { const el = pageEl.querySelector('#' + id); if (el) el.textContent = val; };
+      set('page-type',        data.pageType);
+      set('branch',           data.branch);
+      set('invoice-no',       data.invoiceNo);
+      set('so-no',            data.soNo);
+      set('our-vat-number',   data.ourVatNumber);
+      set('date',             data.date);
+      set('time',             data.time);
+      set('terms',            data.terms);
+      set('our-ref-po-no',    data.ourRefPoNo);
+      set('our-ref-po-date',  data.ourRefPoDate);
+      set('rep-code',         data.repCode);
+      set('sys-code',         data.sysCode);
+      set('customer-code',    data.customerCode);
+      set('customer-name',    data.customerName);
+      set('customer-address', data.customerAddress);
+      set('customer-contact', data.customerContact);
+      set('cheque-number',    data.chequeNumber);
+      set('cheque-bank-name', data.chequeBankName);
+      set('cheque-amount',    data.chequeAmount);
+      set('cheque-date',      data.chequeDate);
+      set('sub-total',        data.subTotal);
+      set('vat',              data.vat);
+      set('btt',              data.btt);
+      set('net-total',        data.netTotal);
+      set('additional-remarks', data.additionalRemarks);
+    }
+
+    populateFields(document.querySelector('.invoice-bg'), invoiceData);
+    const MAX_TBODY_HEIGHT = 365;
+
+    const rows = {{ items | tojson }};
+
+    let pageNum = 1;
+    let currentTbody = document.getElementById('invoice-tbody-1');
+    let currentPageEl = document.querySelector('.invoice-bg');
+
+    function createNewPage() {
+      pageNum++;
+      const newPage = currentPageEl.cloneNode(true); // clone full invoice-bg
+      // Clear the tbody in the clone
+      const newTbody = newPage.querySelector('tbody');
+      newTbody.id = 'invoice-tbody-' + pageNum;
+      newTbody.innerHTML = '';
+      // Remove bottom fixed elements (cheques/prices) from continuation pages
+    //   ['cheque-number','cheque-bank-name','cheque-amount','cheque-date',
+    //    'sub-total','vat','btt','net-total'].forEach(id => {
+    //     const el = newPage.querySelector('#' + id);
+    //     if (el) el.remove();
+    //   });
+      document.body.appendChild(newPage);
+      currentTbody = newTbody;
+      currentPageEl = newPage;
+    }
+
+    function makeRow(data) {
+      const tr = document.createElement('tr');
+      data.forEach(text => {
+        const td = document.createElement('td');
+        td.innerHTML = text.replace(/\n/g, '<br>');
+        tr.appendChild(td);
+      });
+      return tr;
+    }
+
+    rows.forEach((rowData, i) => {
+      const tr = makeRow(rowData);
+      if (i % 2 !== 0) tr.classList.add('alt');
+      currentTbody.appendChild(tr);
+      if (currentTbody.offsetHeight > MAX_TBODY_HEIGHT) {
+        currentTbody.removeChild(tr); // remove from current page
+        createNewPage();              // new page
+        currentTbody.appendChild(tr);// add to new page
+      }
+    });
+
+    // Resize iframe to total height of all pages
+    if (window.frameElement) {
+      window.frameElement.style.height = document.body.scrollHeight + 'px';
+    }
+
+    // ── Background toggle via postMessage ───────────────────────
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'toggleBackground') {
+        document.querySelectorAll('.invoice-bg').forEach(el => {
+          el.style.backgroundImage = e.data.enabled ? "url('" + resolvedBgImage + "')" : 'none';
+        });
+      }
+    });
+
+    // Update all page numbers now that total is known
+    document.querySelectorAll('#page-no').forEach((el, idx) => {
+      el.textContent = 'Page ' + (idx + 1) + ' of ' + pageNum;
+    });
+  </script>
+</body>
+</html>
