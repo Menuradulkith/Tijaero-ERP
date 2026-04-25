@@ -1,4 +1,6 @@
 from app.auth import schemas, service
+from app.auth.dependencies import get_current_active_user
+from app.auth.rbac import Permissions, require_permission
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
@@ -175,15 +177,24 @@ def logout(response: Response):
     "/register",
     response_model=schemas.User,
     status_code=status.HTTP_201_CREATED,
-    summary="Register New User",
-    description="Create a new user account",
-    dependencies=[Depends(rate_limit(10))],  # Industry standard: rate limit signup spam
+    summary="Register New User (Admin Only)",
+    description=(
+        "Create a new user account. This endpoint is restricted to authenticated "
+        "administrators with the `users:create` permission. Public self-registration "
+        "is not permitted in this ERP system."
+    ),
+    dependencies=[
+        Depends(rate_limit(10)),
+        Depends(require_permission(*Permissions.USER_CREATE)),
+    ],
     responses={
         201: {"description": "User successfully created"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Insufficient permissions"},
         422: {"description": "Validation error"},
         429: {"description": "Too many requests (Rate limited)"},
     },
 )
 def register(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
-
+    """Create a new user account. Requires admin authentication and USER_CREATE permission."""
     return service.auth_service.create_user(db, user_in)
