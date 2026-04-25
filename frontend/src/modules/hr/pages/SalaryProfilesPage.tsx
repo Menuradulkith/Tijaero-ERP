@@ -1,273 +1,260 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Box, Paper } from "@mui/material";
+/**
+ * SalaryProfilesPage — Master/Detail layout for employee salary profiles.
+ */
+import { useCallback, useEffect, useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Box, TextField, Typography } from "@mui/material";
+import PersonIcon from "@mui/icons-material/Person";
+
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-} from "@mui/icons-material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm } from "react-hook-form";
-import {
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  SortOption,
+  TConfirmDialog,
+  TDetailSkeleton,
   fmtLKR,
   handleApiError,
   showErrorToast,
   showSuccessToast,
-  TButton,
-  TConfirmDialog,
-  TFormDialog,
-  TFormField,
-  TIconButton,
-  TPageHeader,
+  useMasterDetailState,
   useTConfirmDialog,
 } from "@/components/tijaero";
-import { formatDateTime } from "@/utils/formatters";
+import { usePermission } from "@/auth/permissions";
 import { salaryProfilesApi } from "@/modules/hr/api";
-import { EmployeeSalaryProfileCreate } from "@/modules/hr/types";
+import { formatDateTimeReadable } from "@/utils/formatters";
+import type { EmployeeSalaryProfile, EmployeeSalaryProfileCreate } from "@/modules/hr/types";
+
+const SORT_OPTIONS: SortOption[] = [
+  { value: "created_desc", label: "Date (Newest)" },
+  { value: "employee_id", label: "Employee ID" },
+  { value: "salary_desc", label: "Salary (Highest)" },
+];
+
+const INITIAL_FORM: EmployeeSalaryProfileCreate = {
+  employee_id: "",
+  basic_salary: 0,
+  add_1_name: "",
+  add_1_value: 0,
+  add_2_name: "",
+  add_2_value: 0,
+  designation: "",
+  department: "",
+  effective_from_date: "",
+  benefits: "",
+};
 
 export default function SalaryProfilesPage() {
-  const queryClient = useQueryClient();
-  const [openDialog, setOpenDialog] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const { dialogProps, confirm } = useTConfirmDialog();
+  const qc = useQueryClient();
+  const canCreate = usePermission("hr", "create");
+  const canUpdate = usePermission("hr", "update");
+  const canDelete = usePermission("hr", "delete");
 
-  const { data: profiles, isLoading } = useQuery({
+  const {
+    searchQuery, setSearchQuery,
+    sortField, setSortField,
+    selectedItem, isEditing, isCreating,
+    setIsCreating, setIsEditing,
+    formData, setFormData,
+    handleSelectItem, handleNew, handleCancel: baseCancel, handleStartEdit,
+  } = useMasterDetailState<EmployeeSalaryProfile, EmployeeSalaryProfileCreate>({
+    initialFormData: INITIAL_FORM,
+    resetFormFromItem: (p) => ({
+      employee_id: p.employee_id,
+      basic_salary: p.basic_salary,
+      add_1_name: p.add_1_name || "",
+      add_1_value: p.add_1_value || 0,
+      add_2_name: p.add_2_name || "",
+      add_2_value: p.add_2_value || 0,
+      designation: p.designation || "",
+      department: p.department || "",
+      effective_from_date: p.effective_from_date || "",
+      benefits: p.benefits || "",
+    }),
+    defaultSortField: "created_desc",
+  });
+
+  const { data: profiles, isLoading, refetch } = useQuery({
     queryKey: ["salary-profiles"],
     queryFn: () => salaryProfilesApi.getAll(),
   });
 
-  const { control, handleSubmit, reset } = useForm<EmployeeSalaryProfileCreate>(
-    {
-      defaultValues: {
-        employee_id: "",
-        basic_salary: 0,
-        add_1_name: "",
-        add_1_value: 0,
-        add_2_name: "",
-        add_2_value: 0,
-      },
-    }
+  const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    let list = (profiles || []).filter(
+      (p) => !q || p.employee_id.toLowerCase().includes(q) || (p.designation || "").toLowerCase().includes(q) || (p.department || "").toLowerCase().includes(q)
+    );
+    list.sort((a, b) => {
+      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
+      if (sortField === "salary_desc") return b.basic_salary - a.basic_salary;
+      return (b.created_at || "").localeCompare(a.created_at || "");
+    });
+    return list;
+  }, [profiles, searchQuery, sortField]);
+
+  useEffect(() => {
+    if (filtered.length > 0 && !selectedItem && !isCreating) handleSelectItem(filtered[0]);
+  }, [filtered, selectedItem, isCreating, handleSelectItem]);
+
+  const createMut = useMutation({
+    mutationFn: (d: EmployeeSalaryProfileCreate) => salaryProfilesApi.create(d),
+    onSuccess: (rec) => {
+      qc.invalidateQueries({ queryKey: ["salary-profiles"] });
+      showSuccessToast("Salary profile created");
+      setIsCreating(false); setIsEditing(false);
+      setTimeout(() => handleSelectItem(rec), 0);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to create profile")),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: EmployeeSalaryProfileCreate }) => salaryProfilesApi.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["salary-profiles"] });
+      showSuccessToast("Salary profile updated");
+      setIsEditing(false);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to update profile")),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => salaryProfilesApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["salary-profiles"] });
+      showSuccessToast("Salary profile deleted");
+      baseCancel(filtered);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to delete profile")),
+  });
+
+  const confirmDialog = useTConfirmDialog();
+
+  const handleSave = useCallback(() => {
+    if (isCreating) createMut.mutate(formData);
+    else if (selectedItem) updateMut.mutate({ id: selectedItem.id, data: formData });
+  }, [isCreating, selectedItem, formData, createMut, updateMut]);
+
+  const handleDelete = useCallback(async () => {
+    if (!selectedItem) return;
+    const ok = await confirmDialog.confirm({ title: "Delete Profile", message: "Delete this salary profile?", confirmText: "Delete", confirmColor: "error" });
+    if (ok) deleteMut.mutate(selectedItem.id);
+  }, [selectedItem, deleteMut, confirmDialog]);
+
+  const isFormValid = !!formData.employee_id && formData.basic_salary > 0;
+  const isSaving = createMut.isPending || updateMut.isPending;
+  const isDisabled = !isEditing && !isCreating;
+
+  const totalSalary = formData.basic_salary + (formData.add_1_value || 0) + (formData.add_2_value || 0);
+
+  const masterPanel = (
+    <SearchableList<EmployeeSalaryProfile>
+      items={filtered}
+      isLoading={isLoading}
+      searchValue={searchQuery}
+      onSearchChange={setSearchQuery}
+      searchPlaceholder="Search profiles..."
+      sortOptions={SORT_OPTIONS}
+      currentSort={sortField}
+      onSortChange={setSortField}
+      selectedItem={selectedItem}
+      onSelectItem={handleSelectItem}
+      emptyMessage="No salary profiles found"
+      renderItem={(p, isSelected) => (
+        <SelectableListItem
+          key={p.id}
+          id={p.id}
+          isSelected={isSelected}
+          onClick={() => handleSelectItem(p)}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{p.employee_id}</span>
+                <Typography component="span" variant="caption" fontWeight={600}
+                  sx={{ color: isSelected ? "inherit" : "success.main" }}>
+                  {fmtLKR(p.basic_salary)}
+                </Typography>
+              </Box>
+              {p.designation && (
+                <Typography component="span" variant="caption" sx={{ color: isSelected ? "inherit" : "text.secondary" }}>
+                  {p.designation}{p.department ? ` • ${p.department}` : ""}
+                </Typography>
+              )}
+            </Box>
+          }
+          secondaryText={!isSelected && p.employee_name ? p.employee_name : undefined}
+        />
+      )}
+    />
   );
 
-  const createMutation = useMutation({
-    mutationFn: salaryProfilesApi.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["salary-profiles"] });
-      showSuccessToast("Salary profile created successfully");
-      handleClose();
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create salary profile"));
-    },
-  });
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[{ label: "HR", href: "/hr" }, { label: "Salary Profiles", href: "/hr/salary-profiles" },
+          ...(selectedItem || isCreating ? [{ label: isCreating ? "New Profile" : selectedItem?.employee_id || "" }] : [])]}
+        title={selectedItem ? `${selectedItem.employee_id}${selectedItem.designation ? " • " + selectedItem.designation : ""}` : ""}
+        titleIcon={<PersonIcon color="primary" />}
+        isCreating={isCreating} createTitle="New Salary Profile" noSelectionTitle="Select a Salary Profile"
+      />
+      <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
+        isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
+        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={() => baseCancel(filtered)} onEdit={handleStartEdit}
+      />
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!selectedItem && !isCreating ? (
+          <EmptyState message="Select a salary profile from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={3} showHeader={false} showToolbar={false} />
+        ) : (
+          <>
+            <FormSection title="Basic Information" columns={3}>
+              <TextField label="Employee ID" size="small" value={formData.employee_id} onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })} disabled={isDisabled} required />
+              <TextField label="Designation" size="small" value={formData.designation || ""} onChange={(e) => setFormData({ ...formData, designation: e.target.value })} disabled={isDisabled} />
+              <TextField label="Department" size="small" value={formData.department || ""} onChange={(e) => setFormData({ ...formData, department: e.target.value })} disabled={isDisabled} />
+              <TextField label="Effective From" size="small" type="date" value={formData.effective_from_date || ""} onChange={(e) => setFormData({ ...formData, effective_from_date: e.target.value })} disabled={isDisabled} InputLabelProps={{ shrink: true }} />
+              <Box sx={{ gridColumn: "1 / -1" }}>
+                <TextField label="Benefits" size="small" value={formData.benefits || ""} onChange={(e) => setFormData({ ...formData, benefits: e.target.value })} disabled={isDisabled} fullWidth multiline rows={2} />
+              </Box>
+            </FormSection>
 
-  const updateMutation = useMutation({
-    mutationFn: ({
-      id,
-      data,
-    }: {
-      id: number;
-      data: EmployeeSalaryProfileCreate;
-    }) => salaryProfilesApi.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["salary-profiles"] });
-      showSuccessToast("Salary profile updated successfully");
-      handleClose();
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to update salary profile"));
-    },
-  });
+            <FormSection title="Salary Breakdown" columns={2}>
+              <TextField label="Basic Salary" size="small" type="number" value={formData.basic_salary || ""} onChange={(e) => setFormData({ ...formData, basic_salary: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} />
+              <Box />
+              <TextField label="Addition 1 Name" size="small" value={formData.add_1_name || ""} onChange={(e) => setFormData({ ...formData, add_1_name: e.target.value })} disabled={isDisabled} />
+              <TextField label="Addition 1 Value" size="small" type="number" value={formData.add_1_value || ""} onChange={(e) => setFormData({ ...formData, add_1_value: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+              <TextField label="Addition 2 Name" size="small" value={formData.add_2_name || ""} onChange={(e) => setFormData({ ...formData, add_2_name: e.target.value })} disabled={isDisabled} />
+              <TextField label="Addition 2 Value" size="small" type="number" value={formData.add_2_value || ""} onChange={(e) => setFormData({ ...formData, add_2_value: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+            </FormSection>
 
-  const deleteMutation = useMutation({
-    mutationFn: salaryProfilesApi.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["salary-profiles"] });
-      showSuccessToast("Salary profile deleted successfully");
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete salary profile"));
-    },
-  });
+            {(isCreating || isEditing) && (
+              <FormSection title="Total" columns={1}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Total Monthly Salary</Typography>
+                  <Typography variant="h6" fontWeight={700} color="success.main">{fmtLKR(totalSalary)}</Typography>
+                </Box>
+              </FormSection>
+            )}
 
-  const handleDelete = async (id: number) => {
-    const confirmed = await confirm({
-      title: "Delete Profile",
-      message: "Are you sure you want to delete this profile?",
-      confirmText: "Delete",
-      danger: true,
-    });
-    if (confirmed) {
-      deleteMutation.mutate(id);
-    }
-  };
-
-  const columns: GridColDef[] = [
-    { field: "id", headerName: "ID", width: 70 },
-    { field: "employee_id", headerName: "Employee ID", width: 130 },
-    {
-      field: "basic_salary",
-      headerName: "Basic Salary (Rs.)",
-      width: 140,
-      valueFormatter: (value) => fmtLKR(Number(value)),
-    },
-    { field: "add_1_name", headerName: "Addition 1", width: 130 },
-    {
-      field: "add_1_value",
-      headerName: "Add 1 Value (Rs.)",
-      width: 130,
-      valueFormatter: (value) => (value ? fmtLKR(Number(value)) : "-"),
-    },
-    { field: "add_2_name", headerName: "Addition 2", width: 130 },
-    {
-      field: "add_2_value",
-      headerName: "Add 2 Value (Rs.)",
-      width: 130,
-      valueFormatter: (value) => (value ? fmtLKR(Number(value)) : "-"),
-    },
-    {
-      field: "created_at",
-      headerName: "Created",
-      width: 160,
-      valueFormatter: (value) => formatDateTime(value) || "-",
-    },
-    {
-      field: "updated_at",
-      headerName: "Modified",
-      width: 160,
-      valueFormatter: (value) => formatDateTime(value) || "-",
-    },
-    {
-      field: "actions",
-      headerName: "Actions",
-      width: 120,
-      sortable: false,
-      renderCell: (params) => (
-        <Box sx={{ display: "flex", gap: 0.5 }}>
-          <TIconButton
-            size="small"
-            color="primary"
-            tooltip="Edit"
-            onClick={() => {
-              setEditingId(params.row.id);
-              reset(params.row);
-              setOpenDialog(true);
-            }}
-          >
-            <EditIcon />
-          </TIconButton>
-          <TIconButton
-            size="small"
-            color="danger"
-            tooltip="Delete"
-            onClick={() => handleDelete(params.row.id)}
-          >
-            <DeleteIcon />
-          </TIconButton>
-        </Box>
-      ),
-    },
-  ];
-
-  const onSubmit = (data: EmployeeSalaryProfileCreate) => {
-    if (editingId) {
-      updateMutation.mutate({ id: editingId, data });
-    } else {
-      createMutation.mutate(data);
-    }
-  };
-
-  const handleClose = () => {
-    setOpenDialog(false);
-    setEditingId(null);
-    reset();
-  };
-
-  const handleAdd = () => {
-    setEditingId(null);
-    reset({ employee_id: "", basic_salary: 0 });
-    setOpenDialog(true);
-  };
+            {selectedItem && !isCreating && !isEditing && (
+              <FormSection title="Record Info" columns={2}>
+                <Box><Typography variant="caption" color="text.secondary">Created</Typography><Typography variant="body2">{formatDateTimeReadable(selectedItem.created_at) || "-"}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">Last Modified</Typography><Typography variant="body2">{formatDateTimeReadable(selectedItem.updated_at) || "-"}</Typography></Box>
+              </FormSection>
+            )}
+          </>
+        )}
+      </Box>
+    </Box>
+  );
 
   return (
-    <Box>
-      <TPageHeader
-        title="Employee Salary Profiles"
-        actions={
-          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
-            New Profile
-          </TButton>
-        }
-      />
-
-      <Paper sx={{ height: 600 }}>
-        <DataGrid
-          rows={profiles || []}
-          columns={columns}
-          loading={isLoading}
-          pageSizeOptions={[10, 25, 50, 100]}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 25 } },
-          }}
-        />
-      </Paper>
-
-      <TFormDialog
-        open={openDialog}
-        onClose={handleClose}
-        title={editingId ? "Edit Salary Profile" : "New Salary Profile"}
-        onSubmit={handleSubmit(onSubmit)}
-        submitText={editingId ? "Update" : "Create"}
-        isSubmitting={createMutation.isPending || updateMutation.isPending}
-        maxWidth="md"
-      >
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <TFormField
-            name="employee_id"
-            control={control}
-            label="Employee ID"
-            required
-            rules={{ required: "Employee ID is required" }}
-          />
-          <TFormField
-            name="basic_salary"
-            control={control}
-            label="Basic Salary"
-            fieldType="number"
-            required
-            step={0.01}
-            rules={{ required: "Basic salary is required", min: { value: 0, message: "Must be at least 0" } }}
-          />
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-            <TFormField
-              name="add_1_name"
-              control={control}
-              label="Addition 1 Name"
-            />
-            <TFormField
-              name="add_1_value"
-              control={control}
-              label="Addition 1 Value"
-              fieldType="number"
-              step={0.01}
-            />
-            <TFormField
-              name="add_2_name"
-              control={control}
-              label="Addition 2 Name"
-            />
-            <TFormField
-              name="add_2_value"
-              control={control}
-              label="Addition 2 Value"
-              fieldType="number"
-              step={0.01}
-            />
-          </Box>
-        </Box>
-      </TFormDialog>
-
-      <TConfirmDialog {...dialogProps} />
-    </Box>
+    <>
+      <MasterDetailLayout title="Salary Profiles" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

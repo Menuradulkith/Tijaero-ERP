@@ -121,7 +121,12 @@ class ExpenseService:
         return {"items": items, "total": total}
 
     def submit_expense(self, expense_id: int, submitted_by: int) -> models.Expenses:
-        expense = self.get_expense(expense_id)
+        # Lock row to prevent concurrent status mutation
+        expense = self.db.query(models.Expenses).filter(
+            models.Expenses.id == expense_id
+        ).with_for_update().first()
+        if not expense:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
         if expense.status not in (ExpenseStatus.PENDING, ExpenseStatus.REJECTED):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot submit expense in '{expense.status}' status")
         expense.status = ExpenseStatus.SUBMITTED

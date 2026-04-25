@@ -9,6 +9,7 @@ from typing import List, Optional
 from app.db.session import get_db
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
+from app.auth.rbac import Permissions, require_permission
 from app.modules.hr import sales_commission_schemas as schemas
 from app.modules.hr.sales_commission_service import SalesCommissionService
 
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/sales-commissions", tags=["sales-commissions"])
 # Monthly Branch Sales Summary Endpoints
 # =============================================================================
 
-@router.post("/summaries/generate", response_model=List[schemas.MonthlyBranchSalesSummaryResponse])
+@router.post("/summaries/generate", response_model=List[schemas.MonthlyBranchSalesSummaryResponse], dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_CREATE))])
 def generate_monthly_summary(
     data: schemas.MonthlyBranchSalesSummaryCreate,
     db: Session = Depends(get_db),
@@ -34,7 +35,7 @@ def generate_monthly_summary(
     return service.generate_monthly_summary(data, current_user.id)
 
 
-@router.get("/summaries", response_model=List[schemas.MonthlyBranchSalesSummaryResponse])
+@router.get("/summaries", response_model=List[schemas.MonthlyBranchSalesSummaryResponse], dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_VIEW))])
 def list_summaries(
     branch_code: Optional[str] = Query(None),
     fiscal_year: Optional[int] = Query(None),
@@ -58,7 +59,7 @@ def list_summaries(
     return service.list_summaries(filters)
 
 
-@router.get("/summaries/{summary_id}", response_model=schemas.MonthlyBranchSalesSummaryWithCommissions)
+@router.get("/summaries/{summary_id}", response_model=schemas.MonthlyBranchSalesSummaryWithCommissions, dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_VIEW))])
 def get_summary(
     summary_id: int,
     db: Session = Depends(get_db),
@@ -69,7 +70,7 @@ def get_summary(
     return service.get_summary(summary_id)
 
 
-@router.post("/summaries/{summary_id}/finalize", response_model=schemas.MonthlyBranchSalesSummaryResponse)
+@router.post("/summaries/{summary_id}/finalize", response_model=schemas.MonthlyBranchSalesSummaryResponse, dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_UPDATE))])
 def finalize_summary(
     summary_id: int,
     data: schemas.FinalizeSummaryRequest,
@@ -84,7 +85,7 @@ def finalize_summary(
     return service.finalize_summary(summary_id, data, current_user.id)
 
 
-@router.post("/summaries/{summary_id}/calculate-commissions", response_model=List[schemas.SalesOfficerCommissionResponse])
+@router.post("/summaries/{summary_id}/calculate-commissions", response_model=List[schemas.SalesOfficerCommissionResponse], dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_CREATE))])
 def calculate_commissions(
     summary_id: int,
     commission_percentage: Optional[float] = Query(None, ge=0, le=100),
@@ -107,7 +108,7 @@ def calculate_commissions(
 # Sales Officer Commission Endpoints
 # =============================================================================
 
-@router.get("/commissions", response_model=List[schemas.SalesOfficerCommissionResponse])
+@router.get("/commissions", response_model=List[schemas.SalesOfficerCommissionResponse], dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_VIEW))])
 def list_commissions(
     employee_id: Optional[int] = Query(None),
     branch_code: Optional[str] = Query(None),
@@ -135,7 +136,7 @@ def list_commissions(
     return service.list_commissions(filters)
 
 
-@router.get("/commissions/{commission_id}", response_model=schemas.SalesOfficerCommissionResponse)
+@router.get("/commissions/{commission_id}", response_model=schemas.SalesOfficerCommissionResponse, dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_VIEW))])
 def get_commission(
     commission_id: int,
     db: Session = Depends(get_db),
@@ -146,7 +147,7 @@ def get_commission(
     return service.get_commission(commission_id)
 
 
-@router.post("/commissions/{commission_id}/approve", response_model=schemas.SalesOfficerCommissionResponse)
+@router.post("/commissions/{commission_id}/approve", response_model=schemas.SalesOfficerCommissionResponse, dependencies=[Depends(require_permission(*Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE))])
 def approve_commission(
     commission_id: int,
     data: schemas.ApproveCommissionRequest,
@@ -161,7 +162,7 @@ def approve_commission(
     return service.approve_commission(commission_id, data, current_user.id)
 
 
-@router.post("/commissions/bulk-approve", response_model=List[schemas.SalesOfficerCommissionResponse])
+@router.post("/commissions/bulk-approve", response_model=List[schemas.SalesOfficerCommissionResponse], dependencies=[Depends(require_permission(*Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE))])
 def bulk_approve_commissions(
     data: schemas.BulkApproveCommissionsRequest,
     db: Session = Depends(get_db),
@@ -172,7 +173,7 @@ def bulk_approve_commissions(
     return service.bulk_approve_commissions(data, current_user.id)
 
 
-@router.post("/commissions/{commission_id}/reject", response_model=schemas.SalesOfficerCommissionResponse)
+@router.post("/commissions/{commission_id}/reject", response_model=schemas.SalesOfficerCommissionResponse, dependencies=[Depends(require_permission(*Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE))])
 def reject_commission(
     commission_id: int,
     data: schemas.RejectCommissionRequest,
@@ -188,7 +189,7 @@ def reject_commission(
 # Payroll Integration Endpoints
 # =============================================================================
 
-@router.get("/payroll-ready", response_model=List[schemas.SalesOfficerCommissionResponse])
+@router.get("/payroll-ready", response_model=List[schemas.SalesOfficerCommissionResponse], dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_VIEW))])
 def get_commissions_for_payroll(
     fiscal_year: int = Query(...),
     fiscal_month: int = Query(..., ge=1, le=12),
@@ -204,7 +205,7 @@ def get_commissions_for_payroll(
     return service.get_approved_commissions_for_payroll(fiscal_year, fiscal_month, employee_id)
 
 
-@router.post("/commissions/{commission_id}/mark-paid", response_model=schemas.SalesOfficerCommissionResponse)
+@router.post("/commissions/{commission_id}/mark-paid", response_model=schemas.SalesOfficerCommissionResponse, dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_UPDATE))])
 def mark_commission_paid(
     commission_id: int,
     payroll_id: int = Query(...),
@@ -220,7 +221,7 @@ def mark_commission_paid(
 # Dashboard / Analytics Endpoints
 # =============================================================================
 
-@router.get("/dashboard/stats", response_model=schemas.CommissionDashboardStats)
+@router.get("/dashboard/stats", response_model=schemas.CommissionDashboardStats, dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_VIEW))])
 def get_dashboard_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

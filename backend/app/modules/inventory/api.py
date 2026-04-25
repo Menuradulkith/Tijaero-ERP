@@ -8,6 +8,7 @@ from app.auth.dependencies import (
     validate_branch_access,
 )
 from app.auth.models import User
+from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 from app.modules.inventory import schemas, service
 from app.modules.products import service as products_service
@@ -19,7 +20,7 @@ router = APIRouter()
 
 
 # Sales Stock Endpoints
-@router.get("/sales-stock/export-csv", summary="Export Sales Stock to CSV")
+@router.get("/sales-stock/export-csv", summary="Export Sales Stock to CSV", dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
 def export_sales_stock_csv(
     branch_code: Optional[str] = None,
     product_id: Optional[int] = None,
@@ -174,7 +175,7 @@ def export_sales_stock_csv(
     return response
 
 
-@router.get("/sales-stock", response_model=List[schemas.SalesStock])
+@router.get("/sales-stock", response_model=List[schemas.SalesStock], dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
 def get_all_sales_stock(
     branch_code: Optional[str] = None,
     product_id: Optional[int] = None,
@@ -205,6 +206,7 @@ def get_all_sales_stock(
     "/sales-stock",
     response_model=schemas.SalesStock,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_CREATE))],
 )
 def create_sales_stock(item: schemas.SalesStockCreate, db: Session = Depends(get_db)):
     """Create a sales stock item from GRN"""
@@ -215,7 +217,7 @@ def create_sales_stock(item: schemas.SalesStockCreate, db: Session = Depends(get
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/sales-stock/check-barcode/{barcode}")
+@router.get("/sales-stock/check-barcode/{barcode}", dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
 def check_barcode_exists(barcode: str, db: Session = Depends(get_db)):
     """Check if a barcode already exists in sales_stock table"""
     sales_stock_service = service.SalesStockService(db)
@@ -223,7 +225,7 @@ def check_barcode_exists(barcode: str, db: Session = Depends(get_db)):
     return {"exists": exists, "barcode": barcode}
 
 
-@router.get("/sales-stock/grn/{grn_id}", response_model=List[schemas.SalesStock])
+@router.get("/sales-stock/grn/{grn_id}", response_model=List[schemas.SalesStock], dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
 def get_sales_stock_by_grn(grn_id: int, db: Session = Depends(get_db)):
     """Get all sales stock items for a GRN"""
     sales_stock_service = service.SalesStockService(db)
@@ -231,7 +233,8 @@ def get_sales_stock_by_grn(grn_id: int, db: Session = Depends(get_db)):
 
 
 @router.get(
-    "/sales-stock/branch/{branch_code}", response_model=List[schemas.SalesStock]
+    "/sales-stock/branch/{branch_code}", response_model=List[schemas.SalesStock],
+    dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))],
 )
 def get_available_sales_stock(
     branch_code: str,
@@ -249,7 +252,7 @@ def get_available_sales_stock(
     return sales_stock_service.get_available_by_branch(branch_code)
 
 
-@router.get("/sales-stock/barcode/{barcode}")
+@router.get("/sales-stock/barcode/{barcode}", dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
 def get_sales_stock_by_barcode(barcode: str, db: Session = Depends(get_db)):
     """Get sales stock item by barcode with enriched product data"""
     sales_stock_service = service.SalesStockService(db)
@@ -259,7 +262,7 @@ def get_sales_stock_by_barcode(barcode: str, db: Session = Depends(get_db)):
     return item
 
 
-@router.patch("/sales-stock/{id}/status")
+@router.patch("/sales-stock/{id}/status", dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_UPDATE))])
 def update_sales_stock_status(
     id: int,
     status: str = Query(
@@ -275,7 +278,7 @@ def update_sales_stock_status(
     return item
 
 
-@router.get("/sales-stock/{id}/tracking")
+@router.get("/sales-stock/{id}/tracking", dependencies=[Depends(require_permission(*Permissions.WAREHOUSE_SALES_TRACK_VIEW))])
 def get_sales_stock_tracking(
     id: int,
     db: Session = Depends(get_db),
@@ -291,7 +294,7 @@ def get_sales_stock_tracking(
 
 
 # Company Assets Endpoints - Real table for company-owned items
-@router.get("/company-assets", response_model=List[schemas.CompanyAsset])
+@router.get("/company-assets", response_model=List[schemas.CompanyAsset], dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_VIEW))])
 def get_all_company_assets(
     branch_code: Optional[str] = None,
     product_id: Optional[int] = None,
@@ -323,6 +326,7 @@ def get_all_company_assets(
     "/company-assets",
     response_model=schemas.CompanyAsset,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_CREATE))],
 )
 def create_company_asset(
     item: schemas.CompanyAssetCreate, db: Session = Depends(get_db)
@@ -335,7 +339,7 @@ def create_company_asset(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/company-assets/check-barcode/{barcode}")
+@router.get("/company-assets/check-barcode/{barcode}", dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_VIEW))])
 def check_company_asset_barcode_exists(barcode: str, db: Session = Depends(get_db)):
     """Check if a barcode already exists in company_assets table"""
     company_asset_service = service.CompanyAssetService(db)
@@ -343,7 +347,7 @@ def check_company_asset_barcode_exists(barcode: str, db: Session = Depends(get_d
     return {"exists": exists, "barcode": barcode}
 
 
-@router.get("/company-assets/grn/{grn_id}", response_model=List[schemas.CompanyAsset])
+@router.get("/company-assets/grn/{grn_id}", response_model=List[schemas.CompanyAsset], dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_VIEW))])
 def get_company_assets_by_grn(grn_id: int, db: Session = Depends(get_db)):
     """Get all company assets for a GRN"""
     company_asset_service = service.CompanyAssetService(db)
@@ -351,7 +355,8 @@ def get_company_assets_by_grn(grn_id: int, db: Session = Depends(get_db)):
 
 
 @router.get(
-    "/company-assets/branch/{branch_code}", response_model=List[schemas.CompanyAsset]
+    "/company-assets/branch/{branch_code}", response_model=List[schemas.CompanyAsset],
+    dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_VIEW))],
 )
 def get_company_assets_by_branch(
     branch_code: str,
@@ -369,7 +374,7 @@ def get_company_assets_by_branch(
     return company_asset_service.get_by_branch(branch_code)
 
 
-@router.get("/company-assets/barcode/{barcode}", response_model=schemas.CompanyAsset)
+@router.get("/company-assets/barcode/{barcode}", response_model=schemas.CompanyAsset, dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_VIEW))])
 def get_company_asset_by_barcode(barcode: str, db: Session = Depends(get_db)):
     """Get company asset by barcode"""
     company_asset_service = service.CompanyAssetService(db)
@@ -379,7 +384,7 @@ def get_company_asset_by_barcode(barcode: str, db: Session = Depends(get_db)):
     return item
 
 
-@router.patch("/company-assets/{id}/status")
+@router.patch("/company-assets/{id}/status", dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_UPDATE))])
 def update_company_asset_status(
     id: int,
     status: str = Query(

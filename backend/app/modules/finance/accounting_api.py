@@ -19,6 +19,7 @@ from datetime import date
 from app.db.session import get_db
 from app.auth.dependencies import get_current_active_user
 from app.auth.models import User
+from app.auth.rbac import Permissions, require_permission
 from . import accounting_schemas as schemas
 from .accounting_service import (
     ChartOfAccountsService,
@@ -41,7 +42,7 @@ router = APIRouter(
 # DASHBOARD
 # =============================================================================
 
-@router.get("/dashboard/stats", response_model=schemas.AccountingDashboardStats)
+@router.get("/dashboard/stats", response_model=schemas.AccountingDashboardStats, dependencies=[Depends(require_permission(*Permissions.FINANCE_DASHBOARD_VIEW))])
 def get_dashboard_stats(db: Session = Depends(get_db)):
     """Get accounting dashboard statistics."""
     return AccountingDashboardService(db).get_stats()
@@ -51,19 +52,19 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
 # CHART OF ACCOUNTS
 # =============================================================================
 
-@router.post("/chart-of-accounts", response_model=schemas.ChartOfAccountResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/chart-of-accounts", response_model=schemas.ChartOfAccountResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_CREATE))])
 def create_account(data: schemas.ChartOfAccountCreate, db: Session = Depends(get_db)):
     """Create a new chart of accounts entry."""
     return ChartOfAccountsService(db).create_account(data)
 
 
-@router.put("/chart-of-accounts/{account_id}", response_model=schemas.ChartOfAccountResponse)
+@router.put("/chart-of-accounts/{account_id}", response_model=schemas.ChartOfAccountResponse, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
 def update_account(account_id: int, data: schemas.ChartOfAccountUpdate, db: Session = Depends(get_db)):
     """Update a chart of accounts entry."""
     return ChartOfAccountsService(db).update_account(account_id, data)
 
 
-@router.get("/chart-of-accounts", response_model=List[schemas.ChartOfAccountResponse])
+@router.get("/chart-of-accounts", response_model=List[schemas.ChartOfAccountResponse], dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_VIEW))])
 def list_accounts(
     account_type: Optional[str] = None,
     account_category: Optional[str] = None,
@@ -82,26 +83,26 @@ def list_accounts(
     ))
 
 
-@router.get("/chart-of-accounts/tree")
+@router.get("/chart-of-accounts/tree", dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_VIEW))])
 def get_account_tree(db: Session = Depends(get_db)):
     """Get hierarchical tree of chart of accounts."""
     return ChartOfAccountsService(db).get_account_tree()
 
 
-@router.get("/chart-of-accounts/{account_id}", response_model=schemas.ChartOfAccountResponse)
+@router.get("/chart-of-accounts/{account_id}", response_model=schemas.ChartOfAccountResponse, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_VIEW))])
 def get_account(account_id: int, db: Session = Depends(get_db)):
     """Get a specific chart of accounts entry."""
     return ChartOfAccountsService(db).get_account(account_id)
 
 
-@router.delete("/chart-of-accounts/{account_id}")
+@router.delete("/chart-of-accounts/{account_id}", dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_DELETE))])
 def delete_account(account_id: int, db: Session = Depends(get_db)):
     """Delete a chart of accounts entry."""
     ChartOfAccountsService(db).delete_account(account_id)
     return {"message": "Account deleted successfully"}
 
 
-@router.post("/chart-of-accounts/seed")
+@router.post("/chart-of-accounts/seed", dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_CREATE))])
 def seed_chart_of_accounts(force: bool = Query(False), db: Session = Depends(get_db)):
     """
     Seed the standard Chart of Accounts hierarchy (Scenario 29).
@@ -117,21 +118,21 @@ def seed_chart_of_accounts(force: bool = Query(False), db: Session = Depends(get
 # JOURNAL ENTRIES
 # =============================================================================
 
-@router.post("/journal-entries", response_model=schemas.JournalEntryResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/journal-entries", response_model=schemas.JournalEntryResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))])
 def create_journal_entry(data: schemas.JournalEntryCreate, db: Session = Depends(get_db)):
     """Create a new journal entry (draft)."""
     je = JournalEntryService(db).create_journal_entry(data, created_by=0)
     return _serialize_je(je)
 
 
-@router.put("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse)
+@router.put("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def update_journal_entry(je_id: int, data: schemas.JournalEntryUpdate, db: Session = Depends(get_db)):
     """Update a draft journal entry."""
     je = JournalEntryService(db).update_journal_entry(je_id, data)
     return _serialize_je(je)
 
 
-@router.get("/journal-entries")
+@router.get("/journal-entries", dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
 def list_journal_entries(
     status_filter: Optional[str] = Query(None, alias="status"),
     entry_type: Optional[str] = None,
@@ -161,14 +162,14 @@ def list_journal_entries(
     return {"items": [_serialize_je(je) for je in items], "total": total}
 
 
-@router.get("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse)
+@router.get("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
 def get_journal_entry(je_id: int, db: Session = Depends(get_db)):
     """Get a specific journal entry with lines."""
     je = JournalEntryService(db).get_journal_entry(je_id)
     return _serialize_je(je)
 
 
-@router.post("/journal-entries/{je_id}/post", response_model=schemas.JournalEntryResponse)
+@router.post("/journal-entries/{je_id}/post", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def post_journal_entry(je_id: int, data: schemas.PostJournalEntryRequest = None, db: Session = Depends(get_db)):
     """Post a journal entry (creates GL entries)."""
     posting_date = data.posting_date if data else None
@@ -176,7 +177,7 @@ def post_journal_entry(je_id: int, data: schemas.PostJournalEntryRequest = None,
     return _serialize_je(je)
 
 
-@router.post("/journal-entries/{je_id}/reverse", response_model=schemas.JournalEntryResponse)
+@router.post("/journal-entries/{je_id}/reverse", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def reverse_journal_entry(je_id: int, data: schemas.ReverseJournalEntryRequest, db: Session = Depends(get_db)):
     """Reverse a posted journal entry."""
     je = JournalEntryService(db).reverse_journal_entry(
@@ -185,7 +186,7 @@ def reverse_journal_entry(je_id: int, data: schemas.ReverseJournalEntryRequest, 
     return _serialize_je(je)
 
 
-@router.delete("/journal-entries/{je_id}")
+@router.delete("/journal-entries/{je_id}", dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_DELETE))])
 def delete_journal_entry(je_id: int, db: Session = Depends(get_db)):
     """Delete a draft journal entry."""
     JournalEntryService(db).delete_journal_entry(je_id)
@@ -196,7 +197,7 @@ def delete_journal_entry(je_id: int, db: Session = Depends(get_db)):
 # Scenario 33: Manual JE Validation & Approval Workflow
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.post("/journal-entries/{je_id}/validate", response_model=schemas.ValidateJournalEntryResponse)
+@router.post("/journal-entries/{je_id}/validate", response_model=schemas.ValidateJournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
 def validate_journal_entry(je_id: int, db: Session = Depends(get_db)):
     """
     Validate a journal entry (Step 3).
@@ -206,7 +207,7 @@ def validate_journal_entry(je_id: int, db: Session = Depends(get_db)):
     return JournalEntryService(db).validate_journal_entry(je_id)
 
 
-@router.post("/journal-entries/{je_id}/submit", response_model=schemas.JournalEntryResponse)
+@router.post("/journal-entries/{je_id}/submit", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def submit_journal_entry(
     je_id: int,
     data: schemas.SubmitJournalEntryRequest = None,
@@ -221,7 +222,7 @@ def submit_journal_entry(
     return _serialize_je(je)
 
 
-@router.post("/journal-entries/{je_id}/approve", response_model=schemas.JournalEntryResponse)
+@router.post("/journal-entries/{je_id}/approve", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
 def approve_journal_entry(
     je_id: int,
     data: schemas.ApproveJournalEntryRequest = None,
@@ -237,7 +238,7 @@ def approve_journal_entry(
     return _serialize_je(je)
 
 
-@router.post("/journal-entries/{je_id}/reject", response_model=schemas.JournalEntryResponse)
+@router.post("/journal-entries/{je_id}/reject", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
 def reject_journal_entry(
     je_id: int,
     data: schemas.RejectJournalEntryRequest,
@@ -304,7 +305,7 @@ def _serialize_je(je) -> dict:
 # GENERAL LEDGER
 # =============================================================================
 
-@router.get("/general-ledger")
+@router.get("/general-ledger", dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
 def list_gl_entries(
     account_id: Optional[int] = None,
     account_code: Optional[str] = None,
@@ -342,7 +343,7 @@ def list_gl_entries(
     return {"items": items, "total": total}
 
 
-@router.get("/general-ledger/trial-balance", response_model=schemas.TrialBalanceResponse)
+@router.get("/general-ledger/trial-balance", response_model=schemas.TrialBalanceResponse, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
 def get_trial_balance(
     fiscal_year: int = Query(...),
     fiscal_period: Optional[int] = None,
@@ -357,7 +358,7 @@ def get_trial_balance(
     )
 
 
-@router.get("/general-ledger/account/{account_id}")
+@router.get("/general-ledger/account/{account_id}", dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
 def get_account_ledger(
     account_id: int,
     date_from: Optional[str] = None,
@@ -376,7 +377,7 @@ def get_account_ledger(
 # FINANCIAL REPORTS (Scenario 34)
 # =============================================================================
 
-@router.get("/reports/income-statement", response_model=schemas.IncomeStatementResponse)
+@router.get("/reports/income-statement", response_model=schemas.IncomeStatementResponse, dependencies=[Depends(require_permission(*Permissions.REPORTING_FINANCE_VIEW))])
 def get_income_statement(
     fiscal_year: int = Query(...),
     fiscal_period: Optional[int] = None,
@@ -393,7 +394,7 @@ def get_income_statement(
     )
 
 
-@router.get("/reports/balance-sheet", response_model=schemas.BalanceSheetResponse)
+@router.get("/reports/balance-sheet", response_model=schemas.BalanceSheetResponse, dependencies=[Depends(require_permission(*Permissions.REPORTING_FINANCE_VIEW))])
 def get_balance_sheet(
     fiscal_year: int = Query(...),
     as_of_date: Optional[str] = None,
@@ -406,7 +407,7 @@ def get_balance_sheet(
     )
 
 
-@router.get("/reports/reconciliation-check", response_model=schemas.ReconciliationCheckResponse)
+@router.get("/reports/reconciliation-check", response_model=schemas.ReconciliationCheckResponse, dependencies=[Depends(require_permission(*Permissions.REPORTING_FINANCE_VIEW))])
 def reconciliation_check(
     fiscal_year: int = Query(...),
     fiscal_period: int = Query(...),
@@ -419,7 +420,7 @@ def reconciliation_check(
     )
 
 
-@router.post("/reports/year-end-close", response_model=schemas.YearEndCloseResponse)
+@router.post("/reports/year-end-close", response_model=schemas.YearEndCloseResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def year_end_close(
     data: schemas.YearEndCloseRequest,
     db: Session = Depends(get_db),
@@ -438,7 +439,7 @@ def year_end_close(
 # AUDIT TRAIL & CORRECTION (Scenario 35)
 # =============================================================================
 
-@router.get("/audit-trail", response_model=schemas.AuditTrailResponse)
+@router.get("/audit-trail", response_model=schemas.AuditTrailResponse, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
 def get_audit_trail(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
@@ -472,7 +473,7 @@ def get_audit_trail(
     ))
 
 
-@router.post("/journal-entries/{je_id}/correct", response_model=schemas.CorrectionResponse)
+@router.post("/journal-entries/{je_id}/correct", response_model=schemas.CorrectionResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def correct_journal_entry(
     je_id: int,
     data: schemas.CorrectionRequest,
@@ -491,13 +492,13 @@ def correct_journal_entry(
 # ACCOUNTING PERIODS
 # =============================================================================
 
-@router.post("/periods/generate", response_model=List[schemas.AccountingPeriodResponse])
+@router.post("/periods/generate", response_model=List[schemas.AccountingPeriodResponse], dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_CREATE))])
 def generate_periods(data: schemas.GeneratePeriodsRequest, db: Session = Depends(get_db)):
     """Generate 12 monthly accounting periods for a fiscal year."""
     return AccountingPeriodService(db).generate_periods(data)
 
 
-@router.get("/periods", response_model=List[schemas.AccountingPeriodResponse])
+@router.get("/periods", response_model=List[schemas.AccountingPeriodResponse], dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_VIEW))])
 def list_periods(
     fiscal_year: Optional[int] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
@@ -510,25 +511,25 @@ def list_periods(
     ))
 
 
-@router.get("/periods/{period_id}", response_model=schemas.AccountingPeriodResponse)
+@router.get("/periods/{period_id}", response_model=schemas.AccountingPeriodResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_VIEW))])
 def get_period(period_id: int, db: Session = Depends(get_db)):
     """Get a specific accounting period."""
     return AccountingPeriodService(db).get_period(period_id)
 
 
-@router.post("/periods/{period_id}/close", response_model=schemas.AccountingPeriodResponse)
+@router.post("/periods/{period_id}/close", response_model=schemas.AccountingPeriodResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def close_period(period_id: int, db: Session = Depends(get_db)):
     """Close an accounting period."""
     return AccountingPeriodService(db).close_period(period_id, closed_by=0)
 
 
-@router.post("/periods/{period_id}/reopen", response_model=schemas.AccountingPeriodResponse)
+@router.post("/periods/{period_id}/reopen", response_model=schemas.AccountingPeriodResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def reopen_period(period_id: int, db: Session = Depends(get_db)):
     """Reopen a closed accounting period."""
     return AccountingPeriodService(db).reopen_period(period_id)
 
 
-@router.post("/periods/{period_id}/lock", response_model=schemas.AccountingPeriodResponse)
+@router.post("/periods/{period_id}/lock", response_model=schemas.AccountingPeriodResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def lock_period(period_id: int, db: Session = Depends(get_db)):
     """Lock a closed accounting period (permanent)."""
     return AccountingPeriodService(db).lock_period(period_id)
@@ -538,7 +539,7 @@ def lock_period(period_id: int, db: Session = Depends(get_db)):
 # CASH FLOW CATEGORIES
 # =============================================================================
 
-@router.post("/cash-flow/categories/seed", response_model=schemas.CashFlowSeedResponse)
+@router.post("/cash-flow/categories/seed", response_model=schemas.CashFlowSeedResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def seed_cash_flow_categories(db: Session = Depends(get_db)):
     """Seed the 13 standard cash flow categories (Operating, Investing, Financing)."""
     result = CashFlowService(db).seed_standard_categories()
@@ -550,25 +551,25 @@ def seed_cash_flow_categories(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/cash-flow/categories", response_model=schemas.CashFlowCategoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/cash-flow/categories", response_model=schemas.CashFlowCategoryResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def create_cash_flow_category(data: schemas.CashFlowCategoryCreate, db: Session = Depends(get_db)):
     """Create a new cash flow category."""
     return CashFlowService(db).create_category(data)
 
 
-@router.put("/cash-flow/categories/{category_id}", response_model=schemas.CashFlowCategoryResponse)
+@router.put("/cash-flow/categories/{category_id}", response_model=schemas.CashFlowCategoryResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def update_cash_flow_category(category_id: int, data: schemas.CashFlowCategoryUpdate, db: Session = Depends(get_db)):
     """Update a cash flow category."""
     return CashFlowService(db).update_category(category_id, data)
 
 
-@router.get("/cash-flow/categories", response_model=List[schemas.CashFlowCategoryResponse])
+@router.get("/cash-flow/categories", response_model=List[schemas.CashFlowCategoryResponse], dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def list_cash_flow_categories(section: Optional[str] = None, db: Session = Depends(get_db)):
     """List cash flow categories."""
     return CashFlowService(db).list_categories(section=section)
 
 
-@router.delete("/cash-flow/categories/{category_id}")
+@router.delete("/cash-flow/categories/{category_id}", dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def delete_cash_flow_category(category_id: int, db: Session = Depends(get_db)):
     """Delete a cash flow category."""
     CashFlowService(db).delete_category(category_id)
@@ -579,14 +580,14 @@ def delete_cash_flow_category(category_id: int, db: Session = Depends(get_db)):
 # CASH FLOW STATEMENTS
 # =============================================================================
 
-@router.post("/cash-flow/statements/generate", response_model=schemas.CashFlowStatementResponse)
+@router.post("/cash-flow/statements/generate", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def generate_cash_flow_statement(data: schemas.CashFlowStatementCreate, db: Session = Depends(get_db)):
     """Generate a cash flow statement for a fiscal period."""
     statement = CashFlowService(db).generate_statement(data, prepared_by=0)
     return _serialize_cfs(statement)
 
 
-@router.get("/cash-flow/statements", response_model=List[schemas.CashFlowStatementResponse])
+@router.get("/cash-flow/statements", response_model=List[schemas.CashFlowStatementResponse], dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def list_cash_flow_statements(
     fiscal_year: Optional[int] = None,
     fiscal_period: Optional[int] = None,
@@ -601,33 +602,33 @@ def list_cash_flow_statements(
     ))
 
 
-@router.get("/cash-flow/statements/{statement_id}", response_model=schemas.CashFlowStatementResponse)
+@router.get("/cash-flow/statements/{statement_id}", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def get_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
     """Get a specific cash flow statement with lines."""
     statement = CashFlowService(db).get_statement(statement_id)
     return _serialize_cfs(statement)
 
 
-@router.post("/cash-flow/statements/{statement_id}/finalize", response_model=schemas.CashFlowStatementResponse)
+@router.post("/cash-flow/statements/{statement_id}/finalize", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def finalize_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
     """Finalize a draft cash flow statement."""
     return CashFlowService(db).finalize_statement(statement_id)
 
 
-@router.post("/cash-flow/statements/{statement_id}/approve", response_model=schemas.CashFlowStatementResponse)
+@router.post("/cash-flow/statements/{statement_id}/approve", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
 def approve_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
     """Approve a finalized cash flow statement."""
     return CashFlowService(db).approve_statement(statement_id, approved_by=0)
 
 
-@router.delete("/cash-flow/statements/{statement_id}")
+@router.delete("/cash-flow/statements/{statement_id}", dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def delete_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
     """Delete a draft cash flow statement."""
     CashFlowService(db).delete_statement(statement_id)
     return {"message": "Statement deleted successfully"}
 
 
-@router.post("/cash-flow/statements/{statement_id}/regenerate", response_model=schemas.CashFlowStatementResponse)
+@router.post("/cash-flow/statements/{statement_id}/regenerate", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def regenerate_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
     """Regenerate a draft cash flow statement with fresh GL data."""
     statement = CashFlowService(db).regenerate_statement(statement_id, prepared_by=0)
@@ -642,6 +643,7 @@ def regenerate_cash_flow_statement(statement_id: int, db: Session = Depends(get_
     "/cash-flow/statements/{statement_id}/lines",
     response_model=schemas.CashFlowStatementLineResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))],
 )
 def add_cash_flow_manual_line(
     statement_id: int,
@@ -672,6 +674,7 @@ def add_cash_flow_manual_line(
 @router.put(
     "/cash-flow/statements/{statement_id}/lines/{line_id}",
     response_model=schemas.CashFlowStatementLineResponse,
+    dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))],
 )
 def update_cash_flow_manual_line(
     statement_id: int,
@@ -700,7 +703,7 @@ def update_cash_flow_manual_line(
     }
 
 
-@router.delete("/cash-flow/statements/{statement_id}/lines/{line_id}")
+@router.delete("/cash-flow/statements/{statement_id}/lines/{line_id}", dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
 def delete_cash_flow_manual_line(
     statement_id: int, line_id: int, db: Session = Depends(get_db)
 ):
@@ -712,6 +715,7 @@ def delete_cash_flow_manual_line(
 @router.post(
     "/cash-flow/statements/{statement_id}/recalculate",
     response_model=schemas.CashFlowStatementResponse,
+    dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))],
 )
 def recalculate_cash_flow_totals(statement_id: int, db: Session = Depends(get_db)):
     """Recalculate section totals and net change on a statement."""
@@ -726,6 +730,7 @@ def recalculate_cash_flow_totals(statement_id: int, db: Session = Depends(get_db
 @router.get(
     "/cash-flow/statements/{statement_id}/report",
     response_model=schemas.CashFlowReportResponse,
+    dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))],
 )
 def get_cash_flow_report(statement_id: int, db: Session = Depends(get_db)):
     """Get a formatted cash flow statement report with sections and cash composition."""
@@ -735,6 +740,7 @@ def get_cash_flow_report(statement_id: int, db: Session = Depends(get_db)):
 @router.get(
     "/cash-flow/statements/{statement_id}/reconcile",
     response_model=schemas.CashFlowReconciliationResponse,
+    dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))],
 )
 def reconcile_cash_flow_with_gl(statement_id: int, db: Session = Depends(get_db)):
     """Verify the cash flow statement reconciles with GL cash balances."""

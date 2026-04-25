@@ -258,6 +258,23 @@ class Permissions:
     HR_ASSET_CREATE = ("hr_assets", "create")
     HR_ASSET_UPDATE = ("hr_assets", "update")
     HR_ASSET_DELETE = ("hr_assets", "delete")
+    # Attendance
+    ATTENDANCE_VIEW = ("attendance", "view")
+    ATTENDANCE_CREATE = ("attendance", "create")
+    ATTENDANCE_UPDATE = ("attendance", "update")
+    ATTENDANCE_DELETE = ("attendance", "delete")
+    # Leaves
+    LEAVE_VIEW = ("leaves", "view")
+    LEAVE_CREATE = ("leaves", "create")
+    LEAVE_UPDATE = ("leaves", "update")
+    LEAVE_DELETE = ("leaves", "delete")
+    LEAVE_APPROVAL_VIEW = ("leave_approvals", "view")
+    LEAVE_APPROVAL_APPROVE = ("leave_approvals", "approve")
+    # Employees master
+    EMPLOYEE_VIEW = ("employees", "view")
+    EMPLOYEE_CREATE = ("employees", "create")
+    EMPLOYEE_UPDATE = ("employees", "update")
+    EMPLOYEE_DELETE = ("employees", "delete")
 
     # ═══════════════════════════════════════════════════════════════════
     # WAREHOUSE — per sub-page

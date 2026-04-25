@@ -2,6 +2,7 @@ from typing import List
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
+from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -116,7 +117,7 @@ def change_password(
 
 
 # Company Settings Endpoints
-@router.get("/company", response_model=schemas.CompanySettings)
+@router.get("/company", response_model=schemas.CompanySettings, dependencies=[Depends(require_permission(*Permissions.SETTINGS_VIEW))])
 def get_company_settings(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
@@ -126,7 +127,7 @@ def get_company_settings(
     return comp_service.get_company_settings()
 
 
-@router.put("/company", response_model=schemas.CompanySettings)
+@router.put("/company", response_model=schemas.CompanySettings, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
 def update_company_settings(
     settings_update: schemas.CompanySettingsUpdate,
     current_user: User = Depends(get_current_user),

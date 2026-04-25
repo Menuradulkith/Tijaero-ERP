@@ -1,252 +1,224 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Box, Paper } from "@mui/material";
+/**
+ * EmployeeAssetsPage — Master/Detail layout for employee asset assignments.
+ */
+import { useCallback, useEffect, useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Box, Chip, FormControlLabel, Switch, TextField, Typography } from "@mui/material";
+import DevicesIcon from "@mui/icons-material/Devices";
+
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-} from "@mui/icons-material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm } from "react-hook-form";
-import {
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  SortOption,
+  TConfirmDialog,
+  TDetailSkeleton,
   handleApiError,
   showErrorToast,
   showSuccessToast,
-  TButton,
-  TConfirmDialog,
-  TFormDialog,
-  TFormField,
-  TIconButton,
-  TPageHeader,
-  TStatusChip,
+  useMasterDetailState,
   useTConfirmDialog,
 } from "@/components/tijaero";
-import { formatDateTime } from "@/utils/formatters";
+import { usePermission } from "@/auth/permissions";
 import { employeeAssetsApi } from "@/modules/hr/api";
-import { EmployeeAssetCreate } from "@/modules/hr/types";
+import { formatDateTimeReadable } from "@/utils/formatters";
+import type { EmployeeAsset, EmployeeAssetCreate } from "@/modules/hr/types";
+
+const SORT_OPTIONS: SortOption[] = [
+  { value: "created_desc", label: "Date (Newest)" },
+  { value: "employee_id", label: "Employee ID" },
+  { value: "asset_id", label: "Asset ID" },
+];
+
+const INITIAL_FORM: EmployeeAssetCreate = {
+  employee_id: "",
+  asset_id: 0,
+  assign_reason: "",
+  revoke_assignment: false,
+};
 
 export default function EmployeeAssetsPage() {
-  const queryClient = useQueryClient();
-  const [openDialog, setOpenDialog] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const { dialogProps, confirm } = useTConfirmDialog();
+  const qc = useQueryClient();
+  const canCreate = usePermission("hr", "create");
+  const canUpdate = usePermission("hr", "update");
+  const canDelete = usePermission("hr", "delete");
 
-  const { data: assets, isLoading } = useQuery({
+  const {
+    searchQuery, setSearchQuery,
+    sortField, setSortField,
+    selectedItem, isEditing, isCreating,
+    setIsCreating, setIsEditing,
+    formData, setFormData,
+    handleSelectItem, handleNew, handleCancel: baseCancel, handleStartEdit,
+  } = useMasterDetailState<EmployeeAsset, EmployeeAssetCreate>({
+    initialFormData: INITIAL_FORM,
+    resetFormFromItem: (a) => ({
+      employee_id: a.employee_id,
+      asset_id: a.asset_id,
+      assign_reason: a.assign_reason || "",
+      revoke_assignment: a.revoke_assignment,
+    }),
+    defaultSortField: "created_desc",
+  });
+
+  const { data: assets, isLoading, refetch } = useQuery({
     queryKey: ["employee-assets"],
     queryFn: () => employeeAssetsApi.getAll(),
   });
 
-  const { control, handleSubmit, reset } = useForm<EmployeeAssetCreate>({
-    defaultValues: {
-      employee_id: "",
-      asset_id: 0,
-      assign_reason: "",
-      revoke_assignment: false,
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: employeeAssetsApi.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["employee-assets"] });
-      showSuccessToast("Asset assignment created successfully");
-      handleClose();
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create asset assignment"));
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: EmployeeAssetCreate }) =>
-      employeeAssetsApi.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["employee-assets"] });
-      showSuccessToast("Asset assignment updated successfully");
-      handleClose();
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to update asset assignment"));
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: employeeAssetsApi.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["employee-assets"] });
-      showSuccessToast("Asset assignment deleted successfully");
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete asset assignment"));
-    },
-  });
-
-  const handleDelete = async (id: number) => {
-    const confirmed = await confirm({
-      title: "Delete Assignment",
-      message: "Are you sure you want to delete this assignment?",
-      confirmText: "Delete",
-      danger: true,
+  const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    let list = (assets || []).filter(
+      (a) => !q || a.employee_id.toLowerCase().includes(q) || String(a.asset_id).includes(q) || (a.assign_reason || "").toLowerCase().includes(q)
+    );
+    list.sort((a, b) => {
+      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
+      if (sortField === "asset_id") return a.asset_id - b.asset_id;
+      return (b.created_at || "").localeCompare(a.created_at || "");
     });
-    if (confirmed) {
-      deleteMutation.mutate(id);
-    }
-  };
+    return list;
+  }, [assets, searchQuery, sortField]);
 
-  const columns: GridColDef[] = [
-    { field: "id", headerName: "ID", width: 70 },
-    { field: "employee_id", headerName: "Employee ID", width: 130 },
-    { field: "asset_id", headerName: "Asset ID", width: 110 },
-    { field: "assign_reason", headerName: "Reason", width: 250 },
-    {
-      field: "revoke_assignment",
-      headerName: "Status",
-      width: 120,
-      renderCell: (params) => (
-        <TStatusChip
-          status={params.value ? "revoked" : "active"}
-          customMap={{
-            active: { label: "Active", color: "success" },
-            revoked: { label: "Revoked", color: "error" },
-          }}
-          size="small"
+  useEffect(() => {
+    if (filtered.length > 0 && !selectedItem && !isCreating) handleSelectItem(filtered[0]);
+  }, [filtered, selectedItem, isCreating, handleSelectItem]);
+
+  const createMut = useMutation({
+    mutationFn: (d: EmployeeAssetCreate) => employeeAssetsApi.create(d),
+    onSuccess: (rec) => {
+      qc.invalidateQueries({ queryKey: ["employee-assets"] });
+      showSuccessToast("Asset assigned");
+      setIsCreating(false); setIsEditing(false);
+      setTimeout(() => handleSelectItem(rec), 0);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to assign asset")),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: EmployeeAssetCreate }) => employeeAssetsApi.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employee-assets"] });
+      showSuccessToast("Assignment updated");
+      setIsEditing(false);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to update assignment")),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => employeeAssetsApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employee-assets"] });
+      showSuccessToast("Assignment deleted");
+      baseCancel(filtered);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to delete assignment")),
+  });
+
+  const confirmDialog = useTConfirmDialog();
+
+  const handleSave = useCallback(() => {
+    if (isCreating) createMut.mutate(formData);
+    else if (selectedItem) updateMut.mutate({ id: selectedItem.id, data: formData });
+  }, [isCreating, selectedItem, formData, createMut, updateMut]);
+
+  const handleDelete = useCallback(async () => {
+    if (!selectedItem) return;
+    const ok = await confirmDialog.confirm({ title: "Delete Assignment", message: "Delete this asset assignment?", confirmText: "Delete", confirmColor: "error" });
+    if (ok) deleteMut.mutate(selectedItem.id);
+  }, [selectedItem, deleteMut, confirmDialog]);
+
+  const isFormValid = !!formData.employee_id && formData.asset_id > 0;
+  const isSaving = createMut.isPending || updateMut.isPending;
+  const isDisabled = !isEditing && !isCreating;
+
+  const masterPanel = (
+    <SearchableList<EmployeeAsset>
+      items={filtered}
+      isLoading={isLoading}
+      searchValue={searchQuery}
+      onSearchChange={setSearchQuery}
+      searchPlaceholder="Search assignments..."
+      sortOptions={SORT_OPTIONS}
+      currentSort={sortField}
+      onSortChange={setSortField}
+      selectedItem={selectedItem}
+      onSelectItem={handleSelectItem}
+      emptyMessage="No asset assignments found"
+      renderItem={(a, isSelected) => (
+        <SelectableListItem
+          key={a.id}
+          id={a.id}
+          isSelected={isSelected}
+          onClick={() => handleSelectItem(a)}
+          primaryText={
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>{a.employee_id}</span>
+              <Chip
+                label={a.revoke_assignment ? "Revoked" : "Active"}
+                size="small"
+                color={a.revoke_assignment ? "error" : "success"}
+                sx={{ height: 18, fontSize: "0.65rem" }}
+              />
+            </Box>
+          }
+          secondaryText={`Asset #${a.asset_id}${a.assign_reason ? " • " + a.assign_reason.substring(0, 30) : ""}`}
         />
-      ),
-    },
-    {
-      field: "created_at",
-      headerName: "Created",
-      width: 160,
-      valueFormatter: (value) => formatDateTime(value) || "-",
-    },
-    {
-      field: "updated_at",
-      headerName: "Modified",
-      width: 160,
-      valueFormatter: (value) => formatDateTime(value) || "-",
-    },
-    {
-      field: "actions",
-      headerName: "Actions",
-      width: 120,
-      sortable: false,
-      renderCell: (params) => (
-        <Box sx={{ display: "flex", gap: 0.5 }}>
-          <TIconButton
-            size="small"
-            color="primary"
-            tooltip="Edit"
-            onClick={() => {
-              setEditingId(params.row.id);
-              reset(params.row);
-              setOpenDialog(true);
-            }}
-          >
-            <EditIcon />
-          </TIconButton>
-          <TIconButton
-            size="small"
-            color="danger"
-            tooltip="Delete"
-            onClick={() => handleDelete(params.row.id)}
-          >
-            <DeleteIcon />
-          </TIconButton>
-        </Box>
-      ),
-    },
-  ];
+      )}
+    />
+  );
 
-  const onSubmit = (data: EmployeeAssetCreate) => {
-    if (editingId) {
-      updateMutation.mutate({ id: editingId, data });
-    } else {
-      createMutation.mutate(data);
-    }
-  };
-
-  const handleClose = () => {
-    setOpenDialog(false);
-    setEditingId(null);
-    reset();
-  };
-
-  const handleAdd = () => {
-    setEditingId(null);
-    reset({
-      employee_id: "",
-      asset_id: 0,
-      assign_reason: "",
-      revoke_assignment: false,
-    });
-    setOpenDialog(true);
-  };
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[{ label: "HR", href: "/hr" }, { label: "Assets", href: "/hr/assets" },
+          ...(selectedItem || isCreating ? [{ label: isCreating ? "New Assignment" : `#${selectedItem?.id}` }] : [])]}
+        title={selectedItem ? `${selectedItem.employee_id} • Asset #${selectedItem.asset_id}` : ""}
+        titleIcon={<DevicesIcon color="primary" />}
+        isCreating={isCreating} createTitle="New Asset Assignment" noSelectionTitle="Select an Assignment"
+        chips={selectedItem && !isCreating ? [{ label: selectedItem.revoke_assignment ? "Revoked" : "Active", color: selectedItem.revoke_assignment ? ("error" as const) : ("success" as const) }] : []}
+      />
+      <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
+        isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
+        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={() => baseCancel(filtered)} onEdit={handleStartEdit}
+      />
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!selectedItem && !isCreating ? (
+          <EmptyState message="Select an assignment from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={3} showHeader={false} showToolbar={false} />
+        ) : (
+          <>
+            <FormSection title="Assignment Details" columns={2}>
+              <TextField label="Employee ID" size="small" value={formData.employee_id} onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })} disabled={isDisabled} required />
+              <TextField label="Asset ID" size="small" type="number" value={formData.asset_id || ""} onChange={(e) => setFormData({ ...formData, asset_id: Number(e.target.value) })} disabled={isDisabled} required />
+              <Box sx={{ gridColumn: "1 / -1" }}>
+                <TextField label="Assignment Reason" size="small" value={formData.assign_reason || ""} onChange={(e) => setFormData({ ...formData, assign_reason: e.target.value })} disabled={isDisabled} fullWidth multiline rows={2} />
+              </Box>
+              <FormControlLabel
+                control={<Switch checked={formData.revoke_assignment} onChange={(e) => setFormData({ ...formData, revoke_assignment: e.target.checked })} disabled={isDisabled} />}
+                label="Revoke Assignment"
+              />
+            </FormSection>
+            {selectedItem && !isCreating && !isEditing && (
+              <FormSection title="Record Info" columns={2}>
+                <Box><Typography variant="caption" color="text.secondary">Created</Typography><Typography variant="body2">{formatDateTimeReadable(selectedItem.created_at) || "-"}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">Last Modified</Typography><Typography variant="body2">{formatDateTimeReadable(selectedItem.updated_at) || "-"}</Typography></Box>
+              </FormSection>
+            )}
+          </>
+        )}
+      </Box>
+    </Box>
+  );
 
   return (
-    <Box>
-      <TPageHeader
-        title="Employee Asset Assignments"
-        actions={
-          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
-            New Assignment
-          </TButton>
-        }
-      />
-
-      <Paper sx={{ height: 600 }}>
-        <DataGrid
-          rows={assets || []}
-          columns={columns}
-          loading={isLoading}
-          pageSizeOptions={[10, 25, 50, 100]}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 25 } },
-          }}
-        />
-      </Paper>
-
-      <TFormDialog
-        open={openDialog}
-        onClose={handleClose}
-        title={editingId ? "Edit Asset Assignment" : "New Asset Assignment"}
-        onSubmit={handleSubmit(onSubmit)}
-        submitText={editingId ? "Update" : "Create"}
-        isSubmitting={createMutation.isPending || updateMutation.isPending}
-        maxWidth="sm"
-      >
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <TFormField
-            name="employee_id"
-            control={control}
-            label="Employee ID"
-            required
-            rules={{ required: "Employee ID is required" }}
-          />
-          <TFormField
-            name="asset_id"
-            control={control}
-            label="Asset ID"
-            fieldType="number"
-            required
-            rules={{ required: "Asset ID is required", min: { value: 1, message: "Must be at least 1" } }}
-          />
-          <TFormField
-            name="assign_reason"
-            control={control}
-            label="Assignment Reason"
-            fieldType="textarea"
-            rows={3}
-          />
-          <TFormField
-            name="revoke_assignment"
-            control={control}
-            label="Revoke Assignment"
-            fieldType="checkbox"
-          />
-        </Box>
-      </TFormDialog>
-
-      <TConfirmDialog {...dialogProps} />
-    </Box>
+    <>
+      <MasterDetailLayout title="Employee Assets" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

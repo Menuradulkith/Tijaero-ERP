@@ -1,315 +1,293 @@
+/**
+ * PayrollPage — Master/Detail layout for employee payroll records.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Box, Chip, TextField, Typography } from "@mui/material";
+import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
+
 import {
-  showErrorToast,
-  showSuccessToast,
-  TButton,
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  SortOption,
   TConfirmDialog,
-  TCurrency,
-  TFormDialog,
-  TFormField,
-  TIconButton,
-  TPageHeader,
+  TDetailSkeleton,
   TPrintButton,
   TPrintPreviewDialog,
-  useTConfirmDialog
+  fmtLKR,
+  handleApiError,
+  showErrorToast,
+  showSuccessToast,
+  useMasterDetailState,
+  useTConfirmDialog,
 } from "@/components/tijaero";
-import { formatDateTime } from "@/utils/formatters";
+import { usePermission } from "@/auth/permissions";
 import { payrollApi } from "@/modules/hr/api";
-import { EmployeePayrollCreate } from "@/modules/hr/types";
-import {
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-} from "@mui/icons-material";
-import { Box, Paper } from "@mui/material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { formatDateTimeReadable } from "@/utils/formatters";
+import type { EmployeePayroll, EmployeePayrollCreate } from "@/modules/hr/types";
+
+const SORT_OPTIONS: SortOption[] = [
+  { value: "created_desc", label: "Date (Newest)" },
+  { value: "employee_id", label: "Employee ID" },
+  { value: "net_salary_desc", label: "Net Salary (Highest)" },
+];
+
+const INITIAL_FORM: EmployeePayrollCreate = {
+  employee_id: "",
+  basic_salary: 0,
+  add_1_name: "",
+  add_1_value: 0,
+  add_2_name: "",
+  add_2_value: 0,
+  add_sales_commision: 0,
+  less_epf_employee: 0,
+  less_etf_employee: 0,
+  less_stamp_duty: 0,
+  epf_employer: 0,
+  etf_employer: 0,
+};
 
 export default function PayrollPage() {
-  const queryClient = useQueryClient();
-  const [openDialog, setOpenDialog] = useState(false);
+  const qc = useQueryClient();
+  const canCreate = usePermission("hr", "create");
+  const canUpdate = usePermission("hr", "update");
+  const canDelete = usePermission("hr", "delete");
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const { dialogProps, confirm } = useTConfirmDialog();
 
-  const { data: payrolls, isLoading } = useQuery({
+  const {
+    searchQuery, setSearchQuery,
+    sortField, setSortField,
+    selectedItem, isEditing, isCreating,
+    setIsCreating, setIsEditing,
+    formData, setFormData,
+    handleSelectItem, handleNew, handleCancel: baseCancel, handleStartEdit,
+  } = useMasterDetailState<EmployeePayroll, EmployeePayrollCreate>({
+    initialFormData: INITIAL_FORM,
+    resetFormFromItem: (p) => ({
+      employee_id: p.employee_id,
+      basic_salary: p.basic_salary,
+      add_1_name: p.add_1_name || "",
+      add_1_value: p.add_1_value || 0,
+      add_2_name: p.add_2_name || "",
+      add_2_value: p.add_2_value || 0,
+      add_sales_commision: p.add_sales_commision || 0,
+      less_epf_employee: p.less_epf_employee || 0,
+      less_etf_employee: p.less_etf_employee || 0,
+      less_stamp_duty: p.less_stamp_duty || 0,
+      epf_employer: p.epf_employer || 0,
+      etf_employer: p.etf_employer || 0,
+    }),
+    defaultSortField: "created_desc",
+  });
+
+  const { data: payrolls, isLoading, refetch } = useQuery({
     queryKey: ["payroll"],
     queryFn: () => payrollApi.getAll(),
   });
 
-  const { control, handleSubmit, reset } = useForm<EmployeePayrollCreate>({
-    defaultValues: {
-      employee_id: "",
-      basic_salary: 0,
-      add_1_name: "",
-      add_1_value: 0,
-      add_2_name: "",
-      add_2_value: 0,
-      add_sales_commision: 0,
-      less_epf_employee: 0,
-      less_etf_employee: 0,
-      less_stamp_duty: 0,
-      epf_employer: 0,
-      etf_employer: 0,
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: payrollApi.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll"] });
-      showSuccessToast("Payroll record created successfully");
-      setOpenDialog(false);
-      reset();
-    },
-    onError: () => {
-      showErrorToast("Failed to create payroll record");
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: EmployeePayrollCreate }) =>
-      payrollApi.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll"] });
-      showSuccessToast("Payroll record updated successfully");
-      setOpenDialog(false);
-      setEditingId(null);
-      reset();
-    },
-    onError: () => {
-      showErrorToast("Failed to update payroll record");
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: payrollApi.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll"] });
-      showSuccessToast("Payroll record deleted successfully");
-    },
-    onError: () => {
-      showErrorToast("Failed to delete payroll record");
-    },
-  });
-
-  const handleDelete = async (id: number) => {
-    const confirmed = await confirm({
-      title: "Delete Record",
-      message: "Are you sure you want to delete this record?",
-      confirmText: "Delete",
-      danger: true,
+  const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    let list = (payrolls || []).filter(
+      (p) => !q || p.employee_id.toLowerCase().includes(q) || (p.employee_name || "").toLowerCase().includes(q) || (p.payroll_batch_no || "").toLowerCase().includes(q)
+    );
+    list.sort((a, b) => {
+      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
+      if (sortField === "net_salary_desc") return (b.net_salary || 0) - (a.net_salary || 0);
+      return (b.created_at || "").localeCompare(a.created_at || "");
     });
-    if (confirmed) {
-      deleteMutation.mutate(id);
+    return list;
+  }, [payrolls, searchQuery, sortField]);
+
+  useEffect(() => {
+    if (filtered.length > 0 && !selectedItem && !isCreating) handleSelectItem(filtered[0]);
+  }, [filtered, selectedItem, isCreating, handleSelectItem]);
+
+  const createMut = useMutation({
+    mutationFn: (d: EmployeePayrollCreate) => payrollApi.create(d),
+    onSuccess: (rec) => {
+      qc.invalidateQueries({ queryKey: ["payroll"] });
+      showSuccessToast("Payroll record created");
+      setIsCreating(false); setIsEditing(false);
+      setTimeout(() => handleSelectItem(rec), 0);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to create payroll record")),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: EmployeePayrollCreate }) => payrollApi.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payroll"] });
+      showSuccessToast("Payroll record updated");
+      setIsEditing(false);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to update payroll record")),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => payrollApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payroll"] });
+      showSuccessToast("Payroll record deleted");
+      baseCancel(filtered);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to delete payroll record")),
+  });
+
+  const confirmDialog = useTConfirmDialog();
+
+  const handleSave = useCallback(() => {
+    if (isCreating) createMut.mutate(formData);
+    else if (selectedItem) updateMut.mutate({ id: selectedItem.id, data: formData });
+  }, [isCreating, selectedItem, formData, createMut, updateMut]);
+
+  const handleDelete = useCallback(async () => {
+    if (!selectedItem) return;
+    const ok = await confirmDialog.confirm({ title: "Delete Payroll", message: "Delete this payroll record?", confirmText: "Delete", confirmColor: "error" });
+    if (ok) deleteMut.mutate(selectedItem.id);
+  }, [selectedItem, deleteMut, confirmDialog]);
+
+  const isFormValid = !!formData.employee_id && formData.basic_salary > 0;
+  const isSaving = createMut.isPending || updateMut.isPending;
+  const isDisabled = !isEditing && !isCreating;
+
+  const statusColor = (s?: string): "success" | "warning" | "error" | "default" => {
+    switch (s) {
+      case "approved": case "paid": return "success";
+      case "pending_approval": case "draft": return "warning";
+      case "rejected": return "error";
+      default: return "default";
     }
   };
 
-  const columns: GridColDef[] = [
-    { field: "id", headerName: "ID", width: 70 },
-    { field: "employee_id", headerName: "Employee ID", width: 130 },
-    {
-      field: "basic_salary",
-      headerName: "Basic Salary",
-      width: 130,
-      renderCell: (params) => <TCurrency value={params.value} />,
-    },
-    {
-      field: "add_sales_commision",
-      headerName: "Commission",
-      width: 120,
-      renderCell: (params) => params.value ? <TCurrency value={params.value} /> : "-",
-    },
-    {
-      field: "less_epf_employee",
-      headerName: "EPF (Employee)",
-      width: 130,
-      renderCell: (params) => params.value ? <TCurrency value={params.value} /> : "-",
-    },
-    {
-      field: "epf_employer",
-      headerName: "EPF (Employer)",
-      width: 130,
-      renderCell: (params) => params.value ? <TCurrency value={params.value} /> : "-",
-    },
-    {
-      field: "created_at",
-      headerName: "Created",
-      width: 160,
-      valueFormatter: (value) => formatDateTime(value) || "-",
-    },
-    {
-      field: "updated_at",
-      headerName: "Modified",
-      width: 160,
-      valueFormatter: (value) => formatDateTime(value) || "-",
-    },
-    {
-      field: "actions",
-      headerName: "Actions",
-      width: 120,
-      sortable: false,
-      renderCell: (params) => (
-        <Box sx={{ display: "flex", gap: 0.5 }}>
-          <TIconButton
-            size="small"
-            color="primary"
-            tooltip="Edit"
-            onClick={() => {
-              setEditingId(params.row.id);
-              reset(params.row);
-              setOpenDialog(true);
-            }}
-          >
-            <EditIcon />
-          </TIconButton>
-          <TIconButton
-            size="small"
-            color="danger"
-            tooltip="Delete"
-            onClick={() => handleDelete(params.row.id)}
-          >
-            <DeleteIcon />
-          </TIconButton>
-        </Box>
-      ),
-    },
-  ];
+  const masterPanel = (
+    <SearchableList<EmployeePayroll>
+      items={filtered}
+      isLoading={isLoading}
+      searchValue={searchQuery}
+      onSearchChange={setSearchQuery}
+      searchPlaceholder="Search payroll records..."
+      sortOptions={SORT_OPTIONS}
+      currentSort={sortField}
+      onSortChange={setSortField}
+      selectedItem={selectedItem}
+      onSelectItem={handleSelectItem}
+      emptyMessage="No payroll records found"
+      renderItem={(p, isSelected) => (
+        <SelectableListItem
+          key={p.id}
+          id={p.id}
+          isSelected={isSelected}
+          onClick={() => handleSelectItem(p)}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{p.employee_name || p.employee_id}</span>
+                {p.status && (
+                  <Chip label={p.status.replace("_", " ")} size="small" color={statusColor(p.status) as any} sx={{ height: 18, fontSize: "0.65rem", textTransform: "capitalize" }} />
+                )}
+              </Box>
+              <Typography component="span" variant="caption" fontWeight={600} sx={{ color: isSelected ? "inherit" : "success.main" }}>
+                Net: {fmtLKR(p.net_salary || p.basic_salary)}
+              </Typography>
+            </Box>
+          }
+          secondaryText={
+            !isSelected
+              ? `${p.payroll_batch_no || p.employee_id}${p.payroll_month ? ` • ${p.payroll_month}/${p.payroll_year}` : ""}`
+              : undefined
+          }
+        />
+      )}
+    />
+  );
 
-  const onSubmit = (data: EmployeePayrollCreate) => {
-    if (editingId) {
-      updateMutation.mutate({ id: editingId, data });
-    } else {
-      createMutation.mutate(data);
-    }
-  };
-
-  const handleClose = () => {
-    setOpenDialog(false);
-    setEditingId(null);
-  };
-
-  const handleAdd = () => {
-    setEditingId(null);
-    reset({
-      employee_id: "",
-      basic_salary: 0,
-    });
-    setOpenDialog(true);
-  };
-
-  return (
-    <Box>
-      <TPageHeader
-        title="Employee Payroll"
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[{ label: "HR", href: "/hr" }, { label: "Payroll", href: "/hr/payroll" },
+          ...(selectedItem || isCreating ? [{ label: isCreating ? "New Record" : selectedItem?.employee_id || "" }] : [])]}
+        title={selectedItem ? `${selectedItem.employee_name || selectedItem.employee_id}` : ""}
+        titleIcon={<AccountBalanceIcon color="primary" />}
+        isCreating={isCreating} createTitle="New Payroll Record" noSelectionTitle="Select a Payroll Record"
+        chips={selectedItem && !isCreating && selectedItem.status ? [{ label: selectedItem.status.replace("_", " "), color: statusColor(selectedItem.status) }] : []}
         actions={
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <TPrintButton
-              documentType="payroll"
-              documentId={0}
-              tooltip="Print Payroll Report"
-              onClick={() => setPrintDialogOpen(true)}
-            />
-            <TButton startIcon={<AddIcon />} onClick={handleAdd}>
-              New Payroll
-            </TButton>
-          </Box>
+          !isCreating && !isEditing ? (
+            <TPrintButton documentType="payroll" documentId={selectedItem?.id || 0} tooltip="Print Payslip" onClick={() => setPrintDialogOpen(true)} />
+          ) : undefined
         }
       />
-
-      <Paper sx={{ height: 600 }}>
-        <DataGrid
-          rows={payrolls || []}
-          columns={columns}
-          loading={isLoading}
-          pageSizeOptions={[10, 25, 50, 100]}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 10 } },
-          }}
-        />
-      </Paper>
-
-      <TFormDialog
-        open={openDialog}
-        onClose={handleClose}
-        title={editingId ? "Edit Payroll Record" : "New Payroll Record"}
-        onSubmit={handleSubmit(onSubmit)}
-        submitText={editingId ? "Update" : "Create"}
-        isSubmitting={createMutation.isPending || updateMutation.isPending}
-        maxWidth="md"
-      >
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <TFormField
-            name="employee_id"
-            control={control}
-            label="Employee ID"
-            required
-            rules={{ required: "Employee ID is required" }}
-          />
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-            <TFormField
-              name="basic_salary"
-              control={control}
-              label="Basic Salary"
-              fieldType="number"
-              required
-              rules={{ required: "Basic salary is required", min: { value: 0, message: "Must be at least 0" } }}
-            />
-            <TFormField
-              name="add_sales_commision"
-              control={control}
-              label="Sales Commission"
-              fieldType="number"
-            />
-            <TFormField
-              name="add_1_name"
-              control={control}
-              label="Addition 1 Name"
-            />
-            <TFormField
-              name="add_1_value"
-              control={control}
-              label="Addition 1 Value"
-              fieldType="number"
-            />
-            <TFormField
-              name="less_epf_employee"
-              control={control}
-              label="EPF (Employee)"
-              fieldType="number"
-            />
-            <TFormField
-              name="epf_employer"
-              control={control}
-              label="EPF (Employer)"
-              fieldType="number"
-            />
-            <TFormField
-              name="less_etf_employee"
-              control={control}
-              label="ETF (Employee)"
-              fieldType="number"
-            />
-            <TFormField
-              name="less_stamp_duty"
-              control={control}
-              label="Stamp Duty"
-              fieldType="number"
-            />
-          </Box>
-        </Box>
-      </TFormDialog>
-
-      <TConfirmDialog {...dialogProps} />
-
-      <TPrintPreviewDialog
-        open={printDialogOpen}
-        onClose={() => setPrintDialogOpen(false)}
-        documentType="payroll"
-        documentId={0}
-        title="Payroll Report"
+      <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
+        isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
+        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={() => baseCancel(filtered)} onEdit={handleStartEdit}
       />
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!selectedItem && !isCreating ? (
+          <EmptyState message="Select a payroll record from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={3} fieldsPerSection={4} showHeader={false} showToolbar={false} />
+        ) : (
+          <>
+            <FormSection title="Employee & Earnings" columns={2}>
+              <TextField label="Employee ID" size="small" value={formData.employee_id} onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })} disabled={isDisabled} required />
+              <TextField label="Basic Salary" size="small" type="number" value={formData.basic_salary || ""} onChange={(e) => setFormData({ ...formData, basic_salary: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} />
+              <TextField label="Sales Commission" size="small" type="number" value={formData.add_sales_commision || ""} onChange={(e) => setFormData({ ...formData, add_sales_commision: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+              <Box />
+              <TextField label="Addition 1 Name" size="small" value={formData.add_1_name || ""} onChange={(e) => setFormData({ ...formData, add_1_name: e.target.value })} disabled={isDisabled} />
+              <TextField label="Addition 1 Value" size="small" type="number" value={formData.add_1_value || ""} onChange={(e) => setFormData({ ...formData, add_1_value: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+            </FormSection>
+
+            <FormSection title="Deductions & Statutory" columns={2}>
+              <TextField label="EPF (Employee)" size="small" type="number" value={formData.less_epf_employee || ""} onChange={(e) => setFormData({ ...formData, less_epf_employee: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+              <TextField label="EPF (Employer)" size="small" type="number" value={formData.epf_employer || ""} onChange={(e) => setFormData({ ...formData, epf_employer: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+              <TextField label="ETF (Employee)" size="small" type="number" value={formData.less_etf_employee || ""} onChange={(e) => setFormData({ ...formData, less_etf_employee: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+              <TextField label="ETF (Employer)" size="small" type="number" value={formData.etf_employer || ""} onChange={(e) => setFormData({ ...formData, etf_employer: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+              <TextField label="Stamp Duty" size="small" type="number" value={formData.less_stamp_duty || ""} onChange={(e) => setFormData({ ...formData, less_stamp_duty: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+            </FormSection>
+
+            {selectedItem && !isCreating && !isEditing && selectedItem.net_salary != null && (
+              <FormSection title="Summary" columns={3}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Gross Salary</Typography>
+                  <Typography variant="body2" fontWeight={600}>{fmtLKR(selectedItem.gross_salary || 0)}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Total Deductions</Typography>
+                  <Typography variant="body2" fontWeight={600} color="error.main">{fmtLKR(selectedItem.total_deductions || 0)}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Net Salary</Typography>
+                  <Typography variant="h6" fontWeight={700} color="success.main">{fmtLKR(selectedItem.net_salary || 0)}</Typography>
+                </Box>
+              </FormSection>
+            )}
+
+            {selectedItem && !isCreating && !isEditing && (
+              <FormSection title="Record Info" columns={2}>
+                <Box><Typography variant="caption" color="text.secondary">Created</Typography><Typography variant="body2">{formatDateTimeReadable(selectedItem.created_at) || "-"}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">Period</Typography><Typography variant="body2">{selectedItem.payroll_month && selectedItem.payroll_year ? `${selectedItem.payroll_month}/${selectedItem.payroll_year}` : "-"}</Typography></Box>
+              </FormSection>
+            )}
+          </>
+        )}
+      </Box>
+
+      <TPrintPreviewDialog open={printDialogOpen} onClose={() => setPrintDialogOpen(false)} documentType="payroll" documentId={selectedItem?.id || 0} title="Payslip" />
     </Box>
+  );
+
+  return (
+    <>
+      <MasterDetailLayout title="Employee Payroll" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
+        headerActions={
+          <TPrintButton documentType="payroll" documentId={0} tooltip="Print Payroll Report" onClick={() => setPrintDialogOpen(true)} />
+        }
+      />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

@@ -280,6 +280,23 @@ def seed_permissions():
         {"name": "create_hr_assets", "resource": "hr_assets", "action": "create", "description": "Create HR company assets"},
         {"name": "update_hr_assets", "resource": "hr_assets", "action": "update", "description": "Update HR company assets"},
         {"name": "delete_hr_assets", "resource": "hr_assets", "action": "delete", "description": "Delete HR company assets"},
+        # Attendance
+        {"name": "view_attendance", "resource": "attendance", "action": "view", "description": "View attendance"},
+        {"name": "create_attendance", "resource": "attendance", "action": "create", "description": "Mark / create attendance"},
+        {"name": "update_attendance", "resource": "attendance", "action": "update", "description": "Update attendance"},
+        {"name": "delete_attendance", "resource": "attendance", "action": "delete", "description": "Delete attendance"},
+        # Leaves
+        {"name": "view_leaves", "resource": "leaves", "action": "view", "description": "View leaves"},
+        {"name": "create_leaves", "resource": "leaves", "action": "create", "description": "Create leaves"},
+        {"name": "update_leaves", "resource": "leaves", "action": "update", "description": "Update leaves"},
+        {"name": "delete_leaves", "resource": "leaves", "action": "delete", "description": "Delete leaves"},
+        {"name": "view_leave_approvals", "resource": "leave_approvals", "action": "view", "description": "View leave approvals"},
+        {"name": "approve_leave_approvals", "resource": "leave_approvals", "action": "approve", "description": "Approve / reject leaves"},
+        # Employees master
+        {"name": "view_employees", "resource": "employees", "action": "view", "description": "View employee master"},
+        {"name": "create_employees", "resource": "employees", "action": "create", "description": "Create employees"},
+        {"name": "update_employees", "resource": "employees", "action": "update", "description": "Update employees"},
+        {"name": "delete_employees", "resource": "employees", "action": "delete", "description": "Delete employees"},
 
         # ══════════════════════════════════════════════════════════════
         # WAREHOUSE — per sub-page
@@ -572,6 +589,11 @@ def seed_permissions():
                 "view_reimbursement_approvals", "approve_reimbursement_approvals",
                 "view_promotions", "create_promotions", "update_promotions", "delete_promotions",
                 "view_hr_assets", "create_hr_assets", "update_hr_assets", "delete_hr_assets",
+                # Attendance / Leaves / Employees
+                "view_attendance", "create_attendance", "update_attendance", "delete_attendance",
+                "view_leaves", "create_leaves", "update_leaves", "delete_leaves",
+                "view_leave_approvals", "approve_leave_approvals",
+                "view_employees", "create_employees", "update_employees", "delete_employees",
                 # Cross-module
                 "view_users",
                 "view_reporting_dashboard", "view_reporting_hr", "generate_reporting_hr",
@@ -690,6 +712,7 @@ def seed_permissions():
                 "view_payroll", "view_payroll_processing", "view_payroll_approvals",
                 "view_hr_sales_commissions", "view_reimbursements", "view_reimbursement_approvals",
                 "view_promotions", "view_hr_assets",
+                "view_attendance", "view_leaves", "view_leave_approvals", "view_employees",
                 # Warehouse
                 "view_sales_stock", "view_warehouse_sales_track",
                 "view_item_transfer_notes", "view_itn_approvals",

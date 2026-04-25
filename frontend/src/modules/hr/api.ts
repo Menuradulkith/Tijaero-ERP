@@ -33,6 +33,19 @@ import {
   CommissionDashboardStats,
   SalesSummaryFilter,
   SalesCommissionFilter,
+  Attendance,
+  AttendanceCreate,
+  AttendanceCheckIn,
+  AttendanceCheckOut,
+  AttendanceSummary,
+  Leave,
+  LeaveCreate,
+  LeaveApprove,
+  LeaveReject,
+  LeaveBalance,
+  Employee,
+  EmployeeCreate,
+  EmployeeUpdate,
 } from "./types";
 
 // Salary Deductions API
@@ -530,5 +543,141 @@ export const salesCommissionApi = {
       "/hr/sales-commissions/dashboard/stats"
     );
     return response.data;
+  },
+};
+
+// Append handled by editor
+
+// ─── Attendance API ────────────────────────────────────────────────────────────
+export const attendanceApi = {
+  getAll: async (params?: {
+    employee_id?: string;
+    branch_code?: string;
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<Attendance[]>("/hr/attendance", { params });
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<Attendance>(`/hr/attendance/${id}`);
+    return response.data;
+  },
+
+  create: async (data: AttendanceCreate) => {
+    const response = await apiClient.post<Attendance>("/hr/attendance", data);
+    return response.data;
+  },
+
+  update: async (id: number, data: Partial<AttendanceCreate>) => {
+    const response = await apiClient.put<Attendance>(`/hr/attendance/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/hr/attendance/${id}`);
+  },
+
+  checkIn: async (data: AttendanceCheckIn) => {
+    const response = await apiClient.post<Attendance>("/hr/attendance/check-in", data);
+    return response.data;
+  },
+
+  checkOut: async (data: AttendanceCheckOut) => {
+    const response = await apiClient.post<Attendance>("/hr/attendance/check-out", data);
+    return response.data;
+  },
+
+  summary: async (params: {
+    date_from: string;
+    date_to: string;
+    employee_id?: string;
+    branch_code?: string;
+  }) => {
+    const response = await apiClient.get<AttendanceSummary>("/hr/attendance/summary", { params });
+    return response.data;
+  },
+};
+
+// ─── Leaves API ────────────────────────────────────────────────────────────────
+export const leavesApi = {
+  getAll: async (params?: {
+    employee_id?: string;
+    leave_type?: string;
+    status?: string;
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<Leave[]>("/hr/leaves", { params });
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<Leave>(`/hr/leaves/${id}`);
+    return response.data;
+  },
+
+  create: async (data: LeaveCreate) => {
+    const response = await apiClient.post<Leave>("/hr/leaves", data);
+    return response.data;
+  },
+
+  update: async (id: number, data: Partial<LeaveCreate>) => {
+    const response = await apiClient.put<Leave>(`/hr/leaves/${id}`, data);
+    return response.data;
+  },
+
+  approve: async (id: number, data: LeaveApprove) => {
+    const response = await apiClient.post<Leave>(`/hr/leaves/${id}/approve`, data);
+    return response.data;
+  },
+
+  reject: async (id: number, data: LeaveReject) => {
+    const response = await apiClient.post<Leave>(`/hr/leaves/${id}/reject`, data);
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/hr/leaves/${id}`);
+  },
+
+  balance: async (employee_id: string, year?: number) => {
+    const response = await apiClient.get<LeaveBalance>(
+      `/hr/leaves/balance/${employee_id}`,
+      { params: year ? { year } : undefined }
+    );
+    return response.data;
+  },
+};
+
+// ─── Employees Master API ──────────────────────────────────────────────────────
+export const employeesApi = {
+  getAll: async (params?: { skip?: number; limit?: number }) => {
+    const response = await apiClient.get<Employee[]>("/employees/", { params });
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<Employee>(`/employees/${id}`);
+    return response.data;
+  },
+
+  create: async (data: EmployeeCreate) => {
+    const response = await apiClient.post<Employee>("/employees/", data);
+    return response.data;
+  },
+
+  update: async (id: number, data: EmployeeUpdate) => {
+    const response = await apiClient.put<Employee>(`/employees/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/employees/${id}`);
   },
 };

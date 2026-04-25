@@ -28,10 +28,24 @@ import {
   Person as ProfileIcon,
   Assessment as SummaryIcon,
   CheckCircle as ApproveIcon,
+  Group as EmployeesIcon,
+  EventAvailable as LeaveIcon,
+  AccessTime as AttendanceIcon,
 } from "@mui/icons-material";
 
 import { TPageHeader, TStatCard, TStatusChip, TChip } from "@/components/tijaero";
-import { payrollBatchApi, salaryProfilesApi, promotionsApi, reimbursementsApi, salaryDeductionsApi, employeeAssetsApi } from "@/modules/hr/api";
+import { KpiSparkCard } from "@/components/dashboard";
+import {
+  payrollBatchApi,
+  salaryProfilesApi,
+  promotionsApi,
+  reimbursementsApi,
+  salaryDeductionsApi,
+  employeeAssetsApi,
+  employeesApi,
+  attendanceApi,
+  leavesApi,
+} from "@/modules/hr/api";
 import type { PayrollBatch, Reimbursement } from "@/modules/hr/types";
 
 // ─── Recent Item Component ──────────────────────────────────────────────────
@@ -97,6 +111,22 @@ export default function HRDashboard() {
     queryFn: () => employeeAssetsApi.getAll(),
   });
 
+  const { data: hrEmployees } = useQuery({
+    queryKey: ["hr-employees-count"],
+    queryFn: () => employeesApi.getAll({ limit: 500 }),
+  });
+
+  const today = new Date().toISOString().split("T")[0];
+  const { data: todayAttendance } = useQuery({
+    queryKey: ["attendance-today", today],
+    queryFn: () => attendanceApi.getAll({ date_from: today, date_to: today, limit: 500 }),
+  });
+
+  const { data: pendingLeaves } = useQuery({
+    queryKey: ["leaves-pending-count"],
+    queryFn: () => leavesApi.getAll({ status: "pending", limit: 200 }),
+  });
+
   // Stats
   const stats = useMemo(() => {
     const totalProfiles = profiles?.length || 0;
@@ -109,9 +139,34 @@ export default function HRDashboard() {
     const totalDeductions = deductions?.length || 0;
     const totalPromotions = promotions?.length || 0;
     const activeAssets = (assets || []).filter((a: any) => !a.revoke_assignment).length;
+    const totalEmployees = hrEmployees?.length || 0;
+    const presentToday = (todayAttendance || []).filter(
+      (a) => a.status === "present" || a.status === "late"
+    ).length;
+    const pendingLeavesCount = pendingLeaves?.length || 0;
 
-    return { totalProfiles, pendingBatches, pendingReimbursements, totalDeductions, totalPromotions, activeAssets };
-  }, [batches, profiles, reimbursements, deductions, promotions, assets]);
+    return {
+      totalProfiles,
+      pendingBatches,
+      pendingReimbursements,
+      totalDeductions,
+      totalPromotions,
+      activeAssets,
+      totalEmployees,
+      presentToday,
+      pendingLeavesCount,
+    };
+  }, [
+    batches,
+    profiles,
+    reimbursements,
+    deductions,
+    promotions,
+    assets,
+    hrEmployees,
+    todayAttendance,
+    pendingLeaves,
+  ]);
 
   // Recent payroll batches
   const recentBatches = useMemo(() => {
@@ -132,72 +187,103 @@ export default function HRDashboard() {
   }, [reimbursements]);
 
   return (
-    <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
-      <TPageHeader
-        title="Human Resources"
-        subtitle="Manage payroll, promotions, reimbursements, and employee records"
-      />
+    <Box
+      sx={{
+        p: { xs: 1.5, md: 2.5 },
+        height: "100%",
+        overflow: "auto",
+        background: "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
+      }}
+    >
+      {/* Header */}
+      <Box sx={{ mb: 2.5 }}>
+        <Typography variant="h5" fontWeight={700}>Human Resources</Typography>
+        <Typography variant="caption" color="text.secondary">
+          Manage payroll, promotions, reimbursements and employee records
+        </Typography>
+      </Box>
 
       {/* Stats Row */}
-      <Grid container spacing={3} mb={4}>
+      <Grid container spacing={2.5} mb={3}>
         <Grid item xs={12} sm={6} md={4} lg={2}>
-          <TStatCard
+          <KpiSparkCard
+            title="Employees"
+            value={stats.totalEmployees}
+            icon={<EmployeesIcon />}
+            color="primary"
+            onClick={() => navigate("/hr/employees")}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={4} lg={2}>
+          <KpiSparkCard
+            title="Present Today"
+            value={stats.presentToday}
+            icon={<AttendanceIcon />}
+            color="success"
+            onClick={() => navigate("/hr/attendance")}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={4} lg={2}>
+          <KpiSparkCard
+            title="Pending Leaves"
+            value={stats.pendingLeavesCount}
+            icon={<LeaveIcon />}
+            color="warning"
+            onClick={() => navigate("/hr/leave-approvals")}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={4} lg={2}>
+          <KpiSparkCard
             title="Salary Profiles"
             value={stats.totalProfiles}
             icon={<ProfileIcon />}
             color="primary"
             onClick={() => navigate("/hr/salary-profiles")}
-            loading={profilesLoading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={4} lg={2}>
-          <TStatCard
+          <KpiSparkCard
             title="Pending Batches"
             value={stats.pendingBatches}
             icon={<PayrollIcon />}
             color="warning"
             onClick={() => navigate("/hr/payroll-processing")}
-            loading={batchesLoading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={4} lg={2}>
-          <TStatCard
-            title="Pending Reimbursements"
+          <KpiSparkCard
+            title="Pending Reimb."
             value={stats.pendingReimbursements}
             icon={<ReimbursementIcon />}
             color="info"
             onClick={() => navigate("/hr/reimbursements")}
-            loading={reimbursementsLoading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={4} lg={2}>
-          <TStatCard
+          <KpiSparkCard
             title="Deductions"
             value={stats.totalDeductions}
             icon={<DeductionIcon />}
             color="error"
             onClick={() => navigate("/hr/deductions")}
-            loading={deductionsLoading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={4} lg={2}>
-          <TStatCard
+          <KpiSparkCard
             title="Promotions"
             value={stats.totalPromotions}
             icon={<PromotionIcon />}
             color="success"
             onClick={() => navigate("/hr/promotions")}
-            loading={promotionsLoading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={4} lg={2}>
-          <TStatCard
+          <KpiSparkCard
             title="Active Assets"
             value={stats.activeAssets}
             icon={<AssetsIcon />}
             color="primary"
             onClick={() => navigate("/hr/assets")}
-            loading={assetsLoading}
           />
         </Grid>
       </Grid>
@@ -295,6 +381,57 @@ export default function HRDashboard() {
           Quick Actions
         </Typography>
         <Grid container spacing={2}>
+          <Grid item xs={6} sm={4} md={2}>
+            <Card
+              sx={{
+                cursor: "pointer",
+                textAlign: "center",
+                p: 2,
+                transition: "all 0.2s",
+                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+              }}
+              onClick={() => navigate("/hr/employees")}
+            >
+              <EmployeesIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="body2" fontWeight="500">
+                Employees
+              </Typography>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Card
+              sx={{
+                cursor: "pointer",
+                textAlign: "center",
+                p: 2,
+                transition: "all 0.2s",
+                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+              }}
+              onClick={() => navigate("/hr/attendance")}
+            >
+              <AttendanceIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="body2" fontWeight="500">
+                Attendance
+              </Typography>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Card
+              sx={{
+                cursor: "pointer",
+                textAlign: "center",
+                p: 2,
+                transition: "all 0.2s",
+                "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
+              }}
+              onClick={() => navigate("/hr/leaves")}
+            >
+              <LeaveIcon color="warning" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="body2" fontWeight="500">
+                Leaves
+              </Typography>
+            </Card>
+          </Grid>
           <Grid item xs={6} sm={4} md={2}>
             <Card
               sx={{

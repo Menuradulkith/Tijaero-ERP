@@ -1,243 +1,218 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Box, Paper } from "@mui/material";
+/**
+ * PromotionsPage — Master/Detail layout for employee promotions.
+ */
+import { useCallback, useEffect, useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Box, TextField, Typography } from "@mui/material";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import { format } from "date-fns";
+
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-} from "@mui/icons-material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { useForm } from "react-hook-form";
-import {
+  ActionToolbar,
+  DetailPanelHeader,
+  EmptyState,
+  FormSection,
+  MasterDetailLayout,
+  SearchableList,
+  SelectableListItem,
+  SortOption,
+  TConfirmDialog,
+  TDetailSkeleton,
   handleApiError,
   showErrorToast,
   showSuccessToast,
-  TButton,
-  TConfirmDialog,
-  TFormDialog,
-  TFormField,
-  TIconButton,
-  TPageHeader,
+  useMasterDetailState,
   useTConfirmDialog,
 } from "@/components/tijaero";
-import { formatDateTime } from "@/utils/formatters";
+import { usePermission } from "@/auth/permissions";
 import { promotionsApi } from "@/modules/hr/api";
-import { EmployeePromotionCreate } from "@/modules/hr/types";
+import { formatDateTimeReadable } from "@/utils/formatters";
+import type { EmployeePromotion, EmployeePromotionCreate } from "@/modules/hr/types";
+
+const SORT_OPTIONS: SortOption[] = [
+  { value: "appointed_desc", label: "Date (Newest)" },
+  { value: "employee_id", label: "Employee ID" },
+  { value: "designation", label: "Designation" },
+];
+
+const INITIAL_FORM: EmployeePromotionCreate = {
+  employee_id: "",
+  designation: "",
+  appointed_date: new Date().toISOString().split("T")[0],
+  remark: "",
+};
 
 export default function PromotionsPage() {
-  const queryClient = useQueryClient();
-  const [openDialog, setOpenDialog] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const { dialogProps, confirm } = useTConfirmDialog();
+  const qc = useQueryClient();
+  const canCreate = usePermission("hr", "create");
+  const canUpdate = usePermission("hr", "update");
+  const canDelete = usePermission("hr", "delete");
 
-  const { data: promotions, isLoading } = useQuery({
+  const {
+    searchQuery, setSearchQuery,
+    sortField, setSortField,
+    selectedItem, isEditing, isCreating,
+    setIsCreating, setIsEditing,
+    formData, setFormData,
+    handleSelectItem, handleNew, handleCancel: baseCancel, handleStartEdit,
+  } = useMasterDetailState<EmployeePromotion, EmployeePromotionCreate>({
+    initialFormData: INITIAL_FORM,
+    resetFormFromItem: (p) => ({
+      employee_id: p.employee_id,
+      designation: p.designation,
+      appointed_date: p.appointed_date,
+      remark: p.remark || "",
+    }),
+    defaultSortField: "appointed_desc",
+  });
+
+  const { data: promotions, isLoading, refetch } = useQuery({
     queryKey: ["promotions"],
     queryFn: () => promotionsApi.getAll(),
   });
 
-  const { control, handleSubmit, reset } = useForm<EmployeePromotionCreate>({
-    defaultValues: {
-      employee_id: "",
-      designation: "",
-      appointed_date: new Date().toISOString().split("T")[0],
-      remark: "",
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: promotionsApi.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["promotions"] });
-      showSuccessToast("Promotion created successfully");
-      handleClose();
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create promotion"));
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: EmployeePromotionCreate }) =>
-      promotionsApi.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["promotions"] });
-      showSuccessToast("Promotion updated successfully");
-      handleClose();
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to update promotion"));
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: promotionsApi.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["promotions"] });
-      showSuccessToast("Promotion deleted successfully");
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete promotion"));
-    },
-  });
-
-  const handleDelete = async (id: number) => {
-    const confirmed = await confirm({
-      title: "Delete Promotion",
-      message: "Are you sure you want to delete this promotion?",
-      confirmText: "Delete",
-      danger: true,
+  const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    let list = (promotions || []).filter(
+      (p) => !q || p.employee_id.toLowerCase().includes(q) || p.designation.toLowerCase().includes(q) || (p.remark || "").toLowerCase().includes(q)
+    );
+    list.sort((a, b) => {
+      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
+      if (sortField === "designation") return a.designation.localeCompare(b.designation);
+      return b.appointed_date.localeCompare(a.appointed_date);
     });
-    if (confirmed) {
-      deleteMutation.mutate(id);
-    }
-  };
+    return list;
+  }, [promotions, searchQuery, sortField]);
 
-  const columns: GridColDef[] = [
-    { field: "id", headerName: "ID", width: 70 },
-    { field: "employee_id", headerName: "Employee ID", width: 130 },
-    { field: "designation", headerName: "Designation", width: 200 },
-    {
-      field: "appointed_date",
-      headerName: "Appointed Date",
-      width: 150,
-      valueFormatter: (value) => new Date(value).toLocaleDateString(),
-    },
-    { field: "remark", headerName: "Remark", width: 250 },
-    {
-      field: "created_at",
-      headerName: "Created",
-      width: 160,
-      valueFormatter: (value) => formatDateTime(value) || "-",
-    },
-    {
-      field: "updated_at",
-      headerName: "Modified",
-      width: 160,
-      valueFormatter: (value) => formatDateTime(value) || "-",
-    },
-    {
-      field: "actions",
-      headerName: "Actions",
-      width: 120,
-      sortable: false,
-      renderCell: (params) => (
-        <Box sx={{ display: "flex", gap: 0.5 }}>
-          <TIconButton
-            size="small"
-            color="primary"
-            tooltip="Edit"
-            onClick={() => {
-              setEditingId(params.row.id);
-              reset(params.row);
-              setOpenDialog(true);
-            }}
-          >
-            <EditIcon />
-          </TIconButton>
-          <TIconButton
-            size="small"
-            color="danger"
-            tooltip="Delete"
-            onClick={() => handleDelete(params.row.id)}
-          >
-            <DeleteIcon />
-          </TIconButton>
-        </Box>
-      ),
-    },
-  ];
+  useEffect(() => {
+    if (filtered.length > 0 && !selectedItem && !isCreating) handleSelectItem(filtered[0]);
+  }, [filtered, selectedItem, isCreating, handleSelectItem]);
 
-  const onSubmit = (data: EmployeePromotionCreate) => {
-    if (editingId) {
-      updateMutation.mutate({ id: editingId, data });
-    } else {
-      createMutation.mutate(data);
-    }
-  };
+  const createMut = useMutation({
+    mutationFn: (d: EmployeePromotionCreate) => promotionsApi.create(d),
+    onSuccess: (rec) => {
+      qc.invalidateQueries({ queryKey: ["promotions"] });
+      showSuccessToast("Promotion created");
+      setIsCreating(false); setIsEditing(false);
+      setTimeout(() => handleSelectItem(rec), 0);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to create promotion")),
+  });
 
-  const handleClose = () => {
-    setOpenDialog(false);
-    setEditingId(null);
-    reset();
-  };
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: EmployeePromotionCreate }) => promotionsApi.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["promotions"] });
+      showSuccessToast("Promotion updated");
+      setIsEditing(false);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to update promotion")),
+  });
 
-  const handleAdd = () => {
-    setEditingId(null);
-    reset({
-      employee_id: "",
-      designation: "",
-      appointed_date: new Date().toISOString().split("T")[0],
-      remark: "",
-    });
-    setOpenDialog(true);
-  };
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => promotionsApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["promotions"] });
+      showSuccessToast("Promotion deleted");
+      baseCancel(filtered);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to delete promotion")),
+  });
+
+  const confirmDialog = useTConfirmDialog();
+
+  const handleSave = useCallback(() => {
+    if (isCreating) createMut.mutate(formData);
+    else if (selectedItem) updateMut.mutate({ id: selectedItem.id, data: formData });
+  }, [isCreating, selectedItem, formData, createMut, updateMut]);
+
+  const handleDelete = useCallback(async () => {
+    if (!selectedItem) return;
+    const ok = await confirmDialog.confirm({ title: "Delete Promotion", message: "Delete this promotion record?", confirmText: "Delete", confirmColor: "error" });
+    if (ok) deleteMut.mutate(selectedItem.id);
+  }, [selectedItem, deleteMut, confirmDialog]);
+
+  const isFormValid = !!formData.employee_id && !!formData.designation && !!formData.appointed_date;
+  const isSaving = createMut.isPending || updateMut.isPending;
+  const isDisabled = !isEditing && !isCreating;
+
+  const masterPanel = (
+    <SearchableList<EmployeePromotion>
+      items={filtered}
+      isLoading={isLoading}
+      searchValue={searchQuery}
+      onSearchChange={setSearchQuery}
+      searchPlaceholder="Search promotions..."
+      sortOptions={SORT_OPTIONS}
+      currentSort={sortField}
+      onSortChange={setSortField}
+      selectedItem={selectedItem}
+      onSelectItem={handleSelectItem}
+      emptyMessage="No promotions found"
+      renderItem={(p, isSelected) => (
+        <SelectableListItem
+          key={p.id}
+          id={p.id}
+          isSelected={isSelected}
+          onClick={() => handleSelectItem(p)}
+          primaryText={
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+              <span>{p.employee_id}</span>
+              <Typography component="span" variant="caption" sx={{ color: isSelected ? "inherit" : "text.secondary", fontWeight: 600 }}>
+                {p.designation}
+              </Typography>
+            </Box>
+          }
+          secondaryText={format(new Date(p.appointed_date), "MMM dd, yyyy")}
+        />
+      )}
+    />
+  );
+
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[{ label: "HR", href: "/hr" }, { label: "Promotions", href: "/hr/promotions" },
+          ...(selectedItem || isCreating ? [{ label: isCreating ? "New Promotion" : `#${selectedItem?.id}` }] : [])]}
+        title={selectedItem ? `${selectedItem.employee_id} → ${selectedItem.designation}` : ""}
+        titleIcon={<TrendingUpIcon color="primary" />}
+        isCreating={isCreating} createTitle="New Promotion" noSelectionTitle="Select a Promotion"
+      />
+      <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
+        isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
+        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={() => baseCancel(filtered)} onEdit={handleStartEdit}
+      />
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!selectedItem && !isCreating ? (
+          <EmptyState message="Select a promotion from the list or create a new one" />
+        ) : isLoading && !isCreating ? (
+          <TDetailSkeleton sections={2} fieldsPerSection={3} showHeader={false} showToolbar={false} />
+        ) : (
+          <>
+            <FormSection title="Promotion Details" columns={2}>
+              <TextField label="Employee ID" size="small" value={formData.employee_id} onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })} disabled={isDisabled} required />
+              <TextField label="Designation" size="small" value={formData.designation} onChange={(e) => setFormData({ ...formData, designation: e.target.value })} disabled={isDisabled} required />
+              <TextField label="Appointed Date" size="small" type="date" value={formData.appointed_date} onChange={(e) => setFormData({ ...formData, appointed_date: e.target.value })} disabled={isDisabled} InputLabelProps={{ shrink: true }} required />
+              <Box sx={{ gridColumn: "1 / -1" }}>
+                <TextField label="Remark" size="small" value={formData.remark || ""} onChange={(e) => setFormData({ ...formData, remark: e.target.value })} disabled={isDisabled} fullWidth multiline rows={3} />
+              </Box>
+            </FormSection>
+            {selectedItem && !isCreating && !isEditing && (
+              <FormSection title="Record Info" columns={2}>
+                <Box><Typography variant="caption" color="text.secondary">Created</Typography><Typography variant="body2">{formatDateTimeReadable(selectedItem.created_at) || "-"}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">Last Modified</Typography><Typography variant="body2">{formatDateTimeReadable(selectedItem.updated_at) || "-"}</Typography></Box>
+              </FormSection>
+            )}
+          </>
+        )}
+      </Box>
+    </Box>
+  );
 
   return (
-    <Box>
-      <TPageHeader
-        title="Employee Promotions"
-        actions={
-          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
-            New Promotion
-          </TButton>
-        }
-      />
-
-      <Paper sx={{ height: 600 }}>
-        <DataGrid
-          rows={promotions || []}
-          columns={columns}
-          loading={isLoading}
-          pageSizeOptions={[10, 25, 50, 100]}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 25 } },
-          }}
-        />
-      </Paper>
-
-      <TFormDialog
-        open={openDialog}
-        onClose={handleClose}
-        title={editingId ? "Edit Promotion" : "New Promotion"}
-        onSubmit={handleSubmit(onSubmit)}
-        submitText={editingId ? "Update" : "Create"}
-        isSubmitting={createMutation.isPending || updateMutation.isPending}
-        maxWidth="sm"
-      >
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <TFormField
-            name="employee_id"
-            control={control}
-            label="Employee ID"
-            required
-            rules={{ required: "Employee ID is required" }}
-          />
-          <TFormField
-            name="designation"
-            control={control}
-            label="Designation"
-            required
-            rules={{ required: "Designation is required" }}
-          />
-          <TFormField
-            name="appointed_date"
-            control={control}
-            label="Appointed Date"
-            fieldType="date"
-            required
-            rules={{ required: "Appointed date is required" }}
-          />
-          <TFormField
-            name="remark"
-            control={control}
-            label="Remark"
-            fieldType="textarea"
-            rows={3}
-          />
-        </Box>
-      </TFormDialog>
-
-      <TConfirmDialog {...dialogProps} />
-    </Box>
+    <>
+      <MasterDetailLayout title="Promotions" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel} />
+      <TConfirmDialog {...confirmDialog.dialogProps} />
+    </>
   );
 }

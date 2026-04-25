@@ -47,6 +47,7 @@ import {
   Cell,
 } from 'recharts';
 import { TPageHeader, TCurrency, TPageSkeleton, TBranchFilter, fmtLKR } from '@/components/tijaero';
+import { KpiSparkCard } from '@/components/dashboard';
 import { cashbookApi, bankDepositsApi, expensesApi } from '../api';
 import { CashbookEntry } from '../types';
 import { useReferenceData } from '@/hooks';
@@ -475,62 +476,67 @@ export default function FinanceDashboard() {
       }}
     >
       {/* Header */}
-      <TPageHeader
-        title="Finance Dashboard"
-        subtitle={`Financial overview for ${format(today, 'MMMM yyyy')}`}
-        actions={
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Box sx={{ minWidth: 280 }}>
-              <TBranchFilter 
-                branches={branches} 
-                value={branchCode} 
-                onChange={setBranchCode} 
-              />
-            </Box>
-            <Tooltip title="Refresh Data">
-              <IconButton
-                onClick={handleRefresh}
-                color="primary"
-                sx={{
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 2,
-                  backgroundColor: '#fff',
-                }}
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        }
-      />
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        alignItems={{ xs: "flex-start", sm: "center" }}
+        justifyContent="space-between"
+        spacing={1.5}
+        sx={{ mb: 2.5 }}
+      >
+        <Box>
+          <Typography variant="h5" fontWeight={700}>Finance Dashboard</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {`Cashflow, deposits and expenses for ${format(today, 'MMMM yyyy')}`}
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Box sx={{ minWidth: 240 }}>
+            <TBranchFilter
+              branches={branches}
+              value={branchCode}
+              onChange={setBranchCode}
+            />
+          </Box>
+          <Tooltip title="Refresh Data">
+            <IconButton
+              onClick={handleRefresh}
+              color="primary"
+              sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}
+            >
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      </Stack>
 
       {/* KPI Cards */}
       <Grid container spacing={2.5} sx={{ mb: 3.5 }}>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
-            title="Total Money In"
+          <KpiSparkCard
+            title="Money In"
             value={<TCurrency value={summary.totalIn} />}
             subtitle="This month"
             icon={<TrendingUpIcon />}
             color="success"
-            trend={trends.moneyIn as any}
+            trend={trends.moneyIn?.value as number | undefined}
+            trendLabel="vs last month"
             onClick={() => navigate('/finance/cashbook')}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
-            title="Total Money Out"
+          <KpiSparkCard
+            title="Money Out"
             value={<TCurrency value={summary.totalOut} />}
             subtitle="This month"
             icon={<TrendingDownIcon />}
             color="error"
-            trend={trends.moneyOut as any}
+            trend={trends.moneyOut?.value as number | undefined}
+            trendLabel="vs last month"
             onClick={() => navigate('/finance/cashbook')}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <KpiSparkCard
             title="Net Position"
             value={<TCurrency value={summary.netPosition} />}
             subtitle={summary.netPosition >= 0 ? 'Positive cashflow' : 'Negative cashflow'}
@@ -540,7 +546,7 @@ export default function FinanceDashboard() {
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
+          <KpiSparkCard
             title="Pending Deposits"
             value={summary.pendingDepositsCount}
             subtitle={`Total: Rs. ${fmtLKR(summary.pendingDepositsAmount)}`}
