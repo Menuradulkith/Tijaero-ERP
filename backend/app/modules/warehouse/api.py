@@ -5,12 +5,13 @@ from datetime import date
 from app.db.session import get_db
 from app.auth.models import User
 from app.auth.dependencies import get_current_user, get_user_branch_filter, validate_branch_access
+from app.auth.rbac import Permissions, require_permission
 from . import schemas, service
 
 router = APIRouter(prefix="/warehouse", tags=["warehouse"])
 
 # Item Transfer Note Endpoints
-@router.post("/transfer-notes", response_model=schemas.ItemTransferNote, status_code=status.HTTP_201_CREATED)
+@router.post("/transfer-notes", response_model=schemas.ItemTransferNote, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.ITN_CREATE))])
 def create_transfer_note(
     transfer_note: schemas.ItemTransferNoteCreate,
     db: Session = Depends(get_db),
@@ -28,13 +29,13 @@ def create_transfer_note(
         transfer_note, user_id=current_user.id
     )
 
-@router.get("/transfer-notes/{transfer_note_id}", response_model=schemas.ItemTransferNote)
+@router.get("/transfer-notes/{transfer_note_id}", response_model=schemas.ItemTransferNote, dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
 def get_transfer_note(transfer_note_id: int, db: Session = Depends(get_db)):
     """Get transfer note by ID"""
     transfer_note_service = service.ItemTransferNoteService(db)
     return transfer_note_service.get_transfer_note(transfer_note_id)
 
-@router.get("/transfer-notes", response_model=List[schemas.ItemTransferNote])
+@router.get("/transfer-notes", response_model=List[schemas.ItemTransferNote], dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
 def list_transfer_notes(
     branch_code: Optional[str] = None,
     from_location_id: Optional[int] = None,
@@ -74,7 +75,7 @@ def list_transfer_notes(
     )
     return transfer_note_service.list_transfer_notes(filters)
 
-@router.put("/transfer-notes/{transfer_note_id}", response_model=schemas.ItemTransferNote)
+@router.put("/transfer-notes/{transfer_note_id}", response_model=schemas.ItemTransferNote, dependencies=[Depends(require_permission(*Permissions.ITN_UPDATE))])
 def update_transfer_note(
     transfer_note_id: int,
     transfer_note: schemas.ItemTransferNoteCreate,
@@ -84,14 +85,14 @@ def update_transfer_note(
     transfer_note_service = service.ItemTransferNoteService(db)
     return transfer_note_service.update_transfer_note(transfer_note_id, transfer_note)
 
-@router.delete("/transfer-notes/{transfer_note_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/transfer-notes/{transfer_note_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission(*Permissions.ITN_DELETE))])
 def delete_transfer_note(transfer_note_id: int, db: Session = Depends(get_db)):
     """Delete a transfer note"""
     transfer_note_service = service.ItemTransferNoteService(db)
     transfer_note_service.delete_transfer_note(transfer_note_id)
 
 # Item Transfer Note Items Endpoints
-@router.post("/transfer-note-items", response_model=schemas.ItemTransferNoteItem, status_code=status.HTTP_201_CREATED)
+@router.post("/transfer-note-items", response_model=schemas.ItemTransferNoteItem, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.ITN_CREATE))])
 def create_transfer_note_item(
     item: schemas.ItemTransferNoteItemCreate,
     db: Session = Depends(get_db)
@@ -100,19 +101,19 @@ def create_transfer_note_item(
     item_service = service.ItemTransferNoteItemService(db)
     return item_service.create_item(item)
 
-@router.get("/transfer-note-items/{item_id}", response_model=schemas.ItemTransferNoteItem)
+@router.get("/transfer-note-items/{item_id}", response_model=schemas.ItemTransferNoteItem, dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
 def get_transfer_note_item(item_id: int, db: Session = Depends(get_db)):
     """Get transfer note item by ID"""
     item_service = service.ItemTransferNoteItemService(db)
     return item_service.get_item(item_id)
 
-@router.get("/transfer-notes/{transfer_note_id}/items", response_model=List[schemas.ItemTransferNoteItem])
+@router.get("/transfer-notes/{transfer_note_id}/items", response_model=List[schemas.ItemTransferNoteItem], dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
 def list_transfer_note_items(transfer_note_id: int, db: Session = Depends(get_db)):
     """List all items for a transfer note"""
     item_service = service.ItemTransferNoteItemService(db)
     return item_service.list_items_by_transfer_note(transfer_note_id)
 
-@router.put("/transfer-note-items/{item_id}", response_model=schemas.ItemTransferNoteItem)
+@router.put("/transfer-note-items/{item_id}", response_model=schemas.ItemTransferNoteItem, dependencies=[Depends(require_permission(*Permissions.ITN_UPDATE))])
 def update_transfer_note_item(
     item_id: int,
     item: schemas.ItemTransferNoteItemCreate,
@@ -122,20 +123,20 @@ def update_transfer_note_item(
     item_service = service.ItemTransferNoteItemService(db)
     return item_service.update_item(item_id, item)
 
-@router.patch("/transfer-note-items/{item_id}/receive", response_model=schemas.ItemTransferNoteItem)
+@router.patch("/transfer-note-items/{item_id}/receive", response_model=schemas.ItemTransferNoteItem, dependencies=[Depends(require_permission(*Permissions.ITN_UPDATE))])
 def mark_item_as_received(item_id: int, db: Session = Depends(get_db)):
     """Mark a transfer note item as received"""
     item_service = service.ItemTransferNoteItemService(db)
     return item_service.mark_as_received(item_id)
 
-@router.delete("/transfer-note-items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/transfer-note-items/{item_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission(*Permissions.ITN_DELETE))])
 def delete_transfer_note_item(item_id: int, db: Session = Depends(get_db)):
     """Delete a transfer note item"""
     item_service = service.ItemTransferNoteItemService(db)
     item_service.delete_item(item_id)
 
 # Transfer Note Approval Endpoints
-@router.post("/transfer-note-approvals", response_model=schemas.ItemTransferNoteApproved, status_code=status.HTTP_201_CREATED)
+@router.post("/transfer-note-approvals", response_model=schemas.ItemTransferNoteApproved, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.ITN_APPROVAL_APPROVE))])
 def create_transfer_note_approval(
     approval: schemas.ItemTransferNoteApprovedCreate,
     db: Session = Depends(get_db)
@@ -144,13 +145,13 @@ def create_transfer_note_approval(
     approval_service = service.ItemTransferNoteApprovalService(db)
     return approval_service.create_approval(approval)
 
-@router.get("/transfer-note-approvals/{approval_id}", response_model=schemas.ItemTransferNoteApproved)
+@router.get("/transfer-note-approvals/{approval_id}", response_model=schemas.ItemTransferNoteApproved, dependencies=[Depends(require_permission(*Permissions.ITN_APPROVAL_VIEW))])
 def get_transfer_note_approval(approval_id: int, db: Session = Depends(get_db)):
     """Get transfer note approval by ID"""
     approval_service = service.ItemTransferNoteApprovalService(db)
     return approval_service.get_approval(approval_id)
 
-@router.get("/transfer-notes/{transfer_note_id}/approval", response_model=schemas.ItemTransferNoteApproved)
+@router.get("/transfer-notes/{transfer_note_id}/approval", response_model=schemas.ItemTransferNoteApproved, dependencies=[Depends(require_permission(*Permissions.ITN_APPROVAL_VIEW))])
 def get_transfer_note_approval_by_note(transfer_note_id: int, db: Session = Depends(get_db)):
     """Get approval for a transfer note"""
     approval_service = service.ItemTransferNoteApprovalService(db)
@@ -162,7 +163,7 @@ def get_transfer_note_approval_by_note(transfer_note_id: int, db: Session = Depe
         )
     return approval
 
-@router.put("/transfer-note-approvals/{approval_id}", response_model=schemas.ItemTransferNoteApproved)
+@router.put("/transfer-note-approvals/{approval_id}", response_model=schemas.ItemTransferNoteApproved, dependencies=[Depends(require_permission(*Permissions.ITN_APPROVAL_APPROVE))])
 def update_transfer_note_approval(
     approval_id: int,
     approval: schemas.ItemTransferNoteApprovedCreate,
@@ -173,7 +174,7 @@ def update_transfer_note_approval(
     return approval_service.update_approval(approval_id, approval)
 
 # Receive Note Endpoints
-@router.post("/receive-notes", response_model=schemas.ItemReceiveNote, status_code=status.HTTP_201_CREATED)
+@router.post("/receive-notes", response_model=schemas.ItemReceiveNote, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.RECEIVE_NOTE_CREATE))])
 def create_receive_note(
     receive_note: schemas.ItemReceiveNoteCreate,
     db: Session = Depends(get_db)
@@ -182,13 +183,13 @@ def create_receive_note(
     receive_note_service = service.ItemReceiveNoteService(db)
     return receive_note_service.create_receive_note(receive_note)
 
-@router.get("/receive-notes/{receive_note_id}", response_model=schemas.ItemReceiveNote)
+@router.get("/receive-notes/{receive_note_id}", response_model=schemas.ItemReceiveNote, dependencies=[Depends(require_permission(*Permissions.RECEIVE_NOTE_VIEW))])
 def get_receive_note(receive_note_id: int, db: Session = Depends(get_db)):
     """Get receive note by ID"""
     receive_note_service = service.ItemReceiveNoteService(db)
     return receive_note_service.get_receive_note(receive_note_id)
 
-@router.get("/transfer-notes/{transfer_note_id}/receive-note", response_model=schemas.ItemReceiveNote)
+@router.get("/transfer-notes/{transfer_note_id}/receive-note", response_model=schemas.ItemReceiveNote, dependencies=[Depends(require_permission(*Permissions.RECEIVE_NOTE_VIEW))])
 def get_receive_note_by_transfer_note(transfer_note_id: int, db: Session = Depends(get_db)):
     """Get receive note for a transfer note"""
     receive_note_service = service.ItemReceiveNoteService(db)
@@ -200,7 +201,7 @@ def get_receive_note_by_transfer_note(transfer_note_id: int, db: Session = Depen
         )
     return receive_note
 
-@router.get("/receive-notes", response_model=List[schemas.ItemReceiveNote])
+@router.get("/receive-notes", response_model=List[schemas.ItemReceiveNote], dependencies=[Depends(require_permission(*Permissions.RECEIVE_NOTE_VIEW))])
 def list_receive_notes(
     approved_status: Optional[int] = None,
     to_location_branch: Optional[str] = Query(None, description="Filter by receiving branch"),
@@ -229,7 +230,7 @@ def list_receive_notes(
     )
     return receive_note_service.list_receive_notes(filters)
 
-@router.put("/receive-notes/{receive_note_id}", response_model=schemas.ItemReceiveNote)
+@router.put("/receive-notes/{receive_note_id}", response_model=schemas.ItemReceiveNote, dependencies=[Depends(require_permission(*Permissions.RECEIVE_NOTE_UPDATE))])
 def update_receive_note(
     receive_note_id: int,
     receive_note: schemas.ItemReceiveNoteCreate,
@@ -241,7 +242,7 @@ def update_receive_note(
 
 
 # Barcode Validation for Transfer Notes
-@router.post("/transfer-notes/validate-barcode", response_model=schemas.BarcodeValidationResponse)
+@router.post("/transfer-notes/validate-barcode", response_model=schemas.BarcodeValidationResponse, dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
 def validate_barcode_for_transfer(
     request: schemas.BarcodeValidationRequest,
     db: Session = Depends(get_db)
@@ -258,7 +259,7 @@ def validate_barcode_for_transfer(
 
 
 # Dispatch Transfer Note (mark as dispatched and update stock status)
-@router.post("/transfer-notes/{transfer_note_id}/dispatch", response_model=schemas.ItemTransferNote)
+@router.post("/transfer-notes/{transfer_note_id}/dispatch", response_model=schemas.ItemTransferNote, dependencies=[Depends(require_permission(*Permissions.ITN_UPDATE))])
 def dispatch_transfer_note(
     transfer_note_id: int,
     db: Session = Depends(get_db)
@@ -273,7 +274,7 @@ def dispatch_transfer_note(
 
 
 # Receive Items (receiving side workflow)
-@router.post("/transfer-notes/{transfer_note_id}/receive-items", response_model=schemas.ReceiveItemsResponse)
+@router.post("/transfer-notes/{transfer_note_id}/receive-items", response_model=schemas.ReceiveItemsResponse, dependencies=[Depends(require_permission(*Permissions.RECEIVE_NOTE_CREATE))])
 def receive_transfer_items(
     transfer_note_id: int,
     request: schemas.ReceiveItemsRequest,
@@ -291,7 +292,7 @@ def receive_transfer_items(
 
 
 # Get Transfer Note Status Summary
-@router.get("/transfer-notes/{transfer_note_id}/status", response_model=schemas.TransferNoteStatusResponse)
+@router.get("/transfer-notes/{transfer_note_id}/status", response_model=schemas.TransferNoteStatusResponse, dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
 def get_transfer_note_status(
     transfer_note_id: int,
     db: Session = Depends(get_db)

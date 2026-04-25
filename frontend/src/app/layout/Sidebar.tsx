@@ -383,6 +383,30 @@ const menuItems: MenuItem[] = [
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/hr", permission: PERMISSIONS.HR_DASHBOARD_VIEW },
       {
+        text: "Employees",
+        icon: <PersonIcon />,
+        path: "/hr/employees",
+        permission: PERMISSIONS.EMPLOYEES_VIEW,
+      },
+      {
+        text: "Attendance",
+        icon: <ReceiptLongIcon />,
+        path: "/hr/attendance",
+        permission: PERMISSIONS.ATTENDANCE_VIEW,
+      },
+      {
+        text: "Leaves",
+        icon: <ReceiptIcon />,
+        path: "/hr/leaves",
+        permission: PERMISSIONS.LEAVES_VIEW,
+      },
+      {
+        text: "Leave Approvals",
+        icon: <FactCheckIcon />,
+        path: "/hr/leave-approvals",
+        permission: PERMISSIONS.LEAVE_APPROVALS_VIEW,
+      },
+      {
         text: "Salary Profiles",
         icon: <PersonIcon />,
         path: "/hr/salary-profiles",

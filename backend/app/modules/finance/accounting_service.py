@@ -355,7 +355,9 @@ class JournalEntryService:
         return je
 
     def list_journal_entries(self, filters: schemas.JournalEntryListFilter) -> Tuple[List[JournalEntry], int]:
-        query = self.db.query(JournalEntry)
+        query = self.db.query(JournalEntry).options(
+            joinedload(JournalEntry.lines).joinedload(JournalEntryLine.account)
+        )
 
         if filters.status:
             query = query.filter(JournalEntry.status == filters.status)
@@ -393,6 +395,8 @@ class JournalEntryService:
         Manual JE: Can only post from 'approved' status (requires approval workflow).
         Auto JE:   Can post from 'draft' status (system-generated, no approval needed).
         """
+        # Lock row to prevent double-post race condition
+        self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
 
         # Manual JE requires approval before posting
@@ -462,6 +466,8 @@ class JournalEntryService:
         self, je_id: int, reversed_by: int, reason: str, reversal_date: Optional[date] = None
     ) -> JournalEntry:
         """Reverse a posted JE by creating a mirror JE with opposite debits/credits."""
+        # Lock row to prevent double-reverse race condition
+        self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
         if je.status != "posted":
             raise HTTPException(
@@ -550,6 +556,8 @@ class JournalEntryService:
         return reversal_je
 
     def delete_journal_entry(self, je_id: int) -> bool:
+        # Lock row to prevent concurrent status mutation
+        self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
         if je.status != "draft":
             raise HTTPException(
@@ -640,6 +648,8 @@ class JournalEntryService:
         Submit a draft manual JE for approval (Step 3→4).
         Runs validation first, then moves to 'submitted' status.
         """
+        # Lock row to prevent concurrent status mutation
+        self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
         if je.status != "draft":
             raise HTTPException(
@@ -672,6 +682,8 @@ class JournalEntryService:
         Approve a submitted manual JE (Step 4).
         Finance manager verification step. After approval, JE can be posted.
         """
+        # Lock row to prevent concurrent status mutation
+        self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
         if je.status != "submitted":
             raise HTTPException(
@@ -695,6 +707,8 @@ class JournalEntryService:
         Reject a submitted manual JE back to draft (Step 4 - rejection path).
         Allows the accountant to fix errors and resubmit.
         """
+        # Lock row to prevent concurrent status mutation
+        self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
         if je.status != "submitted":
             raise HTTPException(
@@ -1413,7 +1427,8 @@ class GeneralLedgerService:
         """
         je_service = JournalEntryService(self.db)
 
-        # Step 1: Reverse the original
+        # Step 1: Lock and fetch the original — prevents concurrent correction
+        self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         original_je = je_service.get_journal_entry(je_id)
         if original_je.status != "posted":
             raise HTTPException(
@@ -1536,6 +1551,8 @@ class AccountingPeriodService:
         return period
 
     def close_period(self, period_id: int, closed_by: int) -> AccountingPeriod:
+        # Lock row to prevent concurrent status mutation
+        self.db.query(AccountingPeriod).filter(AccountingPeriod.id == period_id).with_for_update().first()
         period = self.get_period(period_id)
         if period.status != "open":
             raise HTTPException(
@@ -1550,6 +1567,8 @@ class AccountingPeriodService:
         return period
 
     def reopen_period(self, period_id: int) -> AccountingPeriod:
+        # Lock row to prevent concurrent status mutation
+        self.db.query(AccountingPeriod).filter(AccountingPeriod.id == period_id).with_for_update().first()
         period = self.get_period(period_id)
         if period.status == "locked":
             raise HTTPException(
@@ -1564,6 +1583,8 @@ class AccountingPeriodService:
         return period
 
     def lock_period(self, period_id: int) -> AccountingPeriod:
+        # Lock row to prevent concurrent status mutation
+        self.db.query(AccountingPeriod).filter(AccountingPeriod.id == period_id).with_for_update().first()
         period = self.get_period(period_id)
         if period.status != "closed":
             raise HTTPException(
@@ -2856,6 +2877,8 @@ class CashFlowService:
         ).all()
 
     def finalize_statement(self, statement_id: int) -> CashFlowStatement:
+        # Lock row to prevent concurrent status mutation
+        self.db.query(CashFlowStatement).filter(CashFlowStatement.id == statement_id).with_for_update().first()
         statement = self.get_statement(statement_id)
         if statement.status != "draft":
             raise HTTPException(
@@ -2868,6 +2891,8 @@ class CashFlowService:
         return statement
 
     def approve_statement(self, statement_id: int, approved_by: int) -> CashFlowStatement:
+        # Lock row to prevent concurrent status mutation
+        self.db.query(CashFlowStatement).filter(CashFlowStatement.id == statement_id).with_for_update().first()
         statement = self.get_statement(statement_id)
         if statement.status != "final":
             raise HTTPException(
@@ -2882,6 +2907,8 @@ class CashFlowService:
         return statement
 
     def delete_statement(self, statement_id: int) -> bool:
+        # Lock row to prevent concurrent status mutation
+        self.db.query(CashFlowStatement).filter(CashFlowStatement.id == statement_id).with_for_update().first()
         statement = self.get_statement(statement_id)
         if statement.status != "draft":
             raise HTTPException(

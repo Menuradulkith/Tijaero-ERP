@@ -127,7 +127,11 @@ class PurchasingOrderRepository:
         ).first()
     
     def get_all(self, filters: schemas.PurchaseOrderListFilter) -> List[models.PurchasingOrder]:
-        query = self.db.query(models.PurchasingOrder)
+        query = self.db.query(models.PurchasingOrder).options(
+            joinedload(models.PurchasingOrder.first_supplier),
+            joinedload(models.PurchasingOrder.second_supplier),
+            joinedload(models.PurchasingOrder.items),
+        )
         
         if filters.supplier_id:
             query = query.filter(
@@ -322,7 +326,10 @@ class GoodReceivedNoteRepository:
         return self.db.query(models.GoodReceivedNote).filter(models.GoodReceivedNote.id == grn_id).first()
     
     def get_all(self, filters: schemas.GoodReceivedNoteListFilter) -> List[models.GoodReceivedNote]:
-        query = self.db.query(models.GoodReceivedNote)
+        query = self.db.query(models.GoodReceivedNote).options(
+            joinedload(models.GoodReceivedNote.purchasing_order),
+            joinedload(models.GoodReceivedNote.location),
+        )
         
         if filters.branch_code:
             query = query.filter(models.GoodReceivedNote.branch_code == filters.branch_code)
@@ -488,7 +495,10 @@ class SupplierPaymentRepository:
         ).first()
     
     def get_all(self, filters: schemas.SupplierPaymentListFilter) -> List[models.SupplierPayment]:
-        query = self.db.query(models.SupplierPayment)
+        query = self.db.query(models.SupplierPayment).options(
+            joinedload(models.SupplierPayment.supplier),
+            joinedload(models.SupplierPayment.purchasing_order),
+        )
         
         if filters.supplier_id:
             query = query.filter(models.SupplierPayment.supplier_id == filters.supplier_id)

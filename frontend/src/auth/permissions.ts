@@ -260,6 +260,23 @@ export const PERMISSIONS = {
   HR_ASSETS_CREATE: { resource: "hr_assets", action: "create" },
   HR_ASSETS_UPDATE: { resource: "hr_assets", action: "update" },
   HR_ASSETS_DELETE: { resource: "hr_assets", action: "delete" },
+  // Attendance
+  ATTENDANCE_VIEW: { resource: "attendance", action: "view" },
+  ATTENDANCE_CREATE: { resource: "attendance", action: "create" },
+  ATTENDANCE_UPDATE: { resource: "attendance", action: "update" },
+  ATTENDANCE_DELETE: { resource: "attendance", action: "delete" },
+  // Leaves
+  LEAVES_VIEW: { resource: "leaves", action: "view" },
+  LEAVES_CREATE: { resource: "leaves", action: "create" },
+  LEAVES_UPDATE: { resource: "leaves", action: "update" },
+  LEAVES_DELETE: { resource: "leaves", action: "delete" },
+  LEAVE_APPROVALS_VIEW: { resource: "leave_approvals", action: "view" },
+  LEAVE_APPROVALS_APPROVE: { resource: "leave_approvals", action: "approve" },
+  // Employees master
+  EMPLOYEES_VIEW: { resource: "employees", action: "view" },
+  EMPLOYEES_CREATE: { resource: "employees", action: "create" },
+  EMPLOYEES_UPDATE: { resource: "employees", action: "update" },
+  EMPLOYEES_DELETE: { resource: "employees", action: "delete" },
 
   // ═══════════════════════════════════════════════════════════════════
   // WAREHOUSE — per sub-page permissions

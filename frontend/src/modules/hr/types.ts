@@ -428,3 +428,138 @@ export interface SalesCommissionFilter {
   skip?: number;
   limit?: number;
 }
+
+// ─── Attendance ────────────────────────────────────────────────────────────────
+export interface Attendance {
+  id: number;
+  employee_id: string;
+  branch_code: string;
+  date: string;
+  weekday?: string;
+  check_in?: string | null;
+  check_out?: string | null;
+  work_mins: number;
+  ot_mins: number;
+  full_attended_mins: number;
+  late_mins: number;
+  early_mins: number;
+  absent_mins: number;
+  leave_mins: number;
+  employee_name?: string;
+  branch_name?: string;
+  status?: string; // present | late | absent | leave
+}
+
+export interface AttendanceCreate {
+  employee_id: string;
+  branch_code: string;
+  date: string;
+  weekday?: string;
+  check_in?: string | null;
+  check_out?: string | null;
+  work_mins?: number;
+  ot_mins?: number;
+  late_mins?: number;
+  early_mins?: number;
+  absent_mins?: number;
+  leave_mins?: number;
+}
+
+export interface AttendanceCheckIn {
+  employee_id: string;
+  branch_code: string;
+  check_in?: string | null;
+  date?: string | null;
+}
+
+export interface AttendanceCheckOut {
+  employee_id: string;
+  check_out?: string | null;
+  date?: string | null;
+}
+
+export interface AttendanceSummary {
+  period_from: string;
+  period_to: string;
+  total_records: number;
+  total_present: number;
+  total_absent: number;
+  total_late: number;
+  total_leave: number;
+  total_work_hours: number;
+  total_ot_hours: number;
+}
+
+// ─── Leaves ────────────────────────────────────────────────────────────────────
+export interface Leave {
+  id: number;
+  employee_id: string;
+  leave_type: string;
+  from_date: string;
+  to_date: string;
+  leave_reason: string;
+  leave_duration: number;
+  leave_time: string;
+  approval_id?: number | null;
+  status: string; // pending | approved | rejected
+  approved_by?: number | null;
+  approved_date?: string | null;
+  rejection_reason?: string | null;
+  employee_name?: string;
+  created_at?: string;
+}
+
+export interface LeaveCreate {
+  employee_id: string;
+  leave_type: string;
+  from_date: string;
+  to_date: string;
+  leave_reason: string;
+  leave_duration: number;
+  leave_time?: string;
+}
+
+export interface LeaveApprove {
+  remarks?: string;
+}
+
+export interface LeaveReject {
+  rejection_reason: string;
+}
+
+export interface LeaveBalance {
+  employee_id: string;
+  employee_name?: string;
+  annual_total: number;
+  annual_used: number;
+  annual_remaining: number;
+  casual_total: number;
+  casual_used: number;
+  casual_remaining: number;
+  medical_total: number;
+  medical_used: number;
+  medical_remaining: number;
+  year: number;
+}
+
+// ─── Employee Master ───────────────────────────────────────────────────────────
+export interface Employee {
+  id: number;
+  user_id: number;
+  employee_id: string;
+  created_at?: string;
+  updated_at?: string;
+  // Resolved (frontend joins with users API when needed)
+  full_name?: string;
+  email?: string;
+  occupation?: string;
+}
+
+export interface EmployeeCreate {
+  user_id: number;
+  employee_id: string;
+}
+
+export interface EmployeeUpdate {
+  employee_id?: string;
+}

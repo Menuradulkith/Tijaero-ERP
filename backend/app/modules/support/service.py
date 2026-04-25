@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from typing import List
 from datetime import datetime
@@ -28,7 +28,10 @@ class CustomerSupportService:
         return ticket
     
     def list_support_tickets(self, filters: schemas.SupportListFilter) -> List[CustomerSupport]:
-        query = self.db.query(CustomerSupport)
+        query = self.db.query(CustomerSupport).options(
+            joinedload(CustomerSupport.customer),
+            joinedload(CustomerSupport.job_items),
+        )
         
         if filters.branch_code:
             query = query.filter(CustomerSupport.branch_code == filters.branch_code)

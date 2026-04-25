@@ -8,6 +8,7 @@
 
 import apiClient from "@/api/client";
 import { fmtLKR } from "@/components/tijaero";
+import { KpiSparkCard } from "@/components/dashboard";
 import { LocationRef, REFERENCE_DATA_PRESETS, useReferenceData } from "@/hooks";
 import { salesStockApi } from "@/modules/inventory/api";
 import {
@@ -834,21 +835,21 @@ export default function SalesStockDashboard() {
         flexDirection: "column",
         height: "100%",
         gap: 2,
-        p: 2,
+        p: { xs: 1.5, md: 2 },
+        overflow: "auto",
+        background: "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
       }}
     >
       {/* Header */}
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        alignItems={{ xs: "flex-start", sm: "center" }}
+        justifyContent="space-between"
+        spacing={1.5}
+        sx={{ mb: 1 }}
       >
-        <Typography variant="h5" fontWeight={600}>
-          Sales Stock
-        </Typography>
-        <Stack direction="row" spacing={1}>
+        <Typography variant="h5" fontWeight={700}>Sales Stock</Typography>
+        <Stack direction="row" spacing={1} flexWrap="wrap">
           <Button
             variant="outlined"
             size="small"
@@ -875,44 +876,44 @@ export default function SalesStockDashboard() {
             Refresh
           </Button>
         </Stack>
-      </Box>
+      </Stack>
 
       {/* Summary Cards */}
-      <Grid container spacing={2}>
+      <Grid container spacing={2.25}>
         <Grid item xs={12} sm={6} md={3}>
-          <SummaryCard
+          <KpiSparkCard
             title="In Stock"
-            value={summaryStats.inStock}
+            value={summaryStats.inStock.toLocaleString()}
+            subtitle="Items available for sale"
             icon={<PackageIcon />}
-            color="#4CAF50"
-            bgColor="rgba(76, 175, 80, 0.1)"
+            color="success"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <SummaryCard
+          <KpiSparkCard
             title="Reserved"
-            value={summaryStats.reserved}
+            value={summaryStats.reserved.toLocaleString()}
+            subtitle="Held for pending orders"
             icon={<AlertIcon />}
-            color="#FF9800"
-            bgColor="rgba(255, 152, 0, 0.1)"
+            color="warning"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <SummaryCard
+          <KpiSparkCard
             title="Sold Today"
-            value={summaryStats.soldToday}
+            value={summaryStats.soldToday.toLocaleString()}
+            subtitle="Units shipped today"
             icon={<PackageIcon />}
-            color="#2196F3"
-            bgColor="rgba(33, 150, 243, 0.1)"
+            color="primary"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <SummaryCard
+          <KpiSparkCard
             title="Returned Items"
-            value={summaryStats.returnedItems}
+            value={summaryStats.returnedItems.toLocaleString()}
+            subtitle="Restocked from returns"
             icon={<ReturnIcon />}
-            color="#9C27B0"
-            bgColor="rgba(156, 39, 176, 0.1)"
+            color="secondary"
           />
         </Grid>
       </Grid>

@@ -1,5 +1,5 @@
 from typing import List, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import func
 from fastapi import HTTPException, status
 from datetime import datetime, date
@@ -57,17 +57,30 @@ class CouponService:
     
     def get_all_coupons(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[CustomerCuponCodes]:
         """Get all coupons with usage count"""
-        query = db.query(CustomerCuponCodes)
+        query = db.query(CustomerCuponCodes).options(
+            selectinload(CustomerCuponCodes.products),
+            selectinload(CustomerCuponCodes.categories),
+            selectinload(CustomerCuponCodes.brands),
+        )
         if active_only:
             query = query.filter(CustomerCuponCodes.active == True)
         coupons = query.order_by(CustomerCuponCodes.created_date.desc()).offset(skip).limit(limit).all()
         
-        # Add usage count and product_ids to each coupon
+        # Batch-load usage counts to avoid N+1
+        if coupons:
+            coupon_ids = [c.id for c in coupons]
+            usage_counts = dict(
+                db.query(CouponUsage.coupon_id, func.count(CouponUsage.id))
+                .filter(CouponUsage.coupon_id.in_(coupon_ids))
+                .group_by(CouponUsage.coupon_id)
+                .all()
+            )
+        else:
+            usage_counts = {}
+
         for coupon in coupons:
-            coupon.usage_count = db.query(func.count(CouponUsage.id)).filter(
-                CouponUsage.coupon_id == coupon.id
-            ).scalar() or 0
-            # Populate product_ids from the many-to-many relationship
+            coupon.usage_count = usage_counts.get(coupon.id, 0)
+            # Populate product_ids from the many-to-many relationship (already eager-loaded)
             coupon.product_ids = [p.id for p in coupon.products]
             coupon.category_ids = [c.id for c in coupon.categories]
             coupon.brand_ids = [b.id for b in coupon.brands]

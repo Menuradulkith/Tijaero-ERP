@@ -1,6 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "@/auth/components/ProtectedRoute";
 import HRDashboard from "./pages/HRDashboard";
+import EmployeesPage from "./pages/EmployeesPage";
+import AttendancePage from "./pages/AttendancePage";
+import LeavesPage from "./pages/LeavesPage";
+import LeaveApprovalsPage from "./pages/LeaveApprovalsPage";
 import PayrollPage from "./pages/PayrollPage";
 import PayrollProcessingPage from "./pages/PayrollProcessingPage";
 import PayrollApprovalsPage from "./pages/PayrollApprovalsPage";
@@ -16,6 +20,10 @@ export default function HRRoutes() {
   return (
     <Routes>
       <Route index element={<ProtectedRoute resource="hr_dashboard" action="view"><HRDashboard /></ProtectedRoute>} />
+      <Route path="employees" element={<ProtectedRoute resource="employees" action="view"><EmployeesPage /></ProtectedRoute>} />
+      <Route path="attendance" element={<ProtectedRoute resource="attendance" action="view"><AttendancePage /></ProtectedRoute>} />
+      <Route path="leaves" element={<ProtectedRoute resource="leaves" action="view"><LeavesPage /></ProtectedRoute>} />
+      <Route path="leave-approvals" element={<ProtectedRoute resource="leave_approvals" action="view"><LeaveApprovalsPage /></ProtectedRoute>} />
       <Route path="payroll" element={<ProtectedRoute resource="payroll" action="view"><PayrollPage /></ProtectedRoute>} />
       <Route path="payroll-processing" element={<ProtectedRoute resource="payroll_processing" action="view"><PayrollProcessingPage /></ProtectedRoute>} />
       <Route path="payroll-approvals" element={<ProtectedRoute resource="payroll_approvals" action="view"><PayrollApprovalsPage /></ProtectedRoute>} />
