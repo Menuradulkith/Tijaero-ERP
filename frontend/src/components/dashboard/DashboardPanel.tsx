@@ -30,7 +30,7 @@ export default function DashboardPanel({
     <Paper
       elevation={0}
       variant="outlined"
-      sx={{
+      sx={(theme) => ({
         p: dense ? 1.5 : 2.25,
         borderRadius: 3,
         border: "1px solid",
@@ -38,8 +38,10 @@ export default function DashboardPanel({
         height: height ?? "100%",
         display: "flex",
         flexDirection: "column",
-        background: "linear-gradient(180deg, #ffffff 0%, #fbfcff 100%)",
-      }}
+        background: theme.palette.mode === "dark"
+          ? theme.palette.background.paper
+          : "linear-gradient(180deg, #ffffff 0%, #fbfcff 100%)",
+      })}
     >
       <Stack
         direction="row"

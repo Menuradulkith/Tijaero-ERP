@@ -36,6 +36,7 @@ import {
   Business as AssetIcon,
   Warning as AlertIcon,
   Refresh as RefreshIcon,
+  FileDownload as DownloadIcon,
   Close as CloseIcon,
   ExpandMore as ExpandIcon,
   ExpandLess as CollapseIcon,
@@ -43,56 +44,10 @@ import {
 } from "@mui/icons-material";
 import { companyAssetsApi } from "@/modules/inventory/api";
 import { fmtLKR } from "@/components/tijaero";
+import { KpiSparkCard } from "@/components/dashboard";
 import { useReferenceData, REFERENCE_DATA_PRESETS } from "@/hooks";
 import { CompanyAsset, Product, Brand } from "@/modules/inventory/types";
 import { format, parseISO } from "date-fns";
-
-// Summary Card Component (same as SalesStockDashboard)
-interface SummaryCardProps {
-  title: string;
-  value: number;
-  icon: React.ReactNode;
-  color: string;
-  bgColor: string;
-}
-
-const SummaryCard = ({ title, value, icon, color, bgColor }: SummaryCardProps) => (
-  <Paper
-    elevation={0}
-    sx={{
-      p: 2,
-      borderRadius: 2,
-      border: "1px solid",
-      borderColor: "divider",
-      borderLeft: `4px solid ${color}`,
-    }}
-  >
-    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-      <Box>
-        <Typography variant="body2" color="text.secondary">
-          {title}
-        </Typography>
-        <Typography variant="h5" fontWeight="bold">
-          {value.toLocaleString()}
-        </Typography>
-      </Box>
-      <Box
-        sx={{
-          width: 48,
-          height: 48,
-          borderRadius: 2,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          bgcolor: bgColor,
-          color: color,
-        }}
-      >
-        {icon}
-      </Box>
-    </Box>
-  </Paper>
-);
 
 // Status Chip Component
 const AssetStatusChip = ({ status }: { status: string }) => {
@@ -428,15 +383,83 @@ export default function CompanyAssetsDashboard() {
     setDateTo("");
   };
 
+  // Export filtered assets as CSV (same pattern as SalesStockDashboard)
+  const exportToCSV = () => {
+    if (filteredAssets.length === 0) return;
+
+    const headers = [
+      "Inventory No",
+      "Barcode",
+      "Item",
+      "Item Code",
+      "Brand",
+      "Branch",
+      "Status",
+      "Source",
+      "GRN No",
+      "Added Date",
+      "Cost Price",
+    ];
+
+    const rows = filteredAssets.map((asset: CompanyAsset) => {
+      const product = getProduct(asset.product_id);
+      const brandName = asset.brand_id ? getBrand(asset.brand_id)?.brand_name : null;
+      return [
+        asset.inventory_no || "",
+        asset.barcode || "",
+        asset.product_name || asset.item || "",
+        asset.item_code || "",
+        brandName || getProductBrandName(product) || "",
+        asset.branch_code || "",
+        asset.status || "",
+        asset.source || "grn",
+        asset.grn_no || "",
+        asset.added_date ? format(parseISO(asset.added_date), "yyyy-MM-dd") : "",
+        asset.cost_price != null ? String(asset.cost_price) : "",
+      ];
+    });
+
+    const escapeCsv = (value: string) => `"${String(value).replace(/"/g, '""')}"`;
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => escapeCsv(cell)).join(","))
+      .join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `company-assets-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Get paginated data
   const paginatedAssets = filteredAssets.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", gap: 2, p: 2 }}>
+    <Box
+      sx={(theme) => ({
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        gap: 2,
+        p: { xs: 1.5, md: 2 },
+        overflow: "auto",
+        background: theme.palette.mode === "dark"
+          ? `linear-gradient(180deg, ${theme.palette.background.default} 0%, ${theme.palette.background.paper} 280px)`
+          : "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
+      })}
+    >
       {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Typography variant="h5" fontWeight={600}>Company Assets</Typography>
-        <Stack direction="row" spacing={1}>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        alignItems={{ xs: "flex-start", sm: "center" }}
+        justifyContent="space-between"
+        spacing={1.5}
+        sx={{ mb: 1 }}
+      >
+        <Typography variant="h5" fontWeight={700}>Company Assets</Typography>
+        <Stack direction="row" spacing={1} flexWrap="wrap">
           <Button
             variant="outlined"
             size="small"
@@ -448,41 +471,59 @@ export default function CompanyAssetsDashboard() {
           <Button
             variant="outlined"
             size="small"
+            startIcon={<DownloadIcon />}
+            onClick={exportToCSV}
+            disabled={filteredAssets.length === 0}
+          >
+            Export CSV
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
             startIcon={<RefreshIcon />}
             onClick={() => refetchAssets()}
           >
             Refresh
           </Button>
         </Stack>
-      </Box>
+      </Stack>
 
       {/* Summary Cards */}
-      <Grid container spacing={2}>
+      <Grid container spacing={2.25}>
         <Grid item xs={12} sm={6} md={3}>
-          <SummaryCard
+          <KpiSparkCard
             title="Total Assets"
-            value={summaryStats.total}
+            value={summaryStats.total.toLocaleString()}
+            subtitle="All tracked company assets"
             icon={<AssetIcon />}
-            color="#2196F3"
-            bgColor="rgba(33, 150, 243, 0.1)"
+            color="primary"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <SummaryCard
+          <KpiSparkCard
             title="Available"
-            value={summaryStats.available}
+            value={summaryStats.available.toLocaleString()}
+            subtitle="Ready for assignment"
             icon={<AvailableIcon />}
-            color="#4CAF50"
-            bgColor="rgba(76, 175, 80, 0.1)"
+            color="success"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <SummaryCard
+          <KpiSparkCard
             title="In Use"
-            value={summaryStats.inUse}
+            value={summaryStats.inUse.toLocaleString()}
+            subtitle="Currently assigned"
             icon={<AlertIcon />}
-            color="#FF9800"
-            bgColor="rgba(255, 152, 0, 0.1)"
+            color="warning"
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <KpiSparkCard
+            title="From Returns"
+            value={summaryStats.fromReturns.toLocaleString()}
+            subtitle="Non-restockable sale returns"
+            icon={<AssetIcon />}
+            color="secondary"
           />
         </Grid>
       </Grid>

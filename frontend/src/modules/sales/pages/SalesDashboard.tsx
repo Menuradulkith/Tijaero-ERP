@@ -2,7 +2,7 @@
  * Sales Dashboard — modernized.
  *
  * Inspired by Odoo, Zoho Books and NetSuite sales overviews:
- * - Gradient hero with greeting, branch filter, refresh and "+ New Order" CTA
+ * - Header with title, branch filter and refresh
  * - KPI cards with inline sparklines and trend deltas
  * - Combined revenue / orders chart (last 7 days)
  * - Payment-method donut + Order status donut
@@ -52,7 +52,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -166,7 +165,9 @@ export default function SalesDashboard() {
         p: { xs: 1.5, md: 2.5 },
         height: "100%",
         overflow: "auto",
-        background: "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
+        background: theme.palette.mode === "dark"
+          ? `linear-gradient(180deg, ${theme.palette.background.default} 0%, ${theme.palette.background.paper} 280px)`
+          : "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
       }}
     >
       {/* Header */}
@@ -193,16 +194,6 @@ export default function SalesDashboard() {
             sx={{ minWidth: 220, bgcolor: "background.paper", borderRadius: 2 }}
             renderInput={(p) => <TextField {...p} placeholder="All Branches" size="small" />}
           />
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<AddCircleOutlineIcon />}
-            onClick={() => navigate("/sales/new")}
-            sx={{ borderRadius: 2, fontWeight: 700 }}
-            color="success"
-          >
-            New Order
-          </Button>
           <Tooltip title="Refresh">
             <IconButton size="small" onClick={() => refetch()} disabled={isFetching}
               sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
@@ -213,35 +204,6 @@ export default function SalesDashboard() {
             </IconButton>
           </Tooltip>
         </Stack>
-      </Stack>
-
-      {/* Quick action chips */}
-      <Stack direction="row" spacing={1} sx={{ mb: 2.5, flexWrap: "wrap", rowGap: 1 }}>
-        <Chip
-          icon={<ShoppingCartIcon />}
-          label="All Orders"
-          onClick={() => navigate("/sales")}
-          variant="outlined"
-        />
-        <Chip
-          icon={<HourglassEmptyIcon />}
-          label={`Approvals (${stats.pending_approval})`}
-          color="warning"
-          variant={stats.pending_approval > 0 ? "filled" : "outlined"}
-          onClick={() => navigate("/sales/approvals")}
-        />
-        <Chip
-          icon={<PeopleIcon />}
-          label="Customers"
-          onClick={() => navigate("/sales/customers")}
-          variant="outlined"
-        />
-        <Chip
-          icon={<ReceiptIcon />}
-          label={`Returns (${stats.sale_returns_count})`}
-          onClick={() => navigate("/sales/returns")}
-          variant="outlined"
-        />
       </Stack>
 
       <Grid container spacing={2.25}>

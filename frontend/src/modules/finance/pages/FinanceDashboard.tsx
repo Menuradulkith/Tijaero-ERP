@@ -86,7 +86,7 @@ function StatCard({ title, value, subtitle, icon, color, trend, onClick }: StatC
         cursor: onClick ? 'pointer' : 'default',
         borderRadius: 3,
         borderColor: 'divider',
-        background: 'linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)',
+        bgcolor: 'background.paper',
         transition: 'all 0.25s ease-in-out',
         boxShadow: '0 2px 12px rgba(15, 23, 42, 0.05)',
         '&:hover': onClick
@@ -221,7 +221,7 @@ function TransactionBreakdownCard({
       sx={{
         borderRadius: 2.5,
         borderColor: `${color}.100`,
-        background: `linear-gradient(180deg, ${alpha('#ffffff', 0.95)} 0%, ${alpha('#f8fafc', 0.9)} 100%)`,
+        bgcolor: 'background.paper',
         boxShadow: '0 1px 8px rgba(15, 23, 42, 0.04)',
       }}
     >
@@ -264,7 +264,7 @@ const surfaceCardSx = {
   borderRadius: 3,
   border: '1px solid',
   borderColor: 'divider',
-  background: 'linear-gradient(180deg, #ffffff 0%, #fbfcff 100%)',
+  bgcolor: 'background.paper',
   boxShadow: '0 2px 16px rgba(15, 23, 42, 0.05)',
 } as const;
 
@@ -470,7 +470,9 @@ export default function FinanceDashboard() {
       sx={{
         overflow: 'auto',
         minHeight: '100%',
-        background: 'radial-gradient(circle at 10% 0%, #f3f7ff 0%, #f8fafc 35%, #ffffff 100%)',
+        background: (theme: import('@mui/material').Theme) => theme.palette.mode === 'dark'
+          ? `linear-gradient(180deg, ${theme.palette.background.default} 0%, ${theme.palette.background.paper} 280px)`
+          : 'radial-gradient(circle at 10% 0%, #f3f7ff 0%, #f8fafc 35%, #ffffff 100%)',
         borderRadius: 2,
         p: { xs: 1, md: 1.5 },
       }}

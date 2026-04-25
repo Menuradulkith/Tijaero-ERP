@@ -4,8 +4,8 @@
  * Layout (top → bottom):
  *  1. Hero banner with greeting + quick-nav chips
  *  2. KPI spark-cards row (Sales Today, Monthly, Customers, Products)
- *  3. Charts row: Sales Trend (8-col) + Pending Approvals (4-col)
- *  4. Bottom row: Financial Snapshot (4) + Top Products (4) + Recent Activity (4)
+ *  3. Charts row: Sales Trend (8-col) + Financial Overview (4-col)
+ *  4. Bottom row: Pending Approvals (4) + Top Products (4) + Recent Activity (4)
  */
 
 import {
@@ -15,7 +15,6 @@ import {
 } from "@/auth/permissions";
 import {
   BreakdownDonut,
-  DashboardHero,
   DashboardPanel,
   KpiSparkCard,
 } from "@/components/dashboard";
@@ -30,7 +29,6 @@ import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import { useAuthStore } from "@/state/authStore";
 import { calculatePercentageChange } from "@/utils/calculations";
 import { formatRelativeTime } from "@/utils/formatters";
-import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AssignmentIcon from "@mui/icons-material/Assignment";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
@@ -40,8 +38,8 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import PeopleIcon from "@mui/icons-material/People";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
-import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
@@ -49,18 +47,19 @@ import {
   Avatar,
   Badge,
   Box,
-  Button,
   Chip,
   Grid,
+  IconButton,
   List,
   ListItem,
   ListItemAvatar,
   ListItemText,
   Stack,
+  Tooltip,
   Typography,
   useTheme,
 } from "@mui/material";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Area,
@@ -174,30 +173,10 @@ export default function DashboardPage() {
     PERMISSIONS.SALES_DASHBOARD_VIEW.resource,
     PERMISSIONS.SALES_DASHBOARD_VIEW.action,
   );
-  const canViewPurchasing = hasPermission(
-    user,
-    PERMISSIONS.PURCHASING_DASHBOARD_VIEW.resource,
-    PERMISSIONS.PURCHASING_DASHBOARD_VIEW.action,
-  );
   const canViewFinance = hasPermission(
     user,
     PERMISSIONS.FINANCE_DASHBOARD_VIEW.resource,
     PERMISSIONS.FINANCE_DASHBOARD_VIEW.action,
-  );
-  const canViewInventory = hasPermission(
-    user,
-    PERMISSIONS.PRODUCTS_VIEW.resource,
-    PERMISSIONS.PRODUCTS_VIEW.action,
-  );
-  const canViewWarehouse = hasPermission(
-    user,
-    PERMISSIONS.SALES_STOCK_VIEW.resource,
-    PERMISSIONS.SALES_STOCK_VIEW.action,
-  );
-  const canViewSupport = hasPermission(
-    user,
-    PERMISSIONS.SUPPORT_DASHBOARD_VIEW.resource,
-    PERMISSIONS.SUPPORT_DASHBOARD_VIEW.action,
   );
 
   /* ── data fetching ───────────────────────────────────────────────────── */
@@ -205,17 +184,6 @@ export default function DashboardPage() {
     autoRefresh: canViewDashboard,
     skipInitialFetch: !canViewDashboard,
   });
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const handleRefresh = useCallback(async () => {
-    if (isRefreshing) return;
-    setIsRefreshing(true);
-    try {
-      await refresh();
-    } finally {
-      setTimeout(() => setIsRefreshing(false), 1000);
-    }
-  }, [refresh, isRefreshing]);
 
   /* ── derived data ────────────────────────────────────────────────────── */
   const trends = useMemo(() => {
@@ -324,112 +292,60 @@ export default function DashboardPage() {
         p: { xs: 1.5, md: 2.5 },
         height: "100%",
         overflow: "auto",
-        bgcolor: "background.default",
+        background: theme.palette.mode === "dark"
+          ? `linear-gradient(180deg, ${theme.palette.background.default} 0%, ${theme.palette.background.paper} 280px)`
+          : "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
       }}
     >
-      {/* ─── 1. Hero Banner ────────────────────────────────────────────── */}
-      <DashboardHero
-        eyebrow="OVERVIEW"
-        title={`Welcome back${user?.first_name ? `, ${user.first_name}` : ""}`}
-        subtitle={
-          canViewDashboard
-            ? "Here's a snapshot of your business performance today."
-            : "Welcome to Tijaero ERP"
-        }
-        accent="primary"
-        onRefresh={canViewDashboard ? handleRefresh : undefined}
-        isRefreshing={isRefreshing || loading}
-        primaryAction={
-          canViewSales ? (
-            <Button
-              variant="contained"
-              startIcon={<AddCircleOutlineIcon />}
-              onClick={() => navigate("/sales/new")}
-              sx={{
-                bgcolor: "#fff",
-                color: "primary.dark",
-                fontWeight: 700,
-                borderRadius: 2,
-                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                "&:hover": { bgcolor: "#f8fafc" },
-              }}
-            >
-              New Sale
-            </Button>
-          ) : undefined
-        }
-      />
-
       {/* Quick-nav chips */}
       {canViewDashboard && (
         <Stack
           direction="row"
-          spacing={1}
-          sx={{ mb: 2.5, flexWrap: "wrap", rowGap: 1 }}
+          alignItems="center"
+          justifyContent="space-between"
+          spacing={1.5}
+          sx={{ mb: metrics && metrics.pending_approvals > 0 ? 1.25 : 0.5 }}
         >
-          {canViewSales && (
-            <Chip
-              icon={<ShoppingCartIcon />}
-              label="Sales"
-              onClick={() => navigate("/sales")}
-              variant="outlined"
-              size="small"
-            />
-          )}
-          {canViewPurchasing && (
-            <Chip
-              icon={<LocalShippingIcon />}
-              label="Purchasing"
-              onClick={() => navigate("/purchasing")}
-              variant="outlined"
-              size="small"
-            />
-          )}
-          {canViewInventory && (
-            <Chip
-              icon={<InventoryIcon />}
-              label="Inventory"
-              onClick={() => navigate("/product-catalogs")}
-              variant="outlined"
-              size="small"
-            />
-          )}
-          {canViewWarehouse && (
-            <Chip
-              icon={<SwapHorizIcon />}
-              label="Warehouse"
-              onClick={() => navigate("/warehouse")}
-              variant="outlined"
-              size="small"
-            />
-          )}
-          {canViewFinance && (
-            <Chip
-              icon={<ReceiptLongIcon />}
-              label="Finance"
-              onClick={() => navigate("/finance")}
-              variant="outlined"
-              size="small"
-            />
-          )}
-          {canViewSupport && (
-            <Chip
-              icon={<SupportAgentIcon />}
-              label="Support"
-              onClick={() => navigate("/support")}
-              variant="outlined"
-              size="small"
-            />
-          )}
-          {metrics && metrics.pending_approvals > 0 && (
-            <Chip
-              icon={<WarningAmberIcon />}
-              label={`Approvals (${metrics.pending_approvals})`}
-              color="warning"
-              size="small"
-              onClick={() => navigate("/sales/approvals")}
-            />
-          )}
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ flexWrap: "wrap", rowGap: 0.75 }}
+          >
+            {metrics && metrics.pending_approvals > 0 && (
+              <Chip
+                icon={<WarningAmberIcon />}
+                label={`Approvals (${metrics.pending_approvals})`}
+                color="warning"
+                size="small"
+                onClick={() => navigate("/sales/approvals")}
+              />
+            )}
+          </Stack>
+
+          <Tooltip title="Refresh dashboard">
+            <span>
+              <IconButton
+                size="small"
+                color="primary"
+                onClick={() => {
+                  void refresh();
+                }}
+                disabled={loading}
+                sx={{ border: 1, borderColor: "divider", bgcolor: "background.paper" }}
+              >
+                <RefreshIcon
+                  sx={{
+                    fontSize: 18,
+                    animation: loading ? "spin 1s linear infinite" : "none",
+                    "@keyframes spin": {
+                      from: { transform: "rotate(0deg)" },
+                      to: { transform: "rotate(360deg)" },
+                    },
+                  }}
+                />
+              </IconButton>
+            </span>
+          </Tooltip>
         </Stack>
       )}
 
@@ -510,7 +426,7 @@ export default function DashboardPage() {
             </Grid>
           </Grid>
 
-          {/* ─── 3. Charts Row: Sales Trend + Pending Approvals ──────── */}
+          {/* ─── 3. Charts Row: Sales Trend + Financial Overview ─────── */}
           <Grid container spacing={2.5}>
             {/* Sales Trend Area Chart */}
             <Grid item xs={12} lg={8}>
@@ -647,8 +563,74 @@ export default function DashboardPage() {
               </DashboardPanel>
             </Grid>
 
+            {/* Financial Snapshot — Donut */}
+            {canViewFinance && (
+              <Grid item xs={12} lg={4}>
+                <DashboardPanel
+                  title="Financial Overview"
+                  subtitle="This month"
+                  action={
+                    <Chip
+                      label="Details"
+                      size="small"
+                      variant="outlined"
+                      onClick={() => navigate("/finance")}
+                    />
+                  }
+                >
+                  {loading ? (
+                    <TLoadingSkeleton type="card" />
+                  ) : (
+                    <Stack spacing={2}>
+                      <BreakdownDonut
+                        data={financialDonut}
+                        centerLabel="Net"
+                        centerValue={`Rs. ${fmtLKR(
+                          (metrics?.total_sales_month || 0) -
+                            (metrics?.total_purchases_month || 0),
+                        )}`}
+                        formatValue={(v) => `Rs. ${fmtLKR(v)}`}
+                        height={190}
+                      />
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        justifyContent="center"
+                        flexWrap="wrap"
+                        sx={{ rowGap: 0.5 }}
+                      >
+                        <Chip
+                          size="small"
+                          label={`Receivables: Rs. ${fmtLKR(metrics?.total_credit_outstanding || 0)}`}
+                          sx={{
+                            bgcolor: "error.50",
+                            color: "error.main",
+                            fontWeight: 600,
+                            fontSize: "0.68rem",
+                          }}
+                        />
+                        <Chip
+                          size="small"
+                          label={`Payables: Rs. ${fmtLKR(metrics?.total_supplier_credit || 0)}`}
+                          sx={{
+                            bgcolor: "warning.50",
+                            color: "warning.dark",
+                            fontWeight: 600,
+                            fontSize: "0.68rem",
+                          }}
+                        />
+                      </Stack>
+                    </Stack>
+                  )}
+                </DashboardPanel>
+              </Grid>
+            )}
+          </Grid>
+
+          {/* ─── 4. Bottom Row: Pending Approvals + Top Products + Activity ── */}
+          <Grid container spacing={2.5}>
             {/* Pending Approvals */}
-            <Grid item xs={12} lg={4}>
+            <Grid item xs={12} md={6} lg={4}>
               <DashboardPanel
                 title="Pending Approvals"
                 action={
@@ -729,76 +711,9 @@ export default function DashboardPage() {
                 )}
               </DashboardPanel>
             </Grid>
-          </Grid>
-
-          {/* ─── 4. Bottom Row: Finance Donut + Top Products Bar + Activity ── */}
-          <Grid container spacing={2.5}>
-            {/* Financial Snapshot — Donut */}
-            {canViewFinance && (
-              <Grid item xs={12} md={6} lg={4}>
-                <DashboardPanel
-                  title="Financial Overview"
-                  subtitle="This month"
-                  action={
-                    <Chip
-                      label="Details"
-                      size="small"
-                      variant="outlined"
-                      onClick={() => navigate("/finance")}
-                    />
-                  }
-                >
-                  {loading ? (
-                    <TLoadingSkeleton type="card" />
-                  ) : (
-                    <Stack spacing={2}>
-                      <BreakdownDonut
-                        data={financialDonut}
-                        centerLabel="Net"
-                        centerValue={`Rs. ${fmtLKR(
-                          (metrics?.total_sales_month || 0) -
-                            (metrics?.total_purchases_month || 0),
-                        )}`}
-                        formatValue={(v) => `Rs. ${fmtLKR(v)}`}
-                        height={190}
-                      />
-                      {/* Key figures under the donut */}
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        justifyContent="center"
-                        flexWrap="wrap"
-                        sx={{ rowGap: 0.5 }}
-                      >
-                        <Chip
-                          size="small"
-                          label={`Receivables: Rs. ${fmtLKR(metrics?.total_credit_outstanding || 0)}`}
-                          sx={{
-                            bgcolor: "error.50",
-                            color: "error.main",
-                            fontWeight: 600,
-                            fontSize: "0.68rem",
-                          }}
-                        />
-                        <Chip
-                          size="small"
-                          label={`Payables: Rs. ${fmtLKR(metrics?.total_supplier_credit || 0)}`}
-                          sx={{
-                            bgcolor: "warning.50",
-                            color: "warning.dark",
-                            fontWeight: 600,
-                            fontSize: "0.68rem",
-                          }}
-                        />
-                      </Stack>
-                    </Stack>
-                  )}
-                </DashboardPanel>
-              </Grid>
-            )}
 
             {/* Top Selling Products — Horizontal Bar */}
-            <Grid item xs={12} md={6} lg={canViewFinance ? 4 : 6}>
+            <Grid item xs={12} md={6} lg={4}>
               <DashboardPanel
                 title="Top Products"
                 subtitle="By quantity this month"
@@ -875,7 +790,7 @@ export default function DashboardPage() {
             </Grid>
 
             {/* Recent Activity */}
-            <Grid item xs={12} md={12} lg={canViewFinance ? 4 : 6}>
+            <Grid item xs={12} md={12} lg={4}>
               <DashboardPanel title="Recent Activity">
                 {loading ? (
                   <TLoadingSkeleton type="list" count={5} />
