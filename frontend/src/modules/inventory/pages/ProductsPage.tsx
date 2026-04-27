@@ -336,7 +336,9 @@ export default function ProductsPage({
   // Mutations
   const createProductMutation = useCrudMutation({
     mutationFn: productsApi.create,
-    invalidateQueryKeys: [["products"]],
+    // Also invalidate the referenceData cache so product selectors in purchasing,
+    // sales, warehouse etc. immediately reflect the new product without a hard refresh.
+    invalidateQueryKeys: [["products"], ["referenceData"]],
     successMessage: "Product created successfully",
     errorMessage: "Failed to create product",
     onSuccess: (newProduct) => {
@@ -359,7 +361,7 @@ export default function ProductsPage({
   const updateProductMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<ProductCreate> }) =>
       productsApi.update(id, data),
-    invalidateQueryKeys: [["products"]],
+    invalidateQueryKeys: [["products"], ["referenceData"]],
     successMessage: "Product updated successfully",
     errorMessage: "Failed to update product",
     onSuccess: () => {
@@ -369,7 +371,7 @@ export default function ProductsPage({
 
   const deleteProductMutation = useCrudMutation({
     mutationFn: productsApi.delete,
-    invalidateQueryKeys: [["products"]],
+    invalidateQueryKeys: [["products"], ["referenceData"]],
     getSuccessMessage: (data) =>
       data?.message || "Product deleted successfully",
     errorMessage: "Failed to delete product",
@@ -380,7 +382,7 @@ export default function ProductsPage({
 
   const createCategoryMutation = useCrudMutation({
     mutationFn: categoriesApi.create,
-    invalidateQueryKeys: [["categories"]],
+    invalidateQueryKeys: [["categories"], ["referenceData"]],
     successMessage: "Category created successfully",
     errorMessage: "Failed to create category",
     onSuccess: (newCategory) => {
@@ -393,7 +395,7 @@ export default function ProductsPage({
   const updateCategoryMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: CategoryUpdate }) =>
       categoriesApi.update(id, data),
-    invalidateQueryKeys: [["categories"]],
+    invalidateQueryKeys: [["categories"], ["referenceData"]],
     successMessage: "Category updated successfully",
     errorMessage: "Failed to update category",
     onSuccess: () => {
@@ -403,7 +405,7 @@ export default function ProductsPage({
 
   const deleteCategoryMutation = useCrudMutation({
     mutationFn: categoriesApi.delete,
-    invalidateQueryKeys: [["categories"]],
+    invalidateQueryKeys: [["categories"], ["referenceData"]],
     getSuccessMessage: (data) =>
       data?.message || "Category deleted successfully",
     errorMessage: "Failed to delete category",
@@ -414,7 +416,7 @@ export default function ProductsPage({
 
   const createBrandMutation = useCrudMutation({
     mutationFn: brandsApi.create,
-    invalidateQueryKeys: [["brands"]],
+    invalidateQueryKeys: [["brands"], ["referenceData"]],
     successMessage: "Brand created successfully",
     errorMessage: "Failed to create brand",
     onSuccess: (newBrand) => {
@@ -427,7 +429,7 @@ export default function ProductsPage({
   const updateBrandMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: BrandUpdate }) =>
       brandsApi.update(id, data),
-    invalidateQueryKeys: [["brands"]],
+    invalidateQueryKeys: [["brands"], ["referenceData"]],
     successMessage: "Brand updated successfully",
     errorMessage: "Failed to update brand",
     onSuccess: () => {
@@ -437,7 +439,7 @@ export default function ProductsPage({
 
   const deleteBrandMutation = useCrudMutation({
     mutationFn: brandsApi.delete,
-    invalidateQueryKeys: [["brands"]],
+    invalidateQueryKeys: [["brands"], ["referenceData"]],
     getSuccessMessage: (data) => data?.message || "Brand deleted successfully",
     errorMessage: "Failed to delete brand",
     onSuccess: (data) => {

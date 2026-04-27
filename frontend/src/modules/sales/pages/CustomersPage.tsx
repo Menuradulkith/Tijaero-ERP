@@ -135,6 +135,7 @@ export default function CustomersPage() {
     sortField,
     setSortField,
     selectedItem: selectedCustomer,
+    setSelectedItem: setSelectedCustomer,
     isEditing,
     setIsEditing,
     isCreating,
@@ -244,7 +245,7 @@ export default function CustomersPage() {
   // Mutations
   const createMutation = useCrudMutation({
     mutationFn: customersApi.create,
-    invalidateQueryKeys: [["customers"]],
+    invalidateQueryKeys: [["customers"], ["referenceData"]],
     successMessage: "Customer created successfully",
     errorMessage: "Failed to create customer",
     onSuccess: (newCustomer) => {
@@ -258,7 +259,7 @@ export default function CustomersPage() {
   const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: CustomerCreate }) =>
       customersApi.update(id, data),
-    invalidateQueryKeys: [["customers"]],
+    invalidateQueryKeys: [["customers"], ["referenceData"]],
     successMessage: "Customer updated successfully",
     errorMessage: "Failed to update customer",
     onSuccess: () => {
@@ -268,11 +269,11 @@ export default function CustomersPage() {
 
   const deleteMutation = useCrudMutation({
     mutationFn: customersApi.delete,
-    invalidateQueryKeys: [["customers"]],
+    invalidateQueryKeys: [["customers"], ["referenceData"]],
     successMessage: "Customer deleted successfully",
     errorMessage: "Failed to delete customer",
     onSuccess: () => {
-      baseHandleCancel(filteredCustomers);
+      setSelectedCustomer(null);
     },
   });
 
