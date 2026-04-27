@@ -26,6 +26,7 @@ import {
   TPrintPreviewDialog,
   TStatusChip,
   TSteps,
+  useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog
 } from "@/components/tijaero";
@@ -378,9 +379,9 @@ export default function QuotationsPage() {
   const createMutation = useCrudMutation({
     mutationFn: (data: SalesQuoteCreate) => quotationApi.create(data),
     getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType]],
-    getSuccessMessage: (newQuote) => `${QUOTE_TYPE_LABELS[newQuote.quote_type]} created successfully`,
+    getSuccessMessage: (newQuote: SalesQuote) => `${QUOTE_TYPE_LABELS[newQuote.quote_type]} created successfully`,
     errorMessage: "Failed to create quote",
-    onSuccess: (newQuote) => {
+    onSuccess: (newQuote: SalesQuote) => {
       handleSelectQuote(newQuote);
       setIsCreating(false);
       setLineItems([]);
@@ -393,7 +394,7 @@ export default function QuotationsPage() {
     getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType]],
     successMessage: "Quote updated successfully",
     errorMessage: "Failed to update quote",
-    onSuccess: (updatedQuote) => {
+    onSuccess: (updatedQuote: SalesQuote) => {
       handleSelectQuote(updatedQuote);
       setIsEditing(false);
       setLineItemsDirty(false);
@@ -419,7 +420,7 @@ export default function QuotationsPage() {
     invalidateQueryKeys: [["sales-quotes"], ["sales-quote-details"]],
     successMessage: "Converted to Proforma Invoice",
     errorMessage: "Failed to update type",
-    onSuccess: (_data, variables) => {
+    onSuccess: (_data: SalesQuote, variables: { id: number; is_proforma: boolean }) => {
       // Navigate to the Proforma Invoice page and auto-select the converted quote
       navigate("/sales/proforma", { state: { selectedQuoteId: variables.id } });
     },
@@ -431,7 +432,7 @@ export default function QuotationsPage() {
     getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType], ["sales-quote-details"]],
     successMessage: "Quote rejected",
     errorMessage: "Failed to reject",
-    onSuccess: (updatedQuote) => {
+    onSuccess: (updatedQuote: SalesQuote) => {
       handleSelectQuote(updatedQuote);
       setRejectDialogOpen(false);
       setRejectReason("");
@@ -445,7 +446,7 @@ export default function QuotationsPage() {
     getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType], ["sales-quote-details"]],
     successMessage: "Quote cancelled",
     errorMessage: "Failed to cancel",
-    onSuccess: (updatedQuote) => {
+    onSuccess: (updatedQuote: SalesQuote) => {
       handleSelectQuote(updatedQuote);
     },
   });
