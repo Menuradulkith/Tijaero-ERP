@@ -259,34 +259,7 @@ const StockDetailsPanel = ({
                     </Box>
                   </Box>
                 </Grid>
-                {/* Image URL */}
-                <Grid item xs={12}>
-                  <Typography variant="caption" color="text.secondary">
-                    Image URL
-                  </Typography>
-                  {product.image_url ? (
-                    <Typography
-                      variant="body2"
-                      component="a"
-                      href={product.image_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      sx={{
-                        display: "block",
-                        color: "primary.main",
-                        wordBreak: "break-all",
-                        textDecoration: "none",
-                        "&:hover": { textDecoration: "underline" },
-                      }}
-                    >
-                      {product.image_url}
-                    </Typography>
-                  ) : (
-                    <Typography variant="body2" color="text.disabled">
-                      Not set
-                    </Typography>
-                  )}
-                </Grid>
+
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">
                     Product Name

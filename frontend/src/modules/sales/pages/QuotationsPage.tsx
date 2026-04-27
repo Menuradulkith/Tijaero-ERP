@@ -178,6 +178,7 @@ export default function QuotationsPage() {
     sortField,
     setSortField,
     selectedItem: selectedQuote,
+    setSelectedItem: setSelectedQuote,
     isEditing,
     setIsEditing,
     isCreating,
@@ -406,7 +407,7 @@ export default function QuotationsPage() {
     successMessage: "Quote deleted successfully",
     errorMessage: "Failed to delete quote",
     onSuccess: () => {
-      baseHandleCancel(filteredQuotes);
+      setSelectedQuote(null);
     },
   });
 

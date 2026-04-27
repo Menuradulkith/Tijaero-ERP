@@ -108,6 +108,7 @@ export default function BranchesPage() {
     sortField,
     setSortField,
     selectedItem: selectedBranch,
+    setSelectedItem: setSelectedBranch,
     isEditing,
     setIsEditing,
     isCreating,
@@ -242,7 +243,7 @@ export default function BranchesPage() {
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       // Use the success message from backend if available
       showSuccessToast(data?.message || "Branch deleted successfully");
-      handleCancel(filteredBranches);
+      setSelectedBranch(null);
     },
     onError: (error: unknown) => {
       showErrorToast(handleApiError(error, "Failed to delete branch"));

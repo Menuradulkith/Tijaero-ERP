@@ -138,6 +138,7 @@ export default function CouponsPage() {
     sortField,
     setSortField,
     selectedItem: selectedCoupon,
+    setSelectedItem: setSelectedCoupon,
     isEditing,
     setIsEditing,
     isCreating,
@@ -243,7 +244,7 @@ export default function CouponsPage() {
     successMessage: "Coupon deleted successfully",
     errorMessage: "Failed to delete coupon",
     onSuccess: () => {
-      baseHandleCancel(filteredCoupons);
+      setSelectedCoupon(null);
     },
   });
 

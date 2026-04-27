@@ -149,6 +149,7 @@ export default function SuppliersPage() {
     sortField,
     setSortField,
     selectedItem: selectedSupplier,
+    setSelectedItem: setSelectedSupplier,
     isEditing,
     setIsEditing,
     isCreating,
@@ -208,7 +209,7 @@ export default function SuppliersPage() {
 
   const createMutation = useCrudMutation({
     mutationFn: suppliersApi.create,
-    invalidateQueryKeys: [["suppliers"]],
+    invalidateQueryKeys: [["suppliers"], ["referenceData"]],
     successMessage: "Supplier created successfully",
     errorMessage: "Failed to create supplier",
     onSuccess: (newSupplier) => {
@@ -221,7 +222,7 @@ export default function SuppliersPage() {
   const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: SupplierCreate }) =>
       suppliersApi.update(id, data),
-    invalidateQueryKeys: [["suppliers"]],
+    invalidateQueryKeys: [["suppliers"], ["referenceData"]],
     successMessage: "Supplier updated successfully",
     errorMessage: "Failed to update supplier",
     onSuccess: () => {
@@ -231,11 +232,11 @@ export default function SuppliersPage() {
 
   const deleteMutation = useCrudMutation({
     mutationFn: suppliersApi.delete,
-    invalidateQueryKeys: [["suppliers"]],
+    invalidateQueryKeys: [["suppliers"], ["referenceData"]],
     successMessage: "Supplier deleted successfully",
     errorMessage: "Failed to delete supplier",
     onSuccess: () => {
-      handleCancel(filteredSuppliers);
+      setSelectedSupplier(null);
     },
   });
 

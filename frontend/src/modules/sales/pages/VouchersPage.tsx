@@ -138,6 +138,7 @@ export default function VouchersPage() {
     sortField,
     setSortField,
     selectedItem: selectedVoucher,
+    setSelectedItem: setSelectedVoucher,
     isEditing,
     setIsEditing,
     isCreating,
@@ -247,8 +248,8 @@ export default function VouchersPage() {
     invalidateQueryKeys: [["vouchers"]],
     successMessage: "Voucher deleted successfully",
     errorMessage: "Failed to delete voucher",
-    onSuccess: async () => {
-      baseHandleCancel(filteredVouchers);
+    onSuccess: () => {
+      setSelectedVoucher(null);
     },
   });
 

@@ -162,6 +162,7 @@ export default function AgentCommissionsPage() {
     sortField,
     setSortField,
     selectedItem: selectedCommission,
+    setSelectedItem: setSelectedCommission,
     isEditing,
     setIsEditing,
     isCreating,
@@ -321,7 +322,7 @@ export default function AgentCommissionsPage() {
     successMessage: "Commission deleted successfully",
     errorMessage: "Failed to delete commission",
     onSuccess: () => {
-      baseHandleCancel(filteredCommissions);
+      setSelectedCommission(null);
     },
   });
 

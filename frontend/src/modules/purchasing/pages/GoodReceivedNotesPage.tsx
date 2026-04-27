@@ -273,6 +273,18 @@ export default function GoodReceivedNotesPage() {
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-focus the barcode input whenever the active scan item changes.
+  // Using useEffect is more reliable than a one-shot setTimeout inside
+  // startScanning because React is guaranteed to have committed the new
+  // inputRef assignment before the effect fires.
+  useEffect(() => {
+    if (!activeScanItem) return;
+    const frame = requestAnimationFrame(() => {
+      barcodeInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeScanItem]);
+
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -1147,10 +1159,7 @@ export default function GoodReceivedNotesPage() {
   // Start scanning for a specific item
   const startScanning = (itemId: string) => {
     setActiveScanItem(itemId);
-    // Focus the barcode input after a short delay
-    setTimeout(() => {
-      barcodeInputRef.current?.focus();
-    }, 100);
+    // Focus is handled by the useEffect above that watches activeScanItem
   };
 
   // Complete scanning and move to next
@@ -1744,7 +1753,7 @@ export default function GoodReceivedNotesPage() {
                                 {group.product_name}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                Rs. {fmtLKR(group.unit_price)} per unit • Qty: {group.total_quantity}
+                                Rs. {fmtLKR(group.unit_price)} per unit • Qty: {group.total_quantity} • Branch: {group.items[0]?.branch_code} • PO Item ID: {group.items[0]?.purchasing_order_items_id}
                               </Typography>
                             </Box>
                           </Box>
@@ -1788,26 +1797,6 @@ export default function GoodReceivedNotesPage() {
                                     sx={{ minWidth: 40 }}
                                     color={item.scanned ? "success" : "default"}
                                   />
-
-                                  {/* Product Name */}
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                    <Typography variant="caption" color="text.secondary">Product:</Typography>
-                                    <Typography variant="body2" fontWeight="medium">
-                                      {item.product_name}
-                                    </Typography>
-                                  </Box>
-
-                                  {/* Branch */}
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                    <Typography variant="caption" color="text.secondary">Branch:</Typography>
-                                    <Chip label={item.branch_code} size="small" variant="outlined" />
-                                  </Box>
-
-                                  {/* PO Item ID */}
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                    <Typography variant="caption" color="text.secondary">PO Item ID:</Typography>
-                                    <Chip label={item.purchasing_order_items_id} size="small" color="primary" variant="outlined" />
-                                  </Box>
                                 </Box>
 
                                 {/* Barcode and Actions Row */}
@@ -1939,25 +1928,7 @@ export default function GoodReceivedNotesPage() {
                       </Alert>
                     )}
 
-                    {/* Save Button */}
-                    {allItemsScanned && (defaultSaveToSalesStock || defaultSaveToCompanyAssets) && (
-                      <Button
-                        variant="contained"
-                        color="success"
-                        size="large"
-                        startIcon={<SaveIcon />}
-                        onClick={handleSaveClick}
-                        disabled={isSaving || hasBarcodeErrors || isValidatingBarcodes || !allBarcodesValidated}
-                        sx={{ mt: 2 }}
-                      >
-                        {isSaving
-                          ? "Saving..."
-                          : isValidatingBarcodes
-                            ? "Validating barcodes..."
-                            : `Save GRN with ${lineItems.length} Items`
-                        }
-                      </Button>
-                    )}
+
                   </Box>
                 ) : (
                   /* View/Edit mode - Table layout */
