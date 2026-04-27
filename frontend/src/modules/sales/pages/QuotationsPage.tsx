@@ -84,7 +84,8 @@ import {
   SalesQuote,
   SalesQuoteCreate,
   SalesQuoteItemCreate,
-  StockAvailabilityItem
+  StockAvailabilityItem,
+  ToggleProformaResponse
 } from "../quotation-types";
 
 // Configuration
@@ -414,13 +415,16 @@ export default function QuotationsPage() {
 
   // ==================== Workflow Mutations ====================
 
-  const toggleProformaMutation = useCrudMutation({
+  const toggleProformaMutation = useCrudMutation<
+    ToggleProformaResponse,
+    { id: number; is_proforma: boolean }
+  >({
     mutationFn: ({ id, is_proforma }: { id: number; is_proforma: boolean }) =>
       quotationApi.toggleProforma(id, { is_proforma }),
     invalidateQueryKeys: [["sales-quotes"], ["sales-quote-details"]],
     successMessage: "Converted to Proforma Invoice",
     errorMessage: "Failed to update type",
-    onSuccess: (_data: SalesQuote, variables: { id: number; is_proforma: boolean }) => {
+    onSuccess: (_data: ToggleProformaResponse, variables: { id: number; is_proforma: boolean }) => {
       // Navigate to the Proforma Invoice page and auto-select the converted quote
       navigate("/sales/proforma", { state: { selectedQuoteId: variables.id } });
     },
