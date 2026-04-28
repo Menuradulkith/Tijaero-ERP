@@ -176,6 +176,8 @@ class JournalEntryListFilter(BaseModel):
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     search: Optional[str] = None
+    reference_type: Optional[str] = None
+    reference_id: Optional[int] = None
     skip: int = 0
     limit: int = 100
 

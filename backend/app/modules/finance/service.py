@@ -306,7 +306,67 @@ class CustomerCreditNoteService:
         self.db = db
     
     def create_credit_note(self, credit_note: schemas.CustomerCreditNoteCreate) -> CustomerCreditNotes:
-        return self.repo.create(credit_note)
+        db_note = self.repo.create(credit_note)
+
+        # ── GL Auto-Posting: Customer Credit Note Issued ──
+        # Dr 4030 Sales Returns          (reduces revenue)
+        # Cr 2530 Customer Credit Notes  (liability — owed back to customer)
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import (
+                PurchaseExpensePayrollGL,
+                ACCT_SALES_RETURNS,
+                ACCT_CUSTOMER_CREDIT_NOTES,
+            )
+            from decimal import Decimal as _D
+            gl = PurchaseExpensePayrollGL(self.db)
+            amount = _D(str(getattr(db_note, "amount", 0) or 0))
+            if amount > 0:
+                marker = f"CustomerCreditNote ID: {db_note.id}"
+                if not gl._check_already_posted(db_note.id, marker):
+                    note_date = getattr(db_note, "date", None)
+                    if note_date is not None and hasattr(note_date, "date"):
+                        # 'date' column is a TIMESTAMP -> coerce to date
+                        note_date = note_date.date()
+                    if note_date is None:
+                        note_date = tz.today()
+                    gl._create_je_and_post(
+                        entry_date=note_date,
+                        description=(
+                            f"Auto GL - Customer Credit Note Issued | Customer ID: "
+                            f"{db_note.customer_id} | Amount: {amount} | "
+                            f"CustomerCreditNote ID: {db_note.id}"
+                        ),
+                        lines=[
+                            {
+                                "account_code": ACCT_SALES_RETURNS,
+                                "debit": amount,
+                                "credit": _D("0"),
+                                "description": f"Customer credit note issued (CN #{db_note.id})",
+                            },
+                            {
+                                "account_code": ACCT_CUSTOMER_CREDIT_NOTES,
+                                "debit": _D("0"),
+                                "credit": amount,
+                                "description": f"Liability - credit note owed to customer #{db_note.customer_id}",
+                            },
+                        ],
+                        branch_code=getattr(db_note, "branch_code", None),
+                        user_id=0,
+                        je_prefix="JE-CCN",
+                        transaction_type="Sales",
+                        reference_type="CustomerCreditNote",
+                        reference_id=db_note.id,
+                        reference_no=f"CN-{db_note.id}",
+                    )
+                    self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"GL posting for credit note {db_note.id} failed (non-blocking): {gl_err}"
+            )
+            self.db.rollback()
+
+        return db_note
     
     def get_credit_note(self, credit_note_id: int) -> CustomerCreditNotes:
         credit_note = self.repo.get_by_id(credit_note_id)
@@ -434,6 +494,7 @@ class CashbookService:
         records = query.all()
 
         # Backfill readable supplier names for legacy/fallback cashbook rows.
+        # Covers both direct supplier_payments and supplier_advance_payment entries.
         supplier_name_by_payment_id = {}
         supplier_payment_ids_needing_name = [
             r.source_id
@@ -462,6 +523,44 @@ class CashbookService:
                 row.id: ((row.full_name or "").strip() or (row.company_name or "").strip())
                 for row in supplier_rows
             }
+
+        # Backfill names for supplier advance payment cashbook entries.
+        advance_name_by_advance_id = {}
+        advance_ids_needing_name = [
+            r.source_id
+            for r in records
+            if r.source_table == "supplier_advance_payment"
+            and (
+                not (r.party_name or "").strip()
+                or (r.party_name or "").strip().lower().startswith("supplier #")
+            )
+        ]
+        if advance_ids_needing_name:
+            advance_rows = (
+                self.db.query(
+                    purchasing_models.SupplierAdvancePayment.id,
+                    purchasing_models.Supplier.full_name,
+                    purchasing_models.Supplier.company_name,
+                )
+                .join(
+                    purchasing_models.Supplier,
+                    purchasing_models.Supplier.id == purchasing_models.SupplierAdvancePayment.supplier_id,
+                )
+                .filter(purchasing_models.SupplierAdvancePayment.id.in_(advance_ids_needing_name))
+                .all()
+            )
+            advance_name_by_advance_id = {
+                row.id: ((row.full_name or "").strip() or (row.company_name or "").strip())
+                for row in advance_rows
+            }
+
+        def _resolve_party_name(r) -> str:
+            name_needed = not (r.party_name or "").strip() or (r.party_name or "").strip().lower().startswith("supplier #")
+            if r.source_table == "supplier_payments" and name_needed:
+                return supplier_name_by_payment_id.get(r.source_id) or r.party_name
+            if r.source_table == "supplier_advance_payment" and name_needed:
+                return advance_name_by_advance_id.get(r.source_id) or r.party_name
+            return r.party_name
         
         # Convert DB records to schema entries
         entries = [
@@ -471,15 +570,7 @@ class CashbookService:
                 transaction_date=r.transaction_date,
                 reference_no=r.reference_no,
                 description=r.description or "",
-                party_name=(
-                    supplier_name_by_payment_id.get(r.source_id)
-                    if r.source_table == "supplier_payments"
-                    and (
-                        not (r.party_name or "").strip()
-                        or (r.party_name or "").strip().lower().startswith("supplier #")
-                    )
-                    else r.party_name
-                ),
+                party_name=_resolve_party_name(r),
                 payment_method=r.payment_method,
                 money_in=Decimal(str(r.money_in)) if r.money_in else Decimal("0"),
                 money_out=Decimal(str(r.money_out)) if r.money_out else Decimal("0"),
@@ -491,34 +582,54 @@ class CashbookService:
             for r in records
         ]
         
-        # If filtering by entry_type or payment_method, running_balance from the 
-        # materialized table won't be correct for the filtered subset, so recalculate.
-        if filters.entry_type or filters.payment_method:
-            # Get the full unfiltered data to calculate correct running balance
-            # Only recalculate for the filtered view display
-            sorted_entries = list(reversed(entries))  # oldest first
-            running_balance = Decimal("0")
-            
-            # Get opening balance (last entry before the date range, unfiltered)
-            if filters.date_from and filters.branch_code:
-                opening_entry = self.db.query(models.CashbookEntryRecord).filter(
+        # Always recalculate running_balance in Python.
+        # The stored value in the materialized table can be stale when entries
+        # are inserted out of chronological order (e.g. an advance payment with
+        # a payment_date of 4/27 00:00 is inserted AFTER an invoice receipt at
+        # 4/27 19:39 — the trigger uses ORDER BY transaction_date DESC so it
+        # picks the invoice as "last" and skips the advance, leaving all
+        # subsequent stored balances wrong).
+        sorted_entries = list(reversed(entries))  # oldest first
+        running_balance = Decimal("0")
+        opening_balance_seed = Decimal("0")
+
+        # Seed with the running balance of the last entry BEFORE the date range
+        # (so the table shows balances relative to the true opening balance).
+        if filters.date_from and filters.branch_code:
+            opening_entry = self.db.query(models.CashbookEntryRecord).filter(
+                models.CashbookEntryRecord.branch_code == filters.branch_code,
+                models.CashbookEntryRecord.transaction_date < datetime.combine(filters.date_from, datetime.min.time())
+            ).order_by(
+                models.CashbookEntryRecord.transaction_date.desc(),
+                models.CashbookEntryRecord.id.desc()
+            ).first()
+            if opening_entry:
+                # The opening entry's stored running_balance may itself be stale,
+                # so recompute it from scratch for the whole history before the
+                # date range and use the final value as the seed.
+                pre_records = self.db.query(models.CashbookEntryRecord).filter(
                     models.CashbookEntryRecord.branch_code == filters.branch_code,
                     models.CashbookEntryRecord.transaction_date < datetime.combine(filters.date_from, datetime.min.time())
                 ).order_by(
-                    models.CashbookEntryRecord.transaction_date.desc(),
-                    models.CashbookEntryRecord.id.desc()
-                ).first()
-                if opening_entry:
-                    running_balance = Decimal(str(opening_entry.running_balance))
-            
-            for entry in sorted_entries:
-                running_balance = running_balance + entry.money_in - entry.money_out
-                entry.running_balance = running_balance
-            
-            entries = list(reversed(sorted_entries))  # back to newest first
-        
+                    models.CashbookEntryRecord.transaction_date.asc(),
+                    models.CashbookEntryRecord.id.asc()
+                ).all()
+                pre_balance = Decimal("0")
+                for pr in pre_records:
+                    mi = Decimal(str(pr.money_in)) if pr.money_in else Decimal("0")
+                    mo = Decimal(str(pr.money_out)) if pr.money_out else Decimal("0")
+                    pre_balance += mi - mo
+                running_balance = pre_balance
+                opening_balance_seed = pre_balance
+
+        for entry in sorted_entries:
+            running_balance = running_balance + entry.money_in - entry.money_out
+            entry.running_balance = running_balance
+
+        entries = list(reversed(sorted_entries))  # back to newest first
+
         # Calculate summary
-        summary = self._calculate_summary(entries)
+        summary = self._calculate_summary(entries, opening_balance=opening_balance_seed)
         
         return schemas.CashbookReport(
             entries=entries,
@@ -529,9 +640,10 @@ class CashbookService:
             entry_count=len(entries)
         )
     
-    def _calculate_summary(self, entries: List[schemas.CashbookEntry]) -> schemas.CashbookSummary:
+    def _calculate_summary(self, entries: List[schemas.CashbookEntry], opening_balance: Decimal = Decimal("0")) -> schemas.CashbookSummary:
         """Calculate summary statistics from entries"""
         summary = schemas.CashbookSummary()
+        summary.opening_balance = opening_balance
         
         for entry in entries:
             summary.total_money_in += entry.money_in

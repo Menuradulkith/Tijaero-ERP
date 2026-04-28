@@ -200,7 +200,10 @@ export default function AdvancePaymentsPage() {
   // Active dataset
   const isLoading = advanceType === "customer" ? loadingCustomer : loadingSupplier;
   const advances: AdvanceRecord[] = advanceType === "customer" ? customerAdvances : supplierAdvances;
-  const refetchData = advanceType === "customer" ? refetchCustomer : refetchSupplier;
+  const refetchData = useCallback(() => {
+    refetchCustomer();
+    refetchSupplier();
+  }, [refetchCustomer, refetchSupplier]);
 
   // Filtered & sorted list
   const filteredAdvances = useMemo(() => {

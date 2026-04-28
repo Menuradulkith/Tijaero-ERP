@@ -737,7 +737,11 @@ class VoucherService:
         return voucher
     
     def delete_voucher(self, db: Session, voucher_id: int) -> dict:
-        """Delete a voucher (only if not used)"""
+        """Delete (refund) a voucher (only if not used).
+
+        For an unredeemed voucher, deletion is treated as a refund:
+        the outstanding-voucher liability (2510) is reversed against cash.
+        """
         voucher = self.get_voucher(db, voucher_id)
         
         # Check if voucher has been used
@@ -750,7 +754,23 @@ class VoucherService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete voucher that has been used {usage_count} time(s)"
             )
-        
+
+        # ── GL Hook: Post voucher refund (Dr 2510 Voucher Liability / Cr 1010 Cash) ──
+        try:
+            from app.modules.sales.accounting_integration import SalesAccountingIntegration
+            from decimal import Decimal as _D
+            sa = SalesAccountingIntegration(db)
+            refund_amount = _D(str(getattr(voucher, "amount", 0) or 0))
+            if refund_amount > 0:
+                sa.post_gift_voucher_refund_to_gl(voucher, refund_amount, user_id=0)
+                db.commit()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Voucher refund GL posting failed for voucher {voucher_id} (non-blocking): {e}"
+            )
+            db.rollback()
+
         db.delete(voucher)
         db.commit()
         return {"message": "Voucher deleted successfully"}

@@ -112,6 +112,18 @@ const allPages = [
     module: "/purchasing",
   },
   {
+    text: "Payment Report",
+    path: "/finance/supplier-payment-report",
+    keywords: [
+      "payment report",
+      "supplier report",
+      "export csv",
+      "payment history",
+      "consolidated",
+    ],
+    module: "/finance",
+  },
+  {
     text: "Payment Approvals",
     path: "/purchasing/payment-approvals",
     keywords: ["verify", "approve payment", "payment verification"],

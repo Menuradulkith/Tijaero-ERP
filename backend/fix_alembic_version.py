@@ -23,11 +23,11 @@ try:
         result = conn.execute(text("SELECT version_num FROM alembic_version")).fetchall()
         print(f"Current version in DB: {result}")
         
-        # Delete all versions
-        conn.execute(text("DELETE FROM alembic_version"))
-        
-        # Insert the correct head version
-        conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('def053c91ef9')"))
+        # Replace the missing revision with the current valid head
+        conn.execute(text(
+            "UPDATE alembic_version SET version_num = 's35_merge_all_heads' "
+            "WHERE version_num = '20260501_cashbook_extra'"
+        ))
         
         conn.commit()
         

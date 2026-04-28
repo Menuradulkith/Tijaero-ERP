@@ -401,6 +401,12 @@ export default function GoodReceivedNotesPage() {
     queryFn: () => purchaseOrdersApi.getAll(),
   });
 
+  // Separate query for PO dropdown in GRN creation — only approved/partially_completed (not fully received)
+  const { data: grnEligiblePOs } = useQuery({
+    queryKey: ["purchaseOrders", "for_grn"],
+    queryFn: () => purchaseOrdersApi.getAll({ for_grn: true, limit: 1000 }),
+  });
+
   const purchaseOrderMap = useMemo(() => {
     const map = new Map<number, PurchasingOrder>();
     (purchaseOrders || []).forEach((po: PurchasingOrder) => map.set(po.id, po));
@@ -1484,16 +1490,15 @@ export default function GoodReceivedNotesPage() {
                   />
                   <Autocomplete
                     size="small"
-                    options={purchaseOrders?.filter((order: PurchasingOrder) => {
-                      // Allow approved and partially_completed POs
-                      // partially_completed means some items received, but more can be received
-                      if (order.status !== "approved" && order.status !== "partially_completed") return false;
-                      const isCurrent = order.id === formData.purchasingorders_id;
-                      // For partially_completed, always allow (to receive remaining items)
-                      // For approved, check if no GRN exists yet
-                      if (order.status === "partially_completed") return true;
-                      return isCurrent || !poIdsWithGrn.has(order.id);
-                    }) || []}
+                    options={(() => {
+                      const eligible = grnEligiblePOs || [];
+                      // Also include the currently selected PO (may already be completed if editing)
+                      const currentPO = purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id);
+                      if (currentPO && !eligible.some((o: PurchasingOrder) => o.id === currentPO.id)) {
+                        return [currentPO, ...eligible];
+                      }
+                      return eligible;
+                    })()}
                     getOptionLabel={(option: PurchasingOrder) => option.purchasing_order_no || ""}
                     value={purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id) || null}
                     onChange={(_, newValue) => {

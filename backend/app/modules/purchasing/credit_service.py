@@ -11,6 +11,9 @@ from app.modules.purchasing.models import (
     PurchasingOrder,
     SupplierCreditsSettle,
     SupplierCreditsSettleTransaction,
+    SupplierPayment,
+    SupplierAdvancePayment,
+    SupplierAdvanceApplication,
     GoodReceivedNote,
     GoodReceivedItems
 )
@@ -260,9 +263,27 @@ class SupplierCreditService:
                     SupplierAdvanceApplication.grn_id.in_(grn_ids)
                 ).scalar() or Decimal("0")
             
-            # Calculate remaining after settlements AND advance applications
+            # Calculate approved purchase returns for this PO's GRNs
+            from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
+            total_returns = Decimal("0")
+            if grn_ids:
+                approved_return_ids = db.query(PurchasingReturn.id).filter(
+                    PurchasingReturn.goodreceivednote_id.in_(grn_ids),
+                    PurchasingReturn.status == "approved"
+                ).all()
+                approved_return_ids = [r[0] for r in approved_return_ids]
+                if approved_return_ids:
+                    total_returns = db.query(
+                        func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                    ).filter(
+                        PurchasingReturnItems.purchasingreturn_id.in_(approved_return_ids)
+                    ).scalar() or Decimal("0")
+
+            # Calculate remaining after settlements, advance applications, AND returns
             total_paid = float(total_settled) + float(total_advance_applied)
-            remaining = float(po_total) - total_paid
+            remaining = float(po_total) - total_paid - float(total_returns)
+            if remaining < 0:
+                remaining = 0
             is_settled = remaining <= 0
 
             po_date = po.purchasing_order_date
@@ -280,6 +301,7 @@ class SupplierCreditService:
                 "total_amount": float(po_total),
                 "settled_amount": total_paid,  # Include both settlements and advance applications
                 "advance_applied": float(total_advance_applied),
+                "return_amount": float(total_returns),
                 "remaining_amount": remaining,
                 "is_settled": is_settled,
                 "has_grn": grn is not None,
@@ -384,9 +406,25 @@ class SupplierCreditService:
                 base_amount,
                 max(Decimal(str(total_advance_applied)), Decimal(str(po_linked_advance_total)))
             )
-            
-            # Calculate remaining after payments AND advance applications
-            total_all_paid_decimal = total_paid + effective_advance
+
+            # Calculate approved purchase returns for this PO's GRNs
+            from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
+            total_returns = Decimal("0")
+            if grn_ids:
+                approved_return_ids = db.query(PurchasingReturn.id).filter(
+                    PurchasingReturn.goodreceivednote_id.in_(grn_ids),
+                    PurchasingReturn.status == "approved"
+                ).all()
+                approved_return_ids = [r[0] for r in approved_return_ids]
+                if approved_return_ids:
+                    total_returns = db.query(
+                        func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                    ).filter(
+                        PurchasingReturnItems.purchasingreturn_id.in_(approved_return_ids)
+                    ).scalar() or Decimal("0")
+
+            # Calculate remaining after payments, advance applications, AND returns
+            total_all_paid_decimal = total_paid + effective_advance + total_returns
             remaining_decimal = base_amount - total_all_paid_decimal
             if remaining_decimal < Decimal("0"):
                 remaining_decimal = Decimal("0")
@@ -413,6 +451,7 @@ class SupplierCreditService:
                 "pending_payment_amount": float(pending_payment_amount),
                 "has_pending_payment": float(pending_payment_amount) > 0,
                 "advance_applied": float(effective_advance),
+                "return_amount": float(total_returns),
                 "remaining_amount": remaining,
                 "is_paid": is_paid,
                 "has_grn": has_grn,
@@ -1154,5 +1193,204 @@ class SupplierCreditService:
             "current_balance": float(running_balance),
             "statement_lines": lines
         }
+
+    def get_payment_report(
+        self,
+        db: Session,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+        supplier_id: Optional[int] = None,
+        branch_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Consolidated payment report across all suppliers and payment types.
+        Queries SupplierPayment (verified, non-auto), SupplierCreditsSettleTransaction,
+        and SupplierAdvanceApplication into a unified flat list.
+        """
+        items: List[Dict[str, Any]] = []
+
+        # --- 1. Direct payments (all statuses except auto-recorded GRN cash) ---
+        sp_query = (
+            db.query(SupplierPayment, Supplier.full_name)
+            .join(Supplier, Supplier.id == SupplierPayment.supplier_id)
+            .filter(
+                or_(
+                    SupplierPayment.remarks == None,  # noqa: E711
+                    ~SupplierPayment.remarks.startswith("Auto-recorded cash payment on GRN "),
+                )
+            )
+        )
+        if date_from:
+            sp_query = sp_query.filter(SupplierPayment.payment_date >= date_from)
+        if date_to:
+            sp_query = sp_query.filter(SupplierPayment.payment_date <= date_to)
+        if supplier_id:
+            sp_query = sp_query.filter(SupplierPayment.supplier_id == supplier_id)
+        if branch_code:
+            sp_query = sp_query.filter(SupplierPayment.branch_code == branch_code)
+
+        for payment, supplier_name in sp_query.all():
+            items.append({
+                "id": payment.id,
+                "date": str(payment.payment_date),
+                "type": "Direct Payment",
+                "supplier_id": payment.supplier_id,
+                "supplier_name": supplier_name,
+                "document_no": payment.payment_no or f"PAY-{payment.id}",
+                "po_no": None,
+                "grn_reference": payment.invoice_reference,
+                "payment_method": payment.payment_method,
+                "amount": float(payment.payment_amount),
+                "status": payment.status,
+                "branch_code": payment.branch_code,
+                "remarks": payment.remarks,
+            })
+
+        # --- 2. Credit settlements ---
+        cs_query = (
+            db.query(
+                SupplierCreditsSettleTransaction,
+                SupplierCreditsSettle.supplier_credits_settle_no,
+                SupplierCreditsSettle.branch_code,
+                SupplierCreditsSettle.suppliers_id,
+                SupplierCreditsSettle.status,
+                Supplier.full_name,
+                GoodReceivedNote.good_received_no,
+            )
+            .join(
+                SupplierCreditsSettle,
+                SupplierCreditsSettle.id == SupplierCreditsSettleTransaction.supplier_credit_settle_id,
+            )
+            .join(Supplier, Supplier.id == SupplierCreditsSettle.suppliers_id)
+            .outerjoin(
+                GoodReceivedNote,
+                GoodReceivedNote.id == SupplierCreditsSettleTransaction.good_received_id,
+            )
+        )
+        if date_from:
+            cs_query = cs_query.filter(SupplierCreditsSettleTransaction.created_date >= date_from)
+        if date_to:
+            cs_query = cs_query.filter(
+                SupplierCreditsSettleTransaction.created_date <= datetime.combine(date_to, datetime.max.time())
+            )
+        if supplier_id:
+            cs_query = cs_query.filter(SupplierCreditsSettle.suppliers_id == supplier_id)
+        if branch_code:
+            cs_query = cs_query.filter(SupplierCreditsSettle.branch_code == branch_code)
+
+        for txn, settle_no, br_code, sup_id, settle_status, supplier_name, grn_no in cs_query.all():
+            items.append({
+                "id": txn.id,
+                "date": str(txn.created_date.date()) if isinstance(txn.created_date, datetime) else str(txn.created_date),
+                "type": "Credit Settlement",
+                "supplier_id": sup_id,
+                "supplier_name": supplier_name,
+                "document_no": settle_no or f"CS-{txn.id}",
+                "po_no": None,
+                "grn_reference": grn_no,
+                "payment_method": txn.payment_method,
+                "amount": float(txn.payment_amount),
+                "status": settle_status or "verified",
+                "branch_code": br_code,
+                "remarks": txn.remarks,
+            })
+
+        # --- 3. Advance applications (applied amount with GRN reference) ---
+        aa_query = (
+            db.query(
+                SupplierAdvanceApplication,
+                SupplierAdvancePayment.advance_no,
+                SupplierAdvancePayment.supplier_id,
+                SupplierAdvancePayment.branch_code,
+                Supplier.full_name,
+                GoodReceivedNote.good_received_no,
+            )
+            .join(
+                SupplierAdvancePayment,
+                SupplierAdvancePayment.id == SupplierAdvanceApplication.advance_id,
+            )
+            .join(Supplier, Supplier.id == SupplierAdvancePayment.supplier_id)
+            .outerjoin(
+                GoodReceivedNote,
+                GoodReceivedNote.id == SupplierAdvanceApplication.grn_id,
+            )
+        )
+        if date_from:
+            aa_query = aa_query.filter(SupplierAdvanceApplication.application_date >= date_from)
+        if date_to:
+            aa_query = aa_query.filter(SupplierAdvanceApplication.application_date <= date_to)
+        if supplier_id:
+            aa_query = aa_query.filter(SupplierAdvancePayment.supplier_id == supplier_id)
+        if branch_code:
+            aa_query = aa_query.filter(SupplierAdvancePayment.branch_code == branch_code)
+
+        for app, advance_no, sup_id, br_code, supplier_name, grn_no in aa_query.all():
+            items.append({
+                "id": app.id,
+                "date": str(app.application_date),
+                "type": "Advance Application",
+                "supplier_id": sup_id,
+                "supplier_name": supplier_name,
+                "document_no": f"{advance_no}/APP" if advance_no else f"APP-{app.id}",
+                "po_no": None,
+                "grn_reference": grn_no,
+                "payment_method": "Advance Apply",
+                "amount": float(app.applied_amount),
+                "status": "verified",
+                "branch_code": br_code,
+                "remarks": app.remarks or (f"Applied to {grn_no}" if grn_no else "Advance applied to GRN"),
+            })
+
+        # --- 4. Supplier advance payments (the actual payment made to hold as advance) ---
+        ap_query = (
+            db.query(SupplierAdvancePayment, Supplier.full_name)
+            .join(Supplier, Supplier.id == SupplierAdvancePayment.supplier_id)
+        )
+        if date_from:
+            ap_query = ap_query.filter(SupplierAdvancePayment.payment_date >= date_from)
+        if date_to:
+            ap_query = ap_query.filter(SupplierAdvancePayment.payment_date <= date_to)
+        if supplier_id:
+            ap_query = ap_query.filter(SupplierAdvancePayment.supplier_id == supplier_id)
+        if branch_code:
+            ap_query = ap_query.filter(SupplierAdvancePayment.branch_code == branch_code)
+
+        for advance, supplier_name in ap_query.all():
+            items.append({
+                "id": advance.id,
+                "date": str(advance.payment_date),
+                "type": "Advance Payment",
+                "supplier_id": advance.supplier_id,
+                "supplier_name": supplier_name,
+                "document_no": advance.advance_no or f"ADV-{advance.id}",
+                "po_no": advance.po_no,
+                "grn_reference": None,
+                "payment_method": advance.payment_method,
+                "amount": float(advance.original_amount),
+                "status": "verified",
+                "branch_code": advance.branch_code,
+                "remarks": advance.remarks,
+            })
+
+        # Sort by date descending
+        items.sort(key=lambda x: x["date"], reverse=True)
+
+        # Build summary
+        summary = {
+            "total_amount": sum(i["amount"] for i in items),
+            "total_count": len(items),
+            "direct_payments": sum(i["amount"] for i in items if i["type"] == "Direct Payment"),
+            "direct_payments_count": sum(1 for i in items if i["type"] == "Direct Payment"),
+            "credit_settlements": sum(i["amount"] for i in items if i["type"] == "Credit Settlement"),
+            "credit_settlements_count": sum(1 for i in items if i["type"] == "Credit Settlement"),
+            "advance_payments": sum(i["amount"] for i in items if i["type"] == "Advance Payment"),
+            "advance_payments_count": sum(1 for i in items if i["type"] == "Advance Payment"),
+            "advance_applications": sum(i["amount"] for i in items if i["type"] == "Advance Application"),
+            "advance_applications_count": sum(1 for i in items if i["type"] == "Advance Application"),
+            "pending_amount": sum(i["amount"] for i in items if i["status"] == "pending"),
+            "pending_count": sum(1 for i in items if i["status"] == "pending"),
+        }
+
+        return {"items": items, "summary": summary}
 
 supplier_credit_service = SupplierCreditService()

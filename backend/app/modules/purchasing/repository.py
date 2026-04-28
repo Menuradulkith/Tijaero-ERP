@@ -149,6 +149,13 @@ class PurchasingOrderRepository:
             query = query.filter(models.PurchasingOrder.purchasing_order_date >= filters.date_from)
         if filters.date_to:
             query = query.filter(models.PurchasingOrder.purchasing_order_date <= filters.date_to)
+        if filters.for_grn:
+            # Only return POs that are eligible for GRN creation (not yet fully received)
+            query = query.filter(
+                models.PurchasingOrder.status.in_(["approved", "partially_completed"])
+            )
+        elif filters.status:
+            query = query.filter(models.PurchasingOrder.status == filters.status)
         
         return query.order_by(models.PurchasingOrder.purchasing_order_date.desc()).offset(filters.skip).limit(filters.limit).all()
     

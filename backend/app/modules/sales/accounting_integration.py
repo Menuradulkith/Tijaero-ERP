@@ -231,6 +231,18 @@ class SalesAccountingIntegration:
         posting_date = entry_date
         fiscal_year, fiscal_period = self._get_fiscal_period(posting_date)
 
+        # Block writes into closed/locked accounting periods
+        from app.modules.finance.accounting_models import AccountingPeriod
+        period = self.db.query(AccountingPeriod).filter(
+            AccountingPeriod.fiscal_year == fiscal_year,
+            AccountingPeriod.period_number == fiscal_period,
+        ).first()
+        if period and period.status != "open":
+            logger.warning(
+                f"Skipping auto GL post - period {fiscal_year}-{fiscal_period} is {period.status}"
+            )
+            return None
+
         # Create Journal Entry
         je = JournalEntry(
             journal_entry_no=self._generate_je_number(),

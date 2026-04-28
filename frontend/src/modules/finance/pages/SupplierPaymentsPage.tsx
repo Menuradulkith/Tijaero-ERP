@@ -22,7 +22,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Box,
   TextField,
@@ -67,7 +67,6 @@ import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import SearchIcon from "@mui/icons-material/Search";
 import WarningIcon from "@mui/icons-material/Warning";
 import AssessmentIcon from "@mui/icons-material/Assessment";
-import PrintIcon from "@mui/icons-material/Print";
 import { 
   handleApiError,
   showErrorToast,
@@ -85,7 +84,6 @@ import {
   ActionToolbar,
   FormSection,
   EmptyState,
-  modernTableStyles,
   TFilterPanel,
 } from "@/components/tijaero";
 
@@ -94,7 +92,6 @@ import {
   supplierCreditsSettleApi,
   supplierCreditApi,
   supplierPaymentsApi,
-  supplierAdvancePaymentsApi,
   SupplierPaymentStatusData,
 } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
@@ -103,9 +100,6 @@ import {
   SupplierCreditsSettleCreate,
   SupplierCreditsSettleTransactionCreate,
   SupplierPaymentCreate,
-  SupplierPayment,
-  SupplierCreditsSettle,
-  SupplierAdvancePaymentWithApplications,
 } from "@/modules/purchasing/types";
 
 // Configuration
@@ -145,6 +139,7 @@ interface OutstandingDocument {
   pending_payment_amount?: number;
   has_pending_payment?: boolean;
   supplier_advance_amount: number;
+  return_amount: number;
   remaining_amount: number;
   days_overdue: number;
   is_overdue: boolean;
@@ -163,13 +158,12 @@ interface PaymentLine {
 // Steps in the workflow
 const STEPS = ["Select Documents", "Payment Details", "Review & Post"];
 
-type PaymentHistoryType = "credit_settlement" | "payment" | "advance_payment" | "advance_application";
-
 // View mode enum
-type ViewMode = "overview" | "documents" | "payment" | "review" | "history";
+type ViewMode = "overview" | "documents" | "payment" | "review";
 
 export default function SupplierPaymentsPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   // Data state
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -211,13 +205,13 @@ export default function SupplierPaymentsPage() {
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0]);
   const [remarks, setRemarks] = useState("");
 
+  // Previous payment suggestions (populated when a supplier is selected)
+  const [previousBankNames, setPreviousBankNames] = useState<string[]>([]);
+  const [lastPaymentSuggestion, setLastPaymentSuggestion] = useState<{ payment_method: string; bank_name: string } | null>(null);
+
   // FIFO mode
   const [useFIFO, setUseFIFO] = useState(false);
   const [fifoAmount, setFifoAmount] = useState(0);
-
-  // Payment history state
-  const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
 
 
 
@@ -266,141 +260,10 @@ export default function SupplierPaymentsPage() {
     }
   }, []);
 
-  // Load payment history for selected supplier
-  const loadPaymentHistory = useCallback(async (supplierId: number) => {
-    try {
-      setLoadingHistory(true);
-
-      // Load settlements, direct payments, and supplier advances for unified history.
-      const [creditSettlements, nonCreditPayments, supplierAdvances] = await Promise.all([
-        supplierCreditsSettleApi.getBySupplier(supplierId).catch(() => []),
-        supplierPaymentsApi.getAll({ supplier_id: supplierId }).catch(() => []),
-        supplierAdvancePaymentsApi.getBySupplier(supplierId, { skip: 0, limit: 1000 }).catch(() => []),
-      ]);
-
-      // Fetch full details for each credit settlement to get transaction info
-      const settlementsWithDetails = await Promise.all(
-        (creditSettlements || []).map(async (s: SupplierCreditsSettle) => {
-          try {
-            const fullSettlement = await supplierCreditsSettleApi.getById(s.id);
-            const totalAmount = fullSettlement.transactions?.reduce((sum, t) => sum + (t.payment_amount || 0), 0) || 0;
-            const poNos = [...new Set(fullSettlement.transactions?.map(t => t.po_no).filter(Boolean))].join(", ");
-            const paymentMethods = [...new Set(fullSettlement.transactions?.map(t => t.payment_method).filter(Boolean))].join(", ");
-
-            return {
-              type: "credit_settlement",
-              id: s.id,
-              settle_no: s.supplier_credits_settle_no,
-              date: s.created_date,
-              total_amount: totalAmount,
-              po_no: poNos || undefined,
-              payment_method: paymentMethods || undefined,
-              transactions: fullSettlement.transactions || [],
-              branch_code: s.branch_code,
-              status: fullSettlement.status,
-            };
-          } catch (err) {
-            return {
-              type: "credit_settlement",
-              id: s.id,
-              settle_no: s.supplier_credits_settle_no,
-              date: s.created_date,
-              total_amount: 0,
-              transactions: [],
-              branch_code: s.branch_code,
-              status: s.status || "pending",
-            };
-          }
-        })
-      );
-
-      const advancesWithApplications = await Promise.all(
-        (supplierAdvances || []).map(async (advance) => {
-          try {
-            return await supplierAdvancePaymentsApi.getById(advance.id);
-          } catch {
-            return {
-              ...advance,
-              applications: [],
-            } as SupplierAdvancePaymentWithApplications;
-          }
-        })
-      );
-
-      const advancePayments = advancesWithApplications.map((a) => ({
-        type: "advance_payment" as PaymentHistoryType,
-        id: a.id,
-        payment_no: a.advance_no,
-        date: a.payment_date,
-        amount: a.original_amount,
-        payment_method: a.payment_method,
-        reference_number: a.reference_number,
-        bank_name: a.bank_name,
-        invoice_reference: a.po_no,
-        remarks: a.remarks,
-        status: a.is_fully_applied ? "verified" : "pending",
-        po_no: a.po_no,
-        branch_code: a.branch_code,
-      }));
-
-      const advanceApplications = advancesWithApplications.flatMap((a) =>
-        (a.applications || []).map((app) => ({
-          type: "advance_application" as PaymentHistoryType,
-          id: app.id,
-          payment_no: app.advance_no ? `${app.advance_no}/APP` : `APP-${app.id}`,
-          date: app.application_date,
-          amount: app.applied_amount,
-          payment_method: "Advance Apply",
-          reference_number: app.grn_no,
-          invoice_reference: app.grn_no,
-          remarks: app.remarks || (app.grn_no ? `Applied to ${app.grn_no}` : "Advance applied to GRN"),
-          status: "verified",
-          po_no: a.po_no,
-          branch_code: a.branch_code,
-        }))
-      );
-
-      // Combine and sort by date
-      const combined: any[] = [
-        ...settlementsWithDetails,
-        ...(nonCreditPayments || [])
-          .filter((p: SupplierPayment) => p.status === "verified")
-          .filter((p: SupplierPayment) => !(p.remarks || "").startsWith("Auto-recorded cash payment on GRN "))
-          .map((p: SupplierPayment) => ({
-          type: "payment",
-          id: p.id,
-          payment_no: p.payment_no,
-          date: p.payment_date,
-          amount: p.payment_amount,
-          payment_method: p.payment_method,
-          reference_number: p.reference_number,
-          bank_name: p.bank_name,
-          invoice_reference: p.invoice_reference,
-          remarks: p.remarks,
-          status: p.status,
-          po_no: p.po_no,
-          branch_code: p.branch_code,
-        })),
-        ...advancePayments,
-        ...advanceApplications,
-      ];
-
-      combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      setPaymentHistory(combined);
-    } catch (err) {
-      setPaymentHistory([]);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, []);
-
   const refreshSelectedSupplierData = useCallback(() => {
     if (!selectedSupplier?.id) return;
     loadPaymentStatus(selectedSupplier.id);
-    if (viewMode === "history") {
-      loadPaymentHistory(selectedSupplier.id);
-    }
-  }, [selectedSupplier?.id, viewMode, loadPaymentStatus, loadPaymentHistory]);
+  }, [selectedSupplier?.id, loadPaymentStatus]);
 
   // Refresh selected supplier data whenever user re-enters this page.
   useEffect(() => {
@@ -450,6 +313,7 @@ export default function SupplierPaymentsPage() {
           total_amount: po.total_amount,
           paid_amount: po.settled_amount,
           supplier_advance_amount: po.advance_applied || 0,
+          return_amount: po.return_amount || 0,
           remaining_amount: po.remaining_amount,
           days_overdue: po.days_overdue,
           is_overdue: po.is_overdue,
@@ -478,6 +342,7 @@ export default function SupplierPaymentsPage() {
           pending_payment_amount: po.pending_payment_amount || 0,
           has_pending_payment: !!po.has_pending_payment,
           supplier_advance_amount: po.advance_applied || 0,
+          return_amount: po.return_amount || 0,
           remaining_amount: po.remaining_amount,
           days_overdue: po.days_overdue,
           is_overdue: po.is_overdue,
@@ -633,10 +498,33 @@ export default function SupplierPaymentsPage() {
     setUseFIFO(false);
     setFifoAmount(0);
     resetPaymentForm();
-    // Clear previous supplier's data
-    setPaymentHistory([]);
     // Load data for this supplier
     loadPaymentStatus(supplier.id);
+    // Fetch previous payment data to auto-populate payment form
+    supplierPaymentsApi
+      .getAll({ supplier_id: supplier.id, status: "verified", limit: 10 })
+      .then((payments) => {
+        if (!payments || payments.length === 0) return;
+        // Collect unique bank names (most recent first)
+        const banks = [
+          ...new Set(
+            payments
+              .map((p) => p.bank_name)
+              .filter((b): b is string => !!b && b.trim() !== "")
+          ),
+        ];
+        setPreviousBankNames(banks);
+        // Use most recent payment as the suggestion
+        const last = payments[0];
+        setLastPaymentSuggestion({
+          payment_method: last.payment_method || "Bank Transfer",
+          bank_name: last.bank_name || "",
+        });
+      })
+      .catch(() => {
+        setPreviousBankNames([]);
+        setLastPaymentSuggestion(null);
+      });
   }, [loadPaymentStatus]);
 
   // Auto-select first supplier
@@ -752,6 +640,14 @@ export default function SupplierPaymentsPage() {
       setPaymentLines(lines);
     }
 
+    // Auto-populate payment form from last payment suggestion
+    if (lastPaymentSuggestion) {
+      setPaymentMethod(lastPaymentSuggestion.payment_method);
+      if (lastPaymentSuggestion.bank_name) {
+        setBankName(lastPaymentSuggestion.bank_name);
+      }
+    }
+
     setViewMode("payment");
     setActiveStep(1);
   }, [
@@ -762,6 +658,7 @@ export default function SupplierPaymentsPage() {
     allocateFIFO,
     selectedSupplier,
     selectedPayableCount,
+    lastPaymentSuggestion,
     isPendingVerificationDocument,
   ]);
 
@@ -938,9 +835,6 @@ export default function SupplierPaymentsPage() {
         setViewMode("payment");
         setActiveStep(1);
         break;
-      case "history":
-        setViewMode("overview");
-        break;
     }
   }, [viewMode]);
 
@@ -1064,819 +958,6 @@ export default function SupplierPaymentsPage() {
         );
       }}
     />
-  );
-
-  // Payment history filter state
-  const [historyDateFrom, setHistoryDateFrom] = useState<string>(() => {
-    const date = new Date();
-    date.setMonth(date.getMonth() - 3); // Default to last 3 months
-    return date.toISOString().split("T")[0];
-  });
-  const [historyDateTo, setHistoryDateTo] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [historyBranchFilter, setHistoryBranchFilter] = useState<string>("all");
-  const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all");
-
-  // Filtered payment history based on selected filters
-  const filteredPaymentHistory = useMemo(() => {
-    return paymentHistory.filter((item) => {
-      // Pending records should not appear in history.
-      if ((item.status || "pending").toLowerCase() === "pending") return false;
-
-      // Date filter
-      const itemDate = new Date(item.date);
-      const fromDate = historyDateFrom ? new Date(historyDateFrom) : null;
-      const toDate = historyDateTo ? new Date(historyDateTo) : null;
-
-      if (fromDate && itemDate < fromDate) return false;
-      if (toDate) {
-        const endOfDay = new Date(toDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        if (itemDate > endOfDay) return false;
-      }
-
-      // Branch filter
-      if (historyBranchFilter !== "all" && item.branch_code !== historyBranchFilter) return false;
-
-      // Status filter
-      if (historyStatusFilter !== "all" && item.status !== historyStatusFilter) return false;
-
-      return true;
-    });
-  }, [paymentHistory, historyDateFrom, historyDateTo, historyBranchFilter, historyStatusFilter]);
-
-  // Calculate summary statistics for payment history
-  const historySummary = useMemo(() => {
-    const summary = {
-      totalCount: filteredPaymentHistory.length,
-      totalAmount: 0,
-      creditSettlements: { count: 0, amount: 0 },
-      directPayments: { count: 0, amount: 0 },
-      advancePayments: { count: 0, amount: 0 },
-      advanceApplications: { count: 0, amount: 0 },
-      byStatus: {
-        pending: { count: 0, amount: 0 },
-        verified: { count: 0, amount: 0 },
-        cancelled: { count: 0, amount: 0 },
-      },
-      byMethod: {} as Record<string, { count: number; amount: number }>,
-      byBranch: {} as Record<string, { count: number; amount: number }>,
-    };
-
-    filteredPaymentHistory.forEach((item) => {
-      // Safely parse amounts - handle strings, null, undefined
-      let amount = 0;
-      if (item.type === "credit_settlement") {
-        amount = Number(item.total_amount) || 0;
-      } else {
-        amount = Number(item.amount) || 0;
-      }
-      
-      // Skip if amount is still NaN after parsing
-      if (isNaN(amount)) {
-        amount = 0;
-      }
-      
-      summary.totalAmount += amount;
-
-      if (item.type === "credit_settlement") {
-        summary.creditSettlements.count++;
-        summary.creditSettlements.amount += amount;
-      } else if (item.type === "advance_payment") {
-        summary.advancePayments.count++;
-        summary.advancePayments.amount += amount;
-      } else if (item.type === "advance_application") {
-        summary.advanceApplications.count++;
-        summary.advanceApplications.amount += amount;
-      } else {
-        summary.directPayments.count++;
-        summary.directPayments.amount += amount;
-      }
-
-      // By status
-      const status = item.status || "pending";
-      if (summary.byStatus[status as keyof typeof summary.byStatus]) {
-        summary.byStatus[status as keyof typeof summary.byStatus].count++;
-        summary.byStatus[status as keyof typeof summary.byStatus].amount += amount;
-      }
-
-      // By payment method
-      const method = item.payment_method || "Unknown";
-      if (!summary.byMethod[method]) {
-        summary.byMethod[method] = { count: 0, amount: 0 };
-      }
-      summary.byMethod[method].count++;
-      summary.byMethod[method].amount += amount;
-
-      // By branch
-      const branch = item.branch_code || "Unknown";
-      if (!summary.byBranch[branch]) {
-        summary.byBranch[branch] = { count: 0, amount: 0 };
-      }
-      summary.byBranch[branch].count++;
-      summary.byBranch[branch].amount += amount;
-    });
-
-    return summary;
-  }, [filteredPaymentHistory]);
-
-  const historyNonPendingCount = useMemo(() => {
-    return paymentHistory.filter(
-      (item) => (item.status || "pending").toLowerCase() !== "pending"
-    ).length;
-  }, [paymentHistory]);
-
-  const hasHistoryFiltersApplied = useMemo(() => {
-    const defaultFromDate = (() => {
-      const date = new Date();
-      date.setMonth(date.getMonth() - 3);
-      return date.toISOString().split("T")[0];
-    })();
-
-    return (
-      historyDateFrom !== defaultFromDate ||
-      historyDateTo !== new Date().toISOString().split("T")[0] ||
-      historyBranchFilter !== "all" ||
-      historyStatusFilter !== "all"
-    );
-  }, [
-    historyDateFrom,
-    historyDateTo,
-    historyBranchFilter,
-    historyStatusFilter,
-  ]);
-
-  // Print payment history report
-  const handlePrintPaymentHistory = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      showErrorToast("Please allow popups to print the report");
-      return;
-    }
-
-    const dateRangeText = historyDateFrom && historyDateTo
-      ? `${new Date(historyDateFrom).toLocaleDateString()} to ${new Date(historyDateTo).toLocaleDateString()}`
-      : "All Time";
-
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Supplier Payment History Report</title>
-        <style>
-          * { box-sizing: border-box; }
-          body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            padding: 20px; 
-            color: #333;
-            max-width: 1100px;
-            margin: 0 auto;
-          }
-          .header { 
-            text-align: center; 
-            margin-bottom: 30px; 
-            border-bottom: 3px solid #1976d2;
-            padding-bottom: 20px;
-          }
-          .header h1 { 
-            margin: 0 0 5px 0; 
-            color: #1976d2;
-            font-size: 24px;
-          }
-          .header h2 { 
-            margin: 0; 
-            font-weight: normal;
-            color: #666;
-            font-size: 18px;
-          }
-          .header .date-range {
-            margin-top: 10px;
-            font-size: 14px;
-            color: #888;
-          }
-          .summary-grid { 
-            display: grid; 
-            grid-template-columns: repeat(4, 1fr); 
-            gap: 15px; 
-            margin-bottom: 25px;
-          }
-          .summary-card { 
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
-            padding: 15px; 
-            border-radius: 8px; 
-            text-align: center;
-            border: 1px solid #ddd;
-          }
-          .summary-card.primary { 
-            background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
-            color: white; 
-          }
-          .summary-card.success { 
-            background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
-            color: white; 
-          }
-          .summary-card.warning { 
-            background: linear-gradient(135deg, #ed6c02 0%, #e65100 100%);
-            color: white; 
-          }
-          .summary-card.info { 
-            background: linear-gradient(135deg, #0288d1 0%, #01579b 100%);
-            color: white; 
-          }
-          .summary-card .label { 
-            font-size: 11px; 
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            opacity: 0.9;
-          }
-          .summary-card .value { 
-            font-size: 20px; 
-            font-weight: bold;
-            margin-top: 5px;
-          }
-          .summary-card .count {
-            font-size: 12px;
-            opacity: 0.8;
-            margin-top: 3px;
-          }
-          .section { 
-            margin-bottom: 25px; 
-          }
-          .section-title { 
-            font-size: 14px; 
-            font-weight: 600;
-            color: #1976d2;
-            margin-bottom: 10px;
-            padding-bottom: 5px;
-            border-bottom: 2px solid #e0e0e0;
-          }
-          .breakdown-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
-            margin-bottom: 25px;
-          }
-          .breakdown-section {
-            background: #fafafa;
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid #e0e0e0;
-          }
-          .breakdown-section h4 {
-            margin: 0 0 10px 0;
-            font-size: 13px;
-            color: #555;
-          }
-          .breakdown-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 0;
-            border-bottom: 1px dotted #ddd;
-            font-size: 12px;
-          }
-          .breakdown-item:last-child {
-            border-bottom: none;
-          }
-          table { 
-            width: 100%; 
-            border-collapse: collapse; 
-            font-size: 11px;
-          }
-          th, td { 
-            border: 1px solid #ddd; 
-            padding: 8px 10px; 
-            text-align: left; 
-          }
-          th { 
-            background: #1976d2; 
-            color: white;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 10px;
-            letter-spacing: 0.5px;
-          }
-          tr:nth-child(even) { 
-            background: #f9f9f9; 
-          }
-          tr:hover {
-            background: #f0f7ff;
-          }
-          .text-right { text-align: right; }
-          .text-center { text-align: center; }
-          .status-badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 10px;
-            font-weight: 500;
-          }
-          .status-verified { background: #e8f5e9; color: #2e7d32; }
-          .status-pending { background: #fff3e0; color: #e65100; }
-          .status-cancelled { background: #ffebee; color: #c62828; }
-          .type-badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 10px;
-            font-weight: 500;
-          }
-          .type-credit { background: #e3f2fd; color: #1565c0; }
-          .type-payment { background: #e8f5e9; color: #2e7d32; }
-          .type-advance { background: #ede7f6; color: #5e35b1; }
-          .type-application { background: #f3e5f5; color: #8e24aa; }
-          .totals-row {
-            background: #f5f5f5 !important;
-            font-weight: bold;
-          }
-          .footer {
-            margin-top: 30px;
-            padding-top: 15px;
-            border-top: 1px solid #ddd;
-            font-size: 11px;
-            color: #888;
-            text-align: center;
-          }
-          @media print {
-            body { padding: 10px; }
-            .header { margin-bottom: 20px; }
-            .summary-grid { gap: 10px; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>Supplier Payment History Report</h1>
-          <h2>${selectedSupplier?.full_name || "Unknown Supplier"}</h2>
-          ${selectedSupplier?.company_name ? `<div style="color: #888; font-size: 14px;">${selectedSupplier.company_name}</div>` : ''}
-          <div class="date-range">Report Period: ${dateRangeText}</div>
-        </div>
-
-        <div class="summary-grid">
-          <div class="summary-card primary">
-            <div class="label">Total Payments</div>
-            <div class="value">Rs. ${fmtLKR(historySummary.totalAmount)}</div>
-            <div class="count">${historySummary.totalCount} Transaction${historySummary.totalCount !== 1 ? 's' : ''}</div>
-          </div>
-          <div class="summary-card success">
-            <div class="label">Verified</div>
-            <div class="value">Rs. ${fmtLKR(historySummary.byStatus.verified.amount)}</div>
-            <div class="count">${historySummary.byStatus.verified.count} Transaction${historySummary.byStatus.verified.count !== 1 ? 's' : ''}</div>
-          </div>
-          <div class="summary-card warning">
-            <div class="label">Pending</div>
-            <div class="value">Rs. ${fmtLKR(historySummary.byStatus.pending.amount)}</div>
-            <div class="count">${historySummary.byStatus.pending.count} Transaction${historySummary.byStatus.pending.count !== 1 ? 's' : ''}</div>
-          </div>
-          <div class="summary-card info">
-            <div class="label">Credit Settlements</div>
-            <div class="value">Rs. ${fmtLKR(historySummary.creditSettlements.amount)}</div>
-            <div class="count">${historySummary.creditSettlements.count} Settlement${historySummary.creditSettlements.count !== 1 ? 's' : ''}</div>
-          </div>
-        </div>
-
-        <div class="breakdown-grid">
-          <div class="breakdown-section">
-            <h4>By Payment Method</h4>
-            ${Object.entries(historySummary.byMethod).map(([method, data]) => `
-              <div class="breakdown-item">
-                <span>${method}</span>
-                <span><strong>Rs. ${fmtLKR(data.amount)}</strong> (${data.count})</span>
-              </div>
-            `).join('')}
-          </div>
-          <div class="breakdown-section">
-            <h4>By Branch</h4>
-            ${Object.entries(historySummary.byBranch).map(([branch, data]) => `
-              <div class="breakdown-item">
-                <span>${branch}</span>
-                <span><strong>Rs. ${fmtLKR(data.amount)}</strong> (${data.count})</span>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="section">
-          <div class="section-title">Payment Details</div>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Document No.</th>
-                <th>PO/Invoice</th>
-                <th>Payment Method</th>
-                <th>Reference</th>
-                <th class="text-right">Amount (Rs.)</th>
-                <th class="text-center">Status</th>
-                <th>Branch</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${filteredPaymentHistory.map((item) => `
-                <tr>
-                  <td>${new Date(item.date).toLocaleDateString()}</td>
-                  <td>
-                    <span class="type-badge ${
-                      item.type === 'credit_settlement'
-                        ? 'type-credit'
-                        : item.type === 'advance_payment'
-                          ? 'type-advance'
-                          : item.type === 'advance_application'
-                            ? 'type-application'
-                            : 'type-payment'
-                    }">
-                      ${
-                        item.type === 'credit_settlement'
-                          ? 'Credit Settlement'
-                          : item.type === 'advance_payment'
-                            ? 'Advance Payment'
-                            : item.type === 'advance_application'
-                              ? 'Advance Application'
-                              : 'Payment'
-                      }
-                    </span>
-                  </td>
-                  <td>${item.type === 'credit_settlement' ? item.settle_no || '-' : item.payment_no || '-'}</td>
-                  <td>${item.po_no || item.invoice_reference || '-'}</td>
-                  <td>${item.payment_method || '-'}</td>
-                  <td>${item.reference_number || item.payment_method_number || '-'}</td>
-                  <td class="text-right"><strong>${item.type === 'credit_settlement'
-        ? (item.total_amount > 0 ? fmtLKR(item.total_amount) : '-')
-        : fmtLKR(item.amount)}</strong></td>
-                  <td class="text-center">
-                    <span class="status-badge status-${item.status || 'pending'}">
-                      ${(item.status || 'pending').toUpperCase()}
-                    </span>
-                  </td>
-                  <td>${item.branch_code || '-'}</td>
-                </tr>
-              `).join('')}
-              <tr class="totals-row">
-                <td colspan="6" style="text-align: right;">TOTAL:</td>
-                <td class="text-right">Rs. ${fmtLKR(historySummary.totalAmount)}</td>
-                <td colspan="2"></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="footer">
-          <p>Generated on ${new Date().toLocaleString()} | Tijaero ERP System</p>
-          <p>This is a computer-generated report.</p>
-        </div>
-
-        <script>
-          window.onload = function() { window.print(); }
-        </script>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.write(html);
-    printWindow.document.close();
-  };
-
-  // Render payment history
-  const renderHistory = () => (
-    <Box sx={{ p: 2 }}>
-      <Paper
-        elevation={0}
-        sx={{
-          p: 2,
-          mb: 2,
-          borderRadius: 2,
-          border: "1px solid",
-          borderColor: "divider",
-          background: "linear-gradient(180deg, rgba(25,118,210,0.06) 0%, rgba(25,118,210,0.01) 100%)",
-        }}
-      >
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 1.5 }}>
-          <Box>
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              Payment History
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Unified history of direct payments, credit settlements, advances, and applications
-            </Typography>
-          </Box>
-
-          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<ArrowBackIcon />}
-              onClick={() => setViewMode("overview")}
-            >
-              Back
-            </Button>
-            <Button
-              variant="contained"
-              color="primary"
-              size="small"
-              startIcon={<PrintIcon />}
-              onClick={handlePrintPaymentHistory}
-              disabled={filteredPaymentHistory.length === 0}
-            >
-              Print Report
-            </Button>
-          </Box>
-        </Box>
-      </Paper>
-
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent sx={{ py: 1.75 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>
-                Total Amount
-              </Typography>
-              <Typography variant="h5" fontWeight={700} color="primary.main" sx={{ mt: 0.5 }}>
-                Rs. {fmtLKR(historySummary.totalAmount)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {historySummary.totalCount} record{historySummary.totalCount !== 1 ? "s" : ""}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent sx={{ py: 1.75 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>
-                Verified
-              </Typography>
-              <Typography variant="h6" fontWeight={700} color="success.main" sx={{ mt: 0.5 }}>
-                Rs. {fmtLKR(historySummary.byStatus.verified.amount)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {historySummary.byStatus.verified.count} transaction{historySummary.byStatus.verified.count !== 1 ? "s" : ""}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent sx={{ py: 1.75 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>
-                Pending
-              </Typography>
-              <Typography variant="h6" fontWeight={700} color="warning.main" sx={{ mt: 0.5 }}>
-                Rs. {fmtLKR(historySummary.byStatus.pending.amount)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {historySummary.byStatus.pending.count} transaction{historySummary.byStatus.pending.count !== 1 ? "s" : ""}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent sx={{ py: 1.75 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>
-                Credit Settlements
-              </Typography>
-              <Typography variant="h6" fontWeight={700} color="info.main" sx={{ mt: 0.5 }}>
-                Rs. {fmtLKR(historySummary.creditSettlements.amount)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {historySummary.creditSettlements.count} settlement{historySummary.creditSettlements.count !== 1 ? "s" : ""}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5, flexWrap: "wrap", gap: 1 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-            Filters
-          </Typography>
-          <Button
-            size="small"
-            variant="text"
-            disabled={!hasHistoryFiltersApplied}
-            onClick={() => {
-              const date = new Date();
-              date.setMonth(date.getMonth() - 3);
-              setHistoryDateFrom(date.toISOString().split("T")[0]);
-              setHistoryDateTo(new Date().toISOString().split("T")[0]);
-              setHistoryBranchFilter("all");
-              setHistoryStatusFilter("all");
-            }}
-          >
-            Reset Filters
-          </Button>
-        </Box>
-
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 1.5,
-            flexWrap: "nowrap",
-            overflowX: "auto",
-            overflowY: "visible",
-            pt: 0.75,
-            pb: 0.5,
-            "& .MuiTextField-root": {
-              minWidth: 170,
-              flex: "0 0 170px",
-            },
-          }}
-        >
-          <TextField
-            size="small"
-            label="Date From"
-            type="date"
-            value={historyDateFrom}
-            onChange={(e) => setHistoryDateFrom(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            size="small"
-            label="Date To"
-            type="date"
-            value={historyDateTo}
-            onChange={(e) => setHistoryDateTo(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            select
-            size="small"
-            label="Branch"
-            value={historyBranchFilter}
-            onChange={(e) => setHistoryBranchFilter(e.target.value)}
-          >
-            <MenuItem value="all">All Branches</MenuItem>
-            {branches.map((b) => (
-              <MenuItem key={b.branch_code} value={b.branch_code}>
-                {b.branch_name}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            size="small"
-            label="Status"
-            value={historyStatusFilter}
-            onChange={(e) => setHistoryStatusFilter(e.target.value)}
-          >
-            <MenuItem value="all">All Status</MenuItem>
-            <MenuItem value="verified">Verified</MenuItem>
-            <MenuItem value="cancelled">Cancelled</MenuItem>
-          </TextField>
-        </Box>
-      </Paper>
-
-      {loadingHistory ? (
-        <Paper variant="outlined" sx={{ p: 4, borderRadius: 2, textAlign: "center" }}>
-          <CircularProgress size={28} />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-            Loading payment history...
-          </Typography>
-        </Paper>
-      ) : filteredPaymentHistory.length === 0 ? (
-        <Paper variant="outlined" sx={{ p: 5, borderRadius: 2, textAlign: "center" }}>
-          <Typography variant="body1" sx={{ mb: 0.5, fontWeight: 600 }}>
-            No payment history records found
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {paymentHistory.length > 0
-              ? "Try changing filters or date range to view more records."
-              : "No payment activity has been recorded for this supplier yet."}
-          </Typography>
-        </Paper>
-      ) : (
-        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
-          <TableContainer sx={{ maxHeight: 540 }}>
-            <Table size="small" stickyHeader>
-              <TableHead>
-                <TableRow sx={modernTableStyles.headerRow}>
-                  <TableCell>Date</TableCell>
-                  <TableCell>Type</TableCell>
-                  <TableCell>Document</TableCell>
-                  <TableCell>PO/Invoice</TableCell>
-                  <TableCell>Method</TableCell>
-                  <TableCell>Reference</TableCell>
-                  <TableCell align="right">Amount (Rs.)</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Branch</TableCell>
-                  <TableCell>Remarks</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredPaymentHistory.map((item, index) => (
-                  <TableRow
-                    key={`${item.type}-${item.id}-${index}`}
-                    hover
-                    sx={{
-                      "&:nth-of-type(odd)": { bgcolor: "grey.50" },
-                      "& td": { borderColor: "divider" },
-                    }}
-                  >
-                    <TableCell>{new Date(item.date).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={
-                          item.type === "credit_settlement"
-                            ? "Credit Settlement"
-                            : item.type === "advance_payment"
-                              ? "Advance Payment"
-                              : item.type === "advance_application"
-                                ? "Advance Application"
-                                : "Direct Payment"
-                        }
-                        size="small"
-                        color={
-                          item.type === "credit_settlement"
-                            ? "info"
-                            : item.type === "advance_application"
-                              ? "secondary"
-                              : "success"
-                        }
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600}>
-                        {item.type === "credit_settlement" ? item.settle_no : item.payment_no}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {item.type === "credit_settlement"
-                        ? item.po_no || "-"
-                        : item.po_no || item.invoice_reference || "-"}
-                    </TableCell>
-                    <TableCell>{item.payment_method || "-"}</TableCell>
-                    <TableCell>
-                      <Typography
-                        variant="body2"
-                        sx={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        title={item.reference_number || item.payment_method_number || "-"}
-                      >
-                        {item.reference_number || item.payment_method_number || "-"}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2" fontWeight={700} color="primary.main">
-                        {item.type === "credit_settlement"
-                          ? (item.total_amount > 0 ? fmtLKR(item.total_amount) : "-")
-                          : fmtLKR(item.amount)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={(item.status || "pending").toUpperCase()}
-                        size="small"
-                        color={
-                          item.status === "verified"
-                            ? "success"
-                            : item.status === "cancelled"
-                              ? "error"
-                              : "warning"
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>{item.branch_code || "-"}</TableCell>
-                    <TableCell>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ maxWidth: 180, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        title={item.remarks || "-"}
-                      >
-                        {item.remarks || "-"}
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          <Box
-            sx={{
-              px: 2,
-              py: 1.25,
-              borderTop: "1px solid",
-              borderColor: "divider",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              bgcolor: "grey.50",
-              flexWrap: "wrap",
-              gap: 1,
-            }}
-          >
-            <Typography variant="body2" color="text.secondary">
-              Showing {filteredPaymentHistory.length} of {historyNonPendingCount} record{historyNonPendingCount !== 1 ? "s" : ""}
-            </Typography>
-            <Typography variant="subtitle1" color="primary.main" sx={{ fontWeight: 700 }}>
-              Total: Rs. {fmtLKR(historySummary.totalAmount)}
-            </Typography>
-          </Box>
-        </Paper>
-      )}
-    </Box>
   );
 
   // Render overview (supplier info + outstanding summary)
@@ -2095,6 +1176,7 @@ export default function SupplierPaymentsPage() {
                   <TableCell align="right">Amount (Rs.)</TableCell>
                   <TableCell align="right">Paid (Rs.)</TableCell>
                   <TableCell align="right">Supplier Advance (Rs.)</TableCell>
+                  <TableCell align="right">Returns (Rs.)</TableCell>
                   <TableCell align="right">Outstanding (Rs.)</TableCell>
                   <TableCell>Status</TableCell>
                 </TableRow>
@@ -2143,6 +1225,11 @@ export default function SupplierPaymentsPage() {
                     <TableCell align="right">
                       <Typography variant="body2">
                         {fmtLKR(doc.supplier_advance_amount || 0)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" color={doc.return_amount > 0 ? "info.main" : "text.secondary"}>
+                        {doc.return_amount > 0 ? fmtLKR(doc.return_amount) : "-"}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
@@ -2532,12 +1619,20 @@ export default function SupplierPaymentsPage() {
         />
         {paymentMethod === "Cheque" && (
           <>
-            <TextField
-              label="Bank Name"
-              size="small"
+            <Autocomplete
+              freeSolo
+              options={previousBankNames}
               value={bankName}
-              onChange={(e) => setBankName(e.target.value)}
-              required
+              onInputChange={(_, newValue) => setBankName(newValue)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Bank Name"
+                  size="small"
+                  required
+                  helperText={previousBankNames.length > 0 ? "Previously used banks shown" : undefined}
+                />
+              )}
             />
             <TextField
               label="Cheque Date"
@@ -2548,6 +1643,30 @@ export default function SupplierPaymentsPage() {
               InputLabelProps={{ shrink: true }}
             />
           </>
+        )}
+        {paymentMethod === "Bank Transfer" && previousBankNames.length > 0 && (
+          <Autocomplete
+            freeSolo
+            options={previousBankNames}
+            value={bankName}
+            onInputChange={(_, newValue) => setBankName(newValue)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Bank Name"
+                size="small"
+                helperText="Previously used banks shown"
+              />
+            )}
+          />
+        )}
+        {paymentMethod === "Bank Transfer" && previousBankNames.length === 0 && (
+          <TextField
+            label="Bank Name"
+            size="small"
+            value={bankName}
+            onChange={(e) => setBankName(e.target.value)}
+          />
         )}
       </FormSection>
 
@@ -2721,24 +1840,19 @@ export default function SupplierPaymentsPage() {
           { label: "Purchasing", href: "/purchasing" },
           { label: "Supplier Payments", href: "/purchasing/payments" },
           ...(selectedSupplier ? [{ label: selectedSupplier.full_name }] : []),
-          ...(viewMode === "history" ? [{ label: "Payment History" }]
-              : viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
+          ...(viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
         ]}
         title={
-          viewMode === "history"
-            ? "Payment History"
-            : viewMode === "review"
-                ? "Review & Post"
-                : viewMode === "payment"
-                  ? "Payment Details"
-                  : viewMode === "documents"
-                    ? "Select Documents"
-                    : selectedSupplier?.full_name || ""
+          viewMode === "review"
+            ? "Review & Post"
+            : viewMode === "payment"
+              ? "Payment Details"
+              : viewMode === "documents"
+                ? "Select Documents"
+                : selectedSupplier?.full_name || ""
         }
         titleIcon={
-          viewMode === "history" ? (
-            <AssessmentIcon color="info" />
-          ) : viewMode === "review" ? (
+          viewMode === "review" ? (
             <CheckCircleIcon color="success" />
           ) : viewMode === "payment" || viewMode === "documents" ? (
             <PaymentIcon color="primary" />
@@ -2749,22 +1863,18 @@ export default function SupplierPaymentsPage() {
         isCreating={false}
         noSelectionTitle="Select a Supplier"
         chips={
-          viewMode === "history"
+          selectedSupplier && viewMode === "overview"
             ? [
-              { label: `${historyNonPendingCount} Record${historyNonPendingCount !== 1 ? "s" : ""}`, color: "info" as const },
+              { label: `${outstandingDocuments.length} Open Docs`, variant: "outlined" as const },
+              ...(totalOutstanding > 0
+                ? [{ label: `Rs. ${fmtLKR(totalOutstanding)} Outstanding`, color: "warning" as const }]
+                : []),
             ]
-            : selectedSupplier && viewMode === "overview"
-                ? [
-                  { label: `${outstandingDocuments.length} Open Docs`, variant: "outlined" as const },
-                  ...(totalOutstanding > 0
-                    ? [{ label: `Rs. ${fmtLKR(totalOutstanding)} Outstanding`, color: "warning" as const }]
-                    : []),
-                ]
-                : viewMode !== "overview"
-                  ? [
-                    { label: `Rs. ${fmtLKR(totalPaymentAmount)}`, color: "primary" as const },
-                  ]
-                  : []
+            : viewMode !== "overview"
+              ? [
+                { label: `Rs. ${fmtLKR(totalPaymentAmount)}`, color: "primary" as const },
+              ]
+              : []
         }
       />
 
@@ -2782,14 +1892,11 @@ export default function SupplierPaymentsPage() {
               <Button
                 size="small"
                 variant="outlined"
-                color="info"
+                color="secondary"
                 startIcon={<AssessmentIcon />}
-                onClick={() => {
-                  setViewMode("history");
-                  loadPaymentHistory(selectedSupplier!.id);
-                }}
+                onClick={() => navigate("/finance/supplier-payments/report")}
               >
-                View History
+                Payment Report
               </Button>
             </Box>
           }
@@ -2797,7 +1904,7 @@ export default function SupplierPaymentsPage() {
       )}
 
       {/* Stepper for payment workflow */}
-      {viewMode !== "overview" && viewMode !== "history" && (
+      {viewMode !== "overview" && (
         <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: "divider" }}>
           <Stepper activeStep={activeStep} alternativeLabel>
             {STEPS.map((label, index) => (
@@ -2814,8 +1921,6 @@ export default function SupplierPaymentsPage() {
           <Box sx={{ p: 2 }}>
             <EmptyState message="Select a supplier from the list to view outstanding documents and make payments" />
           </Box>
-        ) : viewMode === "history" ? (
-          renderHistory()
         ) : viewMode === "overview" ? (
           renderOverview()
         ) : viewMode === "documents" ? (

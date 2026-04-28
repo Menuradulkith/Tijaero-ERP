@@ -108,6 +108,7 @@ export const purchaseOrdersApi = {
     branch_code?: string;
     date_from?: string;
     date_to?: string;
+    for_grn?: boolean;
     skip?: number;
     limit?: number;
   }) => {
@@ -461,6 +462,7 @@ export interface SupplierPaymentStatusData {
     total_amount: number;
     settled_amount: number;
     advance_applied?: number;
+    return_amount?: number;
     remaining_amount: number;
     is_settled: boolean;
     has_grn: boolean;
@@ -483,6 +485,7 @@ export interface SupplierPaymentStatusData {
     pending_payment_amount?: number;
     has_pending_payment?: boolean;
     advance_applied?: number;
+    return_amount?: number;
     remaining_amount: number;
     is_paid: boolean;
     has_grn: boolean;
@@ -505,6 +508,7 @@ export interface SupplierPaymentStatusData {
     settled_amount?: number;
     paid_amount: number;
     advance_applied?: number;
+    return_amount?: number;
     remaining_amount: number;
     is_settled?: boolean;
     is_paid: boolean;
@@ -783,7 +787,51 @@ export const supplierPaymentsApi = {
     );
     return response.data;
   },
+
+  getPaymentReport: async (params?: {
+    date_from?: string;
+    date_to?: string;
+    supplier_id?: number;
+    branch_code?: string;
+  }) => {
+    const response = await apiClient.get<{
+      items: PaymentReportItem[];
+      summary: PaymentReportSummary;
+    }>("/purchasing/payments/report", { params });
+    return response.data;
+  },
 };
+
+export interface PaymentReportItem {
+  id: number;
+  date: string;
+  type: string;
+  supplier_id: number;
+  supplier_name: string;
+  document_no: string;
+  po_no: string | null;
+  grn_reference: string | null;
+  payment_method: string | null;
+  amount: number;
+  status: string;
+  branch_code: string | null;
+  remarks: string | null;
+}
+
+export interface PaymentReportSummary {
+  total_amount: number;
+  total_count: number;
+  direct_payments: number;
+  direct_payments_count: number;
+  credit_settlements: number;
+  credit_settlements_count: number;
+  advance_payments: number;
+  advance_payments_count: number;
+  advance_applications: number;
+  advance_applications_count: number;
+  pending_amount: number;
+  pending_count: number;
+}
 
 
 // ==================== SUPPLIER ADVANCE PAYMENT API ====================

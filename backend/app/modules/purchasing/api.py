@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from app.auth.dependencies import (
@@ -274,6 +275,7 @@ def list_purchase_orders(
     branch_code: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    for_grn: bool = False,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
@@ -304,6 +306,7 @@ def list_purchase_orders(
         branch_codes=user_branches,  # Pass list of allowed branches for filtering
         date_from=date_type.fromisoformat(date_from) if date_from else None,
         date_to=date_type.fromisoformat(date_to) if date_to else None,
+        for_grn=for_grn,
         skip=skip,
         limit=limit,
     )
@@ -704,6 +707,22 @@ def check_supplier_credit(
 
     return supplier_credit_service.validate_credit_purchase(
         db, supplier_id, Decimal(str(purchase_amount)), allow_over_limit
+    )
+
+
+@router.get("/payments/report", response_model=schemas.PaymentReportResponse)
+def get_payment_report(
+    date_from: Optional[date] = Query(None, description="Start date"),
+    date_to: Optional[date] = Query(None, description="End date"),
+    supplier_id: Optional[int] = Query(None, description="Filter by supplier"),
+    branch_code: Optional[str] = Query(None, description="Filter by branch"),
+    db: Session = Depends(get_db),
+):
+    """Consolidated payment report across all suppliers and payment types."""
+    from .credit_service import supplier_credit_service
+    return supplier_credit_service.get_payment_report(
+        db, date_from=date_from, date_to=date_to,
+        supplier_id=supplier_id, branch_code=branch_code,
     )
 
 

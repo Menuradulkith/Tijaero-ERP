@@ -399,7 +399,7 @@ def upgrade() -> None:
         DECLARE
             v_supplier_name VARCHAR(200);
         BEGIN
-            SELECT company_name INTO v_supplier_name
+            SELECT COALESCE(full_name, company_name) INTO v_supplier_name
             FROM supplier WHERE id = NEW.supplier_id;
             v_supplier_name := COALESCE(v_supplier_name, 'Supplier #' || NEW.supplier_id);
 
@@ -808,7 +808,7 @@ def upgrade() -> None:
                 ORDER BY sa.payment_date ASC, sa.id ASC
             )
             LOOP
-                SELECT company_name INTO v_supplier_name
+                SELECT COALESCE(full_name, company_name) INTO v_supplier_name
                 FROM supplier WHERE id = r.supplier_id;
                 v_supplier_name := COALESCE(v_supplier_name, 'Supplier #' || r.supplier_id);
 
