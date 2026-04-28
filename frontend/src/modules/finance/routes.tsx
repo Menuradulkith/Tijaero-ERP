@@ -24,6 +24,7 @@ import AccountingPeriodsPage from "./pages/AccountingPeriodsPage";
 import CashFlowStatementsPage from "./pages/CashFlowStatementsPage";
 import CommissionPaymentsPage from "./pages/CommissionPaymentsPage";
 import CommissionPaymentApprovalsPage from "./pages/CommissionPaymentApprovalsPage";
+import SupplierPaymentReportPage from "./pages/SupplierPaymentReportPage";
 
 export default function FinanceRoutes() {
   return (
@@ -60,6 +61,7 @@ export default function FinanceRoutes() {
       <Route path="commission-payment-approvals" element={<ProtectedRoute resource="commission_payment_approvals" action="view"><CommissionPaymentApprovalsPage /></ProtectedRoute>} />
       {/* Other finance routes */}
       <Route path="supplier-payments" element={<ProtectedRoute resource="supplier_payments" action="view"><SupplierPaymentsPage /></ProtectedRoute>} />
+      <Route path="supplier-payments/report" element={<ProtectedRoute resource="supplier_payments" action="view"><SupplierPaymentReportPage /></ProtectedRoute>} />
       <Route path="customer-payments" element={<ProtectedRoute resource="customer_payments" action="view"><CustomerPaymentsPage /></ProtectedRoute>} />
       {/* Accounting routes */}
       <Route path="chart-of-accounts" element={<ProtectedRoute resource="chart_of_accounts" action="view"><ChartOfAccountsPage /></ProtectedRoute>} />

@@ -557,29 +557,33 @@ class ReportingService:
         )
 
         # ── Purchasing ───────────────────────────────────────────────────
+        # Count only goods actually received via GRN this month, not PO approval date
         try:
-            from app.modules.purchasing.models import PurchasingOrderItems
+            from app.modules.purchasing.models import (
+                PurchasingOrderItems,
+                GoodReceivedNote,
+                GoodReceivedItems,
+            )
 
             total_purchases_month = (
                 self.db.query(
                     func.coalesce(
-                        func.sum(
-                            PurchasingOrderItems.unit_price
-                            * PurchasingOrderItems.quantity
-                        ),
+                        func.sum(PurchasingOrderItems.unit_price),
                         0,
                     )
                 )
                 .join(
-                    PurchasingOrder,
-                    PurchasingOrder.id == PurchasingOrderItems.purchasingorders_id,
+                    GoodReceivedItems,
+                    GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id,
+                )
+                .join(
+                    GoodReceivedNote,
+                    GoodReceivedNote.good_received_no == GoodReceivedItems.good_received_note,
                 )
                 .filter(
                     and_(
-                        PurchasingOrder.created_date >= month_start,
-                        PurchasingOrder.status.in_(
-                            ["approved", "completed", "partially_completed"]
-                        ),
+                        GoodReceivedNote.good_received_date >= month_start,
+                        GoodReceivedItems.active == True,
                     )
                 )
                 .scalar()
@@ -606,13 +610,93 @@ class ReportingService:
             .scalar()
         )
 
+        # Total payables = sum of all unsettled GRN value (credit POs) + unpaid received value
+        # (non-credit POs), minus all verified payments and applied advances.
         try:
-            from app.modules.purchasing.models import Supplier
+            from app.modules.purchasing.models import (
+                GoodReceivedNote,
+                GoodReceivedItems,
+                PurchasingOrderItems,
+                SupplierCreditsSettleTransaction,
+                SupplierCreditsSettle,
+                SupplierPayment,
+                SupplierAdvanceApplication,
+                PurchasingReturn,
+                PurchasingReturnItems,
+            )
 
-            total_supplier_credit = (
-                self.db.query(func.coalesce(func.sum(Supplier.left_credit_amount), 0))
-                .filter(Supplier.active == True)
+            # Total value of all active GRN items (goods actually received)
+            total_grn_value = (
+                self.db.query(
+                    func.coalesce(func.sum(PurchasingOrderItems.unit_price), 0)
+                )
+                .join(
+                    GoodReceivedItems,
+                    GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id,
+                )
+                .filter(GoodReceivedItems.active == True)
                 .scalar()
+                or 0
+            )
+
+            # Total verified credit settlements paid to suppliers
+            total_settled = (
+                self.db.query(
+                    func.coalesce(
+                        func.sum(SupplierCreditsSettleTransaction.payment_amount), 0
+                    )
+                )
+                .join(
+                    SupplierCreditsSettle,
+                    SupplierCreditsSettleTransaction.supplier_credit_settle_id
+                    == SupplierCreditsSettle.id,
+                )
+                .scalar()
+                or 0
+            )
+
+            # Total verified direct supplier payments (non-credit POs)
+            total_direct_paid = (
+                self.db.query(
+                    func.coalesce(func.sum(SupplierPayment.payment_amount), 0)
+                )
+                .filter(SupplierPayment.status == "verified")
+                .scalar()
+                or 0
+            )
+
+            # Total advance amounts applied against GRNs
+            total_advance_applied = (
+                self.db.query(
+                    func.coalesce(
+                        func.sum(SupplierAdvanceApplication.applied_amount), 0
+                    )
+                )
+                .scalar()
+                or 0
+            )
+
+            # Total approved purchase return amounts (reduces payable liability)
+            total_purchase_returns = (
+                self.db.query(
+                    func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                )
+                .join(
+                    PurchasingReturn,
+                    PurchasingReturnItems.purchasingreturn_id == PurchasingReturn.id,
+                )
+                .filter(PurchasingReturn.status == "approved")
+                .scalar()
+                or 0
+            )
+
+            total_supplier_credit = max(
+                0,
+                float(total_grn_value)
+                - float(total_settled)
+                - float(total_direct_paid)
+                - float(total_advance_applied)
+                - float(total_purchase_returns),
             )
         except Exception:
             logger.warning("reporting metric failed", exc_info=True)

@@ -211,6 +211,7 @@ class PurchaseOrderListFilter(BaseModel):
     branch_codes: Optional[List[str]] = None  # For branch-based access control
     date_from: Optional[date] = None
     date_to: Optional[date] = None
+    for_grn: bool = False  # When True, only return POs eligible for GRN creation (approved/partially_completed)
     skip: int = 0
     limit: int = 100
 
@@ -490,4 +491,43 @@ class SupplierAdvanceBalanceSummary(BaseModel):
     available_balance: Decimal
     active_advance_count: int
     advances: List[SupplierAdvancePayment] = []
+
+
+# ==================== PAYMENT REPORT SCHEMAS ====================
+
+class PaymentReportItem(BaseModel):
+    """Unified payment report row — covers direct payments, credit settlements, and advance applications."""
+    id: int
+    date: str
+    type: str  # "Direct Payment" | "Credit Settlement" | "Advance Application"
+    supplier_id: int
+    supplier_name: str
+    document_no: str
+    po_no: Optional[str] = None
+    grn_reference: Optional[str] = None
+    payment_method: Optional[str] = None
+    amount: float
+    status: str
+    branch_code: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class PaymentReportSummary(BaseModel):
+    total_amount: float = 0
+    total_count: int = 0
+    direct_payments: float = 0
+    direct_payments_count: int = 0
+    credit_settlements: float = 0
+    credit_settlements_count: int = 0
+    advance_payments: float = 0
+    advance_payments_count: int = 0
+    advance_applications: float = 0
+    advance_applications_count: int = 0
+    pending_amount: float = 0
+    pending_count: int = 0
+
+
+class PaymentReportResponse(BaseModel):
+    items: List[PaymentReportItem] = []
+    summary: PaymentReportSummary = PaymentReportSummary()
 

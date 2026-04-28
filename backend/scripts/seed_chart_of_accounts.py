@@ -47,6 +47,10 @@ COA_DATA = [
      "Primary operating bank account", "1000"),
     ("1030", "Petty Cash", "Asset", "Cash", "Debit", True,
      "Petty cash fund for small expenses", "1000"),
+    ("1040", "Cheques in Hand", "Asset", "Cash", "Debit", True,
+     "Cheques received from customers awaiting deposit/clearance", "1000"),
+    ("1050", "Card Receivables", "Asset", "Cash", "Debit", True,
+     "Card-based receipts pending settlement from acquiring bank", "1000"),
 
     ("1100", "Accounts Receivable", "Asset", "Receivable", "Debit", False,
      "Parent account for receivables", None),
@@ -112,6 +116,8 @@ COA_DATA = [
      "Unearned revenue from gift vouchers sold but not redeemed", "2500"),
     ("2520", "Customer Deposits", "Liability", "Customer", "Credit", True,
      "Advance payments/deposits received from customers", "2500"),
+    ("2530", "Customer Credit Notes Outstanding", "Liability", "Customer", "Credit", True,
+     "Issued customer credit notes not yet redeemed against future invoices", "2500"),
 
     # ═══════════════════════════════════════════════════════════════════════════
     # EQUITY
@@ -166,6 +172,16 @@ COA_DATA = [
      "Discounts and coupons given to customers", "5100"),
     ("5170", "Depreciation Expense", "Expense", "Operating", "Debit", True,
      "Monthly depreciation on fixed assets and equipment", "5100"),
+    ("5180", "Office Supplies Expense", "Expense", "Operating", "Debit", True,
+     "Stationery, consumables, office supplies", "5100"),
+    ("5181", "Repairs & Maintenance", "Expense", "Operating", "Debit", True,
+     "Repairs and maintenance of equipment, vehicles, premises", "5100"),
+    ("5182", "Marketing & Advertising", "Expense", "Operating", "Debit", True,
+     "Advertising, promotions, marketing campaigns", "5100"),
+    ("5183", "Insurance Expense", "Expense", "Operating", "Debit", True,
+     "Property, vehicle, liability insurance premiums", "5100"),
+    ("5190", "Miscellaneous Expense", "Expense", "Operating", "Debit", True,
+     "Catch-all for unclassified operating expenses", "5100"),
 
     ("5200", "Payroll Taxes", "Expense", "Payroll", "Debit", False,
      "Parent account for employer payroll taxes", None),

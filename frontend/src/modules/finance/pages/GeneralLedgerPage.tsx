@@ -166,9 +166,9 @@ export default function GeneralLedgerPage() {
 
   const handleRefresh = useCallback(() => {
     refetchAccounts();
-    if (detailTab === 0) refetchGL();
-    else refetchTB();
-  }, [refetchAccounts, refetchGL, refetchTB, detailTab]);
+    refetchGL();
+    refetchTB();
+  }, [refetchAccounts, refetchGL, refetchTB]);
 
   // Compute totals for ledger entries
   const totalDebit = glEntries.reduce((s, e) => s + Number(e.debit || 0), 0);

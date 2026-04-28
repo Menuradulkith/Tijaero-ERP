@@ -379,6 +379,14 @@ class JournalEntryService:
                 JournalEntry.journal_entry_no.ilike(s),
                 JournalEntry.description.ilike(s),
             ))
+        if filters.reference_type or filters.reference_id:
+            # Drill from a source document (e.g. Purchase Return) to its JEs
+            ref_subq = self.db.query(JournalEntryLine.journal_entry_id)
+            if filters.reference_type:
+                ref_subq = ref_subq.filter(JournalEntryLine.reference_type == filters.reference_type)
+            if filters.reference_id is not None:
+                ref_subq = ref_subq.filter(JournalEntryLine.reference_id == filters.reference_id)
+            query = query.filter(JournalEntry.id.in_(ref_subq.subquery()))
 
         from app.common.pagination import fast_count
         total = fast_count(query)

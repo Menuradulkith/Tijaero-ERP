@@ -842,9 +842,9 @@ export default function ProductsPage({
   };
 
   const handleRefresh = () => {
-    if (activeTab === 0) refetchProducts();
-    else if (activeTab === 1) refetchCategories();
-    else refetchBrands();
+    refetchProducts();
+    refetchCategories();
+    refetchBrands();
   };
 
   const handleExportProductsCSV = async () => {
