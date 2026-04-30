@@ -6,7 +6,7 @@
  */
 
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   TextField,
@@ -21,6 +21,8 @@ import {
   Typography,
   Switch,
   FormControlLabel,
+  Paper,
+  Divider,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -35,7 +37,10 @@ import {
   TPageSkeleton,
   TEmptyState,
   useCrudMutation,
+  showSuccessToast,
+  showErrorToast,
 } from "@/components/tijaero";
+import { settingsApi } from "@/modules/settings/api";
 import { TDataGridColumn } from "@/components/tijaero/data";
 import { paymentCardsApi } from "../../api";
 import { PaymentCard, PaymentCardCreate, PaymentCardUpdate } from "../../types";
@@ -51,10 +56,32 @@ const INITIAL_FORM_DATA: PaymentCardCreate = {
 };
 
 export default function CardSettingsPage() {
+  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<PaymentCard | null>(null);
   const [formData, setFormData] = useState<PaymentCardCreate>(INITIAL_FORM_DATA);
   const [showInactive, setShowInactive] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  // Company settings for hide_service_charge toggle
+  const { data: companySettings } = useQuery({
+    queryKey: ["company-settings"],
+    queryFn: () => settingsApi.getCompanySettings(),
+  });
+  const hideServiceCharge = companySettings?.hide_service_charge ?? false;
+
+  const handleToggleHideServiceCharge = async (value: boolean) => {
+    try {
+      setSavingSettings(true);
+      await settingsApi.updateCompanySettings({ hide_service_charge: value });
+      queryClient.invalidateQueries({ queryKey: ["company-settings"] });
+      showSuccessToast(value ? "Card surcharge hidden from customers" : "Card surcharge visible to customers");
+    } catch {
+      showErrorToast("Failed to update setting");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
 
   // Fetch payment cards
   const { data: cards, isLoading } = useQuery({
@@ -136,7 +163,8 @@ export default function CardSettingsPage() {
       {
         field: "card_name",
         header: "Card Name",
-        width: 200,
+        flex: 1,
+        minWidth: 100,
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, height: "100%" }}>
             <CardIcon color="primary" fontSize="small" />
@@ -147,7 +175,7 @@ export default function CardSettingsPage() {
       {
         field: "card_type",
         header: "Type",
-        width: 120,
+        width: 100,
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
@@ -164,7 +192,7 @@ export default function CardSettingsPage() {
       {
         field: "service_charge_percent",
         header: "Service Charge",
-        width: 140,
+        width: 130,
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
@@ -178,13 +206,13 @@ export default function CardSettingsPage() {
       {
         field: "description",
         header: "Description",
-        flex: 1,
-        minWidth: 120,
+        flex: 2,
+        minWidth: 150,
       },
       {
         field: "active",
         header: "Status",
-        width: 100,
+        width: 80,
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
@@ -198,22 +226,8 @@ export default function CardSettingsPage() {
           </Box>
         ),
       },
-      {
-        field: "created_at",
-        header: "Created",
-        width: 160,
-        renderCell: (params: GridRenderCellParams<PaymentCard>) => (
-          <Typography variant="body2">{formatDateTime(params.row.created_at)}</Typography>
-        ),
-      },
-      {
-        field: "updated_at",
-        header: "Modified",
-        width: 160,
-        renderCell: (params: GridRenderCellParams<PaymentCard>) => (
-          <Typography variant="body2">{formatDateTime(params.row.updated_at)}</Typography>
-        ),
-      },
+
+   
       {
         field: "actions",
         header: "Actions",
@@ -268,6 +282,28 @@ export default function CardSettingsPage() {
           </Box>
         }
       />
+
+      {/* Hide service charge global toggle */}
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Box>
+            <Typography variant="subtitle2" fontWeight={600}>
+              Hide Card Surcharge from Customers
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              When ON, the card service charge is silently included in the total — customers see one price with no surcharge line.
+            </Typography>
+          </Box>
+          <Switch
+            checked={hideServiceCharge}
+            onChange={(e) => handleToggleHideServiceCharge(e.target.checked)}
+            color="success"
+            disabled={savingSettings}
+          />
+        </Box>
+      </Paper>
+
+      <Divider sx={{ mb: 2 }} />
 
       {cards && cards.length > 0 ? (
         <Box sx={{ flex: 1, minHeight: 0 }}>

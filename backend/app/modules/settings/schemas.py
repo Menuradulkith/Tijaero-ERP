@@ -91,6 +91,9 @@ class CompanySettingsBase(BaseModel):
     number_of_annual_leaves: int = 14
     number_of_casual_leaves: int = 7
     number_of_medical_leaves: int = 0
+    default_tax_rate: float = 0.0
+    tax_inclusive_pricing: bool = True
+    hide_service_charge: bool = True
     amex_card_surcharge: float = 3.0
     visa_card_surcharge: float = 2.7
     master_card_surcharge: float = 2.7
@@ -110,6 +113,9 @@ class CompanySettingsUpdate(BaseModel):
     number_of_annual_leaves: Optional[int] = None
     number_of_casual_leaves: Optional[int] = None
     number_of_medical_leaves: Optional[int] = None
+    default_tax_rate: Optional[float] = None
+    tax_inclusive_pricing: Optional[bool] = None
+    hide_service_charge: Optional[bool] = None
     amex_card_surcharge: Optional[float] = None
     visa_card_surcharge: Optional[float] = None
     master_card_surcharge: Optional[float] = None

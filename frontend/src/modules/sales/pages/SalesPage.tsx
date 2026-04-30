@@ -32,6 +32,7 @@ import {
     VoucherValidationResponse,
 } from "@/modules/customers/types";
 import { creditNotesApi } from "@/modules/finance/api";
+import { settingsApi } from "@/modules/settings/api";
 import { salesStockApi } from "@/modules/inventory/api";
 import { Brand, SalesStock } from "@/modules/inventory/types";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
@@ -76,6 +77,7 @@ import {
     TableRow,
     TextField,
     ToggleButton,
+    Switch,
     ToggleButtonGroup,
     Tooltip,
     Typography,
@@ -116,7 +118,7 @@ const INVOICE_STATUS_OPTIONS = [
 ];
 
 // Form steps for stepper workflow
-const FORM_STEPS = ["Order Information", "Line Items", "Payment Details"];
+const FORM_STEPS = ["Order Information", "Line Items & Payment"];
 
 // Line item type
 interface ItemFormData {
@@ -210,6 +212,7 @@ export default function SalesPage() {
   // Manual product picker state
   const [manualBrandId, setManualBrandId] = useState<number | null>(null);
   const [manualProductId, setManualProductId] = useState<number | null>(null);
+  const [manualBranchCode, setManualBranchCode] = useState<string | null>(null);
   const [manualStockItems, setManualStockItems] = useState<SalesStock[]>([]);
   const [isLoadingManualStock, setIsLoadingManualStock] = useState(false);
 
@@ -256,6 +259,15 @@ export default function SalesPage() {
     enabled: canViewSalesSettings,
   });
 
+  // Fetch company settings for tax normalization and surcharge config
+  const { data: companySettings } = useQuery({
+    queryKey: ["company-settings"],
+    queryFn: () => settingsApi.getCompanySettings(),
+  });
+
+  // Tax normalization flags from company settings
+  const hideServiceCharge = companySettings?.hide_service_charge ?? false;
+
   // Get selected payment card details
   const selectedPaymentCard = useMemo(() => {
     if (!selectedPaymentCardId) return null;
@@ -289,6 +301,10 @@ export default function SalesPage() {
   );
   const [discountValue, setDiscountValue] = useState<number>(0);
   const [taxRate, setTaxRate] = useState<number>(0); // Tax rate percentage (e.g., 8 for 8% VAT)
+  const [taxEnabled, setTaxEnabled] = useState<boolean>(false); // Toggle tax on/off
+
+  // Effective tax rate — 0 when tax toggle is off
+  const effectiveTaxRate = taxEnabled ? taxRate : 0;
 
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -622,9 +638,7 @@ export default function SalesPage() {
       setCreditNoteAmount(0);
       setDiscountType("percent");
       setDiscountValue(0);
-      setTaxRate(0);
-
-      // Pre-fill form with proforma data
+      setTaxRate(companySettings?.default_tax_rate ?? 0);
       state.setFormData({
         invoice_no: "",
         branch_code: navState.branchCode || defaultBranchCode || "MAIN",
@@ -717,7 +731,7 @@ export default function SalesPage() {
       // Reset discount and tax state
       setDiscountType("percent");
       setDiscountValue(0);
-      setTaxRate(0);
+      setTaxRate(companySettings?.default_tax_rate ?? 0);
       // Reset coupon and voucher state
       setCouponCode("");
       setCouponValidation(null);
@@ -832,7 +846,7 @@ export default function SalesPage() {
     // Reset discount and tax state
     setDiscountType("percent");
     setDiscountValue(0);
-    setTaxRate(0);
+    setTaxRate(companySettings?.default_tax_rate ?? 0);
     setPaymentDetails({
       cheque_number: "",
       cheque_bank: "",
@@ -1172,8 +1186,10 @@ export default function SalesPage() {
     const afterDiscount = afterInvoiceDiscountCalc - couponDiscount;
 
     // Tax calculation
-    const taxAmount = afterDiscount * (taxRate / 100);
-    const afterTax = afterDiscount + taxAmount;
+    // Tax is back-calculated (inclusive): tax is extracted FROM the price, not added ON TOP
+    // e.g. price=500, tax=1% → taxAmount = 500*(1/101) = 4.95, total stays 500
+    const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
+    const afterTax = afterDiscount; // grand total is unchanged
 
     // Total voucher payment from all applied vouchers
     const totalVoucherPayment = appliedVouchers.reduce(
@@ -1214,7 +1230,7 @@ export default function SalesPage() {
       payment_adjustments: serviceCharge,
       items: lineItems,
       // Tax and Discount fields
-      tax_rate: taxRate,
+      tax_rate: effectiveTaxRate,
       discount_percent: discountType === "percent" ? discountValue : 0,
       discount_amount:
         discountType === "amount" ? discountValue : invoiceDiscount, // Store calculated amount
@@ -1318,9 +1334,16 @@ export default function SalesPage() {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
+  // Manual picker: sync default branch to order's branch when it changes
+  useEffect(() => {
+    if (state.formData.branch_code) {
+      setManualBranchCode((prev) => prev ?? state.formData.branch_code ?? null);
+    }
+  }, [state.formData.branch_code]);
+
   // Manual picker: load available stock when product or branch changes
   useEffect(() => {
-    const branch = state.formData.branch_code;
+    const branch = manualBranchCode || state.formData.branch_code;
     if (!manualProductId || !branch) {
       setManualStockItems([]);
       return;
@@ -1345,7 +1368,7 @@ export default function SalesPage() {
     return () => {
       cancelled = true;
     };
-  }, [manualProductId, state.formData.branch_code]);
+  }, [manualProductId, manualBranchCode, state.formData.branch_code]);
 
   // Manual picker: reset product list when brand changes
   useEffect(() => {
@@ -1937,6 +1960,13 @@ export default function SalesPage() {
             disabled
             InputProps={{ readOnly: true }}
           />
+          <TextField
+            label="Created By"
+            size="small"
+            value={state.selectedItem?.created_by_name || "—"}
+            disabled
+            InputProps={{ readOnly: true }}
+          />
         </FormSection>
 
         {/* Order Items */}
@@ -1952,15 +1982,15 @@ export default function SalesPage() {
                 borderColor: "divider",
               }}
             >
-              <Table size="small">
+              <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
-                    <TableCell>Product</TableCell>
-                    <TableCell align="right">Quantity</TableCell>
-                    <TableCell align="right">Unit Price (Rs.)</TableCell>
-                    <TableCell align="center">Warranty</TableCell>
-                    <TableCell>Remark</TableCell>
-                    <TableCell align="right">Amount (Rs.)</TableCell>
+                    <TableCell sx={{ width: 110 }}>Barcode</TableCell>
+                    <TableCell sx={{ width: 180 }}>Product</TableCell>
+                    <TableCell align="right" sx={{ width: 150 }}>Unit Price (Rs.)</TableCell>
+                    <TableCell align="center" sx={{ width: 90 }}>Warranty</TableCell>
+                    <TableCell sx={{ width: 150 }}>Remark</TableCell>
+                    <TableCell align="right" sx={{ width: 150}}>Amount (Rs.)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1975,9 +2005,16 @@ export default function SalesPage() {
                         }}
                       >
                         <TableCell>
+                          <Typography
+                            variant="body2"
+                            sx={{ fontFamily: "monospace", color: item.barcode ? "success.main" : "text.disabled", fontWeight: item.barcode ? 500 : 400 }}
+                          >
+                            {item.barcode || "-"}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
                           {product?.name || `Product #${item.product_id}`}
                         </TableCell>
-                        <TableCell align="right">{item.quantity}</TableCell>
                         <TableCell align="right">
                           {fmtLKR(item.selling_price)}
                         </TableCell>
@@ -2072,17 +2109,17 @@ export default function SalesPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                  {/* Tax Row */}
+                  {/* Tax Row - shown as inclusive */}
                   {fullInvoice.tax_amount > 0 && (
                     <TableRow sx={{ bgcolor: "info.lighter" }}>
                       <TableCell colSpan={5} align="right">
                         <Typography fontWeight="medium" color="info.dark">
-                          Tax ({fullInvoice.tax_rate}%):
+                          Tax included ({fullInvoice.tax_rate}%):
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="info.dark">
-                          +{fmtLKR(fullInvoice.tax_amount)}
+                          {fmtLKR(fullInvoice.tax_amount)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -2102,8 +2139,9 @@ export default function SalesPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                  {/* Service Charge Row - Only for card payments */}
-                  {fullInvoice.payment_method === "card" &&
+                  {/* Service Charge Row - hidden when normalized */}
+                  {!hideServiceCharge &&
+                    fullInvoice.payment_method === "card" &&
                     fullInvoice.service_charge_amount > 0 && (
                       <TableRow sx={{ bgcolor: "grey.100" }}>
                         <TableCell colSpan={5} align="right">
@@ -2406,12 +2444,15 @@ export default function SalesPage() {
                       <TableCell>Branch</TableCell>
                       <TableCell>Date</TableCell>
                       <TableCell>Payment</TableCell>
+                      <TableCell>Products</TableCell>
                       <TableCell align="right">Total</TableCell>
                       <TableCell>Status</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {recentCustomerSales.map((sale) => (
+                    {recentCustomerSales.map((sale) => {
+                      const saleProductMap = new Map(products.map((p: any) => [p.id, p]));
+                      return (
                       <TableRow
                         key={sale.id}
                         hover
@@ -2419,7 +2460,7 @@ export default function SalesPage() {
                           setSelectedInvoiceForView(sale);
                           setInvoiceDetailsOpen(true);
                         }}
-                        sx={{ cursor: "pointer" }}
+                        sx={{ cursor: "pointer", verticalAlign: "top" }}
                       >
                         <TableCell>
                           <Typography
@@ -2453,6 +2494,44 @@ export default function SalesPage() {
                             }
                           />
                         </TableCell>
+                        <TableCell sx={{ minWidth: 220 }}>
+                          {sale.items && sale.items.length > 0 ? (
+                            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                              {sale.items.map((item) => {
+                                const prod = saleProductMap.get(item.product_id);
+                                const productName = prod?.name || `Product #${item.product_id}`;
+                                const lineTotal = item.quantity * item.selling_price;
+                                return (
+                                  <Box
+                                    key={item.id}
+                                    sx={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      gap: 1,
+                                      px: 1,
+                                      py: 0.25,
+                                      borderRadius: 1,
+                                      bgcolor: "action.hover",
+                                    }}
+                                  >
+                                    <Typography variant="caption" fontWeight={500} sx={{ flex: 1 }}>
+                                      {productName}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                                      {item.quantity} × Rs. {fmtLKR(item.selling_price)}
+                                    </Typography>
+                                    <Typography variant="caption" fontWeight={600} color="primary.main" sx={{ whiteSpace: "nowrap" }}>
+                                      = Rs. {fmtLKR(lineTotal)}
+                                    </Typography>
+                                  </Box>
+                                );
+                              })}
+                            </Box>
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">—</Typography>
+                          )}
+                        </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight={500}>
                             Rs.{" "}
@@ -2477,7 +2556,8 @@ export default function SalesPage() {
                           />
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               ) : (
@@ -2618,7 +2698,7 @@ export default function SalesPage() {
                   Browse & Select Items
                 </Typography>
 
-                {/* Brand + Product dropdowns */}
+                {/* Brand + Product + Branch dropdowns in one row */}
                 <Box sx={{ display: "flex", gap: 1, mb: 1.5 }}>
                   <Autocomplete
                     size="small"
@@ -2660,6 +2740,22 @@ export default function SalesPage() {
                       />
                     )}
                     noOptionsText="No products"
+                  />
+                  <Autocomplete
+                    size="small"
+                    sx={{ flex: 1 }}
+                    options={branches}
+                    getOptionLabel={(b: any) => `${b.branch_code} — ${b.branch_name}`}
+                    value={branches.find((b: any) => b.branch_code === (manualBranchCode || state.formData.branch_code)) || null}
+                    onChange={(_, v) => setManualBranchCode(v?.branch_code ?? null)}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Branch"
+                        placeholder="Select branch..."
+                      />
+                    )}
+                    noOptionsText="No branches"
                   />
                 </Box>
 
@@ -2713,6 +2809,15 @@ export default function SalesPage() {
                               fontSize: "0.75rem",
                             }}
                           >
+                            Branch
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              py: 0.5,
+                              fontWeight: 600,
+                              fontSize: "0.75rem",
+                            }}
+                          >
                             Price
                           </TableCell>
                           <TableCell sx={{ py: 0.5, width: 64 }} />
@@ -2743,6 +2848,9 @@ export default function SalesPage() {
                                 }}
                               >
                                 {s.barcode}
+                              </TableCell>
+                              <TableCell sx={{ py: 0.5, fontSize: "0.75rem", color: "text.secondary" }}>
+                                {s.branch_code}
                               </TableCell>
                               <TableCell sx={{ py: 0.5, fontSize: "0.8rem" }}>
                                 Rs. {fmtLKR(s.selling_price ?? 0)}
@@ -2825,37 +2933,33 @@ export default function SalesPage() {
                 borderColor: "divider",
               }}
             >
-              <Table size="small">
+              <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
-                    <TableCell>Barcode</TableCell>
-                    <TableCell>Product</TableCell>
-                    <TableCell>Branch Code</TableCell>
-                    <TableCell align="right" sx={{ width: 80 }}>
-                      Qty
-                    </TableCell>
+                    <TableCell sx={{ width: 110 }}>Barcode</TableCell>
+                    <TableCell sx={{ width: "auto" }}>Product</TableCell>
+                    <TableCell sx={{ width: 100 }}>Branch Code</TableCell>
                     <TableCell align="right" sx={{ width: 80 }}>
                       Warranty
                     </TableCell>
-                    <TableCell align="right" sx={{ width: 100 }}>
+                    <TableCell align="right" sx={{ width: 110 }}>
                       Min Price
                     </TableCell>
-                    <TableCell align="right" sx={{ width: 100 }}>
+                    <TableCell align="right" sx={{ width: 110 }}>
                       Unit Price
                     </TableCell>
-                    <TableCell align="right" sx={{ width: 80 }}>
+                    <TableCell align="right" sx={{ width: 90 }}>
                       Disc %
                     </TableCell>
-                    <TableCell align="right" sx={{ width: 100 }}>
-                      Amount
+                    <TableCell align="right" sx={{ width: 130 }}>
+                      {effectiveTaxRate > 0 ? "Net Amount" : "Amount"}
                     </TableCell>
-                    <TableCell sx={{ width: 50 }} />
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {lineItems.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} sx={modernTableStyles.emptyCell}>
+                      <TableCell colSpan={8} sx={modernTableStyles.emptyCell}>
                         Scan barcodes above to add items
                       </TableCell>
                     </TableRow>
@@ -2908,13 +3012,6 @@ export default function SalesPage() {
                           {item.branch_code ||
                             state.formData.branch_code ||
                             "-"}
-                        </TableCell>
-
-                        {/* Quantity Column */}
-                        <TableCell align="right">
-                          <Typography variant="body2">
-                            {item.quantity}
-                          </Typography>
                         </TableCell>
 
                         {/* Warranty Column */}
@@ -3036,103 +3133,103 @@ export default function SalesPage() {
                           />
                         </TableCell>
 
-                        {/* Amount Column (after discount) */}
+                        {/* Amount + Delete Column */}
                         <TableCell align="right">
-                          <Typography
-                            variant="body2"
-                            fontWeight="medium"
-                            color={(() => {
-                              const lineTotal =
-                                item.quantity * item.selling_price;
-                              const discountAmt =
-                                lineTotal *
-                                ((item.discount_percent || 0) / 100);
-                              const finalAmount = lineTotal - discountAmt;
-                              const minRequired =
-                                item.quantity * item.minimum_selling_price;
-                              return finalAmount < minRequired
-                                ? "error.main"
-                                : "text.primary";
-                            })()}
-                          >
-                            {(() => {
-                              const lineTotal =
-                                item.quantity * item.selling_price;
-                              const discountAmt =
-                                lineTotal *
-                                ((item.discount_percent || 0) / 100);
-                              return fmtLKR(lineTotal - discountAmt);
-                            })()}
-                          </Typography>
-                          {(item.discount_percent || 0) > 0 && (
-                            <Typography
-                              variant="caption"
-                              color={(() => {
-                                const lineTotal =
-                                  item.quantity * item.selling_price;
-                                const discountAmt =
-                                  lineTotal *
-                                  ((item.discount_percent || 0) / 100);
-                                const finalAmount = lineTotal - discountAmt;
-                                const minRequired =
-                                  item.quantity * item.minimum_selling_price;
-                                return finalAmount < minRequired
-                                  ? "error.main"
-                                  : "success.main";
-                              })()}
-                              sx={{ display: "block" }}
-                            >
-                              -
-                              {fmtLKR(
-                                item.quantity *
-                                  item.selling_price *
-                                  ((item.discount_percent || 0) / 100),
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5 }}>
+                            <Box sx={{ textAlign: "right" }}>
+                              <Typography
+                                variant="body2"
+                                fontWeight="medium"
+                                color={(() => {
+                                  const lineTotal =
+                                    item.quantity * item.selling_price;
+                                  const discountAmt =
+                                    lineTotal *
+                                    ((item.discount_percent || 0) / 100);
+                                  const finalAmount = lineTotal - discountAmt;
+                                  const minRequired =
+                                    item.quantity * item.minimum_selling_price;
+                                  return finalAmount < minRequired
+                                    ? "error.main"
+                                    : "text.primary";
+                                })()}
+                              >
+                                {(() => {
+                                  const lineTotal =
+                                    item.quantity * item.selling_price;
+                                  const discountAmt =
+                                    lineTotal *
+                                    ((item.discount_percent || 0) / 100);
+                                  const gross = lineTotal - discountAmt;
+                                  return fmtLKR(effectiveTaxRate > 0 ? gross / (1 + effectiveTaxRate / 100) : gross);
+                                })()}
+                              </Typography>
+                              {(item.discount_percent || 0) > 0 && (
+                                <Typography
+                                  variant="caption"
+                                  color={(() => {
+                                    const lineTotal =
+                                      item.quantity * item.selling_price;
+                                    const discountAmt =
+                                      lineTotal *
+                                      ((item.discount_percent || 0) / 100);
+                                    const finalAmount = lineTotal - discountAmt;
+                                    const minRequired =
+                                      item.quantity * item.minimum_selling_price;
+                                    return finalAmount < minRequired
+                                      ? "error.main"
+                                      : "success.main";
+                                  })()}
+                                  sx={{ display: "block" }}
+                                >
+                                  -
+                                  {fmtLKR(
+                                    item.quantity *
+                                      item.selling_price *
+                                      ((item.discount_percent || 0) / 100),
+                                  )}
+                                  {(() => {
+                                    const priceAfterDiscount =
+                                      item.selling_price *
+                                      (1 - (item.discount_percent || 0) / 100);
+                                    if (
+                                      priceAfterDiscount <
+                                      item.minimum_selling_price
+                                    ) {
+                                      return ` (Below min!)`;
+                                    }
+                                    return "";
+                                  })()}
+                                </Typography>
                               )}
-                              {(() => {
-                                const priceAfterDiscount =
-                                  item.selling_price *
-                                  (1 - (item.discount_percent || 0) / 100);
-                                if (
-                                  priceAfterDiscount <
-                                  item.minimum_selling_price
-                                ) {
-                                  return ` (Below min!)`;
-                                }
-                                return "";
-                              })()}
-                            </Typography>
-                          )}
-                        </TableCell>
-
-                        {/* Delete Button Column */}
-                        <TableCell align="center">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => removeLineItem(index)}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
+                            </Box>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => removeLineItem(index)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
                         </TableCell>
                       </TableRow>
                     ))
                   )}
                   {/* Gross Total Row */}
                   <TableRow sx={{ bgcolor: "action.hover" }}>
-                    <TableCell colSpan={8} align="right">
+                    <TableCell colSpan={7} align="right">
                       <Typography fontWeight="bold">Gross Total:</Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold">
-                        {fmtLKR(calculateGrossTotal())}
+                        {fmtLKR(effectiveTaxRate > 0 ? calculateGrossTotal() / (1 + effectiveTaxRate / 100) : calculateGrossTotal())}
                       </Typography>
                     </TableCell>
-                    <TableCell />
                   </TableRow>
                   {/* Item Discounts Row - Only if any item has discount */}
                   {calculateTotalItemDiscounts() > 0 && (
                     <TableRow sx={{ bgcolor: "error.lighter" }}>
-                      <TableCell colSpan={8} align="right">
+                      <TableCell colSpan={7} align="right">
                         <Box
                           sx={{
                             display: "flex",
@@ -3149,30 +3246,28 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="error.dark">
-                          -{fmtLKR(calculateTotalItemDiscounts())}
+                          -{fmtLKR(effectiveTaxRate > 0 ? calculateTotalItemDiscounts() / (1 + effectiveTaxRate / 100) : calculateTotalItemDiscounts())}
                         </Typography>
                       </TableCell>
-                      <TableCell />
                     </TableRow>
                   )}
                   {/* Subtotal Row (after item discounts) */}
                   <TableRow sx={{ bgcolor: "grey.100" }}>
-                    <TableCell colSpan={8} align="right">
+                    <TableCell colSpan={7} align="right">
                       <Typography fontWeight="bold">Subtotal:</Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold">
-                        {fmtLKR(calculateLineItemsTotal())}
+                        {fmtLKR(effectiveTaxRate > 0 ? calculateLineItemsTotal() / (1 + effectiveTaxRate / 100) : calculateLineItemsTotal())}
                       </Typography>
                     </TableCell>
-                    <TableCell />
                   </TableRow>
                   {/* Coupon Discount Row - Only if coupon is applied */}
                   {couponValidation &&
                     couponValidation.calculated_discount &&
                     couponValidation.calculated_discount > 0 && (
                       <TableRow sx={{ bgcolor: "success.lighter" }}>
-                        <TableCell colSpan={8} align="right">
+                        <TableCell colSpan={7} align="right">
                           <Box
                             sx={{
                               display: "flex",
@@ -3195,13 +3290,12 @@ export default function SalesPage() {
                             -{fmtLKR(couponValidation.calculated_discount)}
                           </Typography>
                         </TableCell>
-                        <TableCell />
                       </TableRow>
                     )}
                   {/* Invoice Discount Row - Only if discount is applied */}
                   {discountValue > 0 && (
                     <TableRow sx={{ bgcolor: "warning.lighter" }}>
-                      <TableCell colSpan={8} align="right">
+                      <TableCell colSpan={7} align="right">
                         <Box
                           sx={{
                             display: "flex",
@@ -3229,17 +3323,17 @@ export default function SalesPage() {
                               discountType === "percent"
                                 ? subtotal * (discountValue / 100)
                                 : discountValue;
-                            return fmtLKR(discount);
+                            const netDiscount = effectiveTaxRate > 0 ? discount / (1 + effectiveTaxRate / 100) : discount;
+                            return fmtLKR(netDiscount);
                           })()}
                         </Typography>
                       </TableCell>
-                      <TableCell />
                     </TableRow>
                   )}
-                  {/* Tax Row - Only if tax is applied */}
-                  {taxRate > 0 && (
+                  {/* Tax Row - shown whenever tax is applied (back-calculated inclusive) */}
+                  {effectiveTaxRate > 0 && (
                     <TableRow sx={{ bgcolor: "info.lighter" }}>
-                      <TableCell colSpan={8} align="right">
+                      <TableCell colSpan={7} align="right">
                         <Box
                           sx={{
                             display: "flex",
@@ -3250,7 +3344,7 @@ export default function SalesPage() {
                         >
                           <TaxIcon fontSize="small" color="info" />
                           <Typography fontWeight="medium" color="info.dark">
-                            Tax ({taxRate}%):
+                            Tax included ({effectiveTaxRate}%):
                           </Typography>
                         </Box>
                       </TableCell>
@@ -3269,12 +3363,11 @@ export default function SalesPage() {
                               couponValidation?.calculated_discount || 0;
                             const afterDiscount =
                               afterInvoiceDiscount - couponDiscount;
-                            const taxAmount = afterDiscount * (taxRate / 100);
+                            const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
                             return fmtLKR(taxAmount);
                           })()}
                         </Typography>
                       </TableCell>
-                      <TableCell />
                     </TableRow>
                   )}
                   {/* Gift Voucher Payment Row - Only if vouchers are applied */}
@@ -3284,7 +3377,7 @@ export default function SalesPage() {
                       0,
                     ) > 0 && (
                       <TableRow sx={{ bgcolor: "secondary.lighter" }}>
-                        <TableCell colSpan={8} align="right">
+                        <TableCell colSpan={7} align="right">
                           <Box
                             sx={{
                               display: "flex",
@@ -3317,13 +3410,12 @@ export default function SalesPage() {
                             )}
                           </Typography>
                         </TableCell>
-                        <TableCell />
                       </TableRow>
                     )}
                   {/* Credit Note Payment Row - Only if applied */}
                   {creditNoteAmount > 0 && (
                     <TableRow sx={{ bgcolor: "success.lighter" }}>
-                      <TableCell colSpan={8} align="right">
+                      <TableCell colSpan={7} align="right">
                         <Box
                           sx={{
                             display: "flex",
@@ -3359,12 +3451,11 @@ export default function SalesPage() {
                                     couponValidation?.calculated_discount || 0;
                                   const afterDiscount =
                                     afterInvoiceDiscount - couponDiscount;
-                                  const taxRate = parseFloat(
+                                  const effectiveTaxRate = parseFloat(
                                     state.formData.tax_rate?.toString() || "0",
                                   );
-                                  const taxAmount =
-                                    afterDiscount * (taxRate / 100);
-                                  const afterTax = afterDiscount + taxAmount;
+                                  const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
+                                  const afterTax = afterDiscount; // total unchanged (tax back-calculated)
                                   const totalVoucherPayment =
                                     appliedVouchers.reduce(
                                       (sum, v) =>
@@ -3378,14 +3469,14 @@ export default function SalesPage() {
                           )}
                         </Typography>
                       </TableCell>
-                      <TableCell />
                     </TableRow>
                   )}
-                  {/* Service Charge Row - Only for card payments */}
-                  {state.formData.payment_method === "card" &&
+                  {/* Service Charge Row - Only for card payments, hidden when normalized */}
+                  {!hideServiceCharge &&
+                    state.formData.payment_method === "card" &&
                     selectedPaymentCard && (
                       <TableRow sx={{ bgcolor: "grey.100" }}>
-                        <TableCell colSpan={8} align="right">
+                        <TableCell colSpan={7} align="right">
                           <Typography
                             fontWeight="medium"
                             color="text.secondary"
@@ -3415,8 +3506,8 @@ export default function SalesPage() {
                               const afterDiscount =
                                 afterInvoiceDiscount - couponDiscount;
                               // Tax
-                              const taxAmount = afterDiscount * (taxRate / 100);
-                              const afterTax = afterDiscount + taxAmount;
+                              const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
+                              const afterTax = afterDiscount; // total unchanged (tax back-calculated)
                               // Voucher
                               const totalVoucherPayment =
                                 appliedVouchers.reduce(
@@ -3441,14 +3532,13 @@ export default function SalesPage() {
                             })()}
                           </Typography>
                         </TableCell>
-                        <TableCell />
                       </TableRow>
                     )}
                   {/* Grand Total Row */}
                   <TableRow sx={{ bgcolor: "primary.lighter" }}>
-                    <TableCell colSpan={8} align="right">
+                    <TableCell colSpan={7} align="right">
                       <Typography fontWeight="bold" color="primary.main">
-                        Grand Total (Amount to Pay):
+                        Grand Total{effectiveTaxRate > 0 ? " (incl. taxes)" : ""}:
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
@@ -3472,8 +3562,8 @@ export default function SalesPage() {
                           const afterDiscount =
                             afterInvoiceDiscount - couponDiscount;
                           // Tax
-                          const taxAmount = afterDiscount * (taxRate / 100);
-                          const afterTax = afterDiscount + taxAmount;
+                          const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
+                          const afterTax = afterDiscount; // total unchanged (tax back-calculated)
                           // Voucher
                           const totalVoucherPayment = appliedVouchers.reduce(
                             (sum, v) => sum + Number(v.amountToRedeem),
@@ -3503,7 +3593,6 @@ export default function SalesPage() {
                         })()}
                       </Typography>
                     </TableCell>
-                    <TableCell />
                   </TableRow>
                 </TableBody>
               </Table>
@@ -3641,9 +3730,9 @@ export default function SalesPage() {
                 p: 2,
                 mb: 2,
                 bgcolor:
-                  discountValue > 0 || taxRate > 0 ? "warning.50" : "grey.50",
+                  discountValue > 0 || effectiveTaxRate > 0 ? "warning.50" : "grey.50",
                 borderColor:
-                  discountValue > 0 || taxRate > 0 ? "warning.main" : "divider",
+                  discountValue > 0 || effectiveTaxRate > 0 ? "warning.main" : "divider",
               }}
             >
               <Box
@@ -3651,7 +3740,7 @@ export default function SalesPage() {
               >
                 <PercentIcon
                   color={
-                    discountValue > 0 || taxRate > 0 ? "warning" : "action"
+                    discountValue > 0 || effectiveTaxRate > 0 ? "warning" : "action"
                   }
                 />
                 <Typography variant="subtitle2" fontWeight="bold">
@@ -3750,88 +3839,90 @@ export default function SalesPage() {
 
                 {/* Tax Section */}
                 <Box sx={{ flex: 1, minWidth: 200 }}>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mb: 1 }}
-                  >
-                    Tax Rate (VAT/GST)
-                  </Typography>
-                  <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                    <TextField
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Tax Invoice (VAT/GST)
+                    </Typography>
+                    <Switch
                       size="small"
-                      type="number"
-                      value={taxRate || ""}
+                      checked={taxEnabled}
                       onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        if (val > 100) return; // Max 100%
-                        setTaxRate(val);
+                        setTaxEnabled(e.target.checked);
+                        if (!e.target.checked) setTaxRate(0);
                       }}
-                      placeholder="0%"
-                      sx={{ width: 100 }}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <TaxIcon fontSize="small" color="action" />
-                          </InputAdornment>
-                        ),
-                        endAdornment: (
-                          <InputAdornment position="end">%</InputAdornment>
-                        ),
-                      }}
-                      inputProps={{ min: 0, max: 100, step: 0.5 }}
+                      color="info"
                     />
-                    {taxRate > 0 && (
-                      <Box
-                        sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
-                      >
-                        <Typography
-                          variant="body2"
-                          color="info.dark"
-                          fontWeight="medium"
-                        >
-                          = Rs.{" "}
-                          {(() => {
-                            const subtotal = calculateLineItemsTotal();
-                            const invoiceDiscount =
-                              discountType === "percent"
-                                ? subtotal * (discountValue / 100)
-                                : discountValue;
-                            const afterInvoiceDiscount =
-                              subtotal - invoiceDiscount;
-                            const couponDiscount =
-                              couponValidation?.calculated_discount || 0;
-                            const afterDiscount =
-                              afterInvoiceDiscount - couponDiscount;
-                            const taxAmount = afterDiscount * (taxRate / 100);
-                            return fmtLKR(taxAmount);
-                          })()}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => setTaxRate(0)}
-                          sx={{ p: 0.5 }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
+                    {taxEnabled && (
+                      <Typography variant="caption" color="info.main" fontWeight={500}>
+                        Active
+                      </Typography>
                     )}
                   </Box>
-                  {/* Common tax rate quick select */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 1 }}>
-                    {[0, 5, 8, 12, 18].map((rate) => (
-                      <Chip
-                        key={rate}
-                        label={`${rate}%`}
-                        size="small"
-                        variant={taxRate === rate ? "filled" : "outlined"}
-                        color={taxRate === rate ? "primary" : "default"}
-                        onClick={() => setTaxRate(rate)}
-                        sx={{ cursor: "pointer", minWidth: 45 }}
-                      />
-                    ))}
-                  </Box>
+                  {taxEnabled && (
+                    <>
+                      <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={taxRate || ""}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            if (val > 100) return;
+                            setTaxRate(val);
+                          }}
+                          placeholder="0%"
+                          sx={{ width: 100 }}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <TaxIcon fontSize="small" color="action" />
+                              </InputAdornment>
+                            ),
+                            endAdornment: (
+                              <InputAdornment position="end">%</InputAdornment>
+                            ),
+                          }}
+                          inputProps={{ min: 0, max: 100, step: 0.5 }}
+                        />
+                        {effectiveTaxRate > 0 && (
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            <Typography variant="body2" color="info.dark" fontWeight="medium">
+                              = Rs.{" "}
+                              {(() => {
+                                const subtotal = calculateLineItemsTotal();
+                                const invoiceDiscount =
+                                  discountType === "percent"
+                                    ? subtotal * (discountValue / 100)
+                                    : discountValue;
+                                const afterInvoiceDiscount = subtotal - invoiceDiscount;
+                                const couponDiscount = couponValidation?.calculated_discount || 0;
+                                const afterDiscount = afterInvoiceDiscount - couponDiscount;
+                                const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
+                                return fmtLKR(taxAmount);
+                              })()}
+                            </Typography>
+                            <IconButton size="small" color="error" onClick={() => setTaxRate(0)} sx={{ p: 0.5 }}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                        )}
+                      </Box>
+                      {/* Quick select */}
+                      <Box sx={{ display: "flex", gap: 0.5, mt: 1 }}>
+                        {[1, 5, 8, 12, 18].map((rate) => (
+                          <Chip
+                            key={rate}
+                            label={`${rate}%`}
+                            size="small"
+                            variant={taxRate === rate ? "filled" : "outlined"}
+                            color={taxRate === rate ? "primary" : "default"}
+                            onClick={() => setTaxRate(rate)}
+                            sx={{ cursor: "pointer", minWidth: 45 }}
+                          />
+                        ))}
+                      </Box>
+                    </>
+                  )}
                 </Box>
               </Box>
             </Paper>
@@ -4104,11 +4195,11 @@ export default function SalesPage() {
                             : discountValue;
                         const afterDiscount =
                           subtotal - invoiceDiscount - couponDiscount;
-                        const taxRate = parseFloat(
+                        const effectiveTaxRate = parseFloat(
                           state.formData.tax_rate?.toString() || "0",
                         );
-                        const taxAmount = afterDiscount * (taxRate / 100);
-                        const afterTax = afterDiscount + taxAmount;
+                        const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
+                        const afterTax = afterDiscount;
                         const totalVoucherPayment = appliedVouchers.reduce(
                           (sum, v) => sum + Number(v.amountToRedeem),
                           0,
@@ -4149,11 +4240,10 @@ export default function SalesPage() {
                                   : discountValue;
                               const afterDiscount =
                                 subtotal - invoiceDiscount - couponDiscount;
-                              const taxRate = parseFloat(
+                              const effectiveTaxRate = parseFloat(
                                 state.formData.tax_rate?.toString() || "0",
                               );
-                              const taxAmount = afterDiscount * (taxRate / 100);
-                              const afterTax = afterDiscount + taxAmount;
+                              const afterTax = afterDiscount;
                               const totalVoucherPayment =
                                 appliedVouchers.reduce(
                                   (sum, v) => sum + Number(v.amountToRedeem),
@@ -4193,148 +4283,13 @@ export default function SalesPage() {
               </Paper>
             )}
 
-          {/* ── Live Total Bar ────────────────────────────────── */}
-          <Paper
-            variant="outlined"
-            sx={{
-              px: 2,
-              py: 1.5,
-              bgcolor: "background.paper",
-              borderColor: "primary.light",
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 2,
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <Box
-              sx={{
-                display: "flex",
-                gap: 2.5,
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <Box sx={{ textAlign: "center" }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  display="block"
-                >
-                  Items
-                </Typography>
-                <Typography variant="body2" fontWeight={700}>
-                  {lineItems.length}
-                </Typography>
-              </Box>
-              <Box sx={{ textAlign: "center" }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  display="block"
-                >
-                  Subtotal
-                </Typography>
-                <Typography variant="body2" fontWeight={700}>
-                  {fmtLKR(calculateLineItemsTotal())}
-                </Typography>
-              </Box>
-              {(discountValue > 0 || calculateTotalItemDiscounts() > 0) && (
-                <Box sx={{ textAlign: "center" }}>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    display="block"
-                  >
-                    Discounts
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    fontWeight={700}
-                    color="warning.dark"
-                  >
-                    -
-                    {fmtLKR(
-                      calculateTotalItemDiscounts() +
-                        (discountType === "percent"
-                          ? calculateLineItemsTotal() * (discountValue / 100)
-                          : discountValue),
-                    )}
-                  </Typography>
-                </Box>
-              )}
-              {taxRate > 0 && (
-                <Box sx={{ textAlign: "center" }}>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    display="block"
-                  >
-                    Tax ({taxRate}%)
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    fontWeight={700}
-                    color="info.dark"
-                  >
-                    +
-                    {fmtLKR(
-                      (() => {
-                        const sub = calculateLineItemsTotal();
-                        const disc =
-                          discountType === "percent"
-                            ? sub * (discountValue / 100)
-                            : discountValue;
-                        return (
-                          (sub - calculateTotalItemDiscounts() - disc) *
-                          (taxRate / 100)
-                        );
-                      })(),
-                    )}
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-            <Box sx={{ textAlign: "right" }}>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                display="block"
-              >
-                Grand Total
-              </Typography>
-              <Typography variant="h6" fontWeight={800} color="primary.main">
-                {fmtLKR(
-                  (() => {
-                    const sub = calculateLineItemsTotal();
-                    const itemDisc = calculateTotalItemDiscounts();
-                    const invoiceDisc =
-                      discountType === "percent"
-                        ? sub * (discountValue / 100)
-                        : discountValue;
-                    const taxable = sub - itemDisc - invoiceDisc;
-                    const tax = taxable * (taxRate / 100);
-                    const voucher = appliedVouchers.reduce(
-                      (s, v) => s + Number(v.amountToRedeem || 0),
-                      0,
-                    );
-                    return Math.max(
-                      0,
-                      taxable + tax - voucher - creditNoteAmount,
-                    );
-                  })(),
-                )}
-              </Typography>
-            </Box>
-          </Paper>
-
+          {/* ── Live Total Bar removed ── */}
 
         </>
       )}
 
       {/* Step 3: Payment Details */}
-      {formStep === 2 && (
+      {formStep === 1 && (
         <>
           <FormSection title="Payment Details" columns={1}>
             <TextField
@@ -4381,10 +4336,12 @@ export default function SalesPage() {
                 onChange={(e) =>
                   setPaymentDetails({
                     ...paymentDetails,
-                    cheque_number: e.target.value,
+                    cheque_number: e.target.value.replace(/\D/g, ""),
                   })
                 }
                 required
+                inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
+                helperText="Numbers only"
               />
               <TextField
                 label="Bank Name"
@@ -4432,8 +4389,7 @@ export default function SalesPage() {
                 </MenuItem>
                 {paymentCards.map((card: PaymentCard) => (
                   <MenuItem key={card.id} value={card.id}>
-                    {card.card_name} ({card.card_type}) -{" "}
-                    {card.service_charge_percent}% fee
+                    {card.card_name} ({card.card_type}){!hideServiceCharge && ` - ${card.service_charge_percent}% fee`}
                   </MenuItem>
                 ))}
               </TextField>
@@ -4460,7 +4416,7 @@ export default function SalesPage() {
                   })
                 }
               />
-              {selectedPaymentCard && (
+              {selectedPaymentCard && !hideServiceCharge && (
                 <Box
                   sx={{
                     gridColumn: "span 2",
@@ -4602,7 +4558,7 @@ export default function SalesPage() {
                   Subtotal:
                 </Typography>
                 <Typography variant="body1" fontWeight="medium">
-                  Rs. {fmtLKR(calculateLineItemsTotal())}
+                  Rs. {fmtLKR(effectiveTaxRate > 0 ? calculateLineItemsTotal() / (1 + effectiveTaxRate / 100) : calculateLineItemsTotal())}
                 </Typography>
               </Box>
 
@@ -4663,8 +4619,8 @@ export default function SalesPage() {
                   </Box>
                 )}
 
-              {/* Tax */}
-              {taxRate > 0 && (
+              {/* Tax - shown as inclusive back-calculation */}
+              {effectiveTaxRate > 0 && (
                 <Box
                   sx={{
                     display: "flex",
@@ -4673,14 +4629,14 @@ export default function SalesPage() {
                   }}
                 >
                   <Typography variant="body1" color="text.secondary">
-                    Tax ({taxRate}%):
+                    Tax included ({effectiveTaxRate}%):
                   </Typography>
                   <Typography
                     variant="body1"
                     fontWeight="medium"
                     color="info.main"
                   >
-                    + Rs.{" "}
+                    Rs.{" "}
                     {(() => {
                       const subtotal = calculateLineItemsTotal();
                       const invoiceDiscount =
@@ -4692,7 +4648,7 @@ export default function SalesPage() {
                         couponValidation?.calculated_discount || 0;
                       const afterDiscount =
                         afterInvoiceDiscount - couponDiscount;
-                      const taxAmount = afterDiscount * (taxRate / 100);
+                      const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
                       return fmtLKR(taxAmount);
                     })()}
                   </Typography>
@@ -4767,8 +4723,7 @@ export default function SalesPage() {
                               couponValidation?.calculated_discount || 0;
                             const afterDiscount =
                               afterInvoiceDiscount - couponDiscount;
-                            const taxAmount = afterDiscount * (taxRate / 100);
-                            const afterTax = afterDiscount + taxAmount;
+                            const afterTax = afterDiscount;
                             const totalVoucherPayment = appliedVouchers.reduce(
                               (sum, v) => sum + Number(v.amountToRedeem),
                               0,
@@ -4782,8 +4737,9 @@ export default function SalesPage() {
                 </Box>
               )}
 
-              {/* Service Charge - Only for card payments */}
-              {state.formData.payment_method === "card" &&
+              {/* Service Charge - Only for card payments, hidden when normalized */}
+              {!hideServiceCharge &&
+                state.formData.payment_method === "card" &&
                 selectedPaymentCard && (
                   <Box
                     sx={{
@@ -4813,8 +4769,7 @@ export default function SalesPage() {
                           couponValidation?.calculated_discount || 0;
                         const afterDiscount =
                           afterInvoiceDiscount - couponDiscount;
-                        const taxAmount = afterDiscount * (taxRate / 100);
-                        const afterTax = afterDiscount + taxAmount;
+                        const afterTax = afterDiscount;
                         const totalVoucherPayment = appliedVouchers.reduce(
                           (sum, v) => sum + Number(v.amountToRedeem),
                           0,
@@ -4849,7 +4804,7 @@ export default function SalesPage() {
                 }}
               >
                 <Typography variant="h5" fontWeight="bold" color="primary.main">
-                  Total Amount to Pay:
+                  Total Amount to Pay{effectiveTaxRate > 0 ? " (incl. taxes)" : ""}:
                 </Typography>
                 <Typography variant="h4" fontWeight="bold" color="primary.main">
                   Rs.{" "}
@@ -4863,8 +4818,7 @@ export default function SalesPage() {
                     const couponDiscount =
                       couponValidation?.calculated_discount || 0;
                     const afterDiscount = afterInvoiceDiscount - couponDiscount;
-                    const taxAmount = afterDiscount * (taxRate / 100);
-                    const afterTax = afterDiscount + taxAmount;
+                    const afterTax = afterDiscount;
                     const totalVoucherPayment = appliedVouchers.reduce(
                       (sum, v) => sum + Number(v.amountToRedeem),
                       0,
@@ -4895,39 +4849,6 @@ export default function SalesPage() {
           </Paper>
 
           {/* Step 3 Navigation */}
-          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
-            <Button
-              variant="outlined"
-              onClick={handlePreviousStep}
-              startIcon={<ArrowBackIcon />}
-            >
-              Back
-            </Button>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleSave}
-              disabled={
-                createMutation.isPending ||
-                updateMutation.isPending ||
-                lineItems.length === 0 ||
-                lineItems.some(
-                  (item) => item.selling_price < item.minimum_selling_price,
-                )
-              }
-              startIcon={
-                createMutation.isPending || updateMutation.isPending ? (
-                  <CircularProgress size={20} />
-                ) : null
-              }
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? "Saving..."
-                : state.isEditing
-                  ? "Update Order"
-                  : "Save Order"}
-            </Button>
-          </Box>
         </>
       )}
     </>
@@ -5220,7 +5141,7 @@ export default function SalesPage() {
               onSave={handleSave}
               onCancel={handleCancel}
               isSaving={createMutation.isPending || updateMutation.isPending}
-              saveDisabled={lineItems.length === 0 || formStep !== 2}
+              saveDisabled={lineItems.length === 0 || formStep !== 1}
               customActions={
                 state.isCreating && formStep === 0 ? (
                   <Button
@@ -5234,16 +5155,7 @@ export default function SalesPage() {
                     Next: Line Items
                   </Button>
                 ) : state.isCreating && formStep === 1 ? (
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="primary"
-                    onClick={handleNextStep}
-                    disabled={lineItems.length === 0 || lineItems.some(item => item.selling_price < item.minimum_selling_price)}
-                    endIcon={<ArrowForwardIcon />}
-                  >
-                    Next: Payment Details
-                  </Button>
+                  customActions
                 ) : customActions
               }
             />

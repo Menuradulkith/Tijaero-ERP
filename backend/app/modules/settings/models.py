@@ -24,6 +24,11 @@ class Settings(Base):
     number_of_casual_leaves = Column(Integer, nullable=False, default=7)
     number_of_medical_leaves = Column(Integer, nullable=False, default=0)
     
+    # Tax normalization settings
+    default_tax_rate = Column(Float, nullable=False, default=0.0)  # Default VAT/GST rate (e.g., 18.0 for 18%)
+    tax_inclusive_pricing = Column(Boolean, nullable=False, default=True)  # True = prices shown include tax (hidden from customer)
+    hide_service_charge = Column(Boolean, nullable=False, default=True)  # True = card surcharge baked into total silently
+    
     # Card surcharge settings
     amex_card_surcharge = Column(Float, nullable=False, default=3.0)
     visa_card_surcharge = Column(Float, nullable=False, default=2.7)

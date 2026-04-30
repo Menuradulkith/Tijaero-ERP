@@ -502,8 +502,10 @@ export default function SalesPaymentPage() {
                                                                         size="small"
                                                                         label="Cheque Number"
                                                                         value={entry.cheque_number || ""}
-                                                                        onChange={(e) => updatePaymentEntry(index, "cheque_number", e.target.value)}
+                                                                        onChange={(e) => updatePaymentEntry(index, "cheque_number", e.target.value.replace(/\D/g, ""))}
                                                                         required
+                                                                        inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
+                                                                        helperText="Numbers only"
                                                                     />
                                                                 </Grid>
                                                                 <Grid item xs={12} sm={4}>

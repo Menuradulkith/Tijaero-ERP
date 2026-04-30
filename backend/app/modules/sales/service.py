@@ -579,6 +579,46 @@ class SalesService:
                     detail="The coupon is no longer active. Please remove it and try again."
                 )
 
+        # ── CRITICAL: Lock and validate all barcodes are still available ──
+        # This must happen BEFORE any invoice/item creation to prevent two concurrent
+        # requests from selling the same physical stock item across two browser tabs.
+        # Using SELECT ... FOR UPDATE serialises concurrent transactions at DB level.
+        barcodes_in_order = [
+            item.barcode for item in invoice_data.items if getattr(item, 'barcode', None)
+        ]
+        if barcodes_in_order:
+            # Detect duplicate barcodes within the same order
+            seen_barcodes: set = set()
+            for bc in barcodes_in_order:
+                if bc in seen_barcodes:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Barcode '{bc}' appears more than once in this order."
+                    )
+                seen_barcodes.add(bc)
+
+            # Lock all stock rows for this order in a single query to avoid deadlocks
+            locked_items = (
+                db.query(SalesStock)
+                .filter(
+                    SalesStock.barcode.in_(barcodes_in_order),
+                    SalesStock.status == StockStatus.AVAILABLE,
+                )
+                .with_for_update()
+                .all()
+            )
+            locked_barcodes = {item.barcode for item in locked_items}
+            unavailable = [bc for bc in barcodes_in_order if bc not in locked_barcodes]
+            if unavailable:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"The following item(s) are no longer available in stock and "
+                        f"may have been sold in another transaction: "
+                        f"{', '.join(unavailable)}. Please remove them and try again."
+                    ),
+                )
+
         # Calculate subtotal and gross_total from items (after item-level discounts)
         subtotal = Decimal("0")
         gross_total = Decimal("0")
@@ -740,13 +780,20 @@ class SalesService:
         after_credit_note = after_voucher - credit_note_amount
         
         # Step 7: Calculate service charges for card payments (on remaining amount after credit note)
+        # Use the service charge from payment_adjustments (sent by frontend from PaymentCard table)
         service_charge_rate = Decimal("0")
         service_charge_amount = Decimal("0")
-        if payment_method == "card_amex":
-            service_charge_rate = Decimal("0.03")  # 3% for Amex
+        payment_adjustments = Decimal(str(getattr(invoice_data, 'payment_adjustments', 0) or 0))
+        if payment_method == "card" and payment_adjustments > 0:
+            # Frontend calculated service charge from PaymentCard.service_charge_percent
+            service_charge_amount = payment_adjustments
+            if after_credit_note > 0:
+                service_charge_rate = service_charge_amount / after_credit_note
+        elif payment_method == "card_amex":
+            service_charge_rate = Decimal("0.03")  # 3% for Amex (legacy fallback)
             service_charge_amount = after_credit_note * service_charge_rate
         elif payment_method in ["card_visa", "card_mastercard"]:
-            service_charge_rate = Decimal("0.027")  # 2.7% for Visa/Mastercard
+            service_charge_rate = Decimal("0.027")  # 2.7% for Visa/Mastercard (legacy fallback)
             service_charge_amount = after_credit_note * service_charge_rate
         
         # Step 8: Calculate grand total (remaining amount to pay)
@@ -784,6 +831,7 @@ class SalesService:
         
         # Override sale_rep_id with the logged-in user
         invoice_dict['sale_rep_id'] = user_id
+        invoice_dict['created_by'] = user_id
         
         # Server-side sequential invoice number generation
         invoice_dict['invoice_no'] = self._get_next_invoice_number(db)
