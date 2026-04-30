@@ -180,7 +180,7 @@ def get_invoices_by_customer(
 
 @router.get(
     "/customer/{customer_id}/recent",
-    response_model=List[schemas.Invoice],
+    response_model=List[schemas.InvoiceWithItems],
     summary="Get Recent Sales for Customer",
     dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )

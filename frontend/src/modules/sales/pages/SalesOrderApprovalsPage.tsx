@@ -250,6 +250,13 @@ export default function SalesOrderApprovalsPage() {
 
     const customer = selectedOrder ? customerMap.get(selectedOrder.customer_id) : null;
 
+    // Fetch recent sales history for the selected customer
+    const { data: recentSales = [] } = useQuery({
+        queryKey: ["customer-recent-sales", selectedOrder?.customer_id],
+        queryFn: () => salesApi.getRecentByCustomer(selectedOrder!.customer_id, 5),
+        enabled: !!selectedOrder?.customer_id,
+    });
+
     // Master Panel
     const masterPanel = (
         <SearchableList
@@ -409,6 +416,44 @@ export default function SalesOrderApprovalsPage() {
                             <TextField label="Company" size="small" value={customer?.company_name || "N/A"} disabled />
                             <TextField label="Contact" size="small" value={customer?.mobile_contact_number || ""} disabled />
                             <TextField label="Email" size="small" value={customer?.email || "N/A"} disabled />
+                            {customer?.payment_address && (
+                                <TextField label="Payment Address" size="small" value={customer.payment_address} disabled />
+                            )}
+                            {customer?.delivery_address && (
+                                <TextField label="Delivery Address" size="small" value={customer.delivery_address} disabled />
+                            )}
+                        </FormSection>
+
+                        {/* Credit Information */}
+                        <FormSection title="Credit Information" columns={3}>
+                            <TextField
+                                label="Credit Limit"
+                                size="small"
+                                value={`Rs. ${fmtLKR(customer?.max_credit_limit || 0)}`}
+                                disabled
+                                InputProps={{
+                                    sx: { color: "text.primary" },
+                                }}
+                            />
+                            <TextField
+                                label="Remaining Credit"
+                                size="small"
+                                value={`Rs. ${fmtLKR(customer?.left_credit_amount ?? customer?.max_credit_limit ?? 0)}`}
+                                disabled
+                                InputProps={{
+                                    sx: {
+                                        color: (customer?.left_credit_amount ?? 0) < (selectedOrder?.credit_amount || 0)
+                                            ? "error.main"
+                                            : "success.main",
+                                    },
+                                }}
+                            />
+                            <TextField
+                                label="Credit Days"
+                                size="small"
+                                value={customer?.credit_days ? `${customer.credit_days} days` : "N/A"}
+                                disabled
+                            />
                         </FormSection>
 
                         {/* Dates & Payment */}
@@ -512,6 +557,78 @@ export default function SalesOrderApprovalsPage() {
                                     </TableBody>
                                 </Table>
                             </Paper>
+                        </FormSection>
+
+                        {/* Recent Sales History */}
+                        <FormSection title="Recent Sales History (Last 5)" columns={1}>
+                            {recentSales.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">No recent sales found for this customer.</Typography>
+                            ) : (
+                                <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow sx={modernTableStyles.headerRow}>
+                                                <TableCell>Invoice No</TableCell>
+                                                <TableCell>Date</TableCell>
+                                                <TableCell>Items</TableCell>
+                                                <TableCell align="right">Total (Rs.)</TableCell>
+                                                <TableCell align="center">Status</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {recentSales.map((inv, idx) => (
+                                                <TableRow key={inv.id} sx={{
+                                                    ...modernTableStyles.bodyRow,
+                                                    ...(idx % 2 === 1 && { bgcolor: "grey.25" }),
+                                                }}>
+                                                    <TableCell>
+                                                        <Typography variant="body2" fontWeight={500}>{inv.invoice_no}</Typography>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Typography variant="body2">{new Date(inv.created_date).toLocaleDateString()}</Typography>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+                                                            {inv.items?.map((item, i) => {
+                                                                const prod = productMap.get(item.product_id);
+                                                                const lineTotal = item.quantity * item.selling_price;
+                                                                return (
+                                                                    <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+                                                                        <Typography variant="caption" sx={{ fontWeight: 500 }}>
+                                                                            {prod?.name || `#${item.product_id}`}
+                                                                        </Typography>
+                                                                        <Chip
+                                                                            label={`${item.quantity} × ${fmtLKR(item.selling_price)}`}
+                                                                            size="small"
+                                                                            variant="outlined"
+                                                                            sx={{ height: 16, fontSize: "0.6rem", borderRadius: 1 }}
+                                                                        />
+                                                                        <Chip
+                                                                            label={`= ${fmtLKR(lineTotal)}`}
+                                                                            size="small"
+                                                                            color="primary"
+                                                                            variant="outlined"
+                                                                            sx={{ height: 16, fontSize: "0.6rem", borderRadius: 1 }}
+                                                                        />
+                                                                    </Box>
+                                                                );
+                                                            })}
+                                                        </Box>
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                        <Typography variant="body2" fontWeight={600}>
+                                                            {fmtLKR(inv.items?.reduce((s, it) => s + it.quantity * it.selling_price, 0) || 0)}
+                                                        </Typography>
+                                                    </TableCell>
+                                                    <TableCell align="center">
+                                                        <TStatusChip status={inv.approval ? "approved" : "pending_approval"} statusMap="salesOrder" />
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </Paper>
+                            )}
                         </FormSection>
 
                         {/* Remarks */}

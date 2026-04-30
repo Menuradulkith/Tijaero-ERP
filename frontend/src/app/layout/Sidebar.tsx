@@ -152,7 +152,6 @@ const menuItems: MenuItem[] = [
         path: "/sales/agent-commissions",
         permission: PERMISSIONS.AGENT_COMMISSIONS_VIEW,
       },
-      { text: "Settings", icon: <SettingsIcon />, path: "/sales/settings", permission: PERMISSIONS.SALES_SETTINGS_VIEW },
     ],
   },
   {

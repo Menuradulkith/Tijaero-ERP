@@ -108,7 +108,18 @@ class Invoice(InvoiceBase):
     # Timestamps
     created_at: datetime
     updated_at: datetime
-    
+    # Creator tracking
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+
+    @classmethod
+    def model_validate(cls, obj, **kwargs):
+        instance = super().model_validate(obj, **kwargs)
+        if hasattr(obj, 'creator') and obj.creator:
+            u = obj.creator
+            instance.created_by_name = (f"{u.first_name} {u.last_name}".strip() or u.username)
+        return instance
+
     model_config = ConfigDict(from_attributes=True)
 
 class InvoiceWithItems(Invoice):

@@ -110,7 +110,7 @@ export const salesApi = {
 
   // Get recent sales for a customer (last 5 from any branch)
   getRecentByCustomer: async (customerId: number, limit = 5) => {
-    const response = await apiClient.get<Invoice[]>(`/sales/customer/${customerId}/recent`, {
+    const response = await apiClient.get<InvoiceWithItems[]>(`/sales/customer/${customerId}/recent`, {
       params: { limit },
     });
     return response.data;

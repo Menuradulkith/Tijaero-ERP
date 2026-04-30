@@ -89,6 +89,9 @@ class Invoice(Base, TimestampMixin):
     source_quote_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True)
     source_quote_type = Column(String(30), nullable=True)  # 'quotation' or 'proforma'
 
+    # Creator tracking
+    created_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+
     # Relationships
     customer = relationship(
         "Customer", foreign_keys=[customer_id], back_populates="invoices"
@@ -97,6 +100,7 @@ class Invoice(Base, TimestampMixin):
         "Customer", foreign_keys=[customer_agent_id], back_populates="agent_invoices"
     )
     sale_rep = relationship("User", foreign_keys=[sale_rep_id])
+    creator = relationship("User", foreign_keys=[created_by])
     bank_transfer_verifier = relationship("User", foreign_keys=[bank_transfer_verified_by])
     advance_payment = relationship("CustomerAdvancePayments", back_populates="invoices")
     cheque_payment = relationship("ChequePayments", back_populates="invoices")

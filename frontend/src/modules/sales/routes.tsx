@@ -10,7 +10,6 @@ import SalesApprovalsPage from "@/modules/sales/pages/SalesApprovalsPage";
 import SalesDashboard from "@/modules/sales/pages/SalesDashboard";
 import SalesOrderApprovalsPage from "@/modules/sales/pages/SalesOrderApprovalsPage";
 import SalesPage from "@/modules/sales/pages/SalesPage";
-import SalesSettingsPage from "@/modules/sales/pages/SalesSettingsPage";
 import SalesTrackPage from "@/modules/sales/pages/SalesTrackPage";
 import ProtectedRoute from "@/auth/components/ProtectedRoute";
 import { Navigate, Route, Routes } from "react-router-dom";
@@ -29,7 +28,6 @@ export default function SalesRoutes() {
       <Route path="coupons" element={<ProtectedRoute resource="coupons" action="view"><CouponsPage /></ProtectedRoute>} />
       <Route path="vouchers" element={<ProtectedRoute resource="gift_vouchers" action="view"><VouchersPage /></ProtectedRoute>} />
       <Route path="agent-commissions" element={<ProtectedRoute resource="agent_commissions" action="view"><AgentCommissionsPage /></ProtectedRoute>} />
-      <Route path="settings/*" element={<ProtectedRoute resource="sales_settings" action="view"><SalesSettingsPage /></ProtectedRoute>} />
       {/* Approvals - parent hub and sub-routes */}
       <Route path="approvals" element={<SalesApprovalsPage />} />
       <Route path="approvals/so-approvals" element={<ProtectedRoute resource="so_approvals" action="view"><SalesOrderApprovalsPage /></ProtectedRoute>} />

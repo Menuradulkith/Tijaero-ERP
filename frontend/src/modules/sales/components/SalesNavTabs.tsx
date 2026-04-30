@@ -4,7 +4,6 @@ import {
     Receipt as OrdersIcon,
     Description as QuotationsIcon,
     AssignmentReturn as ReturnsIcon,
-    Settings as SettingsIcon,
 } from "@mui/icons-material";
 import { Box, Tab, Tabs } from "@mui/material";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -19,7 +18,6 @@ const salesTabs = [
   { value: "/sales/quotations", label: "Quotations", icon: <QuotationsIcon />, path: "/sales/quotations" },
   { value: "/sales", label: "Orders", icon: <OrdersIcon />, path: "/sales" },
   { value: "/sales/returns", label: "Returns", icon: <ReturnsIcon />, path: "/sales/returns" },
-  { value: "/sales/settings", label: "Settings", icon: <SettingsIcon />, path: "/sales/settings" },
 ];
 
 export default function SalesNavTabs({ value }: SalesNavTabsProps) {
@@ -29,8 +27,6 @@ export default function SalesNavTabs({ value }: SalesNavTabsProps) {
   // Determine current tab from location
   const currentTab = value || (() => {
     const path = location.pathname;
-    // Check for settings paths (including nested routes)
-    if (path.includes('/sales/settings')) return '/sales/settings';
     // Check for exact matches
     const exactMatch = salesTabs.find((tab) => path === tab.path);
     if (exactMatch) return exactMatch.value;

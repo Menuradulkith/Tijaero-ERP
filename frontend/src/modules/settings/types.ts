@@ -73,6 +73,9 @@ export interface CompanySettings {
   number_of_annual_leaves: number;
   number_of_casual_leaves: number;
   number_of_medical_leaves: number;
+  default_tax_rate: number;
+  tax_inclusive_pricing: boolean;
+  hide_service_charge: boolean;
   amex_card_surcharge: number;
   visa_card_surcharge: number;
   master_card_surcharge: number;

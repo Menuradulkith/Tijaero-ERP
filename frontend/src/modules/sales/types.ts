@@ -68,6 +68,9 @@ export interface Invoice {
   // Timestamps
   created_at: string;
   updated_at: string;
+  // Creator
+  created_by?: number;
+  created_by_name?: string;
 }
 
 export interface InvoiceCreate {
