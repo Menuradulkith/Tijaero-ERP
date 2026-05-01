@@ -778,7 +778,7 @@ export default function AdvancePaymentsPage() {
                 label="Amount"
                 size="small"
                 type="number"
-                value={customerForm.payment_amount || ""}
+                value={Number(customerForm.payment_amount) || ""}
                 onChange={(e) => setCustomerForm({ ...customerForm, payment_amount: parseFloat(e.target.value) || 0 })}
                 onBlur={() => handleBlur("payment_amount")}
                 disabled={!isEditing && !isCreating}
@@ -925,7 +925,7 @@ export default function AdvancePaymentsPage() {
                 label="Amount"
                 size="small"
                 type="number"
-                value={supplierForm.original_amount || ""}
+                value={Number(supplierForm.original_amount) || ""}
                 onChange={(e) => setSupplierForm({ ...supplierForm, original_amount: parseFloat(e.target.value) || 0 })}
                 onBlur={() => handleBlur("original_amount")}
                 disabled={!isEditing && !isCreating}

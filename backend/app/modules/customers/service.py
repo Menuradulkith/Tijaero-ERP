@@ -396,22 +396,12 @@ class CouponService:
                     message=f"Minimum invoice amount is Rs. {coupon.minimum_invoice_amount}"
                 )
         
-        # Apply invoice discount first (following correct flow: Item Discount → Invoice Discount → Coupon)
-        invoice_discount_amount = Decimal("0")
-        if request.invoice_discount_type and request.invoice_discount_value:
-            if request.invoice_discount_type == "percent":
-                invoice_discount_amount = (applicable_subtotal * Decimal(str(request.invoice_discount_value))) / 100
-            else:  # amount
-                invoice_discount_amount = Decimal(str(request.invoice_discount_value))
-        
-        # Amount after invoice discount (this is the base for coupon calculation)
-        amount_after_invoice_discount = applicable_subtotal - invoice_discount_amount
-        
-        # Calculate coupon discount on amount AFTER invoice discount
+        # Calculate coupon discount on applicable subtotal
+        # Coupon is applied BEFORE invoice discount (Step 4), so no invoice discount deduction here
         if coupon.discount_type == "PERCENT":
-            calculated_discount = (amount_after_invoice_discount * coupon.discount_value) / 100
+            calculated_discount = (applicable_subtotal * coupon.discount_value) / 100
         else:  # AMOUNT
-            calculated_discount = min(coupon.discount_value, amount_after_invoice_discount)
+            calculated_discount = min(coupon.discount_value, applicable_subtotal)
         
         return schemas.CouponValidationResponse(
             valid=True,
@@ -499,7 +489,11 @@ class VoucherService:
     
     def create_voucher(self, db: Session, voucher_data: schemas.GiftVoucherCreate) -> CustomerGiftVoucher:
         """Create a new gift voucher"""
-        # Check if barcode already exists
+        # Advisory lock to serialise concurrent voucher creation with same barcode
+        from sqlalchemy import text
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"voucher_barcode_{voucher_data.barcode_no}"})
+
+        # Check if barcode already exists (now safe under lock)
         existing = db.query(CustomerGiftVoucher).filter(
             CustomerGiftVoucher.barcode_no == voucher_data.barcode_no
         ).first()

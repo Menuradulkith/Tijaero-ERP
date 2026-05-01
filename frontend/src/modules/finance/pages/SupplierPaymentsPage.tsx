@@ -1342,7 +1342,7 @@ export default function SupplierPaymentsPage() {
               label="Payment Amount"
               type="number"
               size="small"
-              value={fifoAmount}
+              value={Number(fifoAmount)}
               onChange={(e) => setFifoAmount(Number(e.target.value))}
               InputProps={{
                 startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
@@ -1548,7 +1548,7 @@ export default function SupplierPaymentsPage() {
                       <TextField
                         type="number"
                         size="small"
-                        value={line.allocated_amount}
+                        value={Number(line.allocated_amount)}
                         onChange={(e) => handleLineAmountChange(line.id, Number(e.target.value))}
                         InputProps={{
                           startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,

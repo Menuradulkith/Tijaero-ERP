@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, text
 from fastapi import HTTPException, status
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -400,8 +400,16 @@ class CustomerCreditService:
                     detail=f"Payment amount {trans.payment_amount} exceeds remaining credit {remaining} for invoice {invoice.invoice_no}"
                 )
 
+        # ── Advisory lock to prevent duplicate settlement numbers ──
+        prefix = f"SETTLE{tz.today().strftime('%Y%m%d')}"
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        count = db.query(func.count(CustomerCreditsSettle.id)).filter(
+            CustomerCreditsSettle.customer_credits_settle_no.like(f"{prefix}%")
+        ).scalar()
+        settle_no = f"{prefix}{count + 1:04d}"
+
         settlement = CustomerCreditsSettle(
-            customer_credits_settle_no=settlement_data.customer_credits_settle_no,
+            customer_credits_settle_no=settle_no,
             branch_code=settlement_data.branch_code,
             customer_id=settlement_data.customer_id,
             created_date=tz.now()

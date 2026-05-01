@@ -2155,7 +2155,12 @@ class CashFlowService:
         self, data: schemas.CashFlowStatementCreate, prepared_by: int
     ) -> CashFlowStatement:
         """Generate a cash flow statement for a fiscal period using the indirect method."""
-        # Check if already exists
+        # Advisory lock to prevent duplicate CFS statements for the same period
+        from sqlalchemy import text as _text
+        lock_key = f"CFS-{data.fiscal_year}-{data.fiscal_period}"
+        self.db.execute(_text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": lock_key})
+
+        # Check if already exists (now safe under lock)
         existing = self.db.query(CashFlowStatement).filter(
             CashFlowStatement.fiscal_year == data.fiscal_year,
             CashFlowStatement.fiscal_period == data.fiscal_period,

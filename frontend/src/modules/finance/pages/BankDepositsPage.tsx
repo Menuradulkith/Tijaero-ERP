@@ -253,9 +253,9 @@ export default function BankDepositsPage() {
                 label="Deposit Amount"
                 size="small"
                 type="number"
-                value={formData.deposits_amount || ""}
+                value={Number(formData.deposits_amount) || ""}
                 disabled
-                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment>, readOnly: true }}
+                InputProps={{ readOnly: true }}
               />
               <Autocomplete
                 size="small"

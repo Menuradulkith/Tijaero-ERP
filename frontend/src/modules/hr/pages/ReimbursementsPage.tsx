@@ -828,7 +828,7 @@ export default function ReimbursementsPage() {
                   </TableCell>
                   <TableCell>{item.item_description || "-"}</TableCell>
                   <TableCell align="right">
-                    <TCurrency value={item.amount} />
+                    <TCurrency value={Number(item.amount)} />
                   </TableCell>
                   <TableCell>{item.receipt_number || "-"}</TableCell>
                   <TableCell>
@@ -1159,7 +1159,7 @@ export default function ReimbursementsPage() {
                     <TextField
                       size="small"
                       type="number"
-                      value={item.amount}
+                      value={Number(item.amount)}
                       onChange={(e) =>
                         updateLineItem(
                           item._id,

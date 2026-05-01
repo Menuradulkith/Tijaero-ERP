@@ -108,6 +108,7 @@ export interface InvoiceCreate {
   // Credit note
   credit_note_id?: number;
   // Tax and discount
+  is_tax_invoice?: boolean;
   tax_rate?: number;
   discount_percent?: number;
   discount_amount?: number;

@@ -184,7 +184,7 @@ export default function DeductionsPage() {
           <>
             <FormSection title="Deduction Details" columns={2}>
               <TextField label="Employee ID" size="small" type="number" value={formData.employee_id || ""} onChange={(e) => setFormData({ ...formData, employee_id: Number(e.target.value) })} disabled={isDisabled} required />
-              <TextField label="Amount" size="small" type="number" value={formData.amount || ""} onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} />
+              <TextField label="Amount" size="small" type="number" value={Number(formData.amount) || ""} onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} />
               <Box sx={{ gridColumn: "1 / -1" }}>
                 <TextField label="Reason" size="small" value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value })} disabled={isDisabled} required fullWidth multiline rows={3} />
               </Box>

@@ -42,7 +42,9 @@ import {
   Description as QuoteIcon,
   Inventory as StockIcon,
   LocalShipping as POIcon,
+  Percent as PercentIcon,
   Receipt as InvoiceIcon,
+  Receipt as TaxIcon,
   SwapHoriz as ProformaIcon,
   ThumbDown as RejectIcon,
 } from "@mui/icons-material";
@@ -70,6 +72,8 @@ import {
   TableHead,
   TableRow,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography
 } from "@mui/material";
@@ -119,7 +123,7 @@ const getEmptyQuoteForm = (quoteType: QuoteType): Partial<SalesQuoteCreate> => (
   quote_type: quoteType,
   branch_code: "MAIN",
   customer_id: 0,
-  sale_rep_id: 0,
+  sale_rep_id: undefined,
   valid_until: format(addDays(new Date(), 30), "yyyy-MM-dd"),
   is_estimate: quoteType === "quotation",
   remarks: "",
@@ -141,6 +145,11 @@ export default function QuotationsPage() {
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
   // True only when user has actively modified line items (not just loaded them for editing)
   const [lineItemsDirty, setLineItemsDirty] = useState(false);
+
+  // Tax state (same as SalesPage)
+  const [taxMode, setTaxMode] = useState<"inclusive" | "exclusive" | "none">("none");
+  const [taxRate, setTaxRate] = useState<number>(0);
+  const effectiveTaxRate = taxMode !== "none" ? taxRate : 0;
 
   // Form step state for stepper workflow
   const [formStep, setFormStep] = useState(0);
@@ -369,12 +378,23 @@ export default function QuotationsPage() {
     return customers?.find((c) => c.id === customerId)?.customer_name || `Customer #${customerId}`;
   };
 
-  // Calculate line items total
-  const calculateLineItemsTotal = () => {
-    return lineItems.reduce((sum, item) => {
-      return sum + item.quantity * item.selling_price;
+  // Calculate gross total (before item discounts)
+  const calculateGrossTotal = () =>
+    lineItems.reduce((sum, item) => sum + item.quantity * item.selling_price, 0);
+
+  // Calculate total item discounts
+  const calculateTotalItemDiscounts = () =>
+    lineItems.reduce((sum, item) => {
+      const gross = item.quantity * item.selling_price;
+      return sum + gross * ((item.discount_percent || 0) / 100);
     }, 0);
-  };
+
+  // Calculate line items total (after item discounts)
+  const calculateLineItemsTotal = () =>
+    lineItems.reduce((sum, item) => {
+      const gross = item.quantity * item.selling_price;
+      return sum + gross * (1 - (item.discount_percent || 0) / 100);
+    }, 0);
 
   // Mutations
   const createMutation = useCrudMutation({
@@ -567,9 +587,11 @@ export default function QuotationsPage() {
         branchCode: selectedQuote.branch_code,
         remarks: `SO from Proforma ${selectedQuote.quote_no}`,
         items: itemsForSO,
+        taxMode,
+        taxRate: effectiveTaxRate,
       },
     });
-  }, [selectedQuote, selectedQuoteDetails, navigate]);
+  }, [selectedQuote, selectedQuoteDetails, navigate, taxMode, effectiveTaxRate]);
 
   const handleRejectSubmit = useCallback(() => {
     if (!selectedQuote) return;
@@ -605,6 +627,8 @@ export default function QuotationsPage() {
     setLineItems([]);
     setLineItemsDirty(false);
     setFormStep(0);
+    setTaxMode("none");
+    setTaxRate(0);
     handleNewQuote();
   }, [handleNewQuote, setFormData, pageQuoteType, defaultBranchCode]);
 
@@ -622,6 +646,8 @@ export default function QuotationsPage() {
     baseHandleCancel(filteredQuotes);
     setLineItems([]);
     setFormStep(0);
+    setTaxMode("none");
+    setTaxRate(0);
   }, [baseHandleCancel, filteredQuotes, isEditing, isCreating, hasChanges, confirmDialog]);
 
   // Step navigation handlers
@@ -1131,6 +1157,7 @@ export default function QuotationsPage() {
                 <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
                 <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
                 <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
+                <TableCell align="right" sx={{ width: 90 }}>Discount</TableCell>
                 <TableCell sx={{ width: 100 }}>Warranty</TableCell>
                 <TableCell align="center" sx={{ width: 120 }}>Stock</TableCell>
                 <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
@@ -1154,6 +1181,11 @@ export default function QuotationsPage() {
                       <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                       <TableCell align="right">{item.quantity}</TableCell>
                       <TableCell align="right"><TCurrency value={Number(item.selling_price)} /></TableCell>
+                      <TableCell align="right">
+                        {(item.discount_percentage || 0) > 0
+                          ? <Typography variant="body2" color="error.main">{item.discount_percentage}%</Typography>
+                          : <Typography variant="body2" color="text.disabled">-</Typography>}
+                      </TableCell>
                       <TableCell>{item.warrenty_month || "-"}</TableCell>
                       <TableCell align="center">
                         {stockCheckLoading && stockCheckedQuoteId !== selectedQuote?.id ? (
@@ -1166,7 +1198,9 @@ export default function QuotationsPage() {
                           <Typography variant="caption" color="text.secondary">-</Typography>
                         )}
                       </TableCell>
-                      <TableCell align="right"><TCurrency value={lineTotal} /></TableCell>
+                      <TableCell align="right">
+                        <TCurrency value={item.quantity * Number(item.selling_price) * (1 - (item.discount_percentage || 0) / 100)} />
+                      </TableCell>
                     </TableRow>
                   );
                 })
@@ -1179,7 +1213,7 @@ export default function QuotationsPage() {
               )}
               {/* Total Row */}
               <TableRow sx={modernTableStyles.footerRow}>
-                <TableCell colSpan={5} align="right">
+                <TableCell colSpan={6} align="right">
                   <Typography fontWeight="bold">Total:</Typography>
                 </TableCell>
                 <TableCell align="right">
@@ -1305,7 +1339,7 @@ export default function QuotationsPage() {
                 options={employees || []}
                 getOptionLabel={(option) => option.full_name || option.employee_id}
                 value={employees?.find((e) => e.id === formData.sale_rep_id) || null}
-                onChange={(_, newValue) => setFormData({ ...formData, sale_rep_id: newValue?.id || 0 })}
+                onChange={(_, newValue) => setFormData({ ...formData, sale_rep_id: newValue?.id || undefined })}
                 renderInput={(params) => (
                   <TextField {...params} label="Sales Representative (Optional)" />
                 )}
@@ -1350,19 +1384,18 @@ export default function QuotationsPage() {
                   No items added. Click "Add Item" to add products.
                 </Typography>
               ) : (
-                <Table size="small">
+                <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Product</TableCell>
-                      <TableCell align="right">Qty</TableCell>
-                      <TableCell align="right">Price (Rs.)</TableCell>
+                      <TableCell sx={{ width: "30%" }}>Product</TableCell>
+                      <TableCell align="right" sx={{ width: 90 }}>Qty</TableCell>
+                      <TableCell align="right" sx={{ width: 130 }}>Price (Rs.)</TableCell>
+                      <TableCell align="right" sx={{ width: 110 }}>Disc %</TableCell>
                       {formData.quote_type === "quotation" && (
-                        <>
-                          <TableCell align="right">Min Price (Rs.)</TableCell>
-                        </>
+                        <TableCell align="right" sx={{ width: 130 }}>Min Price (Rs.)</TableCell>
                       )}
-                      <TableCell align="right">Total (Rs.)</TableCell>
-                      <TableCell align="center">Action</TableCell>
+                      <TableCell align="right" sx={{ width: 120 }}>Total (Rs.)</TableCell>
+                      <TableCell align="center" sx={{ width: 60 }}>Del</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -1387,7 +1420,6 @@ export default function QuotationsPage() {
                             renderInput={(params) => (
                               <TextField {...params} size="small" placeholder="Search by name or code" />
                             )}
-                            sx={{ minWidth: 200 }}
                           />
                         </TableCell>
                         <TableCell align="right">
@@ -1398,49 +1430,62 @@ export default function QuotationsPage() {
                               handleUpdateLineItem(index, "quantity", parseInt(e.target.value) || 1)
                             }
                             size="small"
-                            sx={{ width: 80 }}
-                            inputProps={{ min: 1 }}
+                            sx={{ width: "100%" }}
+                            inputProps={{ min: 1, style: { textAlign: "right" } }}
                           />
                         </TableCell>
                         <TableCell align="right">
                           <TextField
                             type="number"
-                            value={item.selling_price}
+                            value={Number(item.selling_price)}
                             onChange={(e) =>
                               handleUpdateLineItem(index, "selling_price", parseFloat(e.target.value) || 0)
                             }
                             size="small"
-                            sx={{ width: 100 }}
-                            InputProps={{
-                              startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
-                            }}
+                            sx={{ width: "100%" }}
+                            InputProps={{}}
                             inputProps={{ min: item.min_price || 0 }}
                             error={item.selling_price < (item.min_price || 0)}
-                            helperText={item.selling_price < (item.min_price || 0) ? "Cannot be less than min price" : ""}
+                            helperText={item.selling_price < (item.min_price || 0) ? "Below min" : ""}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TextField
+                            type="number"
+                            value={item.discount_percent || ""}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              if (val > 100) return;
+                              handleUpdateLineItem(index, "discount_percent", val);
+                            }}
+                            size="small"
+                            sx={{ width: "100%" }}
+                            placeholder="0"
+                            InputProps={{
+                              endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                            }}
+                            inputProps={{ min: 0, max: 100, step: 0.5 }}
                           />
                         </TableCell>
                         {formData.quote_type === "quotation" && (
-                          <>
-                            <TableCell align="right">
-                              <TextField
-                                type="number"
-                                value={item.min_price || ""}
-                                size="small"
-                                sx={{ width: 100 }}
-                                placeholder="Min"
-                                disabled
-                                InputProps={{
-                                  readOnly: true,
-                                  startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
-                                }}
-                              />
-                            </TableCell>
-                          </>
+                          <TableCell align="right">
+                            <TextField
+                              type="number"
+                              value={item.min_price || ""}
+                              size="small"
+                              sx={{ width: "100%" }}
+                              placeholder="Min"
+                              disabled
+                              InputProps={{
+                                readOnly: true,
+                              }}
+                            />
+                          </TableCell>
                         )}
                         <TableCell align="right">
-                          <Typography fontWeight="medium">
+                          <Typography fontWeight="medium" noWrap>
                             <TCurrency
-                              value={item.quantity * item.selling_price}
+                              value={item.quantity * item.selling_price * (1 - (item.discount_percent || 0) / 100)}
                               showSymbol={false}
                             />
                           </Typography>
@@ -1456,9 +1501,110 @@ export default function QuotationsPage() {
                 </Table>
               )}
               <Divider sx={{ my: 2 }} />
-              <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+
+              {/* Discount & Tax section */}
+              <Box sx={{ display: "flex", gap: 3, flexWrap: "wrap", mb: 2 }}>
+                {/* Tax toggle */}
+                <Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Tax (VAT/GST)</Typography>
+                  <ToggleButtonGroup
+                    value={taxMode}
+                    exclusive
+                    onChange={(_, v) => {
+                      if (v) { setTaxMode(v); if (v === "none") setTaxRate(0); }
+                    }}
+                    size="small"
+                    sx={{ mb: 1 }}
+                  >
+                    <ToggleButton value="none">No Tax</ToggleButton>
+                    <ToggleButton value="inclusive">Inclusive</ToggleButton>
+                    <ToggleButton value="exclusive">Exclusive</ToggleButton>
+                  </ToggleButtonGroup>
+                  {taxMode !== "none" && (
+                    <Box sx={{ display: "flex", gap: 1, alignItems: "center", mt: 1 }}>
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={taxRate || ""}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0;
+                          if (val > 100) return;
+                          setTaxRate(val);
+                        }}
+                        placeholder="0%"
+                        sx={{ width: 100 }}
+                        InputProps={{
+                          startAdornment: <InputAdornment position="start"><TaxIcon fontSize="small" color="action" /></InputAdornment>,
+                          endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                        }}
+                        inputProps={{ min: 0, max: 100, step: 0.5 }}
+                      />
+                      {effectiveTaxRate > 0 && (
+                        <IconButton size="small" color="error" onClick={() => setTaxRate(0)} sx={{ p: 0.5 }}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                    </Box>
+                  )}
+                  {/* Quick select chips */}
+                  {taxMode !== "none" && (
+                    <Box sx={{ display: "flex", gap: 0.5, mt: 1 }}>
+                      {[1, 5, 8, 12, 18].map((rate) => (
+                        <Chip
+                          key={rate}
+                          label={`${rate}%`}
+                          size="small"
+                          variant={taxRate === rate ? "filled" : "outlined"}
+                          color={taxRate === rate ? "primary" : "default"}
+                          onClick={() => setTaxRate(rate)}
+                          sx={{ cursor: "pointer", minWidth: 40 }}
+                        />
+                      ))}
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+
+              {/* Summary rows */}
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, alignItems: "flex-end" }}>
+                {calculateTotalItemDiscounts() > 0 && (
+                  <>
+                    <Box sx={{ display: "flex", gap: 4 }}>
+                      <Typography variant="body2" color="text.secondary">Gross Total:</Typography>
+                      <Typography variant="body2" fontWeight="medium">
+                        <TCurrency value={taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateGrossTotal() / (1 + effectiveTaxRate / 100) : calculateGrossTotal()} />
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 4 }}>
+                      <Typography variant="body2" color="error.main">Item Discounts:</Typography>
+                      <Typography variant="body2" color="error.main">
+                        - <TCurrency value={taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateTotalItemDiscounts() / (1 + effectiveTaxRate / 100) : calculateTotalItemDiscounts()} />
+                      </Typography>
+                    </Box>
+                  </>
+                )}
+                {effectiveTaxRate > 0 && (
+                  <Box sx={{ display: "flex", gap: 4 }}>
+                    <Typography variant="body2" color="info.main">
+                      {taxMode === "exclusive" ? `Tax (${effectiveTaxRate}%):` : `Tax included (${effectiveTaxRate}%):`}
+                    </Typography>
+                    <Typography variant="body2" color="info.main">
+                      {taxMode === "exclusive" ? "+ " : ""}
+                      <TCurrency value={(() => {
+                        const subtotal = calculateLineItemsTotal();
+                        return taxMode === "exclusive"
+                          ? subtotal * (effectiveTaxRate / 100)
+                          : subtotal * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100);
+                      })()} />
+                    </Typography>
+                  </Box>
+                )}
+                <Divider sx={{ width: "100%", my: 0.5 }} />
                 <Typography variant="h6" fontWeight={700} color="success.main">
-                  Total: <TCurrency value={calculateLineItemsTotal()} />
+                  Grand Total: <TCurrency value={(() => {
+                    const subtotal = calculateLineItemsTotal();
+                    return taxMode === "exclusive" ? subtotal * (1 + effectiveTaxRate / 100) : subtotal;
+                  })()} />
                 </Typography>
               </Box>
             </Paper >

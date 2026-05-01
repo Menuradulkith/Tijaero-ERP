@@ -1807,7 +1807,7 @@ export default function PurchaseOrdersPage() {
                                   <TextField
                                     size="small"
                                     type="number"
-                                    value={item.unit_price}
+                                    value={Number(item.unit_price)}
                                     disabled
                                     sx={{
                                       width: 100,

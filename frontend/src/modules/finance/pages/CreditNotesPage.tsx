@@ -295,9 +295,9 @@ export default function CreditNotesPage() {
                 label="Amount"
                 size="small"
                 type="number"
-                value={formData.amount || ""}
+                value={Number(formData.amount) || ""}
                 disabled
-                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment>, readOnly: true }}
+                InputProps={{ readOnly: true }}
               />
             </FormSection>
 

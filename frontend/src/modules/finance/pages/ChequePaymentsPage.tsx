@@ -276,9 +276,9 @@ export default function ChequePaymentsPage() {
                 label="Amount"
                 size="small"
                 type="number"
-                value={formData.amount || ""}
+                value={Number(formData.amount) || ""}
                 disabled
-                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment>, readOnly: true }}
+                InputProps={{ readOnly: true }}
               />
               <Autocomplete
                 size="small"
