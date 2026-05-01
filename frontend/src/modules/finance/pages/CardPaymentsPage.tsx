@@ -258,9 +258,9 @@ export default function CardPaymentsPage() {
                 label="Amount"
                 size="small"
                 type="number"
-                value={formData.amount || ""}
+                value={Number(formData.amount) || ""}
                 disabled
-                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment>, readOnly: true }}
+                InputProps={{ readOnly: true }}
               />
               <TextField
                 label="Reference Number"

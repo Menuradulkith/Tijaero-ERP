@@ -75,7 +75,7 @@ class CustomerList(BaseModel):
     items: list[Customer]
 
 class CustomerAdvancePaymentsBase(BaseModel):
-    advance_payments_no: str
+    advance_payments_no: Optional[str] = None
     payment_method: str
     branch_code: str
     payment_amount: Decimal
@@ -131,7 +131,7 @@ class CustomerCreditsSettleTransaction(CustomerCreditsSettleTransactionBase, Tij
     created_date: date
 
 class CustomerCreditsSettleBase(BaseModel):
-    customer_credits_settle_no: str
+    customer_credits_settle_no: Optional[str] = None
     branch_code: str
     customer_id: int
 

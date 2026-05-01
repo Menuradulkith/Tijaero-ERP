@@ -234,7 +234,7 @@ export default function PayrollPage() {
           <>
             <FormSection title="Employee & Earnings" columns={2}>
               <TextField label="Employee ID" size="small" value={formData.employee_id} onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })} disabled={isDisabled} required />
-              <TextField label="Basic Salary" size="small" type="number" value={formData.basic_salary || ""} onChange={(e) => setFormData({ ...formData, basic_salary: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} />
+              <TextField label="Basic Salary" size="small" type="number" value={Number(formData.basic_salary) || ""} onChange={(e) => setFormData({ ...formData, basic_salary: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} />
               <TextField label="Sales Commission" size="small" type="number" value={formData.add_sales_commision || ""} onChange={(e) => setFormData({ ...formData, add_sales_commision: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
               <Box />
               <TextField label="Addition 1 Name" size="small" value={formData.add_1_name || ""} onChange={(e) => setFormData({ ...formData, add_1_name: e.target.value })} disabled={isDisabled} />

@@ -1188,7 +1188,7 @@ export default function CustomerPaymentsPage() {
               size="small"
               label="Payment Amount"
               type="number"
-              value={fifoAmount || ""}
+              value={Number(fifoAmount) || ""}
               onChange={(e) => setFifoAmount(Number(e.target.value))}
               InputProps={{
                 startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
@@ -1339,7 +1339,7 @@ export default function CustomerPaymentsPage() {
                     <TextField
                       size="small"
                       type="number"
-                      value={line.allocated_amount || ""}
+                      value={Number(line.allocated_amount) || ""}
                       onChange={(e) => handleLineAmountChange(line.id, Number(e.target.value))}
                       InputProps={{
                         startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,

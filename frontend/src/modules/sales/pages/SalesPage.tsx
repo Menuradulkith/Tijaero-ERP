@@ -77,7 +77,6 @@ import {
     TableRow,
     TextField,
     ToggleButton,
-    Switch,
     ToggleButtonGroup,
     Tooltip,
     Typography,
@@ -301,10 +300,10 @@ export default function SalesPage() {
   );
   const [discountValue, setDiscountValue] = useState<number>(0);
   const [taxRate, setTaxRate] = useState<number>(0); // Tax rate percentage (e.g., 8 for 8% VAT)
-  const [taxEnabled, setTaxEnabled] = useState<boolean>(false); // Toggle tax on/off
+  const [taxMode, setTaxMode] = useState<"inclusive" | "exclusive" | "none">("none"); // Tax mode
 
-  // Effective tax rate — 0 when tax toggle is off
-  const effectiveTaxRate = taxEnabled ? taxRate : 0;
+  // Effective tax rate — 0 when no tax mode selected
+  const effectiveTaxRate = taxMode !== "none" ? taxRate : 0;
 
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -480,6 +479,52 @@ export default function SalesPage() {
     );
   };
 
+  /**
+   * Centralized order totals calculation.
+   * Order: Normalize → Item Discount → Coupon → Invoice Discount → Tax → Payments
+   */
+  const calcOrderTotals = () => {
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const grossSubtotal = r2(calculateLineItemsTotal());
+    // Step 2: Normalize - convert gross to net for inclusive pricing
+    const subtotal = r2((taxMode === "inclusive" && effectiveTaxRate > 0)
+      ? grossSubtotal / (1 + effectiveTaxRate / 100)
+      : grossSubtotal);
+    // Step 4: Coupon Discount (on subtotal)
+    const couponDiscount = r2(couponValidation?.calculated_discount || 0);
+    const afterCoupon = r2(subtotal - couponDiscount);
+    // Step 5: Invoice Discount (after coupon)
+    const invoiceDiscount = r2(discountType === "percent"
+      ? afterCoupon * (discountValue / 100)
+      : discountValue);
+    const finalNet = r2(afterCoupon - invoiceDiscount);
+    // Step 7: Tax - recalculate on final net (same for inclusive & exclusive)
+    const taxAmount = r2(effectiveTaxRate > 0
+      ? finalNet * (effectiveTaxRate / 100)
+      : 0);
+    // Step 8: Grand total = Net + Tax
+    const afterTax = r2(finalNet + taxAmount);
+    // Step 9: Payments
+    const totalVoucherPayment = r2(appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0));
+    const afterVoucher = r2(afterTax - totalVoucherPayment);
+    const appliedCreditNote = r2(Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher)));
+    const afterCreditNote = r2(afterVoucher - appliedCreditNote);
+    let serviceCharge = 0;
+    if (state.formData.payment_method === "card" && selectedPaymentCard) {
+      serviceCharge = r2(afterCreditNote * ((selectedPaymentCard.service_charge_percent || 0) / 100));
+    }
+    const grandTotal = r2(Math.max(0, afterCreditNote + serviceCharge));
+    return {
+      grossSubtotal, subtotal,
+      couponDiscount, afterCoupon,
+      invoiceDiscount, finalNet,
+      taxAmount, afterTax,
+      totalVoucherPayment, afterVoucher,
+      appliedCreditNote, afterCreditNote,
+      serviceCharge, grandTotal,
+    };
+  };
+
   // Filter and sort invoices
   const filteredInvoices = useMemo(() => {
     if (!invoices) return [];
@@ -601,6 +646,8 @@ export default function SalesPage() {
     customerId?: number;
     branchCode?: string;
     remarks?: string;
+    taxMode?: "none" | "inclusive" | "exclusive";
+    taxRate?: number;
     items?: Array<{
       product_id: number;
       quantity: number;
@@ -638,7 +685,8 @@ export default function SalesPage() {
       setCreditNoteAmount(0);
       setDiscountType("percent");
       setDiscountValue(0);
-      setTaxRate(companySettings?.default_tax_rate ?? 0);
+      setTaxMode(navState.taxMode && navState.taxMode !== "none" ? navState.taxMode : "none");
+      setTaxRate(navState.taxRate ?? companySettings?.default_tax_rate ?? 0);
       state.setFormData({
         invoice_no: "",
         branch_code: navState.branchCode || defaultBranchCode || "MAIN",
@@ -968,43 +1016,53 @@ export default function SalesPage() {
       return;
     }
 
-    // Calculate effective price per item after all discounts (item discount + invoice discount + coupon)
+    // Calculate effective price per item after all discounts (item + coupon + invoice discount)
     // and validate that no item goes below minimum price
-    // New Flow: Item Discount → Invoice Discount → Coupon → Tax → Voucher → Service Charge
+    // Flow: Normalize → Item Discount → Coupon → Invoice Discount → Tax
     const subtotalAfterItemDiscounts = calculateLineItemsTotal();
 
-    // Calculate invoice discount percentage on subtotal after item discounts
+    // For inclusive, normalize to net for discount calculations
+    const netSubtotalForValidation = (taxMode === "inclusive" && effectiveTaxRate > 0)
+      ? subtotalAfterItemDiscounts / (1 + effectiveTaxRate / 100)
+      : subtotalAfterItemDiscounts;
+
+    // Calculate coupon discount percentage (applied first on net subtotal)
+    const validationCouponDiscount = couponValidation?.calculated_discount || 0;
+    const couponDiscountPercent =
+      netSubtotalForValidation > 0
+        ? (validationCouponDiscount / netSubtotalForValidation) * 100
+        : 0;
+
+    // Calculate amount after coupon for invoice discount percentage
+    const afterCouponValidation =
+      netSubtotalForValidation * (1 - couponDiscountPercent / 100);
     const invoiceDiscountPercent =
       discountType === "percent"
         ? discountValue
-        : subtotalAfterItemDiscounts > 0
-          ? (discountValue / subtotalAfterItemDiscounts) * 100
+        : afterCouponValidation > 0
+          ? (discountValue / afterCouponValidation) * 100
           : 0;
-
-    // Calculate amount after invoice discount for coupon percentage calculation
-    const afterInvoiceDiscount =
-      subtotalAfterItemDiscounts * (1 - invoiceDiscountPercent / 100);
-    const validationCouponDiscount = couponValidation?.calculated_discount || 0;
-    const couponDiscountPercent =
-      afterInvoiceDiscount > 0
-        ? (validationCouponDiscount / afterInvoiceDiscount) * 100
-        : 0;
 
     // Check each item's effective price after all discounts
     const invalidDiscountItems = lineItems.filter((item) => {
       const itemDiscountPercent = item.discount_percent || 0;
 
       // Step 1: Apply item discount
-      const priceAfterItemDiscount =
+      let priceAfterItemDiscount =
         item.selling_price * (1 - itemDiscountPercent / 100);
 
-      // Step 2: Apply invoice discount (proportionally)
-      const priceAfterInvoiceDiscount =
-        priceAfterItemDiscount * (1 - invoiceDiscountPercent / 100);
+      // For inclusive, normalize item price to net
+      if (taxMode === "inclusive" && effectiveTaxRate > 0) {
+        priceAfterItemDiscount = priceAfterItemDiscount / (1 + effectiveTaxRate / 100);
+      }
 
-      // Step 3: Apply coupon discount (proportionally)
+      // Step 2: Apply coupon discount (proportionally)
+      const priceAfterCoupon =
+        priceAfterItemDiscount * (1 - couponDiscountPercent / 100);
+
+      // Step 3: Apply invoice discount (proportionally)
       const effectivePrice =
-        priceAfterInvoiceDiscount * (1 - couponDiscountPercent / 100);
+        priceAfterCoupon * (1 - invoiceDiscountPercent / 100);
 
       return effectivePrice < item.minimum_selling_price;
     });
@@ -1020,6 +1078,7 @@ export default function SalesPage() {
     }
 
     const subtotal = calculateLineItemsTotal();
+    const creditCheckAmount = calcOrderTotals().grandTotal;
     const paymentMethod = state.formData.payment_method || "cash";
 
     // Comprehensive credit sale validation (blocking)
@@ -1028,7 +1087,7 @@ export default function SalesPage() {
         // Use comprehensive validation with blocking by default
         const validation = await customersApi.validateCreditSale(
           state.formData.customer_id,
-          subtotal,
+          creditCheckAmount,
           { skipTimeCheck: false, allowOverLimit: false },
         );
 
@@ -1165,56 +1224,22 @@ export default function SalesPage() {
       }
     }
 
-    // Calculate all adjustments following the flow:
-    // 1. Subtotal (after item discounts)
-    // 2. Invoice Discount (-)
-    // 3. Coupon Discount (-)
-    // 4. Tax (+)
-    // 5. Voucher Payment (-)
-    // 6. Service Charge (+)
-    // 7. Grand Total
-
-    // Invoice discount (percentage or fixed amount) - applied first on subtotal
-    const invoiceDiscount =
-      discountType === "percent"
-        ? subtotal * (discountValue / 100)
-        : discountValue;
-    const afterInvoiceDiscountCalc = subtotal - invoiceDiscount;
-
-    // Coupon discount - applied after invoice discount
-    const couponDiscount = couponValidation?.calculated_discount || 0;
-    const afterDiscount = afterInvoiceDiscountCalc - couponDiscount;
-
-    // Tax calculation
-    // Tax is back-calculated (inclusive): tax is extracted FROM the price, not added ON TOP
-    // e.g. price=500, tax=1% → taxAmount = 500*(1/101) = 4.95, total stays 500
-    const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
-    const afterTax = afterDiscount; // grand total is unchanged
-
-    // Total voucher payment from all applied vouchers
-    const totalVoucherPayment = appliedVouchers.reduce(
-      (sum, v) => sum + Number(v.amountToRedeem),
-      0,
-    );
-    const afterVoucher = afterTax - totalVoucherPayment;
-
-    // Credit note redemption (limited to available balance and remaining amount)
-    const appliedCreditNote = Math.min(
-      creditNoteAmount,
-      availableCreditBalance,
-      Math.max(0, afterVoucher),
-    );
-    const afterCreditNote = afterVoucher - appliedCreditNote;
-
-    // Service charge for card payments (on remaining amount after credit note)
-    // Uses the service charge percentage from the selected payment card
+    // Use centralized calculation following the flow:
+    // Normalize → Item Discount → Coupon → Invoice Discount → Tax → Payments
+    const t = calcOrderTotals();
+    const invoiceDiscount = t.invoiceDiscount;
+    const couponDiscount = t.couponDiscount;
+    const taxAmount = t.taxAmount;
+    const afterTax = t.afterTax;
+    const totalVoucherPayment = t.totalVoucherPayment;
+    const afterVoucher = t.afterVoucher;
+    const appliedCreditNote = t.appliedCreditNote;
+    const afterCreditNote = t.afterCreditNote;
     let serviceCharge = 0;
     if (paymentMethod === "card" && selectedPaymentCard) {
       const chargePercent = selectedPaymentCard.service_charge_percent || 0;
       serviceCharge = afterCreditNote * (chargePercent / 100);
     }
-
-    // Final amount to pay (remaining balance)
     const grandTotal = Math.max(0, afterCreditNote + serviceCharge);
 
     const invoiceData: InvoiceCreate = {
@@ -1230,6 +1255,7 @@ export default function SalesPage() {
       payment_adjustments: serviceCharge,
       items: lineItems,
       // Tax and Discount fields
+      is_tax_invoice: taxMode === "inclusive",
       tax_rate: effectiveTaxRate,
       discount_percent: discountType === "percent" ? discountValue : 0,
       discount_amount:
@@ -1589,13 +1615,17 @@ export default function SalesPage() {
     setCouponError(null);
 
     try {
-      const subtotal = calculateLineItemsTotal();
+      // Send normalized net subtotal (after tax normalization for inclusive)
+      const gross = calculateLineItemsTotal();
+      const netSubtotal = (taxMode === "inclusive" && effectiveTaxRate > 0)
+        ? Math.round((gross / (1 + effectiveTaxRate / 100)) * 100) / 100
+        : gross;
       const productIds = lineItems.map((item) => item.product_id);
 
       const response = await couponsApi.validate({
         coupon_code: couponCode.trim(),
         customer_id: state.formData.customer_id,
-        invoice_subtotal: subtotal,
+        invoice_subtotal: netSubtotal,
         invoice_discount_type: discountType,
         invoice_discount_value: discountValue,
         product_ids: productIds,
@@ -1641,14 +1671,9 @@ export default function SalesPage() {
     setVoucherError(null);
 
     try {
-      // Calculate amount due after coupon discount AND previously applied vouchers
-      const subtotal = calculateLineItemsTotal();
-      const couponDiscount = couponValidation?.calculated_discount || 0;
-      const previousVouchersTotal = appliedVouchers.reduce(
-        (sum, v) => sum + Number(v.amountToRedeem),
-        0,
-      );
-      const amountDue = subtotal - couponDiscount - previousVouchersTotal;
+      // Calculate amount due using centralized calculation (correct order)
+      const t = calcOrderTotals();
+      const amountDue = t.afterTax - t.totalVoucherPayment;
 
       const response = await vouchersApi.validate({
         barcode_no: voucherCode.trim(),
@@ -1708,6 +1733,13 @@ export default function SalesPage() {
     }
   }, [formStep]);
 
+  // Stable fingerprint of line items data for dependency tracking
+  // Changes when any item's price, quantity, or discount changes
+  const lineItemsFingerprint = useMemo(
+    () => lineItems.map(i => `${i.product_id}:${i.quantity}:${i.selling_price}:${i.discount_percent || 0}`).join('|'),
+    [lineItems],
+  );
+
   // Auto-revalidate coupon when line items change (with debouncing)
   useEffect(() => {
     if (
@@ -1727,13 +1759,17 @@ export default function SalesPage() {
     // Debounce the revalidation to avoid excessive API calls
     const timeoutId = setTimeout(async () => {
       try {
-        const subtotal = calculateLineItemsTotal();
+        // Send normalized net subtotal (after tax normalization for inclusive)
+        const gross = calculateLineItemsTotal();
+        const netSubtotal = (taxMode === "inclusive" && effectiveTaxRate > 0)
+          ? Math.round((gross / (1 + effectiveTaxRate / 100)) * 100) / 100
+          : gross;
         const productIds = lineItems.map((item) => item.product_id);
 
         const response = await couponsApi.validate({
           coupon_code: couponCode.trim(),
           customer_id: state.formData.customer_id!,
-          invoice_subtotal: subtotal,
+          invoice_subtotal: netSubtotal,
           invoice_discount_type: discountType,
           invoice_discount_value: discountValue,
           product_ids: productIds,
@@ -1761,12 +1797,12 @@ export default function SalesPage() {
 
     return () => clearTimeout(timeoutId);
   }, [
-    lineItems.length,
+    lineItemsFingerprint,
     couponCode,
     state.formData.customer_id,
-    discountType,
-    discountValue,
-  ]); // Revalidate when discount changes
+    taxMode,
+    effectiveTaxRate,
+  ]); // Revalidate when items, prices, discounts, or tax mode changes
 
   // Custom actions for toolbar
   const customActions =
@@ -3044,7 +3080,7 @@ export default function SalesPage() {
                           <TextField
                             size="small"
                             type="number"
-                            value={item.selling_price}
+                            value={Number(item.selling_price)}
                             onChange={(e) =>
                               updateLineItem(
                                 index,
@@ -3161,47 +3197,24 @@ export default function SalesPage() {
                                     lineTotal *
                                     ((item.discount_percent || 0) / 100);
                                   const gross = lineTotal - discountAmt;
-                                  return fmtLKR(effectiveTaxRate > 0 ? gross / (1 + effectiveTaxRate / 100) : gross);
+                                  return fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? gross / (1 + effectiveTaxRate / 100) : gross);
                                 })()}
                               </Typography>
-                              {(item.discount_percent || 0) > 0 && (
-                                <Typography
-                                  variant="caption"
-                                  color={(() => {
-                                    const lineTotal =
-                                      item.quantity * item.selling_price;
-                                    const discountAmt =
-                                      lineTotal *
-                                      ((item.discount_percent || 0) / 100);
-                                    const finalAmount = lineTotal - discountAmt;
-                                    const minRequired =
-                                      item.quantity * item.minimum_selling_price;
-                                    return finalAmount < minRequired
-                                      ? "error.main"
-                                      : "success.main";
-                                  })()}
-                                  sx={{ display: "block" }}
-                                >
-                                  -
-                                  {fmtLKR(
-                                    item.quantity *
-                                      item.selling_price *
-                                      ((item.discount_percent || 0) / 100),
-                                  )}
-                                  {(() => {
-                                    const priceAfterDiscount =
-                                      item.selling_price *
-                                      (1 - (item.discount_percent || 0) / 100);
-                                    if (
-                                      priceAfterDiscount <
-                                      item.minimum_selling_price
-                                    ) {
-                                      return ` (Below min!)`;
-                                    }
-                                    return "";
-                                  })()}
-                                </Typography>
-                              )}
+                              {(item.discount_percent || 0) > 0 &&
+                                (() => {
+                                  const priceAfterDiscount =
+                                    item.selling_price *
+                                    (1 - (item.discount_percent || 0) / 100);
+                                  return priceAfterDiscount < item.minimum_selling_price ? (
+                                    <Typography
+                                      variant="caption"
+                                      color="error.main"
+                                      sx={{ display: "block" }}
+                                    >
+                                      Below min!
+                                    </Typography>
+                                  ) : null;
+                                })()}
                             </Box>
                             <IconButton
                               size="small"
@@ -3222,7 +3235,7 @@ export default function SalesPage() {
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold">
-                        {fmtLKR(effectiveTaxRate > 0 ? calculateGrossTotal() / (1 + effectiveTaxRate / 100) : calculateGrossTotal())}
+                        {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateGrossTotal() / (1 + effectiveTaxRate / 100) : calculateGrossTotal())}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -3246,7 +3259,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="error.dark">
-                          -{fmtLKR(effectiveTaxRate > 0 ? calculateTotalItemDiscounts() / (1 + effectiveTaxRate / 100) : calculateTotalItemDiscounts())}
+                          -{fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateTotalItemDiscounts() / (1 + effectiveTaxRate / 100) : calculateTotalItemDiscounts())}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -3258,11 +3271,11 @@ export default function SalesPage() {
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold">
-                        {fmtLKR(effectiveTaxRate > 0 ? calculateLineItemsTotal() / (1 + effectiveTaxRate / 100) : calculateLineItemsTotal())}
+                        {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateLineItemsTotal() / (1 + effectiveTaxRate / 100) : calculateLineItemsTotal())}
                       </Typography>
                     </TableCell>
                   </TableRow>
-                  {/* Coupon Discount Row - Only if coupon is applied */}
+                  {/* Coupon Discount Row - applied on subtotal (step 4) */}
                   {couponValidation &&
                     couponValidation.calculated_discount &&
                     couponValidation.calculated_discount > 0 && (
@@ -3292,7 +3305,7 @@ export default function SalesPage() {
                         </TableCell>
                       </TableRow>
                     )}
-                  {/* Invoice Discount Row - Only if discount is applied */}
+                  {/* Invoice Discount Row - applied after coupon (step 5) */}
                   {discountValue > 0 && (
                     <TableRow sx={{ bgcolor: "warning.lighter" }}>
                       <TableCell colSpan={7} align="right">
@@ -3316,16 +3329,7 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="warning.dark">
-                          -
-                          {(() => {
-                            const subtotal = calculateLineItemsTotal();
-                            const discount =
-                              discountType === "percent"
-                                ? subtotal * (discountValue / 100)
-                                : discountValue;
-                            const netDiscount = effectiveTaxRate > 0 ? discount / (1 + effectiveTaxRate / 100) : discount;
-                            return fmtLKR(netDiscount);
-                          })()}
+                          -{fmtLKR(calcOrderTotals().invoiceDiscount)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -3344,28 +3348,13 @@ export default function SalesPage() {
                         >
                           <TaxIcon fontSize="small" color="info" />
                           <Typography fontWeight="medium" color="info.dark">
-                            Tax included ({effectiveTaxRate}%):
+                            {taxMode === "inclusive" ? `Tax (${effectiveTaxRate}%):` : `Tax (${effectiveTaxRate}%):`}
                           </Typography>
                         </Box>
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="info.dark">
-                          +
-                          {(() => {
-                            const subtotal = calculateLineItemsTotal();
-                            const invoiceDiscount =
-                              discountType === "percent"
-                                ? subtotal * (discountValue / 100)
-                                : discountValue;
-                            const afterInvoiceDiscount =
-                              subtotal - invoiceDiscount;
-                            const couponDiscount =
-                              couponValidation?.calculated_discount || 0;
-                            const afterDiscount =
-                              afterInvoiceDiscount - couponDiscount;
-                            const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
-                            return fmtLKR(taxAmount);
-                          })()}
+                          +{fmtLKR(calcOrderTotals().taxAmount)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -3433,40 +3422,7 @@ export default function SalesPage() {
                       <TableCell align="right">
                         <Typography fontWeight="medium" color="success.dark">
                           -
-                          {fmtLKR(
-                            Math.min(
-                              creditNoteAmount,
-                              availableCreditBalance,
-                              Math.max(
-                                0,
-                                (() => {
-                                  const subtotal = calculateLineItemsTotal();
-                                  const invoiceDiscount =
-                                    discountType === "percent"
-                                      ? subtotal * (discountValue / 100)
-                                      : discountValue;
-                                  const afterInvoiceDiscount =
-                                    subtotal - invoiceDiscount;
-                                  const couponDiscount =
-                                    couponValidation?.calculated_discount || 0;
-                                  const afterDiscount =
-                                    afterInvoiceDiscount - couponDiscount;
-                                  const effectiveTaxRate = parseFloat(
-                                    state.formData.tax_rate?.toString() || "0",
-                                  );
-                                  const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
-                                  const afterTax = afterDiscount; // total unchanged (tax back-calculated)
-                                  const totalVoucherPayment =
-                                    appliedVouchers.reduce(
-                                      (sum, v) =>
-                                        sum + Number(v.amountToRedeem),
-                                      0,
-                                    );
-                                  return afterTax - totalVoucherPayment;
-                                })(),
-                              ),
-                            ),
-                          )}
+                          {fmtLKR(calcOrderTotals().appliedCreditNote)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -3491,45 +3447,7 @@ export default function SalesPage() {
                             color="text.secondary"
                           >
                             +
-                            {(() => {
-                              const subtotal = calculateLineItemsTotal();
-                              // Invoice discount first
-                              const invoiceDiscount =
-                                discountType === "percent"
-                                  ? subtotal * (discountValue / 100)
-                                  : discountValue;
-                              const afterInvoiceDiscount =
-                                subtotal - invoiceDiscount;
-                              // Then coupon
-                              const couponDiscount =
-                                couponValidation?.calculated_discount || 0;
-                              const afterDiscount =
-                                afterInvoiceDiscount - couponDiscount;
-                              // Tax
-                              const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
-                              const afterTax = afterDiscount; // total unchanged (tax back-calculated)
-                              // Voucher
-                              const totalVoucherPayment =
-                                appliedVouchers.reduce(
-                                  (sum, v) => sum + Number(v.amountToRedeem),
-                                  0,
-                                );
-                              const afterVoucher =
-                                afterTax - totalVoucherPayment;
-                              // Credit note
-                              const appliedCreditNote = Math.min(
-                                creditNoteAmount,
-                                availableCreditBalance,
-                                Math.max(0, afterVoucher),
-                              );
-                              const afterCreditNote =
-                                afterVoucher - appliedCreditNote;
-                              // Service charge on remaining amount after credit note
-                              const rate =
-                                (selectedPaymentCard.service_charge_percent ||
-                                  0) / 100;
-                              return fmtLKR(afterCreditNote * rate);
-                            })()}
+                            {fmtLKR(calcOrderTotals().serviceCharge)}
                           </Typography>
                         </TableCell>
                       </TableRow>
@@ -3538,7 +3456,7 @@ export default function SalesPage() {
                   <TableRow sx={{ bgcolor: "primary.lighter" }}>
                     <TableCell colSpan={7} align="right">
                       <Typography fontWeight="bold" color="primary.main">
-                        Grand Total{effectiveTaxRate > 0 ? " (incl. taxes)" : ""}:
+                        Grand Total{taxMode === "inclusive" && effectiveTaxRate > 0 ? " (incl. taxes)" : ""}:
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
@@ -3548,48 +3466,8 @@ export default function SalesPage() {
                         fontSize="1.1rem"
                       >
                         {(() => {
-                          const subtotal = calculateLineItemsTotal();
-                          // Invoice discount first
-                          const invoiceDiscount =
-                            discountType === "percent"
-                              ? subtotal * (discountValue / 100)
-                              : discountValue;
-                          const afterInvoiceDiscount =
-                            subtotal - invoiceDiscount;
-                          // Then coupon
-                          const couponDiscount =
-                            couponValidation?.calculated_discount || 0;
-                          const afterDiscount =
-                            afterInvoiceDiscount - couponDiscount;
-                          // Tax
-                          const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
-                          const afterTax = afterDiscount; // total unchanged (tax back-calculated)
-                          // Voucher
-                          const totalVoucherPayment = appliedVouchers.reduce(
-                            (sum, v) => sum + Number(v.amountToRedeem),
-                            0,
-                          );
-                          const afterVoucher = afterTax - totalVoucherPayment;
-                          // Credit Note
-                          const appliedCreditNote = Math.min(
-                            creditNoteAmount,
-                            availableCreditBalance,
-                            Math.max(0, afterVoucher),
-                          );
-                          const afterCreditNote =
-                            afterVoucher - appliedCreditNote;
-                          // Service charge for card payments
-                          let serviceCharge = 0;
-                          if (
-                            state.formData.payment_method === "card" &&
-                            selectedPaymentCard
-                          ) {
-                            const chargePercent =
-                              selectedPaymentCard.service_charge_percent || 0;
-                            serviceCharge =
-                              afterCreditNote * (chargePercent / 100);
-                          }
-                          return fmtLKR(afterCreditNote + serviceCharge);
+                          const t = calcOrderTotals();
+                          return fmtLKR(t.grandTotal);
                         })()}
                       </Typography>
                     </TableCell>
@@ -3782,7 +3660,7 @@ export default function SalesPage() {
                         if (discountType === "percent" && val > 100) return;
                         if (
                           discountType === "amount" &&
-                          val > calculateLineItemsTotal()
+                          val > calcOrderTotals().afterCoupon
                         )
                           return;
                         setDiscountValue(val);
@@ -3801,7 +3679,7 @@ export default function SalesPage() {
                         max:
                           discountType === "percent"
                             ? 100
-                            : calculateLineItemsTotal(),
+                            : calcOrderTotals().afterCoupon,
                         step: discountType === "percent" ? 0.5 : 100,
                       }}
                     />
@@ -3815,14 +3693,7 @@ export default function SalesPage() {
                           fontWeight="medium"
                         >
                           = Rs.{" "}
-                          {(() => {
-                            const subtotal = calculateLineItemsTotal();
-                            const discount =
-                              discountType === "percent"
-                                ? subtotal * (discountValue / 100)
-                                : discountValue;
-                            return fmtLKR(discount);
-                          })()}
+                          {fmtLKR(calcOrderTotals().invoiceDiscount)}
                         </Typography>
                         <IconButton
                           size="small"
@@ -3839,26 +3710,23 @@ export default function SalesPage() {
 
                 {/* Tax Section */}
                 <Box sx={{ flex: 1, minWidth: 200 }}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Tax Invoice (VAT/GST)
-                    </Typography>
-                    <Switch
-                      size="small"
-                      checked={taxEnabled}
-                      onChange={(e) => {
-                        setTaxEnabled(e.target.checked);
-                        if (!e.target.checked) setTaxRate(0);
-                      }}
-                      color="info"
-                    />
-                    {taxEnabled && (
-                      <Typography variant="caption" color="info.main" fontWeight={500}>
-                        Active
-                      </Typography>
-                    )}
-                  </Box>
-                  {taxEnabled && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Tax Invoice (VAT/GST)
+                  </Typography>
+                  <ToggleButtonGroup
+                    value={taxMode}
+                    exclusive
+                    onChange={(_, v) => {
+                      if (v) { setTaxMode(v); if (v === "none") setTaxRate(0); }
+                    }}
+                    size="small"
+                    sx={{ mb: 1 }}
+                  >
+                    <ToggleButton value="none">No Tax</ToggleButton>
+                    <ToggleButton value="inclusive">Inclusive</ToggleButton>
+                    <ToggleButton value="exclusive">Exclusive</ToggleButton>
+                  </ToggleButtonGroup>
+                  {taxMode !== "none" && (
                     <>
                       <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
                         <TextField
@@ -3887,19 +3755,7 @@ export default function SalesPage() {
                         {effectiveTaxRate > 0 && (
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                             <Typography variant="body2" color="info.dark" fontWeight="medium">
-                              = Rs.{" "}
-                              {(() => {
-                                const subtotal = calculateLineItemsTotal();
-                                const invoiceDiscount =
-                                  discountType === "percent"
-                                    ? subtotal * (discountValue / 100)
-                                    : discountValue;
-                                const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                                const couponDiscount = couponValidation?.calculated_discount || 0;
-                                const afterDiscount = afterInvoiceDiscount - couponDiscount;
-                                const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
-                                return fmtLKR(taxAmount);
-                              })()}
+                              = Rs. {fmtLKR(calcOrderTotals().taxAmount)}
                             </Typography>
                             <IconButton size="small" color="error" onClick={() => setTaxRate(0)} sx={{ p: 0.5 }}>
                               <DeleteIcon fontSize="small" />
@@ -4185,31 +4041,13 @@ export default function SalesPage() {
                       value={creditNoteAmount}
                       onChange={(e) => {
                         const inputValue = parseFloat(e.target.value) || 0;
-                        // Calculate remaining invoice amount
-                        const subtotal = calculateLineItemsTotal();
-                        const couponDiscount =
-                          couponValidation?.calculated_discount || 0;
-                        const invoiceDiscount =
-                          discountType === "percent"
-                            ? subtotal * (discountValue / 100)
-                            : discountValue;
-                        const afterDiscount =
-                          subtotal - invoiceDiscount - couponDiscount;
-                        const effectiveTaxRate = parseFloat(
-                          state.formData.tax_rate?.toString() || "0",
-                        );
-                        const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
-                        const afterTax = afterDiscount;
-                        const totalVoucherPayment = appliedVouchers.reduce(
-                          (sum, v) => sum + Number(v.amountToRedeem),
-                          0,
-                        );
-                        const afterVoucher = afterTax - totalVoucherPayment;
+                        // Calculate remaining invoice amount using canonical order
+                        const totals = calcOrderTotals();
 
                         // Max is minimum of: available balance or remaining invoice amount
                         const maxAllowed = Math.min(
                           availableCreditBalance,
-                          Math.max(0, afterVoucher),
+                          Math.max(0, totals.afterVoucher),
                         );
                         const value = Math.min(inputValue, maxAllowed);
 
@@ -4228,30 +4066,7 @@ export default function SalesPage() {
                       helperText={`Max: Rs. ${fmtLKR(
                         Math.min(
                           availableCreditBalance,
-                          Math.max(
-                            0,
-                            (() => {
-                              const subtotal = calculateLineItemsTotal();
-                              const couponDiscount =
-                                couponValidation?.calculated_discount || 0;
-                              const invoiceDiscount =
-                                discountType === "percent"
-                                  ? subtotal * (discountValue / 100)
-                                  : discountValue;
-                              const afterDiscount =
-                                subtotal - invoiceDiscount - couponDiscount;
-                              const effectiveTaxRate = parseFloat(
-                                state.formData.tax_rate?.toString() || "0",
-                              );
-                              const afterTax = afterDiscount;
-                              const totalVoucherPayment =
-                                appliedVouchers.reduce(
-                                  (sum, v) => sum + Number(v.amountToRedeem),
-                                  0,
-                                );
-                              return afterTax - totalVoucherPayment;
-                            })(),
-                          ),
+                          Math.max(0, calcOrderTotals().afterVoucher),
                         ),
                       )}`}
                     />
@@ -4546,7 +4361,41 @@ export default function SalesPage() {
             </Typography>
 
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-              {/* Subtotal */}
+              {/* Gross Total */}
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <Typography variant="body1" color="text.secondary">
+                  Gross Total:
+                </Typography>
+                <Typography variant="body1" fontWeight="medium">
+                  Rs. {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateGrossTotal() / (1 + effectiveTaxRate / 100) : calculateGrossTotal())}
+                </Typography>
+              </Box>
+
+              {/* Item Discounts */}
+              {calculateTotalItemDiscounts() > 0 && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <Typography variant="body1" color="text.secondary">
+                    Item Discounts:
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" color="error.main">
+                    - Rs. {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateTotalItemDiscounts() / (1 + effectiveTaxRate / 100) : calculateTotalItemDiscounts())}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Subtotal (after item discounts) */}
               <Box
                 sx={{
                   display: "flex",
@@ -4558,45 +4407,11 @@ export default function SalesPage() {
                   Subtotal:
                 </Typography>
                 <Typography variant="body1" fontWeight="medium">
-                  Rs. {fmtLKR(effectiveTaxRate > 0 ? calculateLineItemsTotal() / (1 + effectiveTaxRate / 100) : calculateLineItemsTotal())}
+                  Rs. {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateLineItemsTotal() / (1 + effectiveTaxRate / 100) : calculateLineItemsTotal())}
                 </Typography>
               </Box>
 
-              {/* Invoice Discount */}
-              {discountValue > 0 && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <Typography variant="body1" color="text.secondary">
-                    Discount{" "}
-                    {discountType === "percent"
-                      ? `(${discountValue}%)`
-                      : "(Fixed)"}
-                    :
-                  </Typography>
-                  <Typography
-                    variant="body1"
-                    fontWeight="medium"
-                    color="error.main"
-                  >
-                    - Rs.{" "}
-                    {(() => {
-                      const subtotal = calculateLineItemsTotal();
-                      const discount =
-                        discountType === "percent"
-                          ? subtotal * (discountValue / 100)
-                          : discountValue;
-                      return fmtLKR(discount);
-                    })()}
-                  </Typography>
-                </Box>
-              )}
-
-              {/* Coupon Discount */}
+              {/* Coupon Discount - applied on subtotal (step 4) */}
               {couponValidation &&
                 (couponValidation.calculated_discount ?? 0) > 0 && (
                   <Box
@@ -4619,7 +4434,33 @@ export default function SalesPage() {
                   </Box>
                 )}
 
-              {/* Tax - shown as inclusive back-calculation */}
+              {/* Invoice Discount - applied after coupon (step 5) */}
+              {discountValue > 0 && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <Typography variant="body1" color="text.secondary">
+                    Discount{" "}
+                    {discountType === "percent"
+                      ? `(${discountValue}%)`
+                      : "(Fixed)"}
+                    :
+                  </Typography>
+                  <Typography
+                    variant="body1"
+                    fontWeight="medium"
+                    color="error.main"
+                  >
+                    - Rs. {fmtLKR(calcOrderTotals().invoiceDiscount)}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Tax */}
               {effectiveTaxRate > 0 && (
                 <Box
                   sx={{
@@ -4629,28 +4470,14 @@ export default function SalesPage() {
                   }}
                 >
                   <Typography variant="body1" color="text.secondary">
-                    Tax included ({effectiveTaxRate}%):
+                    {taxMode === "inclusive" ? `Tax (${effectiveTaxRate}%):` : `Tax (${effectiveTaxRate}%):`}
                   </Typography>
                   <Typography
                     variant="body1"
                     fontWeight="medium"
                     color="info.main"
                   >
-                    Rs.{" "}
-                    {(() => {
-                      const subtotal = calculateLineItemsTotal();
-                      const invoiceDiscount =
-                        discountType === "percent"
-                          ? subtotal * (discountValue / 100)
-                          : discountValue;
-                      const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                      const couponDiscount =
-                        couponValidation?.calculated_discount || 0;
-                      const afterDiscount =
-                        afterInvoiceDiscount - couponDiscount;
-                      const taxAmount = effectiveTaxRate > 0 ? afterDiscount * (effectiveTaxRate / 100) / (1 + effectiveTaxRate / 100) : 0;
-                      return fmtLKR(taxAmount);
-                    })()}
+                    Rs. {fmtLKR(calcOrderTotals().taxAmount)}
                   </Typography>
                 </Box>
               )}
@@ -4704,35 +4531,7 @@ export default function SalesPage() {
                     fontWeight="medium"
                     color="success.main"
                   >
-                    - Rs.{" "}
-                    {fmtLKR(
-                      Math.min(
-                        creditNoteAmount,
-                        availableCreditBalance,
-                        Math.max(
-                          0,
-                          (() => {
-                            const subtotal = calculateLineItemsTotal();
-                            const invoiceDiscount =
-                              discountType === "percent"
-                                ? subtotal * (discountValue / 100)
-                                : discountValue;
-                            const afterInvoiceDiscount =
-                              subtotal - invoiceDiscount;
-                            const couponDiscount =
-                              couponValidation?.calculated_discount || 0;
-                            const afterDiscount =
-                              afterInvoiceDiscount - couponDiscount;
-                            const afterTax = afterDiscount;
-                            const totalVoucherPayment = appliedVouchers.reduce(
-                              (sum, v) => sum + Number(v.amountToRedeem),
-                              0,
-                            );
-                            return afterTax - totalVoucherPayment;
-                          })(),
-                        ),
-                      ),
-                    )}
+                    - Rs. {fmtLKR(calcOrderTotals().appliedCreditNote)}
                   </Typography>
                 </Box>
               )}
@@ -4757,37 +4556,7 @@ export default function SalesPage() {
                       fontWeight="medium"
                       color="warning.main"
                     >
-                      + Rs.{" "}
-                      {(() => {
-                        const subtotal = calculateLineItemsTotal();
-                        const invoiceDiscount =
-                          discountType === "percent"
-                            ? subtotal * (discountValue / 100)
-                            : discountValue;
-                        const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                        const couponDiscount =
-                          couponValidation?.calculated_discount || 0;
-                        const afterDiscount =
-                          afterInvoiceDiscount - couponDiscount;
-                        const afterTax = afterDiscount;
-                        const totalVoucherPayment = appliedVouchers.reduce(
-                          (sum, v) => sum + Number(v.amountToRedeem),
-                          0,
-                        );
-                        const afterVoucher = afterTax - totalVoucherPayment;
-                        const appliedCreditNote = Math.min(
-                          creditNoteAmount,
-                          availableCreditBalance,
-                          Math.max(0, afterVoucher),
-                        );
-                        const afterCreditNote =
-                          afterVoucher - appliedCreditNote;
-                        const serviceCharge =
-                          afterCreditNote *
-                          ((selectedPaymentCard.service_charge_percent || 0) /
-                            100);
-                        return fmtLKR(serviceCharge);
-                      })()}
+                      + Rs. {fmtLKR(calcOrderTotals().serviceCharge)}
                     </Typography>
                   </Box>
                 )}
@@ -4804,45 +4573,10 @@ export default function SalesPage() {
                 }}
               >
                 <Typography variant="h5" fontWeight="bold" color="primary.main">
-                  Total Amount to Pay{effectiveTaxRate > 0 ? " (incl. taxes)" : ""}:
+                  Total Amount to Pay{taxMode === "inclusive" && effectiveTaxRate > 0 ? " (incl. taxes)" : ""}:
                 </Typography>
                 <Typography variant="h4" fontWeight="bold" color="primary.main">
-                  Rs.{" "}
-                  {(() => {
-                    const subtotal = calculateLineItemsTotal();
-                    const invoiceDiscount =
-                      discountType === "percent"
-                        ? subtotal * (discountValue / 100)
-                        : discountValue;
-                    const afterInvoiceDiscount = subtotal - invoiceDiscount;
-                    const couponDiscount =
-                      couponValidation?.calculated_discount || 0;
-                    const afterDiscount = afterInvoiceDiscount - couponDiscount;
-                    const afterTax = afterDiscount;
-                    const totalVoucherPayment = appliedVouchers.reduce(
-                      (sum, v) => sum + Number(v.amountToRedeem),
-                      0,
-                    );
-                    const afterVoucher = afterTax - totalVoucherPayment;
-                    const appliedCreditNote = Math.min(
-                      creditNoteAmount,
-                      availableCreditBalance,
-                      Math.max(0, afterVoucher),
-                    );
-                    const afterCreditNote = afterVoucher - appliedCreditNote;
-                    let serviceCharge = 0;
-                    if (
-                      state.formData.payment_method === "card" &&
-                      selectedPaymentCard
-                    ) {
-                      serviceCharge =
-                        afterCreditNote *
-                        ((selectedPaymentCard.service_charge_percent || 0) /
-                          100);
-                    }
-                    const grandTotal = afterCreditNote + serviceCharge;
-                    return fmtLKR(grandTotal);
-                  })()}
+                  Rs. {fmtLKR(calcOrderTotals().grandTotal)}
                 </Typography>
               </Box>
             </Box>

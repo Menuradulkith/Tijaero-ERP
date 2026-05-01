@@ -624,44 +624,32 @@ class SalesService:
         gross_total = Decimal("0")
         is_tax_invoice = getattr(invoice_data, 'is_tax_invoice', False)
         tax_rate = Decimal(str(getattr(invoice_data, 'tax_rate', 0) or 0))
-        item_display_totals = []
         for item in invoice_data.items:
             item_gross = Decimal(str(item.quantity)) * Decimal(str(item.selling_price))
             gross_total += item_gross
             item_discount_percent = Decimal(str(getattr(item, 'discount_percent', 0) or 0))
             item_discount = item_gross * (item_discount_percent / 100)
-            if is_tax_invoice and tax_rate > 0:
-                # Tax-inclusive: displayed price = actual_price * (1 - tax_rate/100)
-                display_price = Decimal(str(item.selling_price)) * (Decimal('1') - tax_rate / Decimal('100'))
-                display_line_total = Decimal(str(item.quantity)) * display_price
-                item_display_totals.append(display_line_total - item_discount)
-            else:
-                # Tax-exclusive: display = actual
-                item_display_totals.append(item_gross - item_discount)
             subtotal += (item_gross - item_discount)
         
         # Get discount parameters for combined validation
-        # New Flow: Item Discount → Invoice Discount → Coupon → Tax → Voucher → Service Charge
+        # Flow: Normalize → Item Discount → Coupon → Invoice Discount → Tax
         coupon_amount = Decimal(str(getattr(invoice_data, 'cupon_amount', 0) or 0))
         discount_percent = Decimal(str(getattr(invoice_data, 'discount_percent', 0) or 0))
         discount_amount_input = Decimal(str(getattr(invoice_data, 'discount_amount', 0) or 0))
         
-        # Calculate invoice discount percentage (percentage takes priority, then fixed amount)
-        # Invoice discount is applied on subtotal (after item discounts)
+        # For inclusive pricing, normalize subtotal to net
+        net_subtotal = subtotal / (Decimal('1') + tax_rate / Decimal('100')) if is_tax_invoice and tax_rate > 0 else subtotal
+        
+        # Calculate coupon discount percentage (applied first on net subtotal)
+        coupon_discount_percent = (coupon_amount / net_subtotal * 100) if net_subtotal > 0 else Decimal("0")
+        # Calculate amount after coupon for invoice discount percentage
+        after_coupon = net_subtotal - coupon_amount
+        # Calculate invoice discount percentage (applied after coupon)
         invoice_discount_percent = Decimal("0")
         if discount_percent > 0:
             invoice_discount_percent = discount_percent
-        elif discount_amount_input > 0 and subtotal > 0:
-            invoice_discount_percent = (discount_amount_input / subtotal * 100)
-        # Calculate amount after invoice discount for coupon percentage
-        after_invoice_discount = subtotal * (1 - invoice_discount_percent / 100)
-        # Calculate coupon discount as percentage (applied after invoice discount)
-        coupon_discount_percent = (coupon_amount / after_invoice_discount * 100) if after_invoice_discount > 0 else Decimal("0")
-        # For tax-inclusive, recalculate subtotal as sum of displayed prices
-        if is_tax_invoice and tax_rate > 0:
-            subtotal_displayed = sum(item_display_totals)
-        else:
-            subtotal_displayed = subtotal
+        elif discount_amount_input > 0 and after_coupon > 0:
+            invoice_discount_percent = (discount_amount_input / after_coupon * 100)
         
         # Validate all products are available in sales stock before creating invoice
         for item_data in invoice_data.items:
@@ -680,11 +668,15 @@ class SalesService:
             # Step 1: Apply item discount
             price_after_item_discount = Decimal(str(item_data.selling_price)) * (Decimal('1') - item_discount_percent / Decimal('100'))
             
-            # Step 2: Apply invoice discount (proportionally)
-            price_after_invoice_discount = price_after_item_discount * (Decimal('1') - invoice_discount_percent / Decimal('100'))
+            # For inclusive, normalize to net
+            if is_tax_invoice and tax_rate > 0:
+                price_after_item_discount = price_after_item_discount / (Decimal('1') + tax_rate / Decimal('100'))
             
-            # Step 3: Apply coupon discount (proportionally)
-            effective_price = price_after_invoice_discount * (Decimal('1') - coupon_discount_percent / Decimal('100'))
+            # Step 2: Apply coupon discount (proportionally)
+            price_after_coupon = price_after_item_discount * (Decimal('1') - coupon_discount_percent / Decimal('100'))
+            
+            # Step 3: Apply invoice discount (proportionally)
+            effective_price = price_after_coupon * (Decimal('1') - invoice_discount_percent / Decimal('100'))
             
             if effective_price < Decimal(str(item_data.minimum_selling_price)):
                 raise HTTPException(
@@ -714,29 +706,36 @@ class SalesService:
         
         # Calculation Order:
         # 1. Subtotal (after item discounts)
-        # 2. Invoice Discount (-)
+        # 2. Normalize (convert to net for inclusive)
         # 3. Coupon Discount (-)
-        # 4. Tax (+) or (Tax absorbed if is_tax_invoice)
-        # 5. Voucher Payment (-)
-        # 6. Service Charge (+)
-        # 7. Grand Total
+        # 4. Invoice Discount (-)
+        # 5. Tax (recalculate on final net)
+        # 6. Grand Total = Net + Tax
+        # 7. Voucher / Credit Note / Service Charge
+        
+        # Step 2: Normalize to net for inclusive
+        if is_tax_invoice and tax_rate > 0:
+            net_subtotal_calc = (subtotal / (Decimal('1') + tax_rate / Decimal('100'))).quantize(Decimal('0.01'))
+        else:
+            net_subtotal_calc = subtotal.quantize(Decimal('0.01'))
+        
+        # Step 3: Coupon (on net subtotal)
+        after_coupon_calc = (net_subtotal_calc - coupon_amount).quantize(Decimal('0.01'))
+        
+        # Step 4: Invoice discount (after coupon)
         calculated_discount = Decimal("0")
         if discount_percent > 0:
-            calculated_discount = Decimal(str(subtotal_displayed)) * (discount_percent / Decimal('100'))
+            calculated_discount = (after_coupon_calc * (discount_percent / Decimal('100'))).quantize(Decimal('0.01'))
         elif discount_amount_input > 0:
-            calculated_discount = discount_amount_input
-        after_invoice_discount_calc = Decimal(str(subtotal_displayed)) - calculated_discount
-        after_discount = after_invoice_discount_calc - coupon_amount
-        if is_tax_invoice and tax_rate > 0:
-            # Tax-inclusive: grand_total is sum of actual prices, subtotal is displayed (reduced), tax_amount = grand_total - subtotal
-            grand_total = gross_total
-            tax_amount = grand_total - after_discount
-            subtotal_final = after_discount
-        else:
-            # Tax-exclusive: add tax on top
-            tax_amount = after_discount * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
-            grand_total = after_discount + tax_amount
-            subtotal_final = after_discount
+            calculated_discount = discount_amount_input.quantize(Decimal('0.01'))
+        final_net = (after_coupon_calc - calculated_discount).quantize(Decimal('0.01'))
+        
+        # Step 5: Tax - recalculate on final net (same formula for both inclusive & exclusive)
+        tax_amount = (final_net * (tax_rate / Decimal('100'))).quantize(Decimal('0.01')) if tax_rate > 0 else Decimal("0.00")
+        
+        # Step 6: Grand total = Net + Tax
+        subtotal_final = final_net
+        grand_total = (final_net + tax_amount).quantize(Decimal('0.01'))
         after_tax = grand_total
         
         # Get voucher payment amount

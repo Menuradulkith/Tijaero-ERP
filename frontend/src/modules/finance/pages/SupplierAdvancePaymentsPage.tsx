@@ -719,7 +719,7 @@ export default function SupplierAdvancePaymentsPage() {
                 label="Amount"
                 size="small"
                 type="number"
-                value={formData.original_amount || ""}
+                value={Number(formData.original_amount) || ""}
                 onChange={(e) => setFormData({ ...formData, original_amount: parseFloat(e.target.value) || 0 })}
                 onBlur={() => handleBlur("original_amount")}
                 disabled={!isEditing && !isCreating}

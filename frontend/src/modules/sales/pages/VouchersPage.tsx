@@ -533,7 +533,7 @@ export default function VouchersPage() {
                 size="small"
                 label="Voucher Amount (Rs.)"
                 type="number"
-                value={formData.amount}
+                value={Number(formData.amount)}
                 onChange={(e) =>
                   setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })
                 }
@@ -568,7 +568,6 @@ export default function VouchersPage() {
                   value={fmtLKR(selectedVoucher.balance)}
                   disabled
                   InputProps={{
-                    startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
                     readOnly: true,
                   }}
                 />

@@ -710,7 +710,7 @@ export default function CommissionPaymentsPage() {
                 <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1, p: 1, bgcolor: "action.hover", borderRadius: 1 }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Typography variant="subtitle2" fontWeight={600}>Total Payment:</Typography>
-                    <TCurrency value={formData.payment_amount} variant="subtitle2" fontWeight={700} />
+                    <TCurrency value={Number(formData.payment_amount)} variant="subtitle2" fontWeight={700} />
                   </Box>
                 </Box>
               </FormSection>
