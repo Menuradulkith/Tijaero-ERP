@@ -1,18 +1,25 @@
 /**
  * CustomerPaymentsPage - Unified Customer Payments (ERP Best Practice)
  *
- * Following standard ERP patterns, this unified page handles:
+ * Following standard ERP patterns (SAP, Oracle, Odoo, ERPNext), this unified page handles:
  * - Credit settlements (receive payment against credit invoices)
- * - Payment history tracking
+ *
+ * Features:
+ * - Single/Multiple invoice selection
+ * - Partial payments
+ * - FIFO auto-allocation
+ * - Multiple payment methods (Cash, Bank Transfer, Cheque, Card)
+ * - Previous payment suggestions (auto-populate)
  *
  * Workflow:
  * 1. Select customer → View all outstanding credit invoices
  * 2. Select invoice(s) to receive payment for
- * 3. Enter payment details (Cash, Bank Transfer, Cheque, Card)
+ * 3. Enter payment details
  * 4. Review and post payment
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Box,
   TextField,
@@ -41,6 +48,7 @@ import {
   IconButton,
   FormControlLabel,
   Switch,
+  Autocomplete,
 } from "@mui/material";
 import PaymentIcon from "@mui/icons-material/Payment";
 import PersonIcon from "@mui/icons-material/Person";
@@ -51,9 +59,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import SearchIcon from "@mui/icons-material/Search";
+import WarningIcon from "@mui/icons-material/Warning";
 import AssessmentIcon from "@mui/icons-material/Assessment";
-import PrintIcon from "@mui/icons-material/Print";
-import FilterListIcon from "@mui/icons-material/FilterList";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import {
   handleApiError,
@@ -71,6 +78,8 @@ import {
   SearchableList,
   SelectableListItem,
   DetailPanelHeader,
+  ActionToolbar,
+  FormSection,
   EmptyState,
 } from "@/components/tijaero";
 
@@ -131,9 +140,12 @@ interface PaymentLine {
 const STEPS = ["Select Invoices", "Payment Details", "Review & Post"];
 
 // View mode
-type ViewMode = "overview" | "documents" | "payment" | "review" | "history";
+type ViewMode = "overview" | "documents" | "payment" | "review";
 
 export default function CustomerPaymentsPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   // Data state
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,6 +161,7 @@ export default function CustomerPaymentsPage() {
   const [creditStatus, setCreditStatus] = useState<CustomerCreditSummary | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [customerInvoices, setCustomerInvoices] = useState<Invoice[]>([]);
+  const [allCustomerInvoices, setAllCustomerInvoices] = useState<Map<number, Invoice[]>>(new Map());
 
   const [viewMode, setViewMode] = useState<ViewMode>("overview");
   const [activeStep, setActiveStep] = useState(0);
@@ -174,30 +187,40 @@ export default function CustomerPaymentsPage() {
   const [cardRefNumber, setCardRefNumber] = useState("");
   const [cardHolderName, setCardHolderName] = useState("");
 
+  // Previous payment suggestions
+  const [previousBankNames, setPreviousBankNames] = useState<string[]>([]);
+  const [lastPaymentSuggestion, setLastPaymentSuggestion] = useState<{ payment_method: string; bank_name: string } | null>(null);
+
   // FIFO mode
   const [useFIFO, setUseFIFO] = useState(false);
   const [fifoAmount, setFifoAmount] = useState(0);
 
-  // Payment history state
-  const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-
-
-
   const confirmDialog = useConfirmDialog();
 
   // Load customers
-  useEffect(() => {
-    loadCustomers();
-  }, []);
-
   const loadCustomers = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const data = await customersApi.getAll();
-      // Only show active customers with credit limits
-      setCustomers(data.filter((c: Customer) => c.active));
+      const activeCustomers = data.filter((c: Customer) => c.active);
+      setCustomers(activeCustomers);
+
+      // Load invoices for all customers to enable invoice search
+      const invoiceMap = new Map<number, Invoice[]>();
+      await Promise.all(
+        activeCustomers.map(async (customer) => {
+          try {
+            const invoices = await salesApi.getByCustomer(customer.id);
+            if (invoices && invoices.length > 0) {
+              invoiceMap.set(customer.id, invoices);
+            }
+          } catch {
+            // Skip customers with no invoices
+          }
+        })
+      );
+      setAllCustomerInvoices(invoiceMap);
     } catch (err: unknown) {
       setError(handleApiError(err, "Failed to load customers"));
     } finally {
@@ -205,13 +228,18 @@ export default function CustomerPaymentsPage() {
     }
   }, []);
 
+  // Load/refresh customers whenever this route is entered.
+  useEffect(() => {
+    loadCustomers();
+  }, [location.key, loadCustomers]);
+
   // Load credit status for selected customer
   const loadCreditStatus = useCallback(async (customerId: number) => {
     try {
       setLoadingStatus(true);
       const status = await customersApi.getCreditSummary(customerId);
       setCreditStatus(status);
-    } catch (err) {
+    } catch {
       setCreditStatus(null);
     } finally {
       setLoadingStatus(false);
@@ -223,69 +251,42 @@ export default function CustomerPaymentsPage() {
     try {
       const invoices = await salesApi.getByCustomer(customerId);
       setCustomerInvoices(invoices || []);
-    } catch (err) {
+    } catch {
       setCustomerInvoices([]);
     }
   }, []);
 
-  // Load payment history (credit settlements)
-  const loadPaymentHistory = useCallback(async (customerId: number) => {
-    try {
-      setLoadingHistory(true);
-      const settlements = await customersApi.getCreditSettlements(customerId);
+  const refreshSelectedCustomerData = useCallback(() => {
+    if (!selectedCustomer?.id) return;
+    loadCreditStatus(selectedCustomer.id);
+    loadCustomerInvoices(selectedCustomer.id);
+  }, [selectedCustomer?.id, loadCreditStatus, loadCustomerInvoices]);
 
-      // Fetch full details for each settlement
-      const settlementsWithDetails = await Promise.all(
-        (settlements || []).map(async (s) => {
-          try {
-            const full = await customersApi.getCreditSettlement(customerId, s.id);
-            const totalAmount = full.transactions?.reduce((sum, t) => sum + (t.payment_amount || 0), 0) || 0;
-            const invoiceNos = [...new Set(full.transactions?.map(t => `INV-${t.invoice_id}`).filter(Boolean))].join(", ");
-            const methods = [...new Set(full.transactions?.map(t => t.payment_method).filter(Boolean))].join(", ");
+  // Refresh selected customer data whenever user re-enters this page.
+  useEffect(() => {
+    refreshSelectedCustomerData();
+  }, [location.key, refreshSelectedCustomerData]);
 
-            return {
-              type: "credit_settlement",
-              id: s.id,
-              settle_no: s.customer_credits_settle_no,
-              date: s.created_date,
-              total_amount: totalAmount,
-              invoice_ref: invoiceNos || undefined,
-              payment_method: methods || undefined,
-              transactions: full.transactions || [],
-              branch_code: s.branch_code,
-            };
-          } catch (err) {
-            return {
-              type: "credit_settlement",
-              id: s.id,
-              settle_no: s.customer_credits_settle_no,
-              date: s.created_date,
-              total_amount: 0,
-              transactions: [],
-              branch_code: s.branch_code,
-            };
-          }
-        })
-      );
+  // Refresh immediately when payment approval actions or sales orders happen.
+  useEffect(() => {
+    const handler = () => {
+      loadCustomers();
+      refreshSelectedCustomerData();
+    };
 
-      // Sort by date descending
-      settlementsWithDetails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      setPaymentHistory(settlementsWithDetails);
-    } catch (err) {
-      setPaymentHistory([]);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, []);
-
-
+    window.addEventListener("customer-payment-approval-updated", handler as EventListener);
+    window.addEventListener("sales-order-updated", handler as EventListener);
+    return () => {
+      window.removeEventListener("customer-payment-approval-updated", handler as EventListener);
+      window.removeEventListener("sales-order-updated", handler as EventListener);
+    };
+  }, [loadCustomers, refreshSelectedCustomerData]);
 
   // Transform invoices to outstanding documents
   const outstandingInvoices = useMemo((): OutstandingInvoice[] => {
     const docs: OutstandingInvoice[] = [];
 
     customerInvoices.forEach((inv) => {
-      // Only show credit invoices with outstanding balance
       if (inv.credit_amount > 0 && inv.balance_due > 0 && inv.approval_status === "completed") {
         const creditDays = selectedCustomer?.credit_days || 30;
         const invoiceDate = new Date(inv.created_date);
@@ -316,12 +317,10 @@ export default function CustomerPaymentsPage() {
     // Apply filters
     let filtered = docs;
 
-    // Filter by branch
     if (selectedBranch !== "all") {
       filtered = filtered.filter((d) => d.branch_code === selectedBranch);
     }
 
-    // Filter by document search
     if (documentSearchQuery.trim()) {
       const query = documentSearchQuery.toLowerCase().trim();
       filtered = filtered.filter((d) =>
@@ -348,17 +347,25 @@ export default function CustomerPaymentsPage() {
     return paymentLines.reduce((sum, line) => sum + line.allocated_amount, 0);
   }, [paymentLines]);
 
-  // Filtered customers
+  // Filtered customers (with invoice number search)
   const filteredCustomers = useMemo(() => {
     let filtered = customers;
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((c) =>
-        c.customer_name.toLowerCase().includes(query) ||
-        c.company_name?.toLowerCase().includes(query) ||
-        c.mobile_contact_number?.includes(query)
-      );
+      filtered = filtered.filter((c) => {
+        // Search by customer name or company
+        const nameMatch = c.customer_name.toLowerCase().includes(query) ||
+          c.company_name?.toLowerCase().includes(query) ||
+          c.mobile_contact_number?.includes(query);
+
+        // Search by invoice number
+        const invoiceMatch = allCustomerInvoices.get(c.id)?.some(
+          (inv) => inv.invoice_no?.toLowerCase().includes(query)
+        );
+
+        return nameMatch || invoiceMatch;
+      });
     }
 
     filtered.sort((a, b) => {
@@ -376,7 +383,7 @@ export default function CustomerPaymentsPage() {
     });
 
     return filtered;
-  }, [customers, searchQuery, sortField]);
+  }, [customers, searchQuery, sortField, allCustomerInvoices]);
 
   // Handlers
   const handleSelectCustomer = useCallback((customer: Customer) => {
@@ -388,10 +395,56 @@ export default function CustomerPaymentsPage() {
     setUseFIFO(false);
     setFifoAmount(0);
     resetPaymentForm();
-    setPaymentHistory([]);
     // Load data
     loadCreditStatus(customer.id);
     loadCustomerInvoices(customer.id);
+    // Fetch previous payment data to auto-populate payment form
+    customersApi
+      .getCreditSettlements(customer.id)
+      .then(async (settlements) => {
+        if (!settlements || settlements.length === 0) {
+          setPreviousBankNames([]);
+          setLastPaymentSuggestion(null);
+          return;
+        }
+        // Load details of recent settlements to get payment methods and bank names
+        const recentSettlements = settlements.slice(0, 5);
+        const details = await Promise.all(
+          recentSettlements.map(async (s) => {
+            try {
+              return await customersApi.getCreditSettlement(customer.id, s.id);
+            } catch {
+              return null;
+            }
+          })
+        );
+        const validDetails = details.filter(Boolean);
+        // Collect unique bank names from transactions
+        const banks: string[] = [];
+        let lastMethod = "";
+        let lastBank = "";
+        validDetails.forEach((detail) => {
+          detail?.transactions?.forEach((t: any) => {
+            if (t.bank_name && t.bank_name.trim()) {
+              if (!banks.includes(t.bank_name)) banks.push(t.bank_name);
+            }
+            if (!lastMethod && t.payment_method) {
+              lastMethod = t.payment_method;
+              lastBank = t.bank_name || "";
+            }
+          });
+        });
+        setPreviousBankNames(banks);
+        if (lastMethod) {
+          setLastPaymentSuggestion({ payment_method: lastMethod, bank_name: lastBank });
+        } else {
+          setLastPaymentSuggestion(null);
+        }
+      })
+      .catch(() => {
+        setPreviousBankNames([]);
+        setLastPaymentSuggestion(null);
+      });
   }, [loadCreditStatus, loadCustomerInvoices]);
 
   // Auto-select first customer
@@ -496,9 +549,17 @@ export default function CustomerPaymentsPage() {
       setPaymentLines(lines);
     }
 
+    // Auto-populate payment form from last payment suggestion
+    if (lastPaymentSuggestion) {
+      setPaymentMethod(lastPaymentSuggestion.payment_method);
+      if (lastPaymentSuggestion.bank_name) {
+        setBankName(lastPaymentSuggestion.bank_name);
+      }
+    }
+
     setViewMode("payment");
     setActiveStep(1);
-  }, [useFIFO, fifoAmount, selectedInvoiceIds, outstandingInvoices, allocateFIFO, selectedCustomer]);
+  }, [useFIFO, fifoAmount, selectedInvoiceIds, outstandingInvoices, allocateFIFO, selectedCustomer, lastPaymentSuggestion]);
 
   const handleLineAmountChange = useCallback((lineId: string, amount: number) => {
     setPaymentLines((prev) =>
@@ -542,9 +603,11 @@ export default function CustomerPaymentsPage() {
   const handlePostPayment = useCallback(async () => {
     if (!selectedCustomer || paymentLines.length === 0) return;
 
+    const confirmMessage = `Receive payment of Rs. ${fmtLKR(totalPaymentAmount)} from ${selectedCustomer.customer_name}?`;
+
     const confirmed = await confirmDialog.confirm({
       title: "Receive Payment",
-      message: `Receive payment of Rs. ${fmtLKR(totalPaymentAmount)} from ${selectedCustomer.customer_name}? This action cannot be undone.`,
+      message: confirmMessage + " This action cannot be undone.",
       confirmText: "Confirm",
     });
 
@@ -554,7 +617,6 @@ export default function CustomerPaymentsPage() {
       setSaving(true);
       setError(null);
 
-      // Use the sales settle-payment endpoint for each invoice
       for (const line of paymentLines) {
         if (line.allocated_amount <= 0) continue;
 
@@ -563,18 +625,15 @@ export default function CustomerPaymentsPage() {
           payment_method: paymentMethod,
           payment_amount: line.allocated_amount,
           payment_date: paymentDate,
-          // Cheque details
           ...(paymentMethod === "Cheque" && {
             cheque_number: referenceNumber,
             cheque_bank: bankName,
             cheque_date: chequeDate,
           }),
-          // Card details
           ...((paymentMethod === "card_visa" || paymentMethod === "card_mastercard") && {
             card_ref_number: cardRefNumber,
             card_holder_name: cardHolderName,
           }),
-          // Bank transfer details
           ...(paymentMethod === "Bank Transfer" && {
             bank_transfer_ref: referenceNumber,
             bank_name: bankName,
@@ -585,7 +644,7 @@ export default function CustomerPaymentsPage() {
         await apiClient.post(`/sales/${line.invoice.id}/settle-payment`, payload);
       }
 
-      showSuccessToast(`Payment of Rs. ${fmtLKR(totalPaymentAmount)} received from ${selectedCustomer.customer_name}`);
+      showSuccessToast(`Payment of Rs. ${fmtLKR(totalPaymentAmount)} received successfully!`);
 
       // Refresh data and reset
       await loadCreditStatus(selectedCustomer.id);
@@ -633,9 +692,6 @@ export default function CustomerPaymentsPage() {
         setViewMode("payment");
         setActiveStep(1);
         break;
-      case "history":
-        setViewMode("overview");
-        break;
     }
   }, [viewMode]);
 
@@ -654,8 +710,6 @@ export default function CustomerPaymentsPage() {
     return customer.max_credit_limit > 0 ? (used / customer.max_credit_limit) * 100 : 0;
   };
 
-
-
   // ==================== MASTER PANEL ====================
   const masterPanel = (
     <SearchableList<Customer>
@@ -663,7 +717,7 @@ export default function CustomerPaymentsPage() {
       isLoading={loading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search customers..."
+      placeholder="Search customers or invoices..."
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
@@ -672,11 +726,11 @@ export default function CustomerPaymentsPage() {
       emptyMessage="No customers found"
       width={300}
       listHeader={
-        <TFilterPanel>
+        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
           <Typography variant="caption" color="text.secondary">
             {filteredCustomers.length} customer{filteredCustomers.length !== 1 ? "s" : ""}
           </Typography>
-        </TFilterPanel>
+        </Box>
       }
       renderItem={(customer, isSelected) => {
         const usage = getCreditUsage(customer);
@@ -694,19 +748,15 @@ export default function CustomerPaymentsPage() {
                 </Box>
                 {isSelected && (
                   <>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography variant="caption" component="span">
-                        {customer.company_name || customer.mobile_contact_number || "Individual"}
-                      </Typography>
-                      <Typography variant="caption" color="text.disabled">(Customer)</Typography>
-                    </Box>
+                    <Typography variant="caption" component="span">
+                      {customer.company_name || customer.mobile_contact_number || "Individual"}
+                    </Typography>
                     {customer.max_credit_limit > 0 && (
                       <>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="caption">
                             Credit: {fmtLKR(customer.left_credit_amount ?? customer.max_credit_limit)} / {fmtLKR(customer.max_credit_limit)}
                           </Typography>
-                          <Typography variant="caption" color="text.disabled">(Credit)</Typography>
                         </Box>
                         <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
                           <Box
@@ -727,21 +777,34 @@ export default function CustomerPaymentsPage() {
                       </>
                     )}
                     {outstanding > 0 && (
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <Typography variant="caption" color="warning.main">
-                          Outstanding: Rs. {fmtLKR(outstanding)}
-                        </Typography>
-                        <Typography variant="caption" color="text.disabled">(Outstanding)</Typography>
-                      </Box>
+                      <Typography variant="caption" color="warning.main">
+                        Outstanding: Rs. {fmtLKR(outstanding)}
+                      </Typography>
                     )}
                   </>
                 )}
               </Box>
             }
             secondaryText={
-              !isSelected
-                ? customer.company_name || customer.mobile_contact_number || "Individual"
-                : undefined
+              !isSelected ? (
+                <Box component="span">
+                  <Typography variant="caption" display="block">
+                    {customer.company_name || customer.mobile_contact_number || "Individual"}
+                  </Typography>
+                  {customer.max_credit_limit > 0 && (
+                    <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
+                      <Box
+                        sx={{
+                          width: `${Math.min(usage, 100)}%`,
+                          height: "100%",
+                          bgcolor: usage > 80 ? "error.main" : usage > 50 ? "warning.main" : "success.main",
+                          borderRadius: 1,
+                        }}
+                      />
+                    </Box>
+                  )}
+                </Box>
+              ) : undefined
             }
             statusChip={
               !isSelected && customer.max_credit_limit > 0
@@ -753,141 +816,6 @@ export default function CustomerPaymentsPage() {
       }}
     />
   );
-
-  // ==================== PAYMENT HISTORY ====================
-  // History filter state
-  const [historyDateFrom, setHistoryDateFrom] = useState<string>(() => {
-    const date = new Date();
-    date.setMonth(date.getMonth() - 3);
-    return date.toISOString().split("T")[0];
-  });
-  const [historyDateTo, setHistoryDateTo] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [historyBranchFilter, setHistoryBranchFilter] = useState<string>("all");
-
-  // Filtered history
-  const filteredPaymentHistory = useMemo(() => {
-    return paymentHistory.filter((item) => {
-      const itemDate = new Date(item.date);
-      const fromDate = historyDateFrom ? new Date(historyDateFrom) : null;
-      const toDate = historyDateTo ? new Date(historyDateTo) : null;
-
-      if (fromDate && itemDate < fromDate) return false;
-      if (toDate) {
-        const endOfDay = new Date(toDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        if (itemDate > endOfDay) return false;
-      }
-      if (historyBranchFilter !== "all" && item.branch_code !== historyBranchFilter) return false;
-
-      return true;
-    });
-  }, [paymentHistory, historyDateFrom, historyDateTo, historyBranchFilter]);
-
-  // History summary
-  const historySummary = useMemo(() => {
-    const summary = {
-      totalCount: filteredPaymentHistory.length,
-      totalAmount: 0,
-      byMethod: {} as Record<string, { count: number; amount: number }>,
-      byBranch: {} as Record<string, { count: number; amount: number }>,
-    };
-
-    filteredPaymentHistory.forEach((item) => {
-      const amount = Number(item.total_amount) || 0;
-      summary.totalAmount += amount;
-
-      // By payment method
-      const method = item.payment_method || "Unknown";
-      if (!summary.byMethod[method]) summary.byMethod[method] = { count: 0, amount: 0 };
-      summary.byMethod[method].count++;
-      summary.byMethod[method].amount += amount;
-
-      // By branch
-      const branch = item.branch_code || "Unknown";
-      if (!summary.byBranch[branch]) summary.byBranch[branch] = { count: 0, amount: 0 };
-      summary.byBranch[branch].count++;
-      summary.byBranch[branch].amount += amount;
-    });
-
-    return summary;
-  }, [filteredPaymentHistory]);
-
-  // Print report
-  const handlePrintPaymentHistory = () => {
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      showErrorToast("Please allow popups to print the report");
-      return;
-    }
-
-    const dateRangeText = historyDateFrom && historyDateTo
-      ? `${new Date(historyDateFrom).toLocaleDateString()} to ${new Date(historyDateTo).toLocaleDateString()}`
-      : "All Time";
-
-    const html = `<!DOCTYPE html><html><head><title>Customer Payment History Report</title>
-      <style>
-        * { box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; color: #333; max-width: 1100px; margin: 0 auto; }
-        .header { text-align: center; margin-bottom: 30px; border-bottom: 3px solid #1976d2; padding-bottom: 20px; }
-        .header h1 { margin: 0 0 5px 0; color: #1976d2; font-size: 24px; }
-        .header h2 { margin: 0; font-weight: normal; color: #666; font-size: 18px; }
-        .header .date-range { margin-top: 10px; font-size: 14px; color: #888; }
-        .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
-        .summary-card { padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #ddd; }
-        .summary-card.primary { background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%); color: white; }
-        .summary-card.success { background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%); color: white; }
-        .summary-card.info { background: linear-gradient(135deg, #0288d1 0%, #01579b 100%); color: white; }
-        .summary-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; }
-        .summary-card .value { font-size: 20px; font-weight: bold; margin-top: 5px; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; }
-        th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
-        th { background: #1976d2; color: white; font-weight: 600; text-transform: uppercase; font-size: 10px; }
-        tr:nth-child(even) { background: #f9f9f9; }
-        .text-right { text-align: right; }
-        .totals-row { background: #f5f5f5 !important; font-weight: bold; }
-        .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 11px; color: #888; text-align: center; }
-      </style></head><body>
-        <div class="header">
-          <h1>Customer Payment History Report</h1>
-          <h2>${selectedCustomer?.customer_name || "Unknown"}</h2>
-          ${selectedCustomer?.company_name ? `<div style="color: #888; font-size: 14px;">${selectedCustomer.company_name}</div>` : ""}
-          <div class="date-range">Report Period: ${dateRangeText}</div>
-        </div>
-        <div class="summary-grid">
-          <div class="summary-card primary">
-            <div class="label">Total Payments</div>
-            <div class="value">Rs. ${fmtLKR(historySummary.totalAmount)}</div>
-          </div>
-          <div class="summary-card success">
-            <div class="label">Transactions</div>
-            <div class="value">${historySummary.totalCount}</div>
-          </div>
-          <div class="summary-card info">
-            <div class="label">Outstanding</div>
-            <div class="value">Rs. ${fmtLKR(creditStatus?.outstanding_credit || 0)}</div>
-          </div>
-        </div>
-        <table>
-          <thead><tr><th>Date</th><th>Settlement No.</th><th>Invoice(s)</th><th>Payment Method</th><th class="text-right">Amount (Rs.)</th><th>Branch</th></tr></thead>
-          <tbody>
-            ${filteredPaymentHistory.map((item) => `<tr>
-              <td>${new Date(item.date).toLocaleDateString()}</td>
-              <td>${item.settle_no || "-"}</td>
-              <td>${item.invoice_ref || "-"}</td>
-              <td>${item.payment_method || "-"}</td>
-              <td class="text-right"><strong>${fmtLKR(item.total_amount)}</strong></td>
-              <td>${item.branch_code || "-"}</td>
-            </tr>`).join("")}
-            <tr class="totals-row"><td colspan="4" style="text-align:right;">TOTAL:</td><td class="text-right">Rs. ${fmtLKR(historySummary.totalAmount)}</td><td></td></tr>
-          </tbody>
-        </table>
-        <div class="footer"><p>Generated on ${new Date().toLocaleString()} | Tijaero ERP System</p></div>
-        <script>window.onload = function() { window.print(); }</script>
-      </body></html>`;
-
-    printWindow.document.write(html);
-    printWindow.document.close();
-  };
 
   // ==================== RENDER: OVERVIEW ====================
   const renderOverview = () => (
@@ -1026,37 +954,13 @@ export default function CustomerPaymentsPage() {
 
       {/* Outstanding Invoices Preview */}
       <Paper sx={{ p: 2 }}>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-          <Typography variant="subtitle1" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <ReceiptIcon fontSize="small" />
-            Outstanding Credit Invoices
-          </Typography>
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <Button
-              variant="outlined"
-              color="info"
-              startIcon={<AssessmentIcon />}
-              onClick={() => {
-                setViewMode("history");
-                loadPaymentHistory(selectedCustomer!.id);
-              }}
-            >
-              Payment History
-            </Button>
-            <Button
-              variant="contained"
-              color="primary"
-              startIcon={<PaymentIcon />}
-              onClick={handleStartPayment}
-              disabled={outstandingInvoices.length === 0}
-            >
-              Receive Payment
-            </Button>
-          </Box>
-        </Box>
+        <Typography variant="subtitle1" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <ReceiptIcon fontSize="small" />
+          Outstanding Credit Invoices
+        </Typography>
 
-        {/* Filters */}
-        <Box sx={{ mb: 2, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Filters Section */}
+        <TFilterPanel>
           <TextField
             placeholder="Search invoice..."
             size="small"
@@ -1071,77 +975,79 @@ export default function CustomerPaymentsPage() {
             }}
             sx={{ minWidth: 250 }}
           />
-          <TextField
-            select
-            size="small"
-            label="Branch"
-            value={selectedBranch}
-            onChange={(e) => setSelectedBranch(e.target.value)}
-            sx={{ minWidth: 180 }}
-          >
-            <MenuItem value="all">All Branches</MenuItem>
-            {branches.map((b) => (
-              <MenuItem key={b.branch_code} value={b.branch_code}>{b.branch_name}</MenuItem>
-            ))}
-          </TextField>
-        </Box>
+          <Autocomplete
+            options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}
+            getOptionLabel={(option) =>
+              option.branch_code === "all"
+                ? option.branch_name
+                : `${option.branch_name} (${option.branch_code})`
+            }
+            value={branches.find(b => b.branch_code === selectedBranch) || { branch_code: "all", branch_name: "All Branches" }}
+            onChange={(_, newValue) => setSelectedBranch(newValue?.branch_code || "all")}
+            renderInput={(params) => (
+              <TextField {...params} label="Filter by Branch" size="small" />
+            )}
+            sx={{ minWidth: 200 }}
+            disableClearable
+          />
+        </TFilterPanel>
 
-        {/* Invoices Table */}
+        <Divider sx={{ mb: 1 }} />
+
         {outstandingInvoices.length === 0 ? (
-          <Box sx={{ textAlign: "center", py: 4 }}>
-            <Typography variant="body1" color="text.secondary">
-              No outstanding credit invoices
-            </Typography>
-          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+            No outstanding credit invoices for this customer
+          </Typography>
         ) : (
-          <TableContainer sx={{ maxHeight: 420 }}>
+          <TableContainer sx={{ maxHeight: 350 }}>
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
                   <TableCell>Invoice No.</TableCell>
                   <TableCell>Date</TableCell>
                   <TableCell>Due Date</TableCell>
-                  <TableCell align="right">Total</TableCell>
-                  <TableCell align="right">Paid</TableCell>
-                  <TableCell align="right">Balance Due</TableCell>
+                  <TableCell align="right">Total (Rs.)</TableCell>
+                  <TableCell align="right">Paid (Rs.)</TableCell>
+                  <TableCell align="right">Balance Due (Rs.)</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Branch</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {outstandingInvoices.slice(0, 10).map((inv) => (
+                {outstandingInvoices.map((inv) => (
                   <TableRow key={inv.id} hover>
                     <TableCell>
                       <Typography variant="body2" fontWeight="medium">{inv.invoice_no}</Typography>
                     </TableCell>
                     <TableCell>{new Date(inv.date).toLocaleDateString()}</TableCell>
                     <TableCell>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Typography color={inv.is_overdue ? "error" : "text.primary"}>
                         {new Date(inv.due_date).toLocaleDateString()}
-                        {inv.is_overdue && (
-                          <Chip
-                            label={`${inv.days_overdue}d overdue`}
-                            size="small"
-                            color="error"
-                            sx={{ height: 18, fontSize: "0.65rem" }}
-                          />
-                        )}
-                      </Box>
+                      </Typography>
                     </TableCell>
                     <TableCell align="right">{fmtLKR(inv.total_amount)}</TableCell>
                     <TableCell align="right">{fmtLKR(inv.paid_amount)}</TableCell>
                     <TableCell align="right">
-                      <Typography fontWeight="bold" color="warning.main">
+                      <Typography color="warning.main" fontWeight="bold">
                         {fmtLKR(inv.balance_due)}
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        label={inv.payment_status === "partial" ? "Partial" : "Unpaid"}
-                        size="small"
-                        color={inv.payment_status === "partial" ? "warning" : "error"}
-                        variant="outlined"
-                      />
+                      {inv.is_overdue ? (
+                        <Chip
+                          label={`${inv.days_overdue}d overdue`}
+                          size="small"
+                          color="error"
+                          icon={<WarningIcon />}
+                        />
+                      ) : (
+                        <Chip
+                          label={inv.payment_status === "partial" ? "Partial" : "Unpaid"}
+                          size="small"
+                          color={inv.payment_status === "partial" ? "warning" : "error"}
+                          variant="outlined"
+                        />
+                      )}
                     </TableCell>
                     <TableCell>{inv.branch_code}</TableCell>
                   </TableRow>
@@ -1150,167 +1056,216 @@ export default function CustomerPaymentsPage() {
             </Table>
           </TableContainer>
         )}
-        {outstandingInvoices.length > 10 && (
-          <Box sx={{ textAlign: "center", py: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              Showing 10 of {outstandingInvoices.length} invoices. Click "Receive Payment" to see all.
-            </Typography>
-          </Box>
-        )}
       </Paper>
     </Box>
   );
 
-  // ==================== RENDER: DOCUMENT SELECTION ====================
+  // ==================== RENDER: DOCUMENT SELECTION (Step 1) ====================
   const renderDocumentsView = () => (
     <Box sx={{ p: 2 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <DescriptionIcon />
+      <Button startIcon={<ArrowBackIcon />} onClick={handleBack} sx={{ mb: 2 }}>
+        Back to Overview
+      </Button>
+
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
           Select Invoices to Settle
         </Typography>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={handleCancelPayment}>
-            Cancel
-          </Button>
-        </Box>
-      </Box>
 
-      {/* FIFO Toggle */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <FormControlLabel
-          control={<Switch checked={useFIFO} onChange={(e) => setUseFIFO(e.target.checked)} />}
-          label="FIFO Auto-Allocation"
+        {/* Branch Filter */}
+        <Autocomplete
+          options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}
+          getOptionLabel={(option) =>
+            option.branch_code === "all"
+              ? option.branch_name
+              : `${option.branch_name} (${option.branch_code})`
+          }
+          value={branches.find(b => b.branch_code === selectedBranch) || { branch_code: "all", branch_name: "All Branches" }}
+          onChange={(_, newValue) => {
+            setSelectedBranch(newValue?.branch_code || "all");
+            setSelectedInvoiceIds(new Set());
+          }}
+          renderInput={(params) => (
+            <TextField {...params} label="Filter by Branch" size="small" />
+          )}
+          sx={{ minWidth: 200, mb: 2 }}
+          disableClearable
         />
-        {useFIFO && (
-          <Box sx={{ mt: 1, display: "flex", gap: 2, alignItems: "center" }}>
+
+        {/* FIFO Toggle */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={useFIFO}
+                onChange={(e) => {
+                  setUseFIFO(e.target.checked);
+                  setSelectedInvoiceIds(new Set());
+                }}
+              />
+            }
+            label="Use FIFO Allocation"
+          />
+          {useFIFO && (
             <TextField
-              size="small"
               label="Payment Amount"
               type="number"
-              value={Number(fifoAmount) || ""}
+              size="small"
+              value={Number(fifoAmount)}
               onChange={(e) => setFifoAmount(Number(e.target.value))}
               InputProps={{
                 startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
               }}
-              sx={{ width: 250 }}
+              sx={{ width: 200 }}
+            />
+          )}
+        </Box>
+
+        <Divider sx={{ mb: 2 }} />
+
+        {!useFIFO && (
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={selectedInvoiceIds.size === outstandingInvoices.length && outstandingInvoices.length > 0}
+                  indeterminate={selectedInvoiceIds.size > 0 && selectedInvoiceIds.size < outstandingInvoices.length}
+                  onChange={handleSelectAll}
+                  disabled={outstandingInvoices.length === 0}
+                />
+              }
+              label="Select All"
             />
             <Typography variant="body2" color="text.secondary">
-              Will allocate to oldest invoices first
+              {selectedInvoiceIds.size} of {outstandingInvoices.length} selected
             </Typography>
           </Box>
         )}
+
+        {outstandingInvoices.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+            No outstanding invoices available for payment.
+          </Typography>
+        ) : (
+          <TableContainer sx={{ maxHeight: 400 }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  {!useFIFO && <TableCell padding="checkbox" />}
+                  <TableCell>Invoice No.</TableCell>
+                  <TableCell>Due Date</TableCell>
+                  <TableCell align="right">Credit Amount</TableCell>
+                  <TableCell align="right">Balance Due</TableCell>
+                  <TableCell>Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {outstandingInvoices.map((inv) => (
+                  <TableRow
+                    key={inv.id}
+                    hover
+                    selected={selectedInvoiceIds.has(inv.id)}
+                    onClick={() => !useFIFO && handleSelectInvoice(inv)}
+                    sx={{ cursor: useFIFO ? "default" : "pointer" }}
+                  >
+                    {!useFIFO && (
+                      <TableCell padding="checkbox">
+                        <Checkbox checked={selectedInvoiceIds.has(inv.id)} />
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="medium">{inv.invoice_no}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography color={inv.is_overdue ? "error" : "text.primary"}>
+                        {new Date(inv.due_date).toLocaleDateString()}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" color="text.secondary">
+                        Rs. {fmtLKR(inv.credit_amount)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight="bold">
+                        Rs. {fmtLKR(inv.balance_due)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {inv.is_overdue ? (
+                        <Chip label={`${inv.days_overdue}d overdue`} size="small" color="error" />
+                      ) : (
+                        <Chip
+                          label={inv.payment_status === "partial" ? "Partial" : "Unpaid"}
+                          size="small"
+                          color={inv.payment_status === "partial" ? "warning" : "error"}
+                          variant="outlined"
+                        />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </Paper>
 
-      {/* Invoice Selection Table */}
-      <Paper>
-        <TableContainer sx={{ maxHeight: 500 }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                {!useFIFO && (
-                  <TableCell padding="checkbox">
-                    <Checkbox
-                      checked={selectedInvoiceIds.size === outstandingInvoices.length && outstandingInvoices.length > 0}
-                      indeterminate={selectedInvoiceIds.size > 0 && selectedInvoiceIds.size < outstandingInvoices.length}
-                      onChange={handleSelectAll}
-                    />
-                  </TableCell>
-                )}
-                <TableCell>Invoice No.</TableCell>
-                <TableCell>Date</TableCell>
-                <TableCell>Due Date</TableCell>
-                <TableCell align="right">Credit Amount</TableCell>
-                <TableCell align="right">Paid</TableCell>
-                <TableCell align="right">Balance Due</TableCell>
-                <TableCell>Status</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {outstandingInvoices.map((inv) => (
-                <TableRow
-                  key={inv.id}
-                  hover
-                  selected={selectedInvoiceIds.has(inv.id)}
-                  onClick={() => !useFIFO && handleSelectInvoice(inv)}
-                  sx={{ cursor: useFIFO ? "default" : "pointer" }}
-                >
-                  {!useFIFO && (
-                    <TableCell padding="checkbox">
-                      <Checkbox checked={selectedInvoiceIds.has(inv.id)} />
-                    </TableCell>
-                  )}
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">{inv.invoice_no}</Typography>
-                  </TableCell>
-                  <TableCell>{new Date(inv.date).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                      {new Date(inv.due_date).toLocaleDateString()}
-                      {inv.is_overdue && (
-                        <Chip label={`${inv.days_overdue}d`} size="small" color="error" sx={{ height: 18, fontSize: "0.6rem" }} />
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell align="right">{fmtLKR(inv.credit_amount)}</TableCell>
-                  <TableCell align="right">{fmtLKR(inv.paid_amount)}</TableCell>
-                  <TableCell align="right">
-                    <Typography fontWeight="bold" color="warning.main">{fmtLKR(inv.balance_due)}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={inv.payment_status === "partial" ? "Partial" : "Unpaid"}
-                      size="small"
-                      color={inv.payment_status === "partial" ? "warning" : "error"}
-                      variant="outlined"
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-
-        {/* Footer */}
-        <Box sx={{ p: 2, borderTop: 1, borderColor: "divider", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <Typography variant="body2" color="text.secondary">
-            {useFIFO ? "FIFO mode" : `${selectedInvoiceIds.size} of ${outstandingInvoices.length} selected`}
+      {/* Summary */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Typography variant="subtitle1">
+            {useFIFO
+              ? `FIFO Amount: Rs. ${fmtLKR(fifoAmount)}`
+              : `Selected: ${selectedInvoiceIds.size} invoices`}
           </Typography>
-          <Button
-            variant="contained"
-            onClick={handleProceedToPayment}
-            disabled={!useFIFO && selectedInvoiceIds.size === 0}
-          >
-            Proceed to Payment
-          </Button>
+          <Typography variant="h6" color="primary.main">
+            {useFIFO
+              ? `Will allocate to ${allocateFIFO(fifoAmount).length} invoice(s)`
+              : `Total: Rs. ${fmtLKR(outstandingInvoices
+                .filter((d) => selectedInvoiceIds.has(d.id))
+                .reduce((sum, d) => sum + d.balance_due, 0))}`}
+          </Typography>
         </Box>
       </Paper>
+
+      {/* Actions */}
+      <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+        <Button variant="outlined" onClick={handleCancelPayment}>
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          onClick={handleProceedToPayment}
+          disabled={!useFIFO && selectedInvoiceIds.size === 0}
+        >
+          Continue to Payment
+        </Button>
+      </Box>
     </Box>
   );
 
-  // ==================== RENDER: PAYMENT DETAILS ====================
+  // ==================== RENDER: PAYMENT DETAILS (Step 2) ====================
   const renderPaymentView = () => (
     <Box sx={{ p: 2 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <PaymentIcon />
-          Payment Details
-        </Typography>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={handleBack}>
-            Back
-          </Button>
-          <Button variant="outlined" color="error" onClick={handleCancelPayment}>
-            Cancel
-          </Button>
-        </Box>
-      </Box>
+      <Button startIcon={<ArrowBackIcon />} onClick={handleBack} sx={{ mb: 2 }}>
+        Back to Invoice Selection
+      </Button>
 
-      {/* Allocation Table */}
-      <Paper sx={{ mb: 3 }}>
-        <Typography variant="subtitle2" sx={{ p: 2, pb: 1 }}>
-          Payment Allocation
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      {/* Payment Allocations */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Payment Allocations
         </Typography>
+
+        <Divider sx={{ mb: 2 }} />
+
         <TableContainer>
           <Table size="small">
             <TableHead>
@@ -1318,8 +1273,8 @@ export default function CustomerPaymentsPage() {
                 <TableCell>Invoice No.</TableCell>
                 <TableCell>Due Date</TableCell>
                 <TableCell align="right">Balance Due</TableCell>
-                <TableCell align="right" sx={{ minWidth: 180 }}>Payment Amount</TableCell>
-                <TableCell width={60}>Remove</TableCell>
+                <TableCell align="right" sx={{ width: 150 }}>Payment Amount</TableCell>
+                <TableCell sx={{ width: 50 }} />
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1334,277 +1289,38 @@ export default function CustomerPaymentsPage() {
                       <Chip label="Overdue" size="small" color="error" sx={{ ml: 1, height: 18, fontSize: "0.6rem" }} />
                     )}
                   </TableCell>
-                  <TableCell align="right">{fmtLKR(line.invoice.balance_due)}</TableCell>
+                  <TableCell align="right">
+                    {fmtLKR(line.invoice.balance_due)}
+                  </TableCell>
                   <TableCell align="right">
                     <TextField
-                      size="small"
                       type="number"
-                      value={Number(line.allocated_amount) || ""}
+                      size="small"
+                      value={Number(line.allocated_amount)}
                       onChange={(e) => handleLineAmountChange(line.id, Number(e.target.value))}
                       InputProps={{
                         startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
                       }}
-                      sx={{ width: 160 }}
+                      inputProps={{
+                        min: 0,
+                        max: line.invoice.balance_due,
+                        step: 0.01,
+                      }}
+                      sx={{ width: 130 }}
                     />
                   </TableCell>
                   <TableCell>
-                    <IconButton size="small" onClick={() => handleRemoveLine(line.id)}>
-                      <DeleteIcon fontSize="small" color="error" />
+                    <IconButton size="small" color="error" onClick={() => handleRemoveLine(line.id)}>
+                      <DeleteIcon fontSize="small" />
                     </IconButton>
                   </TableCell>
                 </TableRow>
               ))}
-              {/* Total row */}
-              <TableRow sx={{ bgcolor: "grey.50" }}>
-                <TableCell colSpan={3} align="right">
-                  <Typography variant="subtitle2">Total Payment:</Typography>
-                </TableCell>
+              {/* Totals Row */}
+              <TableRow sx={{ bgcolor: "action.hover" }}>
+                <TableCell colSpan={2} />
                 <TableCell align="right">
-                  <Typography variant="h6" color="primary.main" fontWeight="bold">
-                    Rs. {fmtLKR(totalPaymentAmount)}
-                  </Typography>
-                </TableCell>
-                <TableCell />
-              </TableRow>
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
-
-      {/* Payment Method */}
-      <Paper sx={{ p: 2 }}>
-        <Typography variant="subtitle2" gutterBottom>
-          Payment Method
-        </Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              select
-              size="small"
-              label="Payment Method"
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-            >
-              {PAYMENT_METHODS.map((m) => (
-                <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
-              ))}
-            </TextField>
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Payment Date"
-              type="date"
-              value={paymentDate}
-              onChange={(e) => setPaymentDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-            />
-          </Grid>
-
-          {/* Cheque fields */}
-          {paymentMethod === "Cheque" && (
-            <>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Cheque Number *"
-                  value={referenceNumber}
-                  onChange={(e) => setReferenceNumber(e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Bank Name *"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Cheque Date"
-                  type="date"
-                  value={chequeDate}
-                  onChange={(e) => setChequeDate(e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-            </>
-          )}
-
-          {/* Bank Transfer fields */}
-          {paymentMethod === "Bank Transfer" && (
-            <>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Reference Number *"
-                  value={referenceNumber}
-                  onChange={(e) => setReferenceNumber(e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Bank Name"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                />
-              </Grid>
-            </>
-          )}
-
-          {/* Card fields */}
-          {(paymentMethod === "card_visa" || paymentMethod === "card_mastercard") && (
-            <>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Card Reference Number *"
-                  value={cardRefNumber}
-                  onChange={(e) => setCardRefNumber(e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Card Holder Name"
-                  value={cardHolderName}
-                  onChange={(e) => setCardHolderName(e.target.value)}
-                />
-              </Grid>
-            </>
-          )}
-
-          <Grid item xs={12}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Remarks"
-              multiline
-              rows={2}
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-            />
-          </Grid>
-        </Grid>
-
-        <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
-          <Button variant="contained" onClick={handleProceedToReview} disabled={totalPaymentAmount <= 0}>
-            Review Payment
-          </Button>
-        </Box>
-      </Paper>
-    </Box>
-  );
-
-  // ==================== RENDER: REVIEW ====================
-  const renderReviewView = () => (
-    <Box sx={{ p: 2 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <CheckCircleIcon color="success" />
-          Review & Post Payment
-        </Typography>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={handleBack}>
-            Back
-          </Button>
-          <Button variant="outlined" color="error" onClick={handleCancelPayment}>
-            Cancel
-          </Button>
-        </Box>
-      </Box>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Summary */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={4}>
-          <TStatCard
-            title="Customer"
-            value={selectedCustomer?.customer_name || ""}
-            subtitle={selectedCustomer?.company_name}
-            icon={<PersonIcon />}
-            color="primary"
-          />
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <TStatCard
-            title="Payment Method"
-            value={PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.label || paymentMethod}
-            subtitle={paymentDate}
-            icon={<PaymentIcon />}
-            color="info"
-          />
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <TStatCard
-            title="Total Payment"
-            value={`Rs. ${fmtLKR(totalPaymentAmount)}`}
-            subtitle={`${paymentLines.length} invoice(s)`}
-            icon={<AccountBalanceIcon />}
-            color="success"
-          />
-        </Grid>
-      </Grid>
-
-      {/* Payment Lines */}
-      <Paper sx={{ mb: 3 }}>
-        <Typography variant="subtitle2" sx={{ p: 2, pb: 1 }}>
-          Settlement Details
-        </Typography>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Invoice No.</TableCell>
-                <TableCell>Due Date</TableCell>
-                <TableCell align="right">Balance Due</TableCell>
-                <TableCell align="right">Payment Amount</TableCell>
-                <TableCell align="right">Remaining</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {paymentLines.map((line) => {
-                const remaining = line.invoice.balance_due - line.allocated_amount;
-                return (
-                  <TableRow key={line.id}>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight="medium">{line.invoice.invoice_no}</Typography>
-                    </TableCell>
-                    <TableCell>{new Date(line.invoice.due_date).toLocaleDateString()}</TableCell>
-                    <TableCell align="right">{fmtLKR(line.invoice.balance_due)}</TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight="bold" color="primary.main">
-                        {fmtLKR(line.allocated_amount)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography color={remaining > 0 ? "warning.main" : "success.main"}>
-                        {fmtLKR(remaining)}
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              <TableRow sx={{ bgcolor: "grey.50" }}>
-                <TableCell colSpan={3} align="right">
-                  <Typography variant="subtitle2">Total:</Typography>
+                  <Typography variant="subtitle2" fontWeight="bold">Total:</Typography>
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h6" fontWeight="bold" color="primary.main">
@@ -1618,236 +1334,288 @@ export default function CustomerPaymentsPage() {
         </TableContainer>
       </Paper>
 
-      {/* Payment Details Summary */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Typography variant="subtitle2" gutterBottom>Payment Details</Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={6} sm={3}>
-            <Typography variant="caption" color="text.secondary">Payment Method</Typography>
-            <Typography variant="body2" fontWeight="medium">
-              {PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.label || paymentMethod}
-            </Typography>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Typography variant="caption" color="text.secondary">Payment Date</Typography>
-            <Typography variant="body2" fontWeight="medium">
-              {new Date(paymentDate).toLocaleDateString()}
-            </Typography>
-          </Grid>
-          {referenceNumber && (
-            <Grid item xs={6} sm={3}>
-              <Typography variant="caption" color="text.secondary">Reference</Typography>
-              <Typography variant="body2" fontWeight="medium">{referenceNumber}</Typography>
-            </Grid>
-          )}
-          {bankName && (
-            <Grid item xs={6} sm={3}>
-              <Typography variant="caption" color="text.secondary">Bank</Typography>
-              <Typography variant="body2" fontWeight="medium">{bankName}</Typography>
-            </Grid>
-          )}
-          {cardRefNumber && (
-            <Grid item xs={6} sm={3}>
-              <Typography variant="caption" color="text.secondary">Card Ref</Typography>
-              <Typography variant="body2" fontWeight="medium">{cardRefNumber}</Typography>
-            </Grid>
-          )}
-          {remarks && (
-            <Grid item xs={12}>
-              <Typography variant="caption" color="text.secondary">Remarks</Typography>
-              <Typography variant="body2">{remarks}</Typography>
-            </Grid>
-          )}
-        </Grid>
-      </Paper>
-
-      {/* Post Button */}
-      <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2 }}>
-        <Button variant="outlined" onClick={handleBack}>
-          Back to Edit
-        </Button>
-        <Button
-          variant="contained"
-          color="success"
-          size="large"
-          startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <CheckCircleIcon />}
-          onClick={handlePostPayment}
-          disabled={saving}
+      {/* Payment Method */}
+      <FormSection title="Payment Method" columns={2}>
+        <TextField
+          select
+          label="Payment Method"
+          size="small"
+          value={paymentMethod}
+          onChange={(e) => setPaymentMethod(e.target.value)}
         >
-          {saving ? "Posting..." : `Post Payment - Rs. ${fmtLKR(totalPaymentAmount)}`}
+          {PAYMENT_METHODS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          label="Payment Date"
+          size="small"
+          type="date"
+          value={paymentDate}
+          onChange={(e) => setPaymentDate(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+        />
+
+        {/* Cheque fields */}
+        {paymentMethod === "Cheque" && (
+          <>
+            <TextField
+              label="Cheque Number *"
+              size="small"
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+              required
+            />
+            <Autocomplete
+              freeSolo
+              options={previousBankNames}
+              value={bankName}
+              onInputChange={(_, newValue) => setBankName(newValue)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Bank Name *"
+                  size="small"
+                  required
+                  helperText={previousBankNames.length > 0 ? "Previously used banks shown" : undefined}
+                />
+              )}
+            />
+            <TextField
+              label="Cheque Date"
+              size="small"
+              type="date"
+              value={chequeDate}
+              onChange={(e) => setChequeDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+          </>
+        )}
+
+        {/* Bank Transfer fields */}
+        {paymentMethod === "Bank Transfer" && (
+          <>
+            <TextField
+              label="Reference Number *"
+              size="small"
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+              required
+            />
+            {previousBankNames.length > 0 ? (
+              <Autocomplete
+                freeSolo
+                options={previousBankNames}
+                value={bankName}
+                onInputChange={(_, newValue) => setBankName(newValue)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Bank Name"
+                    size="small"
+                    helperText="Previously used banks shown"
+                  />
+                )}
+              />
+            ) : (
+              <TextField
+                label="Bank Name"
+                size="small"
+                value={bankName}
+                onChange={(e) => setBankName(e.target.value)}
+              />
+            )}
+          </>
+        )}
+
+        {/* Card fields */}
+        {(paymentMethod === "card_visa" || paymentMethod === "card_mastercard") && (
+          <>
+            <TextField
+              label="Card Reference Number *"
+              size="small"
+              value={cardRefNumber}
+              onChange={(e) => setCardRefNumber(e.target.value)}
+              required
+            />
+            <TextField
+              label="Card Holder Name"
+              size="small"
+              value={cardHolderName}
+              onChange={(e) => setCardHolderName(e.target.value)}
+            />
+          </>
+        )}
+      </FormSection>
+
+      <FormSection title="Remarks" columns={1}>
+        <TextField
+          label="Remarks"
+          size="small"
+          multiline
+          rows={2}
+          value={remarks}
+          onChange={(e) => setRemarks(e.target.value)}
+        />
+      </FormSection>
+
+      {/* Actions */}
+      <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+        <Button variant="outlined" onClick={handleCancelPayment}>
+          Cancel
+        </Button>
+        <Button variant="contained" onClick={handleProceedToReview}>
+          Review Payment
         </Button>
       </Box>
     </Box>
   );
 
-  // ==================== RENDER: HISTORY ====================
-  const renderHistory = () => (
+  // ==================== RENDER: REVIEW & POST (Step 3) ====================
+  const renderReviewView = () => (
     <Box sx={{ p: 2 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
-        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <AssessmentIcon />
-          Payment History
-        </Typography>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant="contained" startIcon={<PrintIcon />} onClick={handlePrintPaymentHistory} disabled={filteredPaymentHistory.length === 0}>
-            Print Report
-          </Button>
-          <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setViewMode("overview")}>
-            Back
-          </Button>
-        </Box>
-      </Box>
+      <Button startIcon={<ArrowBackIcon />} onClick={handleBack} sx={{ mb: 2 }}>
+        Back to Payment Details
+      </Button>
 
-      {/* Summary Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={4}>
-          <Card sx={{ background: "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)", color: "white" }}>
-            <CardContent sx={{ textAlign: "center", py: 2 }}>
-              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: "uppercase" }}>Total Payments</Typography>
-              <Typography variant="h5" sx={{ fontWeight: "bold", mt: 0.5 }}>Rs. {fmtLKR(historySummary.totalAmount)}</Typography>
-              <Typography variant="caption" sx={{ opacity: 0.8 }}>{historySummary.totalCount} Transaction{historySummary.totalCount !== 1 ? "s" : ""}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <Card sx={{ background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)", color: "white" }}>
-            <CardContent sx={{ textAlign: "center", py: 2 }}>
-              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: "uppercase" }}>Current Outstanding</Typography>
-              <Typography variant="h5" sx={{ fontWeight: "bold", mt: 0.5 }}>Rs. {fmtLKR(creditStatus?.outstanding_credit || 0)}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <Card sx={{ background: "linear-gradient(135deg, #ed6c02 0%, #e65100 100%)", color: "white" }}>
-            <CardContent sx={{ textAlign: "center", py: 2 }}>
-              <Typography variant="caption" sx={{ opacity: 0.9, textTransform: "uppercase" }}>Overdue</Typography>
-              <Typography variant="h5" sx={{ fontWeight: "bold", mt: 0.5 }}>Rs. {fmtLKR(creditStatus?.total_overdue_amount || 0)}</Typography>
-              <Typography variant="caption" sx={{ opacity: 0.8 }}>{creditStatus?.overdue_count || 0} Invoice{(creditStatus?.overdue_count || 0) !== 1 ? "s" : ""}</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
-      {/* Breakdown */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <PaymentIcon fontSize="small" /> By Payment Method
-            </Typography>
-            <Divider sx={{ my: 1 }} />
-            {Object.entries(historySummary.byMethod).length > 0 ? (
-              Object.entries(historySummary.byMethod).map(([method, data]) => (
-                <Box key={method} sx={{ display: "flex", justifyContent: "space-between", py: 0.5, borderBottom: "1px dotted #eee" }}>
-                  <Typography variant="body2">{method}</Typography>
-                  <Box sx={{ textAlign: "right" }}>
-                    <Typography variant="body2" fontWeight="bold">Rs. {fmtLKR(data.amount)}</Typography>
-                    <Typography variant="caption" color="text.secondary">{data.count} txn{data.count !== 1 ? "s" : ""}</Typography>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary">No data</Typography>
-            )}
-          </Paper>
-        </Grid>
-        <Grid item xs={12} sm={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <PersonIcon fontSize="small" /> By Branch
-            </Typography>
-            <Divider sx={{ my: 1 }} />
-            {Object.entries(historySummary.byBranch).length > 0 ? (
-              Object.entries(historySummary.byBranch).map(([branch, data]) => (
-                <Box key={branch} sx={{ display: "flex", justifyContent: "space-between", py: 0.5, borderBottom: "1px dotted #eee" }}>
-                  <Typography variant="body2">{branch}</Typography>
-                  <Box sx={{ textAlign: "right" }}>
-                    <Typography variant="body2" fontWeight="bold">Rs. {fmtLKR(data.amount)}</Typography>
-                    <Typography variant="caption" color="text.secondary">{data.count} txn{data.count !== 1 ? "s" : ""}</Typography>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary">No data</Typography>
-            )}
-          </Paper>
-        </Grid>
-      </Grid>
-
-      {/* Filters */}
+      {/* Payment Info */}
       <Paper sx={{ p: 2, mb: 3 }}>
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <FilterListIcon fontSize="small" /> Filters
+        <Typography variant="h6" gutterBottom>
+          Payment Summary
         </Typography>
-        <Grid container spacing={2} sx={{ mt: 1 }}>
-          <Grid item xs={12} sm={4}>
-            <TextField fullWidth size="small" label="Date From" type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
+        <Divider sx={{ mb: 2 }} />
+
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">Customer</Typography>
+            <Typography variant="body1">{selectedCustomer?.customer_name}</Typography>
           </Grid>
-          <Grid item xs={12} sm={4}>
-            <TextField fullWidth size="small" label="Date To" type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">Payment Date</Typography>
+            <Typography variant="body1">{new Date(paymentDate).toLocaleDateString()}</Typography>
           </Grid>
-          <Grid item xs={12} sm={4}>
-            <TextField fullWidth select size="small" label="Branch" value={historyBranchFilter} onChange={(e) => setHistoryBranchFilter(e.target.value)}>
-              <MenuItem value="all">All Branches</MenuItem>
-              {branches.map((b) => (
-                <MenuItem key={b.branch_code} value={b.branch_code}>{b.branch_name}</MenuItem>
-              ))}
-            </TextField>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">Payment Method</Typography>
+            <Typography variant="body1">
+              {PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.label || paymentMethod}
+            </Typography>
           </Grid>
+          {referenceNumber && (
+            <Grid item xs={12} sm={6}>
+              <Typography variant="caption" color="text.secondary">Reference</Typography>
+              <Typography variant="body1">{referenceNumber}</Typography>
+            </Grid>
+          )}
+          {bankName && (
+            <Grid item xs={12} sm={6}>
+              <Typography variant="caption" color="text.secondary">Bank</Typography>
+              <Typography variant="body1">{bankName}</Typography>
+            </Grid>
+          )}
+          {cardRefNumber && (
+            <Grid item xs={12} sm={6}>
+              <Typography variant="caption" color="text.secondary">Card Ref</Typography>
+              <Typography variant="body1">{cardRefNumber}</Typography>
+            </Grid>
+          )}
         </Grid>
       </Paper>
 
-      {/* History Table */}
-      {loadingHistory ? (
-        <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}><CircularProgress /></Box>
-      ) : filteredPaymentHistory.length === 0 ? (
-        <Paper sx={{ p: 4, textAlign: "center" }}>
-          <Typography variant="body1" color="text.secondary">No payment history found</Typography>
-        </Paper>
-      ) : (
-        <Paper>
-          <TableContainer sx={{ maxHeight: 500 }}>
-            <Table size="small" stickyHeader>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Date</TableCell>
-                  <TableCell>Settlement No.</TableCell>
-                  <TableCell>Invoice(s)</TableCell>
-                  <TableCell>Payment Method</TableCell>
-                  <TableCell align="right">Amount (Rs.)</TableCell>
-                  <TableCell>Branch</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredPaymentHistory.map((item, index) => (
-                  <TableRow key={`${item.id}-${index}`} hover>
-                    <TableCell>{new Date(item.date).toLocaleDateString()}</TableCell>
+      {/* Payment Lines */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Invoices Being Settled
+        </Typography>
+        <Divider sx={{ mb: 2 }} />
+
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Invoice No.</TableCell>
+                <TableCell>Due Date</TableCell>
+                <TableCell align="right">Balance Due (Rs.)</TableCell>
+                <TableCell align="right">Payment (Rs.)</TableCell>
+                <TableCell align="right">Remaining After (Rs.)</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paymentLines.map((line) => {
+                const remainingAfter = line.invoice.balance_due - line.allocated_amount;
+                return (
+                  <TableRow key={line.id}>
                     <TableCell>
-                      <Typography variant="body2" fontWeight="medium">{item.settle_no}</Typography>
+                      <Typography variant="body2" fontWeight="medium">{line.invoice.invoice_no}</Typography>
                     </TableCell>
-                    <TableCell>{item.invoice_ref || "-"}</TableCell>
-                    <TableCell>{item.payment_method || "-"}</TableCell>
+                    <TableCell>
+                      {new Date(line.invoice.due_date).toLocaleDateString()}
+                    </TableCell>
                     <TableCell align="right">
-                      <Typography variant="body2" fontWeight="bold" color="primary.main">
-                        {fmtLKR(item.total_amount)}
+                      {fmtLKR(line.invoice.balance_due)}
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography color="primary.main" fontWeight="bold">
+                        {line.allocated_amount > 0 ? fmtLKR(line.allocated_amount) : "-"}
                       </Typography>
                     </TableCell>
-                    <TableCell>{item.branch_code}</TableCell>
+                    <TableCell align="right">
+                      <Typography color={remainingAfter > 0 ? "warning.main" : "success.main"}>
+                        {fmtLKR(remainingAfter)}
+                      </Typography>
+                    </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-          <Box sx={{ p: 2, borderTop: "1px solid", borderColor: "divider", display: "flex", justifyContent: "space-between", alignItems: "center", bgcolor: "grey.50" }}>
-            <Typography variant="body2" color="text.secondary">
-              {filteredPaymentHistory.length} record{filteredPaymentHistory.length !== 1 ? "s" : ""}
-            </Typography>
-            <Typography variant="h6" color="primary.main" fontWeight="bold">
-              Total: Rs. {fmtLKR(historySummary.totalAmount)}
-            </Typography>
-          </Box>
-        </Paper>
-      )}
+                );
+              })}
+              {/* Totals Row */}
+              <TableRow sx={{ bgcolor: "action.hover" }}>
+                <TableCell colSpan={2} />
+                <TableCell align="right">
+                  <Typography variant="subtitle2" fontWeight="bold">Total:</Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="h5" fontWeight="bold" color="primary.main">
+                    Rs. {fmtLKR(totalPaymentAmount)}
+                  </Typography>
+                </TableCell>
+                <TableCell />
+              </TableRow>
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Paper>
+
+      {/* Warning */}
+      <Alert severity="warning" sx={{ mb: 3 }}>
+        <Typography variant="body2">
+          <strong>Important:</strong> Once posted, this payment cannot be edited or deleted.
+          Please review all details carefully before proceeding.
+        </Typography>
+      </Alert>
+
+      {/* Actions */}
+      <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+        <Button variant="outlined" onClick={handleCancelPayment}>
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          color="success"
+          onClick={handlePostPayment}
+          disabled={saving}
+          startIcon={saving ? <CircularProgress size={16} /> : <CheckCircleIcon />}
+          size="large"
+        >
+          {saving ? "Posting..." : "POST PAYMENT"}
+        </Button>
+      </Box>
     </Box>
   );
 
@@ -1859,22 +1627,19 @@ export default function CustomerPaymentsPage() {
           { label: "Finance", href: "/finance" },
           { label: "Customer Payments", href: "/finance/customer-payments" },
           ...(selectedCustomer ? [{ label: selectedCustomer.customer_name }] : []),
-          ...(viewMode === "history" ? [{ label: "Payment History" }]
-            : viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
+          ...(viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
         ]}
         title={
-          viewMode === "history"
-            ? "Payment History"
-            : viewMode === "review"
-              ? "Review Payment"
-              : viewMode === "payment" || viewMode === "documents"
-                ? "Receive Payment"
-                : selectedCustomer?.customer_name || "Select a Customer"
+          viewMode === "review"
+            ? "Review & Post"
+            : viewMode === "payment"
+              ? "Payment Details"
+              : viewMode === "documents"
+                ? "Select Invoices"
+                : selectedCustomer?.customer_name || ""
         }
         titleIcon={
-          viewMode === "history" ? (
-            <AssessmentIcon color="info" />
-          ) : viewMode === "review" ? (
+          viewMode === "review" ? (
             <CheckCircleIcon color="success" />
           ) : viewMode === "payment" || viewMode === "documents" ? (
             <PaymentIcon color="primary" />
@@ -1885,23 +1650,46 @@ export default function CustomerPaymentsPage() {
         isCreating={false}
         noSelectionTitle="Select a Customer"
         chips={
-          viewMode === "history"
-            ? [{ label: `${paymentHistory.length} Payment${paymentHistory.length !== 1 ? "s" : ""}`, color: "info" as const }]
-            : selectedCustomer && viewMode === "overview"
-              ? [
-                { label: `${outstandingInvoices.length} Open Invoices`, variant: "outlined" as const },
-                ...(totalOutstanding > 0
-                  ? [{ label: `Rs. ${fmtLKR(totalOutstanding)} Outstanding`, color: "warning" as const }]
-                  : []),
-              ]
-              : viewMode !== "overview"
-                ? [{ label: `Rs. ${fmtLKR(totalPaymentAmount)}`, color: "primary" as const }]
-                : []
+          selectedCustomer && viewMode === "overview"
+            ? [
+              { label: `${outstandingInvoices.length} Open Invoices`, variant: "outlined" as const },
+              ...(totalOutstanding > 0
+                ? [{ label: `Rs. ${fmtLKR(totalOutstanding)} Outstanding`, color: "warning" as const }]
+                : []),
+            ]
+            : viewMode !== "overview"
+              ? [{ label: `Rs. ${fmtLKR(totalPaymentAmount)}`, color: "primary" as const }]
+              : []
         }
       />
 
-      {/* Stepper */}
-      {viewMode !== "overview" && viewMode !== "history" && (
+      {/* Action Toolbar - contextual actions based on view mode */}
+      {selectedCustomer && viewMode === "overview" && (
+        <ActionToolbar
+          hasSelectedItem={!!selectedCustomer}
+          isCreating={false}
+          isEditing={false}
+          isSaving={saving}
+          isFormValid={false}
+          onNew={handleStartPayment}
+          endActions={
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                color="secondary"
+                startIcon={<AssessmentIcon />}
+                onClick={() => navigate("/finance/customer-payments/report")}
+              >
+                Payment Report
+              </Button>
+            </Box>
+          }
+        />
+      )}
+
+      {/* Stepper for payment workflow */}
+      {viewMode !== "overview" && (
         <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: "divider" }}>
           <Stepper activeStep={activeStep} alternativeLabel>
             {STEPS.map((label, index) => (
@@ -1918,8 +1706,6 @@ export default function CustomerPaymentsPage() {
           <Box sx={{ p: 2 }}>
             <EmptyState message="Select a customer from the list to view outstanding invoices and receive payments" />
           </Box>
-        ) : viewMode === "history" ? (
-          renderHistory()
         ) : viewMode === "overview" ? (
           renderOverview()
         ) : viewMode === "documents" ? (
@@ -1930,19 +1716,18 @@ export default function CustomerPaymentsPage() {
           renderReviewView()
         )}
       </Box>
+
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
 
   return (
-    <>
-      <MasterDetailLayout
-        title="Customer Payments"
-        icon={<PaymentIcon />}
-        onRefresh={loadCustomers}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
-      />
-      <TConfirmDialog {...confirmDialog.dialogProps} />
-    </>
+    <MasterDetailLayout
+      title="Customer Payments"
+      icon={<PaymentIcon />}
+      onRefresh={loadCustomers}
+      masterPanel={masterPanel}
+      detailPanel={detailPanel}
+    />
   );
 }

@@ -800,6 +800,17 @@ export const supplierPaymentsApi = {
     }>("/purchasing/payments/report", { params });
     return response.data;
   },
+
+  getOutstandingDocuments: async (params?: {
+    supplier_id?: number;
+    branch_code?: string;
+  }) => {
+    const response = await apiClient.get<SupplierOutstandingDocsReport>(
+      "/purchasing/outstanding-documents",
+      { params }
+    );
+    return response.data;
+  },
 };
 
 export interface PaymentReportItem {
@@ -831,6 +842,37 @@ export interface PaymentReportSummary {
   advance_applications_count: number;
   pending_amount: number;
   pending_count: number;
+}
+
+// Supplier Outstanding Documents types
+export interface SupplierOutstandingDocItem {
+  document_id: number;
+  document_no: string;
+  document_type: string; // "Credit GRN" | "Non-Credit PO"
+  document_date: string;
+  reference_no: string;
+  po_no: string;
+  supplier_id: number;
+  supplier_name: string;
+  total_amount: number;
+  paid_amount: number;
+  balance_due: number;
+  due_date: string;
+  days_overdue: number;
+  is_overdue: boolean;
+  branch_code: string;
+}
+
+export interface SupplierOutstandingDocSummary {
+  total_documents: number;
+  total_outstanding: number;
+  total_overdue: number;
+  overdue_count: number;
+}
+
+export interface SupplierOutstandingDocsReport {
+  items: SupplierOutstandingDocItem[];
+  summary: SupplierOutstandingDocSummary;
 }
 
 

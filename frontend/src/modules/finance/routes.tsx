@@ -25,6 +25,7 @@ import CashFlowStatementsPage from "./pages/CashFlowStatementsPage";
 import CommissionPaymentsPage from "./pages/CommissionPaymentsPage";
 import CommissionPaymentApprovalsPage from "./pages/CommissionPaymentApprovalsPage";
 import SupplierPaymentReportPage from "./pages/SupplierPaymentReportPage";
+import CustomerPaymentReportPage from "./pages/CustomerPaymentReportPage";
 
 export default function FinanceRoutes() {
   return (
@@ -63,6 +64,7 @@ export default function FinanceRoutes() {
       <Route path="supplier-payments" element={<ProtectedRoute resource="supplier_payments" action="view"><SupplierPaymentsPage /></ProtectedRoute>} />
       <Route path="supplier-payments/report" element={<ProtectedRoute resource="supplier_payments" action="view"><SupplierPaymentReportPage /></ProtectedRoute>} />
       <Route path="customer-payments" element={<ProtectedRoute resource="customer_payments" action="view"><CustomerPaymentsPage /></ProtectedRoute>} />
+      <Route path="customer-payments/report" element={<ProtectedRoute resource="customer_payments" action="view"><CustomerPaymentReportPage /></ProtectedRoute>} />
       {/* Accounting routes */}
       <Route path="chart-of-accounts" element={<ProtectedRoute resource="chart_of_accounts" action="view"><ChartOfAccountsPage /></ProtectedRoute>} />
       <Route path="journal-entries" element={<ProtectedRoute resource="journal_entries" action="view"><JournalEntriesPage /></ProtectedRoute>} />

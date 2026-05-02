@@ -1393,4 +1393,186 @@ class SupplierCreditService:
 
         return {"items": items, "summary": summary}
 
+    def get_outstanding_documents(
+        self,
+        db: Session,
+        supplier_id: Optional[int] = None,
+        branch_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get all outstanding (unpaid/partial) documents across all suppliers.
+        Includes credit GRNs (settled via SupplierCreditsSettleTransaction)
+        and non-credit POs (settled via SupplierPayment)."""
+        from app.modules.purchasing.models import PurchasingOrderItems, SupplierAdvanceApplication, SupplierPayment, SupplierAdvancePayment, PurchasingReturn, PurchasingReturnItems
+
+        items: list[Dict[str, Any]] = []
+        total_outstanding = Decimal("0")
+        total_overdue = Decimal("0")
+        overdue_count = 0
+
+        # ── 1. Credit GRNs ──────────────────────────────────────────────
+        grn_query = db.query(GoodReceivedNote, PurchasingOrder, Supplier).join(
+            PurchasingOrder, GoodReceivedNote.purchasingorders_id == PurchasingOrder.id
+        ).join(
+            Supplier, PurchasingOrder.first_suppliers_id == Supplier.id
+        ).filter(func.lower(PurchasingOrder.payment_method) == "credit")
+        if supplier_id:
+            grn_query = grn_query.filter(PurchasingOrder.first_suppliers_id == supplier_id)
+        if branch_code:
+            grn_query = grn_query.filter(GoodReceivedNote.branch_code == branch_code)
+
+        for grn, po, supplier in grn_query.order_by(GoodReceivedNote.good_received_date.desc()).all():
+            remaining = self._get_grn_remaining_payable(db, grn.id)
+            if remaining <= 0:
+                continue
+            grn_total = db.query(
+                func.coalesce(func.sum(PurchasingOrderItems.unit_price), 0)
+            ).join(
+                GoodReceivedItems,
+                GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
+            ).filter(
+                PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id,
+                GoodReceivedItems.good_received_note == grn.good_received_no,
+                GoodReceivedItems.active == True
+            ).scalar() or Decimal("0")
+            due_date = self.calculate_due_date(grn.good_received_date, supplier.credit_days)
+            days_overdue = (tz.today() - due_date).days
+            is_overdue = days_overdue > 0
+            total_outstanding += remaining
+            if is_overdue:
+                total_overdue += remaining
+                overdue_count += 1
+            items.append({
+                "document_id": grn.id,
+                "document_no": grn.good_received_no,
+                "document_type": "Credit GRN",
+                "document_date": str(grn.good_received_date),
+                "reference_no": grn.supplier_invoice_no or "-",
+                "po_no": po.purchasing_order_no,
+                "supplier_id": supplier.id,
+                "supplier_name": supplier.full_name,
+                "total_amount": float(grn_total),
+                "paid_amount": float(grn_total - remaining),
+                "balance_due": float(remaining),
+                "due_date": str(due_date),
+                "days_overdue": max(days_overdue, 0),
+                "is_overdue": is_overdue,
+                "branch_code": grn.branch_code,
+            })
+
+        # ── 2. Non-credit POs ───────────────────────────────────────────
+        po_query = db.query(PurchasingOrder, Supplier).join(
+            Supplier, PurchasingOrder.first_suppliers_id == Supplier.id
+        ).filter(
+            func.lower(PurchasingOrder.payment_method) != "credit",
+            PurchasingOrder.status.in_(["approved", "completed", "partially_completed"]),
+        )
+        if supplier_id:
+            po_query = po_query.filter(PurchasingOrder.first_suppliers_id == supplier_id)
+        if branch_code:
+            po_query = po_query.filter(PurchasingOrder.branch_code == branch_code)
+
+        for po, supplier in po_query.order_by(PurchasingOrder.purchasing_order_date.desc()).all():
+            po_total = db.query(
+                func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+            ).filter(PurchasingOrderItems.purchasingorders_id == po.id).scalar() or Decimal("0")
+
+            grns = db.query(GoodReceivedNote).filter(
+                GoodReceivedNote.purchasingorders_id == po.id
+            ).order_by(GoodReceivedNote.good_received_date.asc()).all()
+            grn = grns[0] if grns else None
+            grn_ids = [g.id for g in grns]
+
+            # Verified direct payments
+            payment_link_filters = [SupplierPayment.purchasing_order_id == po.id]
+            if po.purchasing_order_no:
+                payment_link_filters.append(SupplierPayment.invoice_reference == po.purchasing_order_no)
+            if po.purchasing_invoice_no:
+                payment_link_filters.append(SupplierPayment.invoice_reference == po.purchasing_invoice_no)
+            if grn and grn.good_received_no:
+                payment_link_filters.append(SupplierPayment.invoice_reference == grn.good_received_no)
+
+            total_paid = db.query(
+                func.coalesce(func.sum(SupplierPayment.payment_amount), 0)
+            ).filter(
+                or_(*payment_link_filters),
+                SupplierPayment.status == "verified",
+                or_(SupplierPayment.remarks.is_(None),
+                    ~SupplierPayment.remarks.like("Auto-recorded cash payment on GRN %")),
+            ).scalar() or Decimal("0")
+
+            # Advance applications
+            total_advance = Decimal("0")
+            if grn_ids:
+                total_advance = db.query(
+                    func.coalesce(func.sum(SupplierAdvanceApplication.applied_amount), 0)
+                ).filter(SupplierAdvanceApplication.grn_id.in_(grn_ids)).scalar() or Decimal("0")
+            po_advance = db.query(
+                func.coalesce(func.sum(SupplierAdvancePayment.original_amount), 0)
+            ).filter(
+                SupplierAdvancePayment.supplier_id == supplier.id,
+                SupplierAdvancePayment.purchasing_order_id == po.id,
+            ).scalar() or Decimal("0")
+
+            # Returns
+            total_returns = Decimal("0")
+            if grn_ids:
+                ret_ids = [r[0] for r in db.query(PurchasingReturn.id).filter(
+                    PurchasingReturn.goodreceivednote_id.in_(grn_ids),
+                    PurchasingReturn.status == "approved",
+                ).all()]
+                if ret_ids:
+                    total_returns = db.query(
+                        func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                    ).filter(PurchasingReturnItems.purchasingreturn_id.in_(ret_ids)).scalar() or Decimal("0")
+
+            received_amount = self._get_po_received_amount(db, po.id) if grn_ids else Decimal("0")
+            base_amount = received_amount if grn_ids else po_total
+            effective_advance = min(base_amount, max(total_advance, po_advance))
+
+            remaining = base_amount - total_paid - effective_advance - total_returns
+            if remaining < Decimal("0"):
+                remaining = Decimal("0")
+            if remaining <= 0:
+                continue
+
+            po_date = po.purchasing_order_date
+            if isinstance(po_date, str):
+                po_date = datetime.strptime(po_date, "%Y-%m-%d").date()
+            due_date = self.calculate_due_date(po_date, 0)  # non-credit: due immediately
+            days_overdue = (tz.today() - due_date).days
+            is_overdue = days_overdue > 0
+            total_outstanding += remaining
+            if is_overdue:
+                total_overdue += remaining
+                overdue_count += 1
+            items.append({
+                "document_id": po.id,
+                "document_no": po.purchasing_order_no,
+                "document_type": "Non-Credit PO",
+                "document_date": str(po_date),
+                "reference_no": po.purchasing_invoice_no or (grn.good_received_no if grn else "-"),
+                "po_no": po.purchasing_order_no,
+                "supplier_id": supplier.id,
+                "supplier_name": supplier.full_name,
+                "total_amount": float(base_amount),
+                "paid_amount": float(total_paid + effective_advance + total_returns),
+                "balance_due": float(remaining),
+                "due_date": str(due_date),
+                "days_overdue": max(days_overdue, 0),
+                "is_overdue": is_overdue,
+                "branch_code": po.branch_code,
+            })
+
+        items.sort(key=lambda x: x["document_date"], reverse=True)
+        return {
+            "items": items,
+            "summary": {
+                "total_documents": len(items),
+                "total_outstanding": float(total_outstanding),
+                "total_overdue": float(total_overdue),
+                "overdue_count": overdue_count,
+            },
+        }
+
+
 supplier_credit_service = SupplierCreditService()

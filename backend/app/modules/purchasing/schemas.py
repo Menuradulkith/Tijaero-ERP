@@ -531,3 +531,34 @@ class PaymentReportResponse(BaseModel):
     items: List[PaymentReportItem] = []
     summary: PaymentReportSummary = PaymentReportSummary()
 
+
+# Outstanding Documents Schemas
+class SupplierOutstandingDocItem(BaseModel):
+    document_id: int           # grn_id for credit, po_id for non-credit
+    document_no: str           # grn_no or po_no
+    document_type: str         # "Credit GRN" or "Non-Credit PO"
+    document_date: str         # grn_date or po_date
+    reference_no: str          # supplier_invoice_no (GRN) or purchasing_invoice_no (PO)
+    po_no: str                 # always the PO number
+    supplier_id: int
+    supplier_name: str
+    total_amount: float
+    paid_amount: float
+    balance_due: float
+    due_date: str
+    days_overdue: int
+    is_overdue: bool
+    branch_code: str
+
+
+class SupplierOutstandingDocSummary(BaseModel):
+    total_documents: int = 0
+    total_outstanding: float = 0
+    total_overdue: float = 0
+    overdue_count: int = 0
+
+
+class SupplierOutstandingDocsReport(BaseModel):
+    items: List[SupplierOutstandingDocItem] = []
+    summary: SupplierOutstandingDocSummary = SupplierOutstandingDocSummary()
+

@@ -726,6 +726,19 @@ def get_payment_report(
     )
 
 
+@router.get("/outstanding-documents", response_model=schemas.SupplierOutstandingDocsReport)
+def get_outstanding_documents(
+    supplier_id: Optional[int] = Query(None, description="Filter by supplier"),
+    branch_code: Optional[str] = Query(None, description="Filter by branch"),
+    db: Session = Depends(get_db),
+):
+    """All unpaid/partial GRNs across all suppliers."""
+    from .credit_service import supplier_credit_service
+    return supplier_credit_service.get_outstanding_documents(
+        db, supplier_id=supplier_id, branch_code=branch_code,
+    )
+
+
 @router.get("/suppliers/{supplier_id}/aging-report")
 def get_supplier_aging_report(supplier_id: int, db: Session = Depends(get_db)):
     return supplier_credit_service.get_aging_report(db, supplier_id)

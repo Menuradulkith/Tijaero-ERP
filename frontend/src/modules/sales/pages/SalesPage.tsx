@@ -772,6 +772,9 @@ export default function SalesPage() {
         );
       }
 
+      // Notify customer payments page to refresh
+      window.dispatchEvent(new CustomEvent("sales-order-updated"));
+
       state.setIsCreating(false);
       setLineItems([]);
       setFormStep(0);
@@ -817,6 +820,9 @@ export default function SalesPage() {
         // Cash/Card - completed status
         showSuccessToast("Sales order updated successfully.");
       }
+
+      // Notify customer payments page to refresh
+      window.dispatchEvent(new CustomEvent("sales-order-updated"));
 
       state.setIsCreating(false);
       state.setIsEditing(false);
