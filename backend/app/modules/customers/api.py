@@ -400,6 +400,54 @@ def get_customer_credit_settlement(
     return customer_credit_service.get_settlement_with_transactions(db, settlement_id)
 
 
+# ==================== PAYMENT REPORT ENDPOINT ====================
+
+
+@router.get(
+    "/payments/report",
+    response_model=schemas.CustomerPaymentReport,
+    summary="Customer Payment Report",
+    description="Consolidated report of all customer credit settlements",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+)
+def get_customer_payment_report(
+    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    customer_id: Optional[int] = Query(None),
+    branch_code: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+):
+    from datetime import date as date_type
+
+    parsed_from = date_type.fromisoformat(date_from) if date_from else None
+    parsed_to = date_type.fromisoformat(date_to) if date_to else None
+    return customer_credit_service.get_payment_report(
+        db, parsed_from, parsed_to, customer_id, branch_code
+    )
+
+
+# ==================== OUTSTANDING DOCUMENTS ENDPOINT ====================
+
+
+@router.get(
+    "/outstanding-documents",
+    response_model=schemas.OutstandingDocumentsReport,
+    summary="Outstanding Documents Report",
+    description="All unpaid/partial credit invoices across all customers",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+)
+def get_outstanding_documents(
+    customer_id: Optional[int] = Query(None),
+    branch_code: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+):
+    return customer_credit_service.get_outstanding_documents(
+        db, customer_id=customer_id, branch_code=branch_code
+    )
+
+
 # ==================== COUPON ENDPOINTS ====================
 
 

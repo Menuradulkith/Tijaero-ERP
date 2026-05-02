@@ -149,6 +149,63 @@ class CustomerCreditsSettleWithTransactions(CustomerCreditsSettle):
     transactions: List[CustomerCreditsSettleTransaction] = []
 
 
+# Customer Payment Report Schemas
+class CustomerPaymentReportItem(BaseModel):
+    id: int
+    date: str
+    customer_id: int
+    customer_name: str
+    document_no: str
+    invoice_refs: str
+    payment_method: str
+    amount: float
+    branch_code: str
+    remarks: str
+
+    class Config:
+        from_attributes = True
+
+
+class CustomerPaymentReportSummary(BaseModel):
+    total_amount: float
+    total_count: int
+    credit_settlements: float
+    credit_settlements_count: int
+
+
+class CustomerPaymentReport(BaseModel):
+    items: List[CustomerPaymentReportItem]
+    summary: CustomerPaymentReportSummary
+
+
+# Outstanding Documents Schemas
+class OutstandingDocumentItem(BaseModel):
+    invoice_id: int
+    invoice_no: str
+    invoice_date: str
+    customer_id: int
+    customer_name: str
+    credit_amount: float
+    paid_amount: float
+    balance_due: float
+    due_date: str
+    days_overdue: int
+    is_overdue: bool
+    branch_code: str
+
+
+class OutstandingDocumentSummary(BaseModel):
+    total_documents: int = 0
+    total_outstanding: float = 0
+    total_overdue: float = 0
+    overdue_count: int = 0
+
+
+class OutstandingDocumentsReport(BaseModel):
+    items: List[OutstandingDocumentItem] = []
+    summary: OutstandingDocumentSummary = OutstandingDocumentSummary()
+
+
 # Customer Coupon Codes Schemas
 class CustomerCuponCodesBase(BaseModel):
     cupon_code: str = Field(..., min_length=1, max_length=50, description="Coupon barcode/code")

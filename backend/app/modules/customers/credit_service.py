@@ -502,6 +502,93 @@ class CustomerCreditService:
         ).order_by(
             CustomerCreditsSettle.created_date.desc()
         ).offset(skip).limit(limit).all()
+
+    def get_payment_report(
+        self,
+        db: Session,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+        customer_id: Optional[int] = None,
+        branch_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get consolidated customer payment report with one efficient DB query."""
+        # Query settlements joined with customer
+        settle_query = db.query(
+            CustomerCreditsSettle,
+            Customer.customer_name,
+        ).join(Customer, CustomerCreditsSettle.customer_id == Customer.id)
+
+        if date_from:
+            settle_query = settle_query.filter(CustomerCreditsSettle.created_date >= date_from)
+        if date_to:
+            settle_query = settle_query.filter(CustomerCreditsSettle.created_date <= date_to)
+        if customer_id:
+            settle_query = settle_query.filter(CustomerCreditsSettle.customer_id == customer_id)
+        if branch_code:
+            settle_query = settle_query.filter(CustomerCreditsSettle.branch_code == branch_code)
+
+        settlement_rows = settle_query.order_by(CustomerCreditsSettle.created_date.desc()).all()
+
+        if not settlement_rows:
+            return {
+                "items": [],
+                "summary": {
+                    "total_amount": 0.0,
+                    "total_count": 0,
+                    "credit_settlements": 0.0,
+                    "credit_settlements_count": 0,
+                },
+            }
+
+        # Get all transactions + invoice_no in a single query
+        settle_ids = [row[0].id for row in settlement_rows]
+        txn_rows = (
+            db.query(CustomerCreditsSettleTransaction, Invoice.invoice_no)
+            .join(Invoice, CustomerCreditsSettleTransaction.invoice_id == Invoice.id, isouter=True)
+            .filter(CustomerCreditsSettleTransaction.customer_credit_settle_id.in_(settle_ids))
+            .all()
+        )
+
+        # Group transactions by settlement id
+        txn_by_settle: Dict[int, list] = {}
+        for txn, inv_no in txn_rows:
+            sid = txn.customer_credit_settle_id
+            txn_by_settle.setdefault(sid, []).append((txn, inv_no))
+
+        # Build report items
+        items = []
+        for settle, customer_name in settlement_rows:
+            txns = txn_by_settle.get(settle.id, [])
+            total_amount = float(sum(txn.payment_amount for txn, _ in txns))
+            methods = list(dict.fromkeys(txn.payment_method for txn, _ in txns if txn.payment_method))
+            inv_refs = list(dict.fromkeys(inv_no for _, inv_no in txns if inv_no))
+            remarks_parts = [txn.remarks for txn, _ in txns if txn.remarks]
+
+            date_str = settle.created_date.isoformat() if settle.created_date else ""
+
+            items.append({
+                "id": settle.id,
+                "date": date_str,
+                "customer_id": settle.customer_id,
+                "customer_name": customer_name,
+                "document_no": settle.customer_credits_settle_no or f"CS-{settle.id}",
+                "invoice_refs": ", ".join(inv_refs) if inv_refs else "-",
+                "payment_method": ", ".join(methods) if methods else "-",
+                "amount": total_amount,
+                "branch_code": settle.branch_code or "-",
+                "remarks": "; ".join(remarks_parts) if remarks_parts else "",
+            })
+
+        grand_total = sum(i["amount"] for i in items)
+        return {
+            "items": items,
+            "summary": {
+                "total_amount": grand_total,
+                "total_count": len(items),
+                "credit_settlements": grand_total,
+                "credit_settlements_count": len(items),
+            },
+        }
     
     def get_invoice_payment_history(
         self, 
@@ -688,5 +775,71 @@ class CustomerCreditService:
             "current_balance": float(running_balance),
             "statement_lines": lines
         }
+
+    def get_outstanding_documents(
+        self,
+        db: Session,
+        customer_id: Optional[int] = None,
+        branch_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get all outstanding (unpaid/partial) credit invoices across all customers.
+        Only includes completed invoices with credit_amount > 0 that haven't been fully settled."""
+        query = db.query(Invoice, Customer).join(
+            Customer, Invoice.customer_id == Customer.id
+        ).filter(
+            Invoice.credit_amount > 0,
+            Invoice.status == True,
+            Invoice.approval_status == "completed",
+        )
+        if customer_id:
+            query = query.filter(Invoice.customer_id == customer_id)
+        if branch_code:
+            query = query.filter(Invoice.branch_code == branch_code)
+
+        rows = query.order_by(Invoice.created_date.desc()).all()
+
+        items: list[Dict[str, Any]] = []
+        total_outstanding = Decimal("0")
+        total_overdue = Decimal("0")
+        overdue_count = 0
+
+        for invoice, customer in rows:
+            remaining = self._get_invoice_remaining_credit(db, invoice.id, invoice.credit_amount)
+            if remaining <= 0:
+                continue
+            due_date = self.calculate_due_date(invoice.created_date, customer.credit_days)
+            days_overdue = (tz.today() - due_date).days
+            is_overdue = days_overdue > 0
+
+            total_outstanding += remaining
+            if is_overdue:
+                total_overdue += remaining
+                overdue_count += 1
+
+            items.append({
+                "invoice_id": invoice.id,
+                "invoice_no": invoice.invoice_no,
+                "invoice_date": str(invoice.created_date),
+                "customer_id": customer.id,
+                "customer_name": customer.customer_name,
+                "credit_amount": float(invoice.credit_amount),
+                "paid_amount": float(invoice.credit_amount - remaining),
+                "balance_due": float(remaining),
+                "due_date": str(due_date),
+                "days_overdue": max(days_overdue, 0),
+                "is_overdue": is_overdue,
+                "branch_code": invoice.branch_code,
+            })
+
+        return {
+            "items": items,
+            "summary": {
+                "total_documents": len(items),
+                "total_outstanding": float(total_outstanding),
+                "total_overdue": float(total_overdue),
+                "overdue_count": overdue_count,
+            },
+        }
+
 
 customer_credit_service = CustomerCreditService()

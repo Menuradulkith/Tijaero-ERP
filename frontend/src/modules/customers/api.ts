@@ -276,7 +276,85 @@ export const customersApi = {
     );
     return response.data;
   },
+
+  getPaymentReport: async (params?: {
+    date_from?: string;
+    date_to?: string;
+    customer_id?: number;
+    branch_code?: string;
+  }) => {
+    const response = await apiClient.get<CustomerPaymentReport>(
+      "/customers/payments/report",
+      { params }
+    );
+    return response.data;
+  },
+
+  getOutstandingDocuments: async (params?: {
+    customer_id?: number;
+    branch_code?: string;
+  }) => {
+    const response = await apiClient.get<OutstandingDocumentsReport>(
+      "/customers/outstanding-documents",
+      { params }
+    );
+    return response.data;
+  },
 };
+
+// Customer payment report types
+export interface CustomerPaymentReportItem {
+  id: number;
+  date: string;
+  customer_id: number;
+  customer_name: string;
+  document_no: string;
+  invoice_refs: string;
+  payment_method: string;
+  amount: number;
+  branch_code: string;
+  remarks: string;
+}
+
+export interface CustomerPaymentReportSummary {
+  total_amount: number;
+  total_count: number;
+  credit_settlements: number;
+  credit_settlements_count: number;
+}
+
+export interface CustomerPaymentReport {
+  items: CustomerPaymentReportItem[];
+  summary: CustomerPaymentReportSummary;
+}
+
+// Outstanding Documents types
+export interface OutstandingDocumentItem {
+  invoice_id: number;
+  invoice_no: string;
+  invoice_date: string;
+  customer_id: number;
+  customer_name: string;
+  credit_amount: number;
+  paid_amount: number;
+  balance_due: number;
+  due_date: string;
+  days_overdue: number;
+  is_overdue: boolean;
+  branch_code: string;
+}
+
+export interface OutstandingDocumentSummary {
+  total_documents: number;
+  total_outstanding: number;
+  total_overdue: number;
+  overdue_count: number;
+}
+
+export interface OutstandingDocumentsReport {
+  items: OutstandingDocumentItem[];
+  summary: OutstandingDocumentSummary;
+}
 
 
 // ==================== COUPON API ====================
