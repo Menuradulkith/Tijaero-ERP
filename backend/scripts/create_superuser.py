@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from datetime import date
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -25,12 +26,23 @@ def create_superuser(email: str, username: str, password: str):
         existing_user.is_active = True
     else:
         print(f"Creating new superuser {username}...")
+        today = date.today()
         user = User(
             email=email,
             username=username,
             hashed_password=get_password_hash(password),
             is_superuser=True,
             is_active=True,
+            first_name="Admin",
+            last_name="User",
+            gender="male",
+            is_staff=True,
+            date_joined=today,
+            birthdate=today,
+            employee_id="ADMIN-001",
+            verify=True,
+            blocked=False,
+            occupation="Administrator",
         )
         db.add(user)
 

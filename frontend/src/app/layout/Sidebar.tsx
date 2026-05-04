@@ -194,6 +194,12 @@ const menuItems: MenuItem[] = [
         permission: PERMISSIONS.GRN_VIEW,
       },
       {
+        text: "Supplier Voucher Payment",
+        icon: <ReceiptLongIcon />,
+        path: "/purchasing/invoices",
+        permission: PERMISSIONS.PURCHASE_ORDERS_VIEW,
+      },
+      {
         text: "Purchase Returns",
         icon: <AssignmentReturnIcon />,
         path: "/purchasing/returns",
@@ -332,6 +338,18 @@ const menuItems: MenuItem[] = [
             icon: <TrendingUpIcon />,
             path: "/finance/cash-flow",
             permission: PERMISSIONS.CASH_FLOW_VIEW,
+          },
+          {
+            text: "Income Statement",
+            icon: <AssessmentIcon />,
+            path: "/finance/income-statement",
+            permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
+          },
+          {
+            text: "Balance Sheet",
+            icon: <BalanceIcon />,
+            path: "/finance/balance-sheet",
+            permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
           },
         ],
       },

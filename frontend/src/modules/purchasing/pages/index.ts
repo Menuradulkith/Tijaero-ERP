@@ -2,5 +2,6 @@ export { default as SuppliersPage } from "./SuppliersPage";
 export { default as PurchaseOrdersPage } from "./PurchaseOrdersPage";
 export { default as PurchaseReturnsPage } from "./PurchaseReturnsPage";
 export { default as GoodReceivedNotesPage } from "./GoodReceivedNotesPage";
+export { default as PurchaseInvoicesPage } from "./PurchaseInvoicesPage";
 export { default as PurchasingDashboard } from "./PurchasingDashboard";
 export { default as CreditSettlementPage } from "./CreditSettlementPage";

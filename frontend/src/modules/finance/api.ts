@@ -471,6 +471,34 @@ export const generalLedgerApi = {
   },
 };
 
+// Financial Reports API
+export const financialReportsApi = {
+  getIncomeStatement: async (params: {
+    fiscal_year: number;
+    fiscal_period?: number;
+    date_from?: string;
+    date_to?: string;
+  }) => {
+    const { IncomeStatementResponse } = await import("./types");
+    const response = await apiClient.get<import("./types").IncomeStatementResponse>(
+      `${ACCT_BASE}/reports/income-statement`,
+      { params }
+    );
+    return response.data;
+  },
+
+  getBalanceSheet: async (params: {
+    fiscal_year: number;
+    as_of_date?: string;
+  }) => {
+    const response = await apiClient.get<import("./types").BalanceSheetResponse>(
+      `${ACCT_BASE}/reports/balance-sheet`,
+      { params }
+    );
+    return response.data;
+  },
+};
+
 // Accounting Periods API
 export const accountingPeriodsApi = {
   getAll: async (params?: {

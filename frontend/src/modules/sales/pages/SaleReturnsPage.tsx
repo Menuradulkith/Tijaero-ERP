@@ -321,9 +321,11 @@ export default function SaleReturnsPage() {
         getNextNumber('SR', (returns || []).map((r: any) => ({ no: r.sale_return_no }))),
     [returns]);
 
+    // Only fetch invoices when user is creating/editing (for the Autocomplete dropdown)
     const { data: invoices } = useQuery({
         queryKey: ["sales"],
         queryFn: () => salesApi.getAll(),
+        enabled: isCreating || isEditing,
     });
 
     const getProductName = useCallback((productId?: number) => {
@@ -353,7 +355,7 @@ export default function SaleReturnsPage() {
             (ret) =>
                 ret.sale_return_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 String(ret.id).includes(searchQuery) ||
-                getInvoiceNo(ret.invoice_id).toLowerCase().includes(searchQuery.toLowerCase())
+                getInvoiceNo(ret).toLowerCase().includes(searchQuery.toLowerCase())
         );
 
         // Apply branch filter
@@ -414,10 +416,9 @@ export default function SaleReturnsPage() {
     const canDelete = usePermission("sales_returns", "delete");
 
     // Helper functions
-    const getInvoiceNo = useCallback((invoiceId: number) => {
-        const invoice = invoices?.find((i) => i.id === invoiceId);
-        return invoice ? invoice.invoice_no : `INV-${invoiceId}`;
-    }, [invoices]);
+    const getInvoiceNo = useCallback((ret: SaleReturn) => {
+        return ret.invoice_no || `INV-${ret.invoice_id}`;
+    }, []);
 
     const getStatus = useCallback((ret: SaleReturn) => {
         return ret.status || (ret.approval_id ? "approved" : "pending");
@@ -609,7 +610,7 @@ export default function SaleReturnsPage() {
                                 <>
                                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                         <Typography component="span" variant="caption">
-                                            {getInvoiceNo(ret.invoice_id)}
+                                            {getInvoiceNo(ret)}
                                         </Typography>
                                         <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                                             (Invoice)
@@ -639,7 +640,7 @@ export default function SaleReturnsPage() {
                             )}
                         </Box>
                     }
-                    secondaryText={!isSelected ? `Invoice: ${getInvoiceNo(ret.invoice_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
+                    secondaryText={!isSelected ? `Invoice: ${getInvoiceNo(ret)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
                     isFavorite={favorites.includes(ret.id)}
                     onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
                     statusChip={!isSelected ? { label: getStatusProps(getStatus(ret), "salesReturn").label, color: getStatusProps(getStatus(ret), "salesReturn").color } : undefined}

@@ -821,6 +821,7 @@ export interface PaymentReportItem {
   supplier_name: string;
   document_no: string;
   po_no: string | null;
+  invoice_no: string | null;
   grn_reference: string | null;
   payment_method: string | null;
   amount: number;
@@ -949,6 +950,18 @@ export const supplierAdvancePaymentsApi = {
     const response = await apiClient.get<SupplierAdvanceApplication[]>(
       `/purchasing/grn/${grnId}/advance-applications`
     );
+    return response.data;
+  },
+
+  getEligibleAdvancePOs: async () => {
+    const response = await apiClient.get<{
+      po_id: number;
+      po_no: string;
+      supplier_id: number;
+      supplier_name: string;
+      branch_code: string;
+      remaining_amount: number;
+    }[]>("/purchasing/eligible-advance-pos");
     return response.data;
   },
 };

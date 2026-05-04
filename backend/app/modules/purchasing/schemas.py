@@ -127,6 +127,7 @@ class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
     total_amount: Decimal = Decimal("0.00")
     paid_amount: Decimal = Decimal("0.00")
     sales_quote_id: Optional[int] = None
+    supplier_name: Optional[str] = None  # Populated from first_supplier relationship
     
     @field_validator('status', mode='before')
     @classmethod
@@ -169,6 +170,9 @@ class PurchasingReturn(PurchasingReturnBase, TijaeroBaseSchema):
     status: str = DocumentStatus.DRAFT
     approved_date: Optional[datetime] = None
     approval_id: Optional[int] = None
+    grn_no: Optional[str] = None  # Populated from good_received_note relationship
+    po_no: Optional[str] = None  # Populated from GRN→PO
+    supplier_name: Optional[str] = None  # Populated from GRN→PO→supplier
 
 class PurchasingReturnWithItems(PurchasingReturn):
     items: List[PurchasingReturnItem] = []
@@ -232,6 +236,8 @@ class GoodReceivedNote(GoodReceivedNoteBase, TijaeroBaseSchema):
     id: int
     created_date: date
     added_date: datetime
+    po_no: Optional[str] = None  # Populated from purchasing_order relationship
+    supplier_name: Optional[str] = None  # Populated from PO→supplier
 
 class GoodReceivedItemBase(BaseModel):
     good_received_note: str
@@ -504,6 +510,7 @@ class PaymentReportItem(BaseModel):
     supplier_name: str
     document_no: str
     po_no: Optional[str] = None
+    invoice_no: Optional[str] = None
     grn_reference: Optional[str] = None
     payment_method: Optional[str] = None
     amount: float

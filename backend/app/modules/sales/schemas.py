@@ -174,6 +174,7 @@ class SaleReturn(SaleReturnBase):
     cheque_date: date
     approval_id: Optional[int] = None
     status: str = "pending"
+    invoice_no: Optional[str] = None  # Loaded from invoice relationship
     # Totals
     subtotal: float = 0
     tax_refund: float = 0

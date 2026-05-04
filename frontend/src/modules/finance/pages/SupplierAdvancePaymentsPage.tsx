@@ -84,7 +84,7 @@ const INITIAL_FORM_DATA: Partial<SupplierAdvancePaymentCreate> = {
   supplier_id: 0,
   purchasing_order_id: undefined,
   payment_date: new Date().toISOString().split("T")[0],
-  payment_method: "Bank Transfer",
+  payment_method: "",
   original_amount: 0,
   reference_number: "",
   bank_name: "",
@@ -222,39 +222,11 @@ export default function SupplierAdvancePaymentsPage() {
 
   const trackingRemainingAmount = Math.max(0, trackingOriginalAmount - trackingAppliedAmount);
 
-  // Fetch eligible PO list globally for PO-first advance flow
+  // Fetch eligible PO list from dedicated backend endpoint (single query)
   const { data: eligibleAdvancePOs = [] } = useQuery({
-    queryKey: ["eligible-advance-pos", suppliers.length],
+    queryKey: ["eligible-advance-pos"],
     queryFn: async (): Promise<EligibleAdvancePOOption[]> => {
-      const statuses = await Promise.all(
-        suppliers.map(async (supplier: Supplier) => {
-          try {
-            return await supplierCreditApi.getPaymentStatus(supplier.id);
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      const options: EligibleAdvancePOOption[] = [];
-      for (const status of statuses) {
-        if (!status) continue;
-        for (const po of status.non_credit_purchase_orders || []) {
-          const isEligible = po.status === "approved" && !po.has_grn && po.remaining_amount > 0;
-          if (!isEligible) continue;
-          options.push({
-            po_id: po.po_id,
-            po_no: po.po_no,
-            supplier_id: status.supplier_id,
-            supplier_name: status.supplier_name,
-            branch_code: po.branch_code,
-            remaining_amount: po.remaining_amount,
-          });
-        }
-      }
-
-      options.sort((a, b) => a.po_no.localeCompare(b.po_no));
-      return options;
+      return await supplierAdvancePaymentsApi.getEligibleAdvancePOs();
     },
     enabled: isCreating && suppliers.length > 0,
   });
@@ -386,6 +358,9 @@ export default function SupplierAdvancePaymentsPage() {
       case "payment_date":
         if (!formData.payment_date) return "Payment date is required";
         break;
+      case "payment_method":
+        if (!formData.payment_method) return "Payment method is required";
+        break;
     }
     return undefined;
   };
@@ -400,7 +375,8 @@ export default function SupplierAdvancePaymentsPage() {
     !!formData.branch_code &&
     !!formData.original_amount &&
     formData.original_amount > 0 &&
-    !!formData.payment_date;
+    !!formData.payment_date &&
+    !!formData.payment_method;
 
   const isSaving = createMutation.isPending;
 
@@ -498,15 +474,7 @@ export default function SupplierAdvancePaymentsPage() {
                       Rs. {fmtLKR(Number(adv.original_amount || 0))}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Original)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption" sx={{ color: "success.main" }}>
-                      Rs. {fmtLKR(Number(adv.remaining_amount || 0))}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Remaining)
+                      (Applied)
                     </Typography>
                   </Box>
                   {adv.purchasing_order_id && (
@@ -589,8 +557,8 @@ export default function SupplierAdvancePaymentsPage() {
         onNew={handleNewAdvance}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredAdvances)}
-        onDelete={canDelete ? handleDelete : undefined}
-        canDelete={canDelete}
+        onDelete={undefined}
+        canDelete={false}
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -705,9 +673,16 @@ export default function SupplierAdvancePaymentsPage() {
                 select
                 label="Payment Method"
                 size="small"
-                value={formData.payment_method || "Bank Transfer"}
-                onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+                value={formData.payment_method || ""}
+                onChange={(e) => {
+                  setFormData({ ...formData, payment_method: e.target.value });
+                  handleBlur("payment_method");
+                }}
+                onBlur={() => handleBlur("payment_method")}
                 disabled={!isEditing && !isCreating}
+                required
+                error={hasError("payment_method")}
+                helperText={getFieldError("payment_method")}
               >
                 {GENERIC_PAYMENT_METHOD.map((option) => (
                   <MenuItem key={option.value} value={option.value}>

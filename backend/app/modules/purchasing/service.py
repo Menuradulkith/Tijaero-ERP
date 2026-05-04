@@ -4,6 +4,7 @@ from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
 from . import models, schemas, repository
+from .invoice_models import PurchaseInvoice, PurchaseInvoicePayment
 from fastapi import HTTPException, status
 from app.core import timezone as tz
 from app.common.audit import log_audit
@@ -818,6 +819,8 @@ class GoodReceivedNoteService:
 
         normalized_invoice_no = (grn.supplier_invoice_no or "").strip().lower()
         if normalized_invoice_no:
+            # with_for_update ensures that two concurrent GRNs for the same
+            # supplier invoice number do not both pass this check simultaneously.
             duplicate_invoice_grn = (
                 self.db.query(models.GoodReceivedNote)
                 .join(
@@ -829,6 +832,7 @@ class GoodReceivedNoteService:
                     == normalized_invoice_no,
                     models.PurchasingOrder.first_suppliers_id == po.first_suppliers_id,
                 )
+                .with_for_update(skip_locked=False)
                 .first()
             )
             if duplicate_invoice_grn:
@@ -1453,7 +1457,14 @@ class SupplierCreditsSettleService:
     
     def cancel_settlement(self, settle_id: int, verified_by: int = None) -> models.SupplierCreditsSettle:
         """Cancel a credit settlement"""
-        settle = self.repo.get_by_id(settle_id)
+        # Lock the row to prevent two concurrent cancellation requests from
+        # both passing the status check.
+        settle = (
+            self.db.query(models.SupplierCreditsSettle)
+            .filter(models.SupplierCreditsSettle.id == settle_id)
+            .with_for_update()
+            .first()
+        )
         if not settle:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1719,7 +1730,65 @@ class SupplierPaymentService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot cancel payment with status '{payment.status}'"
             )
-        
+
+        # Reverse any PurchaseInvoicePayment allocations so that the linked
+        # invoices are restored to their pre-payment state.
+        allocations = (
+            self.db.query(PurchaseInvoicePayment)
+            .filter(PurchaseInvoicePayment.supplier_payment_id == payment_id)
+            .all()
+        )
+        if allocations:
+            for alloc in allocations:
+                invoice = (
+                    self.db.query(PurchaseInvoice)
+                    .filter(PurchaseInvoice.id == alloc.purchase_invoice_id)
+                    .with_for_update()
+                    .first()
+                )
+                if not invoice:
+                    continue
+
+                # Reverse the allocation
+                invoice.paid_amount = max(
+                    Decimal("0"),
+                    (invoice.paid_amount or Decimal("0")) - alloc.allocated_amount,
+                )
+                invoice.balance_due = invoice.total_amount - invoice.paid_amount
+
+                # Restore invoice status
+                if invoice.balance_due <= Decimal("0"):
+                    # Still fully covered by other payments (shouldn't happen
+                    # for a pending-only payment, but guard anyway)
+                    invoice.balance_due = Decimal("0")
+                    invoice.payment_status = "paid"
+                    invoice.status = "paid"
+                elif invoice.paid_amount > Decimal("0"):
+                    invoice.payment_status = "partial"
+                    invoice.status = "partially_paid"
+                else:
+                    invoice.payment_status = "unpaid"
+                    invoice.status = "unpaid"
+
+                # Re-deduct supplier credit for credit invoices whose credit
+                # was prematurely restored when the payment was created.
+                if invoice.payment_type == "credit" and invoice.status != "paid":
+                    supplier_obj = (
+                        self.db.query(models.Supplier)
+                        .filter(models.Supplier.id == invoice.supplier_id)
+                        .with_for_update()
+                        .first()
+                    )
+                    if supplier_obj and supplier_obj.left_credit_amount is not None:
+                        supplier_obj.left_credit_amount = max(
+                            0,
+                            int(supplier_obj.left_credit_amount) - int(invoice.total_amount or 0),
+                        )
+
+            # Delete the allocation records now that they are reversed
+            for alloc in allocations:
+                self.db.delete(alloc)
+
         return self.repo.cancel(payment_id, remarks=remarks)
     
     def delete_payment(self, payment_id: int) -> bool:

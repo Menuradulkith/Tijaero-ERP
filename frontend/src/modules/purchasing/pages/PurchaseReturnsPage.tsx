@@ -319,15 +319,18 @@ export default function PurchaseReturnsPage() {
   const { data: grns } = useQuery({
     queryKey: ["goodReceivedNotes"],
     queryFn: () => goodReceivedNotesApi.getAll(),
+    enabled: isCreating || isEditing,
   });
 
   const { data: purchaseOrders } = useQuery({
     queryKey: ["purchaseOrders"],
     queryFn: () => purchaseOrdersApi.getAll(),
+    enabled: isCreating || isEditing,
   });
 
-  // Load suppliers for filter
+  // Load suppliers for filter and form
   useEffect(() => {
+    if (!isCreating && !isEditing && !filterSupplier) return;
     const loadSuppliers = async () => {
       try {
         const data = await suppliersApi.getAll();
@@ -337,7 +340,7 @@ export default function PurchaseReturnsPage() {
       }
     };
     loadSuppliers();
-  }, []);
+  }, [isCreating, isEditing, filterSupplier]);
 
   const filteredReturns = useMemo(() => {
     if (!returns) return [];
@@ -358,18 +361,12 @@ export default function PurchaseReturnsPage() {
       filtered = filtered.filter(ret => ret.status === filterStatus);
     }
 
-    // Apply supplier filter (through GRN → PO → Supplier)
-    if (filterSupplier && grns && purchaseOrders) {
-      // Get GRN IDs for the selected supplier
-      const grnIdsForSupplier = new Set(
-        grns
-          .filter((grn: GoodReceivedNote) => {
-            const po = purchaseOrders.find((po: PurchasingOrder) => po.id === grn.purchasingorders_id);
-            return po && (po.first_suppliers_id === filterSupplier || po.second_suppliers_id === filterSupplier);
-          })
-          .map((grn: GoodReceivedNote) => grn.id)
-      );
-      filtered = filtered.filter(ret => grnIdsForSupplier.has(ret.goodreceivednote_id));
+    // Apply supplier filter
+    if (filterSupplier) {
+      const supplierName = suppliers.find(s => s.id === filterSupplier)?.full_name;
+      if (supplierName) {
+        filtered = filtered.filter(ret => ret.supplier_name === supplierName);
+      }
     }
 
     filtered.sort((a, b) => {
@@ -382,7 +379,7 @@ export default function PurchaseReturnsPage() {
     });
 
     return filtered;
-  }, [returns, searchQuery, sortField, filterBranch, filterStatus, filterSupplier, grns, purchaseOrders]);
+  }, [returns, searchQuery, sortField, filterBranch, filterStatus, filterSupplier, suppliers]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -404,13 +401,18 @@ export default function PurchaseReturnsPage() {
   });
 
   // Helper functions (moved up for use in callbacks)
-  const getGRNNumber = useCallback((grnId: number) => {
+  const getGRNNumberById = useCallback((grnId: number) => {
     const grn = grns?.find((g: GoodReceivedNote) => g.id === grnId);
     return grn ? grn.good_received_no : "Unknown";
   }, [grns]);
 
-  const getSupplierName = useCallback((grnId: number) => {
-    const grn = grns?.find((g: GoodReceivedNote) => g.id === grnId);
+  const getGRNNumber = useCallback((ret: PurchasingReturn) => {
+    return ret.grn_no || getGRNNumberById(ret.goodreceivednote_id);
+  }, [getGRNNumberById]);
+
+  const getSupplierName = useCallback((ret: PurchasingReturn) => {
+    if (ret.supplier_name) return ret.supplier_name;
+    const grn = grns?.find((g: GoodReceivedNote) => g.id === ret.goodreceivednote_id);
     if (!grn) return "N/A";
     const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === grn.purchasingorders_id);
     if (!po) return "N/A";
@@ -460,7 +462,7 @@ export default function PurchaseReturnsPage() {
           product_name: response.product_name || "Unknown Product",
           purchasing_price: response.purchasing_price || 0,
           grn_id: formData.goodreceivednote_id,
-          grn_no: getGRNNumber(formData.goodreceivednote_id),
+          grn_no: getGRNNumberById(formData.goodreceivednote_id),
           supplier_name: "",
           branch_code: formData.branch_code,
         };
@@ -489,7 +491,7 @@ export default function PurchaseReturnsPage() {
     } finally {
       setIsValidating(false);
     }
-  }, [formData.goodreceivednote_id, formData.branch_code, grns, lineItems, getGRNNumber]);
+  }, [formData.goodreceivednote_id, formData.branch_code, grns, lineItems, getGRNNumberById]);
 
   const handleBarcodeKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -702,7 +704,7 @@ export default function PurchaseReturnsPage() {
                 <>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      {getGRNNumber(ret.goodreceivednote_id)}
+                      {getGRNNumber(ret)}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                       (GRN)
@@ -732,7 +734,7 @@ export default function PurchaseReturnsPage() {
               )}
             </Box>
           }
-          secondaryText={!isSelected ? `GRN: ${getGRNNumber(ret.goodreceivednote_id)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
+          secondaryText={!isSelected ? `GRN: ${getGRNNumber(ret)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
           isFavorite={favorites.includes(ret.id)}
           onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
           statusChip={!isSelected ? { label: getStatusProps(ret.status || "pending", "purchaseReturn").label, color: getStatusProps(ret.status || "pending", "purchaseReturn").color } : undefined}
@@ -861,7 +863,7 @@ export default function PurchaseReturnsPage() {
                   <TextField
                     label="Supplier Name"
                     size="small"
-                    value={getSupplierName(formData.goodreceivednote_id)}
+                    value={getSupplierName({ goodreceivednote_id: formData.goodreceivednote_id } as PurchasingReturn)}
                     disabled
                     helperText="Auto-filled from GRN"
                   />
@@ -1080,18 +1082,7 @@ export default function PurchaseReturnsPage() {
                                   {item.added_date ? new Date(item.added_date).toLocaleDateString() : (isCreating ? "New" : "-")}
                                 </TableCell>
                                 <TableCell align="right">
-                                  {(isEditing || isCreating) ? (
-                                    <TextField
-                                      size="small"
-                                      type="number"
-                                      value={item.purchasing_price}
-                                      onChange={(e) => handleUpdateLineItem(item._id, "purchasing_price", parseFloat(e.target.value) || 0)}
-                                      sx={{ width: 100 }}
-                                      inputProps={{ min: 0, step: 0.01 }}
-                                    />
-                                  ) : (
-                                    fmtLKR(Number(item.purchasing_price) || 0)
-                                  )}
+                                  {fmtLKR(Number(item.purchasing_price) || 0)}
                                 </TableCell>
                                 <TableCell align="right">
                                   {(isEditing || isCreating) ? (

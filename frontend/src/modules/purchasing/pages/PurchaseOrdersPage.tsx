@@ -976,8 +976,9 @@ export default function PurchaseOrdersPage() {
     }
   }, [selectedOrder, setFormData, handleNewOrderBase]);
 
-  const getSupplierName = (supplierId: number) => {
-    const supplier = suppliers?.find((s: Supplier) => s.id === supplierId);
+  const getSupplierName = (order: PurchasingOrder) => {
+    if (order.supplier_name) return order.supplier_name;
+    const supplier = suppliers?.find((s: Supplier) => s.id === order.first_suppliers_id);
     return supplier ? supplier.full_name : "Unknown";
   };
 
@@ -1155,7 +1156,7 @@ export default function PurchaseOrdersPage() {
                     }}
                   >
                     <Typography component="span" variant="caption">
-                      {getSupplierName(order.first_suppliers_id)}
+                      {getSupplierName(order)}
                     </Typography>
                     <Typography
                       component="span"
@@ -1206,7 +1207,7 @@ export default function PurchaseOrdersPage() {
           }
           secondaryText={
             !isSelected
-              ? `${getSupplierName(order.first_suppliers_id)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`
+              ? `${getSupplierName(order)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`
               : undefined
           }
           isFavorite={favorites.includes(order.id)}
@@ -1458,25 +1459,6 @@ export default function PurchaseOrdersPage() {
                       />
                     )}
                   />
-                  <TextField
-                    select
-                    label="Payment Method"
-                    size="small"
-                    value={formData.payment_method}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        payment_method: e.target.value,
-                      })
-                    }
-                    disabled={!isEditing && !isCreating}
-                  >
-                    {PURCHASE_ORDER_PAYMENT_METHOD.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
                 </FormSection>
 
                 <FormSection title="Dates & Payment" columns={3}>

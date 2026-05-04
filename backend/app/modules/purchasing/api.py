@@ -15,6 +15,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from . import schemas, service
+from .models import PurchasingOrder, PurchasingOrderItems, GoodReceivedNote, Supplier, SupplierAdvancePayment
 
 router = APIRouter(prefix="/purchasing", tags=["purchasing"])
 
@@ -29,12 +30,15 @@ def _serialize_order_with_user_fields(
     created_by: Optional[int],
     approved_by: Optional[int],
     user_name_map: Dict[int, str],
+    supplier_name_map: Optional[Dict[int, str]] = None,
 ) -> Dict[str, Any]:
     payload = schemas.PurchasingOrder.model_validate(order).model_dump()
     payload["created_by"] = created_by
     payload["created_by_name"] = user_name_map.get(created_by) if created_by else None
     payload["approved_by"] = approved_by
     payload["approved_by_name"] = user_name_map.get(approved_by) if approved_by else None
+    if supplier_name_map and order.first_suppliers_id:
+        payload["supplier_name"] = supplier_name_map.get(order.first_suppliers_id)
     return payload
 
 
@@ -93,9 +97,83 @@ def _enrich_purchase_orders_with_user_fields(
             if order.approval_id
             else None,
             user_name_map=user_name_map,
+            supplier_name_map=_get_supplier_name_map(db, orders),
         )
         for order in orders
     ]
+
+
+def _get_supplier_name_map(db: Session, orders) -> Dict[int, str]:
+    """Batch-lookup supplier names for a list of POs."""
+    supplier_ids = list({o.first_suppliers_id for o in orders if o.first_suppliers_id})
+    if not supplier_ids:
+        return {}
+    rows = db.query(Supplier.id, Supplier.full_name).filter(Supplier.id.in_(supplier_ids)).all()
+    return {r.id: r.full_name for r in rows}
+
+
+def _enrich_grns(db: Session, grns: List[Any]) -> List[Dict[str, Any]]:
+    """Add po_no and supplier_name to GRN list responses."""
+    if not grns:
+        return []
+    po_ids = list({g.purchasingorders_id for g in grns if g.purchasingorders_id})
+    po_map: Dict[int, Any] = {}
+    if po_ids:
+        pos = db.query(
+            PurchasingOrder.id, PurchasingOrder.purchasing_order_no, PurchasingOrder.first_suppliers_id
+        ).filter(PurchasingOrder.id.in_(po_ids)).all()
+        po_map = {p.id: p for p in pos}
+    supplier_ids = list({p.first_suppliers_id for p in po_map.values() if p.first_suppliers_id})
+    supplier_map: Dict[int, str] = {}
+    if supplier_ids:
+        rows = db.query(Supplier.id, Supplier.full_name).filter(Supplier.id.in_(supplier_ids)).all()
+        supplier_map = {r.id: r.full_name for r in rows}
+    results = []
+    for g in grns:
+        payload = schemas.GoodReceivedNote.model_validate(g).model_dump()
+        po = po_map.get(g.purchasingorders_id)
+        if po:
+            payload["po_no"] = po.purchasing_order_no
+            payload["supplier_name"] = supplier_map.get(po.first_suppliers_id)
+        results.append(payload)
+    return results
+
+
+def _enrich_purchase_returns(db: Session, returns: List[Any]) -> List[Dict[str, Any]]:
+    """Add grn_no, po_no and supplier_name to PurchaseReturn list responses."""
+    if not returns:
+        return []
+    grn_ids = list({r.goodreceivednote_id for r in returns if r.goodreceivednote_id})
+    grn_map: Dict[int, Any] = {}
+    if grn_ids:
+        grns = db.query(
+            GoodReceivedNote.id, GoodReceivedNote.good_received_no, GoodReceivedNote.purchasingorders_id
+        ).filter(GoodReceivedNote.id.in_(grn_ids)).all()
+        grn_map = {g.id: g for g in grns}
+    po_ids = list({g.purchasingorders_id for g in grn_map.values() if g.purchasingorders_id})
+    po_map: Dict[int, Any] = {}
+    if po_ids:
+        pos = db.query(
+            PurchasingOrder.id, PurchasingOrder.purchasing_order_no, PurchasingOrder.first_suppliers_id
+        ).filter(PurchasingOrder.id.in_(po_ids)).all()
+        po_map = {p.id: p for p in pos}
+    supplier_ids = list({p.first_suppliers_id for p in po_map.values() if p.first_suppliers_id})
+    supplier_map: Dict[int, str] = {}
+    if supplier_ids:
+        rows = db.query(Supplier.id, Supplier.full_name).filter(Supplier.id.in_(supplier_ids)).all()
+        supplier_map = {r.id: r.full_name for r in rows}
+    results = []
+    for r in returns:
+        payload = schemas.PurchasingReturn.model_validate(r).model_dump()
+        grn = grn_map.get(r.goodreceivednote_id)
+        if grn:
+            payload["grn_no"] = grn.good_received_no
+            po = po_map.get(grn.purchasingorders_id)
+            if po:
+                payload["po_no"] = po.purchasing_order_no
+                payload["supplier_name"] = supplier_map.get(po.first_suppliers_id)
+        results.append(payload)
+    return results
 
 
 def _enrich_single_purchase_order_with_user_fields(
@@ -461,7 +539,8 @@ def list_purchase_returns(
     db: Session = Depends(get_db),
 ):
     return_service = service.PurchasingReturnService(db)
-    return return_service.list_returns(skip, limit, status_filter)
+    returns = return_service.list_returns(skip, limit, status_filter)
+    return _enrich_purchase_returns(db, returns)
 
 
 @router.post(
@@ -526,7 +605,8 @@ def list_grns(
         skip=skip,
         limit=limit,
     )
-    return grn_service.list_grns(filters)
+    grns = grn_service.list_grns(filters)
+    return _enrich_grns(db, grns)
 
 
 # GRN Update endpoint disabled - GRNs are not editable after creation
@@ -874,6 +954,91 @@ def get_supplier_payments(
 
     payment_service = service.SupplierPaymentService(db)
     return payment_service.get_supplier_payments(supplier_id, skip, limit)
+
+
+# ==================== ELIGIBLE ADVANCE POs (single-query) ====================
+
+@router.get("/eligible-advance-pos")
+def get_eligible_advance_pos(db: Session = Depends(get_db)):
+    """
+    Return approved, non-credit POs that have NO GRN and still have a remaining
+    amount > 0.  This replaces the N+1 pattern on the frontend that previously
+    called /payment-status for every single supplier.
+    """
+    from sqlalchemy import func, exists, and_
+    from decimal import Decimal
+
+    PO = PurchasingOrder
+    POI = PurchasingOrderItems
+    GRN = GoodReceivedNote
+
+    # Subquery: POs that already have at least one GRN
+    grn_exists = (
+        db.query(GRN.purchasingorders_id)
+        .filter(GRN.purchasingorders_id == PO.id)
+        .correlate(PO)
+        .exists()
+    )
+
+    # Approved, non-credit POs without a GRN
+    pos = (
+        db.query(
+            PO.id,
+            PO.purchasing_order_no,
+            PO.first_suppliers_id,
+            PO.branch_code,
+            func.coalesce(
+                func.sum(POI.quantity * POI.unit_price), 0
+            ).label("total_amount"),
+        )
+        .outerjoin(POI, POI.purchasingorders_id == PO.id)
+        .filter(
+            PO.status == "approved",
+            PO.payment_method != "credit",
+            ~grn_exists,
+        )
+        .group_by(PO.id, PO.purchasing_order_no, PO.first_suppliers_id, PO.branch_code)
+        .all()
+    )
+
+    # Supplier name lookup
+    supplier_ids = list({row.first_suppliers_id for row in pos})
+    supplier_names: dict = {}
+    if supplier_ids:
+        rows = (
+            db.query(Supplier.id, Supplier.full_name)
+            .filter(Supplier.id.in_(supplier_ids))
+            .all()
+        )
+        supplier_names = {r.id: r.full_name for r in rows}
+
+    # Build result, only include POs with remaining > 0
+    # Subtract any existing advance payments linked to this PO
+    result = []
+    for row in pos:
+        total = float(row.total_amount)
+        if total <= 0:
+            continue
+        # Subtract existing advances for this PO
+        existing_advance = db.query(
+            func.coalesce(func.sum(SupplierAdvancePayment.original_amount), 0)
+        ).filter(
+            SupplierAdvancePayment.purchasing_order_id == row.id
+        ).scalar() or 0
+        remaining = total - float(existing_advance)
+        if remaining <= 0:
+            continue
+        result.append({
+            "po_id": row.id,
+            "po_no": row.purchasing_order_no,
+            "supplier_id": row.first_suppliers_id,
+            "supplier_name": supplier_names.get(row.first_suppliers_id, ""),
+            "branch_code": row.branch_code,
+            "remaining_amount": round(remaining, 2),
+        })
+
+    result.sort(key=lambda x: x["po_no"])
+    return result
 
 
 # ==================== SUPPLIER ADVANCE PAYMENT ENDPOINTS ====================
