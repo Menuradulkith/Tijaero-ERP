@@ -17,6 +17,10 @@ from app.modules.purchasing.models import (
     GoodReceivedNote,
     GoodReceivedItems
 )
+from app.modules.purchasing.invoice_models import (
+    PurchaseInvoice,
+    PurchaseInvoicePayment,
+)
 from app.modules.purchasing import schemas
 
 
@@ -69,10 +73,24 @@ class SupplierCreditService:
         outstanding = self._calculate_outstanding_payable(db, supplier_id)
         pending_credits = self._calculate_pending_credits(db, supplier_id, exclude_po_id=exclude_po_id)
         total_exposure = float(outstanding) + float(pending_credits)
-        
+
+        # Also include invoice-based credit outstanding (new system)
+        from app.modules.purchasing.invoice_models import PurchaseInvoice
+        invoice_credit_outstanding = db.query(
+            func.coalesce(func.sum(PurchaseInvoice.balance_due), 0)
+        ).filter(
+            PurchaseInvoice.supplier_id == supplier_id,
+            PurchaseInvoice.payment_type == "credit",
+            PurchaseInvoice.status.notin_(["cancelled", "paid"]),
+            PurchaseInvoice.payment_status.in_(["unpaid", "partial"]),
+        ).scalar() or Decimal("0")
+        total_exposure += float(invoice_credit_outstanding)
+
         overdue_grns = self._get_overdue_grns(db, supplier_id, supplier.credit_days)
         unpaid_grns = self._get_unpaid_grns(db, supplier_id, supplier.credit_days)
         credit_purchase_orders = self._get_credit_purchase_orders(db, supplier_id, supplier.credit_days)
+        max_credit = float(supplier.max_credit_limit or 0)
+        computed_left_credit = max(0.0, max_credit - total_exposure)
         
         return {
             "supplier_id": supplier_id,
@@ -81,11 +99,11 @@ class SupplierCreditService:
             "credit_days": supplier.credit_days,
             "max_credit_limit": supplier.max_credit_limit,
             "initial_credit_amount": supplier.initial_credit_amount or supplier.max_credit_limit,
-            "left_credit_amount": supplier.left_credit_amount or (supplier.max_credit_limit - int(total_exposure)),
+            "left_credit_amount": computed_left_credit,
             "outstanding_payable": float(outstanding),
             "pending_credits": float(pending_credits),
             "total_exposure": total_exposure,
-            "available_credit": max(0, supplier.max_credit_limit - total_exposure),
+            "available_credit": computed_left_credit,
             "overdue_count": len(overdue_grns),
             "total_overdue_amount": sum(grn["remaining_amount"] for grn in overdue_grns),
             "overdue_grns": overdue_grns,
@@ -113,22 +131,54 @@ class SupplierCreditService:
                 detail=f"Supplier {supplier_id} not found"
             )
         
-        # Get credit purchase orders
+        # Get credit purchase orders (old PO-based system)
         credit_pos = self._get_credit_purchase_orders(db, supplier_id, supplier.credit_days)
         
         # Get non-credit purchase orders
         non_credit_pos = self._get_non_credit_purchase_orders(db, supplier_id)
-        
-        # Calculate totals
+
+        # ── Invoice-based credit outstanding (new system) ──────────────
+        # Import here to avoid circular imports
+        from app.modules.purchasing.invoice_models import PurchaseInvoice
+
+        credit_invoices_outstanding = db.query(PurchaseInvoice).filter(
+            PurchaseInvoice.supplier_id == supplier_id,
+            PurchaseInvoice.payment_type == "credit",
+            PurchaseInvoice.status.notin_(["cancelled", "paid"]),
+            PurchaseInvoice.payment_status.in_(["unpaid", "partial"]),
+        ).all()
+
+        invoice_credit_outstanding = float(
+            sum(inv.balance_due or 0 for inv in credit_invoices_outstanding)
+        )
+        invoice_credit_overdue = [
+            inv for inv in credit_invoices_outstanding
+            if inv.due_date and inv.due_date < tz.today()
+        ]
+
+        # ── Calculate totals ───────────────────────────────────────────
         credit_outstanding = sum(po["remaining_amount"] for po in credit_pos if not po["is_settled"])
+        # Merge: add invoice-based amounts that are NOT already covered by PO-based
+        # (They're separate flows — invoice-based is the NEW system, PO-based is the old)
+        combined_credit_outstanding = credit_outstanding + invoice_credit_outstanding
+
         non_credit_outstanding = sum(po["remaining_amount"] for po in non_credit_pos if not po["is_paid"])
-        total_outstanding = credit_outstanding + non_credit_outstanding
-        
+        total_outstanding = combined_credit_outstanding + non_credit_outstanding
+
         credit_overdue = [po for po in credit_pos if po["is_overdue"] and not po["is_settled"]]
         non_credit_overdue = [po for po in non_credit_pos if po["is_overdue"] and not po["is_paid"]]
-        total_overdue = len(credit_overdue) + len(non_credit_overdue)
-        total_overdue_amount = sum(po["remaining_amount"] for po in credit_overdue) + sum(po["remaining_amount"] for po in non_credit_overdue)
-        
+        total_overdue = len(credit_overdue) + len(non_credit_overdue) + len(invoice_credit_overdue)
+        total_overdue_amount = (
+            sum(po["remaining_amount"] for po in credit_overdue)
+            + sum(po["remaining_amount"] for po in non_credit_overdue)
+            + sum(float(inv.balance_due or 0) for inv in invoice_credit_overdue)
+        )
+
+        # ── Compute left_credit_amount dynamically ─────────────────────
+        # Don't rely on the stored field; calculate from max_credit_limit - outstanding credit
+        max_credit = float(supplier.max_credit_limit or 0)
+        computed_left_credit = max(0.0, max_credit - combined_credit_outstanding)
+
         # Combine all POs for unified view
         all_purchase_orders = []
         
@@ -141,6 +191,34 @@ class SupplierCreditService:
                     "paid_amount": po["settled_amount"],
                     "is_paid": po["is_settled"],
                 })
+
+        # Add invoice-based credit items into the unified view
+        for inv in credit_invoices_outstanding:
+            due_date = inv.due_date
+            days_overdue = (tz.today() - due_date).days if due_date and due_date < tz.today() else 0
+            all_purchase_orders.append({
+                "po_id": 0,
+                "po_no": inv.invoice_no,
+                "invoice_no": inv.invoice_no,
+                "po_date": str(inv.supplier_invoice_date),
+                "status": inv.status,
+                "payment_type": "credit",
+                "total_amount": float(inv.total_amount or 0),
+                "settled_amount": float(inv.paid_amount or 0),
+                "paid_amount": float(inv.paid_amount or 0),
+                "advance_applied": 0,
+                "return_amount": 0,
+                "remaining_amount": float(inv.balance_due or 0),
+                "is_settled": False,
+                "is_paid": False,
+                "has_grn": True,
+                "grn_id": None,
+                "grn_no": None,
+                "due_date": str(due_date) if due_date else str(tz.today()),
+                "days_overdue": days_overdue,
+                "is_overdue": days_overdue > 0,
+                "branch_code": inv.branch_code,
+            })
         
         # Add non-credit POs with payment_type marker
         for po in non_credit_pos:
@@ -150,8 +228,14 @@ class SupplierCreditService:
                     "payment_type": "non_credit",
                 })
         
-        # Sort by due date (oldest first)
-        all_purchase_orders.sort(key=lambda x: x["due_date"])
+        # Sort by due date (oldest first) — normalise to str to avoid date vs str comparison
+        def _due_date_key(x):
+            v = x.get("due_date", "")
+            if v is None:
+                return ""
+            return str(v)
+
+        all_purchase_orders.sort(key=_due_date_key)
         
         return {
             "supplier_id": supplier_id,
@@ -159,8 +243,8 @@ class SupplierCreditService:
             "company_name": supplier.company_name,
             "credit_days": supplier.credit_days,
             "max_credit_limit": supplier.max_credit_limit,
-            "left_credit_amount": supplier.left_credit_amount or supplier.max_credit_limit,
-            "credit_outstanding": credit_outstanding,
+            "left_credit_amount": computed_left_credit,
+            "credit_outstanding": combined_credit_outstanding,
             "non_credit_outstanding": non_credit_outstanding,
             "total_outstanding": total_outstanding,
             "overdue_count": total_overdue,
@@ -255,7 +339,22 @@ class SupplierCreditService:
                 ).filter(
                     SupplierCreditsSettleTransaction.good_received_id.in_(grn_ids)
                 ).scalar() or Decimal("0")
-                
+
+                # Also account for payments made through the Purchase Invoice system.
+                # When credit GRNs are invoiced and paid via create_payment_with_allocations(),
+                # the settlement is recorded on PurchaseInvoice, not SupplierCreditsSettleTransaction.
+                from app.modules.purchasing.invoice_models import PurchaseInvoice, PurchaseInvoiceItem as PIItem
+                invoice_paid_for_pos_grns = db.query(
+                    func.coalesce(func.sum(PurchaseInvoice.paid_amount), 0)
+                ).join(
+                    PIItem,
+                    PIItem.purchase_invoice_id == PurchaseInvoice.id
+                ).filter(
+                    PIItem.grn_id.in_(grn_ids),
+                    PurchaseInvoice.status != "cancelled",
+                ).scalar() or Decimal("0")
+                total_settled += invoice_paid_for_pos_grns
+
                 # Get advance applications for this GRN
                 total_advance_applied = db.query(
                     func.coalesce(func.sum(SupplierAdvanceApplication.applied_amount), 0)
@@ -493,6 +592,18 @@ class SupplierCreditService:
         ).filter(
             SupplierCreditsSettle.suppliers_id == supplier_id
         ).scalar() or Decimal("0")
+
+        # Also account for payments made via Purchase Invoices (new system).
+        # These are tracked in PurchaseInvoice.paid_amount rather than
+        # SupplierCreditsSettleTransaction.
+        from app.modules.purchasing.invoice_models import PurchaseInvoice
+        invoice_total_paid = db.query(
+            func.coalesce(func.sum(PurchaseInvoice.paid_amount), 0)
+        ).filter(
+            PurchaseInvoice.supplier_id == supplier_id,
+            PurchaseInvoice.payment_type == "credit",
+            PurchaseInvoice.status != "cancelled",
+        ).scalar() or Decimal("0")
         
         from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
         
@@ -516,7 +627,7 @@ class SupplierCreditService:
                     PurchasingReturnItems.purchasingreturn_id.in_(approved_return_ids)
                 ).scalar() or Decimal("0")
         
-        return total_grn_value - total_settled - total_returns
+        return total_grn_value - total_settled - invoice_total_paid - total_returns
     
     def _calculate_pending_credits(self, db: Session, supplier_id: int, exclude_po_id: Optional[int] = None) -> Decimal:
         from app.modules.purchasing.models import PurchasingOrderItems
@@ -660,7 +771,23 @@ class SupplierCreditService:
             SupplierAdvanceApplication.grn_id == grn_id
         ).scalar() or Decimal("0")
 
-        remaining = total - paid - total_returns - total_advance_applied
+        # Also account for payments made through the Purchase Invoice system.
+        # When a credit GRN is invoiced and then paid via create_payment_with_allocations(),
+        # the SupplierPayment is recorded against a PurchaseInvoice, not a
+        # SupplierCreditsSettleTransaction.  We need to subtract those paid amounts
+        # so the GRN no longer appears as outstanding after being paid this way.
+        from app.modules.purchasing.invoice_models import PurchaseInvoice, PurchaseInvoiceItem as PIItem
+        invoice_paid = db.query(
+            func.coalesce(func.sum(PurchaseInvoice.paid_amount), 0)
+        ).join(
+            PIItem,
+            PIItem.purchase_invoice_id == PurchaseInvoice.id
+        ).filter(
+            PIItem.grn_id == grn_id,
+            PurchaseInvoice.status != "cancelled",
+        ).scalar() or Decimal("0")
+
+        remaining = total - paid - total_returns - total_advance_applied - invoice_paid
         if remaining < Decimal("0"):
             return Decimal("0")
         return remaining
@@ -868,10 +995,21 @@ class SupplierCreditService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier {settlement_data.suppliers_id} not found"
             )
+        # Lock the supplier row for the duration of the settlement transaction
+        # so that concurrent settlements cannot both read a stale remaining balance.
+        db.query(Supplier).filter(
+            Supplier.id == settlement_data.suppliers_id
+        ).with_for_update().first()
+
         for trans in settlement_data.transactions:
-            grn = db.query(GoodReceivedNote).filter(
-                GoodReceivedNote.id == trans.good_received_id
-            ).first()
+            # Lock the GRN row so two concurrent settlements on the same GRN
+            # cannot both pass the remaining-balance check with stale data.
+            grn = (
+                db.query(GoodReceivedNote)
+                .filter(GoodReceivedNote.id == trans.good_received_id)
+                .with_for_update()
+                .first()
+            )
             if not grn:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -887,6 +1025,8 @@ class SupplierCreditService:
                     detail=f"GRN {trans.good_received_id} does not belong to supplier {settlement_data.suppliers_id}"
                 )
 
+            # Re-calculate remaining AFTER acquiring the GRN lock so the value
+            # cannot be stale from a concurrent in-flight settlement.
             remaining = self._get_grn_remaining_payable(db, grn.id)
             if trans.payment_amount > remaining:
                 raise HTTPException(
@@ -1230,14 +1370,26 @@ class SupplierCreditService:
             sp_query = sp_query.filter(SupplierPayment.branch_code == branch_code)
 
         for payment, supplier_name in sp_query.all():
+            # Determine label: if any allocated invoice is credit → "Credit Settlement"
+            has_credit_invoice = (
+                db.query(PurchaseInvoicePayment)
+                .join(PurchaseInvoice, PurchaseInvoice.id == PurchaseInvoicePayment.purchase_invoice_id)
+                .filter(
+                    PurchaseInvoicePayment.supplier_payment_id == payment.id,
+                    PurchaseInvoice.payment_type == "credit",
+                )
+                .first()
+            ) is not None
+            payment_type_label = "Credit Settlement" if has_credit_invoice else "Direct Payment"
             items.append({
                 "id": payment.id,
                 "date": str(payment.payment_date),
-                "type": "Direct Payment",
+                "type": payment_type_label,
                 "supplier_id": payment.supplier_id,
                 "supplier_name": supplier_name,
                 "document_no": payment.payment_no or f"PAY-{payment.id}",
                 "po_no": None,
+                "invoice_no": payment.invoice_reference,
                 "grn_reference": payment.invoice_reference,
                 "payment_method": payment.payment_method,
                 "amount": float(payment.payment_amount),

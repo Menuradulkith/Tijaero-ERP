@@ -58,9 +58,9 @@ import {
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
-import { saleReturnsApi, salesApi } from "@/modules/sales/api";
+import { saleReturnsApi } from "@/modules/sales/api";
 import { useReferenceData, ProductRef } from "@/hooks";
-import { SaleReturn, SaleReturnWithItems, Invoice } from "@/modules/sales/types";
+import { SaleReturn, SaleReturnWithItems } from "@/modules/sales/types";
 
 const SORT_OPTIONS: SortOption[] = [
     { value: "added_date", label: "Date" },
@@ -96,12 +96,6 @@ export default function SaleReturnApprovalsPage() {
         queryFn: () => saleReturnsApi.getAll(),
     });
 
-    // Fetch invoices for mapping
-    const { data: invoices = [] } = useQuery({
-        queryKey: ["sales-invoices"],
-        queryFn: () => salesApi.getAll(),
-    });
-
     // OPTIMIZED: Single API call for products and branches
     const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
     const products = refData?.products || [];
@@ -115,12 +109,6 @@ export default function SaleReturnApprovalsPage() {
     }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Create lookup maps
-    const invoiceMap = useMemo(() => {
-        const map = new Map<number, Invoice>();
-        invoices.forEach((inv) => map.set(inv.id, inv));
-        return map;
-    }, [invoices]);
-
     const productMap = useMemo(() => {
         const map = new Map<number, ProductRef>();
         products.forEach((p) => map.set(p.id, p));
@@ -139,10 +127,9 @@ export default function SaleReturnApprovalsPage() {
                 return false;
             }
             // Search filter
-            const invoice = invoiceMap.get(ret.invoice_id);
             return (
                 ret.sale_return_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                invoice?.invoice_no?.toLowerCase().includes(searchQuery.toLowerCase())
+                ret.invoice_no?.toLowerCase().includes(searchQuery.toLowerCase())
             );
         });
 
@@ -154,7 +141,7 @@ export default function SaleReturnApprovalsPage() {
         });
 
         return filtered;
-    }, [returns, searchQuery, sortField, invoiceMap, filterStatus, filterBranch]);
+    }, [returns, searchQuery, sortField, filterStatus, filterBranch]);
 
     // Handle selection
     const handleSelectReturn = useCallback(async (ret: SaleReturn) => {
@@ -246,13 +233,12 @@ export default function SaleReturnApprovalsPage() {
         }
     };
 
-    const invoice = selectedReturn ? invoiceMap.get(selectedReturn.invoice_id) : null;
+    const invoice = selectedReturn ? { invoice_no: selectedReturn.invoice_no } : null;
     const selectedIsPending = (selectedReturn?.status || "").toLowerCase() === "pending";
     const selectedIsApproved = (selectedReturn?.status || "").toLowerCase() === "approved";
 
-    const getInvoiceNumber = (invoiceId: number) => {
-        const inv = invoiceMap.get(invoiceId);
-        return inv ? inv.invoice_no : `INV-${invoiceId}`;
+    const getInvoiceNumber = (ret: SaleReturn) => {
+        return ret.invoice_no || `INV-${ret.invoice_id}`;
     };
 
     const getBranchDisplay = (branchCode: string) => {
@@ -284,7 +270,6 @@ export default function SaleReturnApprovalsPage() {
                 />
             }
             renderItem={(ret, isSelected) => {
-                const returnInvoice = invoiceMap.get(ret.invoice_id);
                 const statusChip = getStatusProps(ret.status || "pending", "salesReturn");
                 return (
                     <SelectableListItem
@@ -306,7 +291,7 @@ export default function SaleReturnApprovalsPage() {
                                     <>
                                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <Typography component="span" variant="caption">
-                                                {returnInvoice?.invoice_no || "Unknown Invoice"}
+                                                {ret.invoice_no || "Unknown Invoice"}
                                             </Typography>
                                             <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                                                 (Invoice)
@@ -342,7 +327,7 @@ export default function SaleReturnApprovalsPage() {
                         }
                         secondaryText={
                             !isSelected
-                                ? `${getInvoiceNumber(ret.invoice_id)} - ${new Date(ret.added_date || "").toLocaleDateString()}`
+                                ? `${getInvoiceNumber(ret)} - ${new Date(ret.added_date || "").toLocaleDateString()}`
                                 : undefined
                         }
                         statusChip={!isSelected ? statusChip : undefined}

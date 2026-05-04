@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SupplierPaymentsPage - Unified Supplier Payments (ERP Best Practice)
  * 
  * Following standard ERP patterns (SAP, Oracle, Odoo, ERPNext), this unified page handles:
@@ -14,7 +14,7 @@
  * - Payment history tracking
  * 
  * Workflow:
- * 1. Select supplier → View all outstanding documents
+ * 1. Select supplier ΓåÆ View all outstanding documents
  * 2. Filter by payment type (optional)
  * 3. Select document(s) to pay
  * 4. Enter payment details
@@ -94,12 +94,13 @@ import {
   supplierPaymentsApi,
   SupplierPaymentStatusData,
 } from "@/modules/purchasing/api";
+import {
+  purchaseInvoicesApi,
+  PurchaseInvoiceListItem,
+} from "@/modules/purchasing/purchaseInvoiceApi";
 import { useReferenceData } from "@/hooks";
 import {
   Supplier,
-  SupplierCreditsSettleCreate,
-  SupplierCreditsSettleTransactionCreate,
-  SupplierPaymentCreate,
 } from "@/modules/purchasing/types";
 
 // Configuration
@@ -179,6 +180,8 @@ export default function SupplierPaymentsPage() {
   const [paymentStatus, setPaymentStatus] = useState<SupplierPaymentStatusData | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [allPaymentStatuses, setAllPaymentStatuses] = useState<SupplierPaymentStatusData[]>([]);
+  const [payableInvoices, setPayableInvoices] = useState<PurchaseInvoiceListItem[]>([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
 
   const [viewMode, setViewMode] = useState<ViewMode>("overview");
   const [activeStep, setActiveStep] = useState(0);
@@ -223,18 +226,6 @@ export default function SupplierPaymentsPage() {
       setError(null);
       const data = await suppliersApi.getAll({ active: true });
       setSuppliers(data);
-      
-      // Load payment statuses for all suppliers to enable PO search
-      const statuses = await Promise.all(
-        data.map(async (supplier) => {
-          try {
-            return await supplierCreditApi.getPaymentStatus(supplier.id);
-          } catch (err) {
-            return null;
-          }
-        })
-      );
-      setAllPaymentStatuses(statuses.filter(Boolean) as SupplierPaymentStatusData[]);
     } catch (err: unknown) {
       setError(handleApiError(err, "Failed to load suppliers"));
     } finally {
@@ -260,10 +251,24 @@ export default function SupplierPaymentsPage() {
     }
   }, []);
 
+  // Load payable invoices for selected supplier
+  const loadPayableInvoices = useCallback(async (supplierId: number) => {
+    try {
+      setLoadingInvoices(true);
+      const invoices = await purchaseInvoicesApi.getPayableInvoices(supplierId);
+      setPayableInvoices(invoices);
+    } catch {
+      setPayableInvoices([]);
+    } finally {
+      setLoadingInvoices(false);
+    }
+  }, []);
+
   const refreshSelectedSupplierData = useCallback(() => {
     if (!selectedSupplier?.id) return;
     loadPaymentStatus(selectedSupplier.id);
-  }, [selectedSupplier?.id, loadPaymentStatus]);
+    loadPayableInvoices(selectedSupplier.id);
+  }, [selectedSupplier?.id, loadPaymentStatus, loadPayableInvoices]);
 
   // Refresh selected supplier data whenever user re-enters this page.
   useEffect(() => {
@@ -291,70 +296,29 @@ export default function SupplierPaymentsPage() {
 
 
 
-  // Build purchase documents (GRN-gated for supplier payments)
+  // Build purchase documents from payable invoices (invoice-based flow)
   const purchaseDocuments = useMemo((): OutstandingDocument[] => {
-    if (!paymentStatus) return [];
-
-    const docs: OutstandingDocument[] = [];
-
-    // Add credit purchase orders
-    // Show only when GRN exists
-    paymentStatus.credit_purchase_orders?.forEach((po) => {
-      if (po.has_grn && po.grn_id && (po.status === "approved" || !po.is_settled) && po.remaining_amount > 0) {
-        docs.push({
-          id: po.po_id,
-          po_id: po.po_id,
-          po_no: po.po_no,
-          invoice_no: po.invoice_no,
-          date: po.po_date,
-          due_date: po.due_date,
-          status: po.status,
-          payment_type: "credit",
-          total_amount: po.total_amount,
-          paid_amount: po.settled_amount,
-          supplier_advance_amount: po.advance_applied || 0,
-          return_amount: po.return_amount || 0,
-          remaining_amount: po.remaining_amount,
-          days_overdue: po.days_overdue,
-          is_overdue: po.is_overdue,
-          branch_code: po.branch_code,
-          has_grn: po.has_grn,
-          grn_id: po.grn_id,
-        });
-      }
-    });
-
-    // Add non-credit purchase orders (show only when GRN exists)
-    paymentStatus.non_credit_purchase_orders?.forEach((po) => {
-      if (po.has_grn && po.grn_id && (po.status === "approved" || !po.is_paid) && po.remaining_amount > 0) {
-        docs.push({
-          id: po.po_id,
-          po_id: po.po_id,
-          po_no: po.po_no,
-          invoice_no: po.invoice_no,
-          date: po.po_date,
-          due_date: po.due_date,
-          status: po.status,
-          payment_type: "non_credit",
-          payment_method: po.payment_method,
-          total_amount: po.total_amount,
-          paid_amount: po.paid_amount,
-          pending_payment_amount: po.pending_payment_amount || 0,
-          has_pending_payment: !!po.has_pending_payment,
-          supplier_advance_amount: po.advance_applied || 0,
-          return_amount: po.return_amount || 0,
-          remaining_amount: po.remaining_amount,
-          days_overdue: po.days_overdue,
-          is_overdue: po.is_overdue,
-          branch_code: po.branch_code,
-          has_grn: po.has_grn,
-          grn_id: po.grn_id,
-        });
-      }
-    });
-
-    return docs;
-  }, [paymentStatus]);
+    return payableInvoices
+      .filter((inv) => inv.balance_due - (inv.advance_amount || 0) > 0.001)
+      .map((inv) => ({
+      id: inv.id,
+      po_id: 0,
+      po_no: inv.po_nos || inv.invoice_no,  // Show PO numbers if available, fallback to invoice no
+      invoice_no: inv.invoice_no,
+      date: inv.supplier_invoice_date,
+      due_date: inv.due_date,
+      status: inv.status,
+      payment_type: (inv.payment_type === "credit" ? "credit" : "non_credit") as "credit" | "non_credit",
+      total_amount: inv.total_amount,
+      paid_amount: inv.paid_amount,
+      supplier_advance_amount: inv.advance_amount || 0,
+      return_amount: 0,
+      remaining_amount: Math.max(0, inv.balance_due - (inv.advance_amount || 0)),
+      days_overdue: inv.days_overdue,
+      is_overdue: inv.is_overdue,
+      branch_code: inv.branch_code,
+    }));
+  }, [payableInvoices]);
 
   // Transform to current tab's document list
   const outstandingDocuments = useMemo((): OutstandingDocument[] => {
@@ -447,27 +411,11 @@ export default function SupplierPaymentsPage() {
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((s) => {
-        // Search by supplier name or company name
-        const nameMatch = s.full_name.toLowerCase().includes(query) ||
-          s.company_name?.toLowerCase().includes(query);
-        
-        // Search by PO number if payment status is available
-        const poMatch = allPaymentStatuses.some(status => {
-          if (status.supplier_id !== s.id) return false;
-          
-          const creditPOMatch = status.credit_purchase_orders?.some(
-            po => po.po_no.toLowerCase().includes(query)
-          );
-          const nonCreditPOMatch = status.non_credit_purchase_orders?.some(
-            po => po.po_no.toLowerCase().includes(query)
-          );
-          
-          return creditPOMatch || nonCreditPOMatch;
-        });
-        
-        return nameMatch || poMatch;
-      });
+      filtered = filtered.filter((s) =>
+        s.full_name.toLowerCase().includes(query) ||
+        s.company_name?.toLowerCase().includes(query) ||
+        s.email?.toLowerCase().includes(query)
+      );
     }
 
     filtered.sort((a, b) => {
@@ -485,7 +433,7 @@ export default function SupplierPaymentsPage() {
     });
 
     return filtered;
-  }, [suppliers, searchQuery, sortField, allPaymentStatuses]);
+  }, [suppliers, searchQuery, sortField]);
 
   // Handlers
   const handleSelectSupplier = useCallback((supplier: Supplier) => {
@@ -500,6 +448,7 @@ export default function SupplierPaymentsPage() {
     resetPaymentForm();
     // Load data for this supplier
     loadPaymentStatus(supplier.id);
+    loadPayableInvoices(supplier.id);
     // Fetch previous payment data to auto-populate payment form
     supplierPaymentsApi
       .getAll({ supplier_id: supplier.id, status: "verified", limit: 10 })
@@ -723,11 +672,6 @@ export default function SupplierPaymentsPage() {
       return;
     }
 
-    // Check if we have mixed payment types
-    const paymentTypes = new Set(paymentLines.map((l) => l.document.payment_type));
-    const hasCreditPayments = paymentTypes.has("credit");
-    const hasNonCreditPayments = paymentTypes.has("non_credit");
-
     const confirmMessage = `Post payment of Rs. ${fmtLKR(totalPaymentAmount)} for ${selectedSupplier.full_name}?`;
 
     const confirmed = await confirmDialog.confirm({
@@ -742,58 +686,33 @@ export default function SupplierPaymentsPage() {
       setSaving(true);
       setError(null);
 
-      // STEP 1: Process credit payments (use credit settlement API)
-      if (hasCreditPayments) {
-        const creditLines = paymentLines.filter((l) => l.document.payment_type === "credit" && l.allocated_amount > 0);
+      // Use invoice-based payment API with allocations
+      const allocations = paymentLines
+        .filter((l) => l.allocated_amount > 0)
+        .map((l) => ({
+          purchase_invoice_id: l.document.id,
+          allocated_amount: l.allocated_amount,
+        }));
 
-        for (const line of creditLines) {
-          const transactionData: SupplierCreditsSettleTransactionCreate = {
-            payment_method: paymentMethod,
-            cheque_date: chequeDate,
-            payment_amount: line.allocated_amount,
-            payment_method_number: referenceNumber || undefined,
-            remarks: remarks || undefined,
-            good_received_id: line.document.grn_id as number,
-          };
+      const firstLine = paymentLines[0];
 
-          const settlementData: SupplierCreditsSettleCreate = {
-            supplier_credits_settle_no: `CS-${Date.now()}-${line.document.po_id}`,
-            branch_code: line.document.branch_code,
-            suppliers_id: selectedSupplier.id,
-            transactions: [transactionData],
-          };
-
-          await supplierCreditsSettleApi.create(settlementData);
-        }
-      }
-
-      // STEP 2: Process non-credit payments (use supplier payment API)
-      if (hasNonCreditPayments) {
-        const nonCreditLines = paymentLines.filter((l) => l.document.payment_type === "non_credit" && l.allocated_amount > 0);
-
-        for (const line of nonCreditLines) {
-          const payload: SupplierPaymentCreate = {
-            supplier_id: selectedSupplier.id,
-            purchasing_order_id: line.document.po_id,
-            payment_date: paymentDate,
-            payment_method: paymentMethod,
-            payment_amount: line.allocated_amount,
-            reference_number: referenceNumber || undefined,
-            bank_name: bankName || undefined,
-            branch_code: line.document.branch_code,
-            payment_for: "Purchase",
-            invoice_reference: line.document.invoice_no || line.document.po_no,
-            remarks: remarks || undefined,
-          };
-
-          await supplierPaymentsApi.create(payload);
-        }
-      }
+      await purchaseInvoicesApi.payInvoices({
+        supplier_id: selectedSupplier.id,
+        payment_date: paymentDate,
+        payment_method: paymentMethod,
+        payment_amount: totalPaymentAmount,
+        reference_number: referenceNumber || undefined,
+        bank_name: bankName || undefined,
+        branch_code: firstLine?.document.branch_code || "",
+        remarks: remarks || undefined,
+        allocations,
+      });
 
       showSuccessToast("Payment posted successfully!");
 
       // Refresh status and reset
       await loadPaymentStatus(selectedSupplier.id);
+      await loadPayableInvoices(selectedSupplier.id);
       setViewMode("overview");
       setActiveStep(0);
       setSelectedDocumentIds(new Set());
@@ -898,25 +817,34 @@ export default function SupplierPaymentsPage() {
                       <>
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="caption">
-                            Credit: {fmtLKR(supplier.left_credit_amount ?? supplier.max_credit_limit)} / {fmtLKR(supplier.max_credit_limit)}
+                            Credit: {fmtLKR(paymentStatus?.left_credit_amount ?? supplier.left_credit_amount ?? supplier.max_credit_limit)} / {fmtLKR(supplier.max_credit_limit)}
                           </Typography>
                         </Box>
-                        <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
-                          <Box
-                            sx={{
-                              width: `${Math.min(usage, 100)}%`,
-                              height: "100%",
-                              bgcolor: usage > 80 ? "error.main" : usage > 50 ? "warning.main" : "success.main",
-                              borderRadius: 1,
-                            }}
-                          />
-                        </Box>
-                        <Chip
-                          label={`${supplier.credit_days} days`}
-                          size="small"
-                          color="info"
-                          sx={{ height: 18, fontSize: "0.65rem", mt: 0.5 }}
-                        />
+                        {(() => {
+                          const liveLeft = paymentStatus?.left_credit_amount ?? supplier.left_credit_amount ?? supplier.max_credit_limit;
+                          const liveUsed = supplier.max_credit_limit - liveLeft;
+                          const liveUsage = supplier.max_credit_limit > 0 ? (liveUsed / supplier.max_credit_limit) * 100 : 0;
+                          return (
+                            <>
+                              <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
+                                <Box
+                                  sx={{
+                                    width: `${Math.min(liveUsage, 100)}%`,
+                                    height: "100%",
+                                    bgcolor: liveUsage > 80 ? "error.main" : liveUsage > 50 ? "warning.main" : "success.main",
+                                    borderRadius: 1,
+                                  }}
+                                />
+                              </Box>
+                              <Chip
+                                label={`${supplier.credit_days} days`}
+                                size="small"
+                                color="info"
+                                sx={{ height: 18, fontSize: "0.65rem", mt: 0.5 }}
+                              />
+                            </>
+                          );
+                        })()}
                       </>
                     )}
                     {outstanding > 0 && (
@@ -1019,7 +947,7 @@ export default function SupplierPaymentsPage() {
                 </Card>
               </Grid>
               <Grid item xs={6} sm={3}>
-                <Card variant="outlined" sx={{ bgcolor: "warning.light" }}>
+                <Card variant="outlined">
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption">Credit Outstanding</Typography>
                     <Typography variant="h6" color="warning.dark">
@@ -1057,7 +985,7 @@ export default function SupplierPaymentsPage() {
               </Card>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Card variant="outlined" sx={{ bgcolor: "warning.light" }}>
+              <Card variant="outlined">
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Total Outstanding</Typography>
                   <Typography variant="h6" color="warning.dark">
@@ -1067,7 +995,7 @@ export default function SupplierPaymentsPage() {
               </Card>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Card variant="outlined" sx={{ bgcolor: overdueDocuments.length > 0 ? "error.light" : "success.light" }}>
+              <Card variant="outlined">
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Overdue Documents</Typography>
                   <Typography variant="h5" color={overdueDocuments.length > 0 ? "error.dark" : "success.dark"}>
@@ -1077,7 +1005,7 @@ export default function SupplierPaymentsPage() {
               </Card>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Card variant="outlined" sx={{ bgcolor: overdueDocuments.length > 0 ? "error.light" : "transparent" }}>
+              <Card variant="outlined">
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Overdue Amount</Typography>
                   <Typography variant="h6" color={overdueDocuments.length > 0 ? "error.dark" : "text.secondary"}>
@@ -1170,7 +1098,7 @@ export default function SupplierPaymentsPage() {
               <TableHead>
                 <TableRow>
                   <TableCell>Type</TableCell>
-                  <TableCell>Document</TableCell>
+                  <TableCell>Invoice / PO</TableCell>
                   <TableCell>Date</TableCell>
                   {showDueDateColumn && <TableCell>Due Date</TableCell>}
                   <TableCell align="right">Amount (Rs.)</TableCell>
@@ -1194,10 +1122,10 @@ export default function SupplierPaymentsPage() {
                     </TableCell>
                     <TableCell>
                       <Box>
-                        <Typography variant="body2">{doc.po_no}</Typography>
-                        {doc.invoice_no && (
+                        <Typography variant="body2">{doc.invoice_no}</Typography>
+                        {doc.po_no && doc.po_no !== doc.invoice_no && (
                           <Typography variant="caption" color="text.secondary">
-                            Inv: {doc.invoice_no}
+                            {doc.po_no}
                           </Typography>
                         )}
                       </Box>

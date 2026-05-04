@@ -205,22 +205,6 @@ export default function CustomerPaymentsPage() {
       const data = await customersApi.getAll();
       const activeCustomers = data.filter((c: Customer) => c.active);
       setCustomers(activeCustomers);
-
-      // Load invoices for all customers to enable invoice search
-      const invoiceMap = new Map<number, Invoice[]>();
-      await Promise.all(
-        activeCustomers.map(async (customer) => {
-          try {
-            const invoices = await salesApi.getByCustomer(customer.id);
-            if (invoices && invoices.length > 0) {
-              invoiceMap.set(customer.id, invoices);
-            }
-          } catch {
-            // Skip customers with no invoices
-          }
-        })
-      );
-      setAllCustomerInvoices(invoiceMap);
     } catch (err: unknown) {
       setError(handleApiError(err, "Failed to load customers"));
     } finally {
@@ -347,25 +331,18 @@ export default function CustomerPaymentsPage() {
     return paymentLines.reduce((sum, line) => sum + line.allocated_amount, 0);
   }, [paymentLines]);
 
-  // Filtered customers (with invoice number search)
+  // Filtered customers
   const filteredCustomers = useMemo(() => {
     let filtered = customers;
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((c) => {
-        // Search by customer name or company
-        const nameMatch = c.customer_name.toLowerCase().includes(query) ||
-          c.company_name?.toLowerCase().includes(query) ||
-          c.mobile_contact_number?.includes(query);
-
-        // Search by invoice number
-        const invoiceMatch = allCustomerInvoices.get(c.id)?.some(
-          (inv) => inv.invoice_no?.toLowerCase().includes(query)
-        );
-
-        return nameMatch || invoiceMatch;
-      });
+      filtered = filtered.filter((c) =>
+        c.customer_name.toLowerCase().includes(query) ||
+        c.company_name?.toLowerCase().includes(query) ||
+        c.mobile_contact_number?.includes(query) ||
+        c.email?.toLowerCase().includes(query)
+      );
     }
 
     filtered.sort((a, b) => {
@@ -383,7 +360,7 @@ export default function CustomerPaymentsPage() {
     });
 
     return filtered;
-  }, [customers, searchQuery, sortField, allCustomerInvoices]);
+  }, [customers, searchQuery, sortField]);
 
   // Handlers
   const handleSelectCustomer = useCallback((customer: Customer) => {

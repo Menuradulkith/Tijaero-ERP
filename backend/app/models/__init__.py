@@ -61,6 +61,11 @@ from app.modules.purchasing.models import (
     SupplierCreditsSettle,
     SupplierCreditsSettleTransaction,
 )
+from app.modules.purchasing.invoice_models import (
+    PurchaseInvoice,
+    PurchaseInvoiceItem,
+    PurchaseInvoicePayment,
+)
 from app.modules.reporting.models import Report, ReportExecution
 from app.modules.sales.models import (
     Invoice,

@@ -15,6 +15,7 @@ from app.modules.inventory.api import router as inventory_router
 from app.modules.permissions.api import router as permissions_router
 from app.modules.products.api import router as products_router
 from app.modules.purchasing.api import router as purchasing_router
+from app.modules.purchasing.invoice_api import router as purchase_invoice_router
 from app.modules.reporting.api import router as reporting_router
 from app.modules.sales.api import router as sales_router
 from app.modules.sales.quotation_api import router as quotation_router
@@ -44,6 +45,7 @@ api_router.include_router(
     quotation_router, prefix="/sales/quotes", tags=["sales-quotes"]
 )
 api_router.include_router(purchasing_router)
+api_router.include_router(purchase_invoice_router)
 api_router.include_router(finance_router)
 api_router.include_router(accounting_router)
 api_router.include_router(hr_router)

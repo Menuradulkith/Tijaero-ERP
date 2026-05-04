@@ -100,8 +100,12 @@ class SalesService:
         return repository.sales_repository.get_returns_by_invoice(db, invoice_id, skip, limit)
     
     def get_all_sale_returns(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
-        """Get all sale returns"""
-        return repository.sales_repository.get_all_sale_returns(db, skip, limit, branch_codes)
+        """Get all sale returns with invoice_no populated"""
+        returns = repository.sales_repository.get_all_sale_returns(db, skip, limit, branch_codes)
+        for ret in returns:
+            if ret.invoice and hasattr(ret.invoice, 'invoice_no'):
+                ret.invoice_no = ret.invoice.invoice_no
+        return returns
     
     def get_paginated_invoices(
         self, 

@@ -554,3 +554,56 @@ export interface AccountingDashboardStats {
   total_credit: number;
   is_balanced: boolean;
 }
+
+// ─── Financial Report Types ─────────────────────────────────────────────────
+
+export interface IncomeStatementLineItem {
+  account_id: number;
+  account_code: string;
+  account_name: string;
+  amount: number;
+}
+
+export interface IncomeStatementSection {
+  section_name: string;
+  items: IncomeStatementLineItem[];
+  total: number;
+}
+
+export interface IncomeStatementResponse {
+  fiscal_year: number;
+  fiscal_period?: number | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  revenue: IncomeStatementSection;
+  cost_of_sales: IncomeStatementSection;
+  gross_profit: number;
+  operating_expenses: IncomeStatementSection;
+  operating_income: number;
+  other_income: IncomeStatementSection;
+  other_expenses: IncomeStatementSection;
+  net_income: number;
+  generated_at?: string | null;
+}
+
+export interface BalanceSheetSection {
+  section_name: string;
+  items: IncomeStatementLineItem[];
+  total: number;
+}
+
+export interface BalanceSheetResponse {
+  as_of_date: string;
+  fiscal_year: number;
+  current_assets: BalanceSheetSection;
+  non_current_assets: BalanceSheetSection;
+  total_assets: number;
+  current_liabilities: BalanceSheetSection;
+  non_current_liabilities: BalanceSheetSection;
+  total_liabilities: number;
+  equity: BalanceSheetSection;
+  total_equity: number;
+  total_liabilities_and_equity: number;
+  is_balanced: boolean;
+  generated_at?: string | null;
+}

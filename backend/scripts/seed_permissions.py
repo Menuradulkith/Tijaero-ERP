@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.db.session import SessionLocal
 from app.auth.models import Permission, Group, User
+from app.models import *  # noqa: F401, F403 – required to resolve all SQLAlchemy relationships
 
 def seed_permissions():
     db = SessionLocal()

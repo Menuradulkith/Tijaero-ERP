@@ -1128,11 +1128,30 @@ class GeneralLedgerService:
 
         operating_income = gross_profit - opex_total
 
-        # Other Income / Other Expenses (could be separate accounts - for now empty sections)
-        other_inc_items: List[schemas.IncomeStatementLineItem] = []
-        other_inc_total = Decimal("0")
-        other_exp_items: List[schemas.IncomeStatementLineItem] = []
-        other_exp_total = Decimal("0")
+        # Other Income: Revenue accounts with category "Other Income"
+        other_inc_items, other_inc_total = self._sum_accounts_by_type(
+            "Revenue", fiscal_year, fiscal_period, date_from, date_to,
+            category_filter="Other Income",
+        )
+        # If found, remove them from main revenue to avoid double-counting
+        if other_inc_items:
+            other_inc_ids = {i.account_id for i in other_inc_items}
+            rev_items = [i for i in rev_items if i.account_id not in other_inc_ids]
+            rev_total = sum(i.amount for i in rev_items)
+            gross_profit = rev_total - cos_total
+            operating_income = gross_profit - opex_total
+
+        # Other Expenses: Expense accounts with category "Other Expense"
+        other_exp_items, other_exp_total = self._sum_accounts_by_type(
+            "Expense", fiscal_year, fiscal_period, date_from, date_to,
+            category_filter="Other Expense",
+        )
+        # If found, remove them from operating expenses to avoid double-counting
+        if other_exp_items:
+            other_exp_ids = {i.account_id for i in other_exp_items}
+            opex_items = [i for i in opex_items if i.account_id not in other_exp_ids]
+            opex_total = sum(i.amount for i in opex_items)
+            operating_income = gross_profit - opex_total
 
         net_income = operating_income + other_inc_total - other_exp_total
 
@@ -1247,9 +1266,16 @@ class GeneralLedgerService:
                 total=section_total,
             )
 
-        # Build sections
+        # Build sections — support multiple category name conventions
         current_assets = _build_section("Current Assets", "Asset", category_filter="Current Asset")
         non_current_assets = _build_section("Non-Current Assets", "Asset", category_filter="Fixed Asset")
+
+        # Also pick up accounts categorised with alternative names
+        for alt_cat in ["Non-Current Asset", "Intangible Asset", "Other Asset"]:
+            extra = _build_section("", "Asset", category_filter=alt_cat)
+            if extra.items:
+                non_current_assets.items.extend(extra.items)
+                non_current_assets.total += extra.total
 
         # If categories don't match, include all assets
         if not current_assets.items and not non_current_assets.items:
@@ -1259,6 +1285,13 @@ class GeneralLedgerService:
 
         current_liabilities = _build_section("Current Liabilities", "Liability", category_filter="Current Liability")
         non_current_liabilities = _build_section("Non-Current Liabilities", "Liability", category_filter="Long-term Liability")
+
+        # Also pick up accounts categorised with alternative names
+        for alt_cat in ["Non-Current Liability", "Other Liability"]:
+            extra = _build_section("", "Liability", category_filter=alt_cat)
+            if extra.items:
+                non_current_liabilities.items.extend(extra.items)
+                non_current_liabilities.total += extra.total
 
         if not current_liabilities.items and not non_current_liabilities.items:
             current_liabilities = _build_section("Liabilities", "Liability")

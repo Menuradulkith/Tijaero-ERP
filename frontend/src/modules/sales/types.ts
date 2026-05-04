@@ -173,6 +173,7 @@ export interface SaleReturn {
   sale_return_no: string;
   branch_code: string;
   invoice_id: number;
+  invoice_no?: string;  // Populated from backend join
   good_received_locations_id: number;
   payment_method: string;
   remark?: string;

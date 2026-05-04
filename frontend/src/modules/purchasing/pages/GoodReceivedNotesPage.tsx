@@ -133,6 +133,7 @@ const INITIAL_FORM_DATA: GoodReceivedNoteCreate = {
   good_received_date: new Date().toISOString().split("T")[0],
   supplier_invoice_no: "",
   supplier_invoice_date: new Date().toISOString().split("T")[0],
+  // supplier_invoice fields kept in form data for API compatibility but hidden from UI
   remark: "",
   branch_code: "HQ",
   good_received_locations_id: 1,
@@ -288,8 +289,9 @@ export default function GoodReceivedNotesPage() {
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  // Load suppliers for filter
+  // Load suppliers for filter and form
   useEffect(() => {
+    if (!isCreating && !filterSupplier) return;
     const loadSuppliers = async () => {
       try {
         const data = await suppliersApi.getAll();
@@ -299,7 +301,7 @@ export default function GoodReceivedNotesPage() {
       }
     };
     loadSuppliers();
-  }, []);
+  }, [isCreating, filterSupplier]);
 
   // Filter locations for the selected branch from the aggregated data
   const locations = useMemo(() => {
@@ -399,6 +401,7 @@ export default function GoodReceivedNotesPage() {
   const { data: purchaseOrders } = useQuery({
     queryKey: ["purchaseOrders"],
     queryFn: () => purchaseOrdersApi.getAll(),
+    enabled: isCreating || !!filterPOId || !!filterCreatedByUser,
   });
 
   // Separate query for PO dropdown in GRN creation — only approved/partially_completed (not fully received)
@@ -414,14 +417,18 @@ export default function GoodReceivedNotesPage() {
   }, [purchaseOrders]);
 
   const poFilterOptions = useMemo(() => {
-    if (!grns || !purchaseOrders) return [];
-    const linkedPOIds = new Set<number>(grns.map((grn) => grn.purchasingorders_id));
-    return purchaseOrders
-      .filter((po: PurchasingOrder) => linkedPOIds.has(po.id))
-      .sort((a: PurchasingOrder, b: PurchasingOrder) =>
-        String(a.purchasing_order_no || "").localeCompare(String(b.purchasing_order_no || "")),
-      );
-  }, [grns, purchaseOrders]);
+    if (!grns) return [];
+    // Derive PO options from GRN enriched fields
+    const poMap = new Map<number, { id: number; purchasing_order_no: string }>();
+    grns.forEach((grn) => {
+      if (grn.po_no && grn.purchasingorders_id) {
+        poMap.set(grn.purchasingorders_id, { id: grn.purchasingorders_id, purchasing_order_no: grn.po_no });
+      }
+    });
+    return Array.from(poMap.values()).sort((a, b) =>
+      a.purchasing_order_no.localeCompare(b.purchasing_order_no)
+    );
+  }, [grns]);
 
   const createdByUserOptions = useMemo(() => {
     if (!grns) return [];
@@ -446,9 +453,8 @@ export default function GoodReceivedNotesPage() {
         const grnMatch = grn.good_received_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
           String(grn.id).includes(searchQuery);
 
-        // Also search by PO number
-        const po = purchaseOrderMap.get(grn.purchasingorders_id);
-        const poNumber = po?.purchasing_order_no || "";
+        // Also search by PO number (from enriched field or map fallback)
+        const poNumber = grn.po_no || purchaseOrderMap.get(grn.purchasingorders_id)?.purchasing_order_no || "";
         const poMatch = poNumber.toLowerCase().includes(searchQuery.toLowerCase());
 
         return grnMatch || poMatch;
@@ -460,14 +466,12 @@ export default function GoodReceivedNotesPage() {
       filtered = filtered.filter(grn => grn.branch_code === filterBranch);
     }
 
-    // Apply supplier filter (through PO)
-    if (filterSupplier && purchaseOrders) {
-      const poIdsForSupplier = new Set(
-        purchaseOrders
-          .filter((po: PurchasingOrder) => po.first_suppliers_id === filterSupplier || po.second_suppliers_id === filterSupplier)
-          .map((po: PurchasingOrder) => po.id)
-      );
-      filtered = filtered.filter(grn => poIdsForSupplier.has(grn.purchasingorders_id));
+    // Apply supplier filter
+    if (filterSupplier) {
+      const supplierName = suppliers.find(s => s.id === filterSupplier)?.full_name;
+      if (supplierName) {
+        filtered = filtered.filter(grn => grn.supplier_name === supplierName);
+      }
     }
 
     // Apply PO filter
@@ -730,8 +734,9 @@ export default function GoodReceivedNotesPage() {
     setCreditLimitDialog({ open: false, errorMessage: "", pendingData: null });
   }, []);
 
-  const getOrderNumber = (orderId: number) => {
-    const order = purchaseOrders?.find((o: PurchasingOrder) => o.id === orderId);
+  const getOrderNumber = (grn: GoodReceivedNote) => {
+    if (grn.po_no) return grn.po_no;
+    const order = purchaseOrders?.find((o: PurchasingOrder) => o.id === grn.purchasingorders_id);
     return order ? order.purchasing_order_no : "Unknown";
   };
 
@@ -1226,12 +1231,6 @@ export default function GoodReceivedNotesPage() {
       case 'purchasingorders_id':
         if (!formData.purchasingorders_id || formData.purchasingorders_id === 0) return 'Purchase order is required';
         break;
-      case 'supplier_invoice_no':
-        if (!formData.supplier_invoice_no) return 'Supplier invoice number is required';
-        break;
-      case 'supplier_invoice_date':
-        if (!formData.supplier_invoice_date) return 'Supplier invoice date is required';
-        break;
       case 'good_received_date':
         if (!formData.good_received_date) return 'GRN date is required';
         break;
@@ -1255,8 +1254,7 @@ export default function GoodReceivedNotesPage() {
   // into formData.good_received_no, so treat the preview number as valid instead.
   const effectiveGRNNumber = isCreating ? nextGRNNumber : formData.good_received_no;
   const isStep1Valid = effectiveGRNNumber &&
-    formData.purchasingorders_id > 0 &&
-    formData.supplier_invoice_no;
+    formData.purchasingorders_id > 0;
 
   // Full form validation
   const isFormValid = isStep1Valid;
@@ -1366,7 +1364,7 @@ export default function GoodReceivedNotesPage() {
                 <>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      {getOrderNumber(grn.purchasingorders_id)}
+                      {getOrderNumber(grn)}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                       (PO)
@@ -1401,7 +1399,7 @@ export default function GoodReceivedNotesPage() {
               )}
             </Box>
           }
-          secondaryText={!isSelected ? `PO: ${getOrderNumber(grn.purchasingorders_id)} • ${getLocationName(grn.good_received_locations_id)} • ${new Date(grn.supplier_invoice_date || grn.good_received_date || "").toLocaleDateString()}` : undefined}
+          secondaryText={!isSelected ? `PO: ${getOrderNumber(grn)} • ${getLocationName(grn.good_received_locations_id)} • ${new Date(grn.supplier_invoice_date || grn.good_received_date || "").toLocaleDateString()}` : undefined}
           isFavorite={favorites.includes(grn.id)}
           onToggleFavorite={(e) => toggleFavorite(grn.id, e)}
           statusChip={!isSelected ? { label: "Received", color: "success" } : undefined}
@@ -1566,33 +1564,6 @@ export default function GoodReceivedNotesPage() {
                     value={getSupplierName(formData.purchasingorders_id)}
                     disabled
                     helperText="Auto-filled from Purchase Order"
-                  />
-                </FormSection>
-
-                <FormSection title="Supplier Invoice" columns={2}>
-                  <TextField
-                    label="Supplier Invoice No"
-                    size="small"
-                    value={formData.supplier_invoice_no}
-                    onChange={(e) => setFormData({ ...formData, supplier_invoice_no: e.target.value })}
-                    onBlur={() => handleBlur('supplier_invoice_no')}
-                    disabled={!isEditing && !isCreating}
-                    required
-                    error={hasError('supplier_invoice_no')}
-                    helperText={getFieldError('supplier_invoice_no')}
-                  />
-                  <TextField
-                    label="Supplier Invoice Date"
-                    size="small"
-                    type="date"
-                    value={formData.supplier_invoice_date}
-                    onChange={(e) => setFormData({ ...formData, supplier_invoice_date: e.target.value })}
-                    onBlur={() => handleBlur('supplier_invoice_date')}
-                    disabled={!isEditing && !isCreating}
-                    InputLabelProps={{ shrink: true }}
-                    required
-                    error={hasError('supplier_invoice_date')}
-                    helperText={getFieldError('supplier_invoice_date')}
                   />
                 </FormSection>
 

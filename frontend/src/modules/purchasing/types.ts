@@ -130,6 +130,7 @@ export interface PurchasingOrder {
   status: string;
   total_amount: number;
   paid_amount: number;
+  supplier_name?: string;
 }
 
 export interface PurchasingOrderWithItems extends PurchasingOrder {
@@ -198,6 +199,9 @@ export interface PurchasingReturn {
   status: PurchaseReturnStatus;
   approved_date?: string;
   approval_id?: number;
+  grn_no?: string;
+  po_no?: string;
+  supplier_name?: string;
 }
 
 export interface PurchasingReturnWithItems extends PurchasingReturn {
@@ -265,6 +269,8 @@ export interface GoodReceivedNote {
   good_received_locations_id: number;
   purchasingorders_id: number;
   added_date: string;
+  po_no?: string;
+  supplier_name?: string;
 }
 
 export interface GoodReceivedNoteCreate {
