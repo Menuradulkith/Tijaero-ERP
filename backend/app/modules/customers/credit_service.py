@@ -381,7 +381,8 @@ class CustomerCreditService:
             )
 
         for trans in settlement_data.transactions:
-            invoice = db.query(Invoice).filter(Invoice.id == trans.invoice_id).first()
+            # Lock the invoice row to prevent concurrent settlements from both passing the remaining-credit check
+            invoice = db.query(Invoice).filter(Invoice.id == trans.invoice_id).with_for_update().first()
             if not invoice:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,

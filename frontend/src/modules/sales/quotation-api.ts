@@ -2,6 +2,7 @@ import apiClient from "@/api/client";
 import {
   ConvertToInvoiceRequest,
   ConvertToInvoiceResponse,
+  CreatePartialSORequest,
   CreatePOFromQuoteRequest,
   CreatePOFromQuoteResponse,
   CreateRevisionRequest,
@@ -295,6 +296,27 @@ export const quotationApi = {
     const response = await apiClient.post<CreateRevisionResponse>(
       `${BASE_URL}/${id}/revise`,
       data
+    );
+    return response.data;
+  },
+
+  // ==================== Partial SO & Item Cancellation ====================
+
+  /**
+   * Create a Sales Order from selected/partial items of a quotation
+   */
+  createPartialSO: async (id: number, data: CreatePartialSORequest): Promise<any> => {
+    const response = await apiClient.post<any>(`${BASE_URL}/${id}/partial-so`, data);
+    return response.data;
+  },
+
+  /**
+   * Cancel a single item on a quotation
+   */
+  cancelItem: async (quoteId: number, itemId: number, reason?: string): Promise<SalesQuoteWithItems> => {
+    const response = await apiClient.post<SalesQuoteWithItems>(
+      `${BASE_URL}/${quoteId}/items/${itemId}/cancel`,
+      { reason }
     );
     return response.data;
   },

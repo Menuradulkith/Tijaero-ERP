@@ -3,8 +3,10 @@ from typing import List, Optional
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
-from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
+from app.modules.sales.quotation_schemas import (CancelQuoteItemRequest,
+                                                 ConvertToInvoiceRequest,
                                                  ConvertToInvoiceResponse,
+                                                 CreatePartialSORequest,
                                                  CreatePOFromQuoteRequest,
                                                  CreatePOFromQuoteResponse,
                                                  CreateRevisionRequest,
@@ -150,6 +152,18 @@ def get_quote(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Quote with ID {quote_id} not found"
         )
+    # Enrich with advance payment info if linked
+    from app.modules.customers.models import CustomerAdvancePayments
+    advance = db.query(CustomerAdvancePayments).filter(
+        CustomerAdvancePayments.proforma_invoice_id == quote_id,
+        CustomerAdvancePayments.active == True
+    ).first()
+    if advance:
+        quote.advance_payment_id = advance.id
+        quote.advance_amount = float(advance.payment_amount)
+    else:
+        quote.advance_payment_id = None
+        quote.advance_amount = None
     return quote
 
 
@@ -605,3 +619,51 @@ def mark_expired_quotes(
     """Mark all expired quotes as expired. Can be called by a scheduled job."""
     count = sales_quote_service.mark_expired_quotes(db)
     return {"message": f"Marked {count} quotes as expired"}
+
+
+# ==================== Partial SO & Item-Level Actions ====================
+
+@router.post(
+    "/{quote_id}/partial-so",
+    response_model=InvoiceWithItems,
+    summary="Create Partial Sales Order",
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
+)
+def create_partial_so(
+    quote_id: int,
+    request: CreatePartialSORequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
+):
+    """
+    Create a Sales Order from selected/partial items of a quotation.
+    Supports partial quantities (e.g. convert 5 of 10 available).
+    Updates per-item converted_qty and item_status, then recomputes overall quote status.
+    """
+    invoice = sales_quote_service.create_partial_so(
+        db, quote_id, request, created_by=current_user.id
+    )
+    return invoice
+
+
+@router.post(
+    "/{quote_id}/items/{item_id}/cancel",
+    response_model=SalesQuoteWithItems,
+    summary="Cancel a single quotation item",
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
+)
+def cancel_quote_item(
+    quote_id: int,
+    item_id: int,
+    body: CancelQuoteItemRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
+):
+    """
+    Mark one item on a quotation as cancelled (e.g. customer no longer wants it).
+    Recomputes overall quote status — if all remaining items are completed/cancelled, the quote closes.
+    """
+    quote = sales_quote_service.cancel_quote_item(
+        db, quote_id, item_id, reason=body.reason, cancelled_by=current_user.id
+    )
+    return quote

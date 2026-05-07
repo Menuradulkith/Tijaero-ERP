@@ -84,9 +84,11 @@ class CustomerAdvancePayments(Base):
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
     cheque_date = Column(Date, nullable=False)
     active = Column(Boolean, nullable=False)
+    proforma_invoice_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True, unique=True)
 
     customer = relationship("Customer", back_populates="advance_payments")
     invoices = relationship("Invoice", back_populates="advance_payment")
+    proforma_invoice = relationship("SalesQuote", foreign_keys=[proforma_invoice_id])
 
 
 class CustomerCreditNotes(Base):

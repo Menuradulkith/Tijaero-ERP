@@ -9,6 +9,7 @@ def _invoice_eager_options():
     return [
         selectinload(Invoice.items),
         joinedload(Invoice.customer),
+        joinedload(Invoice.creator),
     ]
 
 

@@ -54,6 +54,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import {
     Alert,
     Autocomplete,
@@ -65,6 +66,7 @@ import {
     DialogActions,
     DialogContent,
     DialogTitle,
+    Divider,
     Grid,
     IconButton,
     InputAdornment,
@@ -80,12 +82,15 @@ import {
     ToggleButtonGroup,
     Tooltip,
     Typography,
+    Switch,
+    FormControlLabel,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { paymentCardsApi, salesApi } from "../api";
+import { commissionsApi, commissionPaymentsApi } from "../commission-api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate, PaymentCard } from "../types";
 
@@ -118,6 +123,28 @@ const INVOICE_STATUS_OPTIONS = [
 
 // Form steps for stepper workflow
 const FORM_STEPS = ["Order Information", "Line Items & Payment"];
+
+// Split payment row
+interface SplitPaymentRow {
+  id: string;
+  method: string;
+  amount: number;
+  cheque_number: string;
+  cheque_bank: string;
+  cheque_date: string;
+  card_ref_number: string;
+  card_holder_name: string;
+  card_id: number | null;
+  bank_name: string;
+  bank_transfer_ref: string;
+}
+const makeSplitRow = (method = "cash", amount = 0): SplitPaymentRow => ({
+  id: Date.now().toString() + Math.random().toString(36).slice(2),
+  method, amount,
+  cheque_number: "", cheque_bank: "", cheque_date: new Date().toISOString().split("T")[0],
+  card_ref_number: "", card_holder_name: "", card_id: null,
+  bank_name: "", bank_transfer_ref: "",
+});
 
 // Line item type
 interface ItemFormData {
@@ -299,11 +326,30 @@ export default function SalesPage() {
     "percent",
   );
   const [discountValue, setDiscountValue] = useState<number>(0);
-  const [taxRate, setTaxRate] = useState<number>(0); // Tax rate percentage (e.g., 8 for 8% VAT)
-  const [taxMode, setTaxMode] = useState<"inclusive" | "exclusive" | "none">("none"); // Tax mode
+  const [taxRate, setTaxRate] = useState<number>(0);
+  const [taxMode, setTaxMode] = useState<"inclusive" | "exclusive" | "none">("none");
 
   // Effective tax rate — 0 when no tax mode selected
   const effectiveTaxRate = taxMode !== "none" ? taxRate : 0;
+
+  // Agent commission toggle state
+  const [payCommissionNow, setPayCommissionNow] = useState(false);
+  const [commissionPaymentMethod, setCommissionPaymentMethod] = useState("Cash");
+  // Manual commission override: null = use agent rate, number = user override
+  const [manualCommissionRate, setManualCommissionRate] = useState<number | null>(null);
+  const [manualCommissionAmount, setManualCommissionAmount] = useState<number | null>(null);
+
+  // Split payments state
+  const [splitPayments, setSplitPayments] = useState<SplitPaymentRow[]>([makeSplitRow("cash", 0)]);
+
+  const updateSplitRow = (id: string, update: Partial<SplitPaymentRow>) =>
+    setSplitPayments((prev) => prev.map((r) => r.id === id ? { ...r, ...update } : r));
+
+  const removeSplitRow = (id: string) =>
+    setSplitPayments((prev) => prev.filter((r) => r.id !== id));
+
+  const addSplitRow = () =>
+    setSplitPayments((prev) => [...prev, makeSplitRow("cash", 0)]);
 
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -368,7 +414,7 @@ export default function SalesPage() {
   // Fetch customers separately (has complex operations like credit check)
   const { data: customers } = useQuery({
     queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(),
+    queryFn: () => customersApi.getAll(0, 500),
     enabled: canViewCustomers,
   });
 
@@ -644,10 +690,14 @@ export default function SalesPage() {
     proformaId?: number;
     proformaNo?: string;
     customerId?: number;
+    customer_agent_id?: number;
     branchCode?: string;
     remarks?: string;
     taxMode?: "none" | "inclusive" | "exclusive";
     taxRate?: number;
+    source_quote_type?: string;
+    advance_payment_id?: number;
+    advance_amount?: number;
     items?: Array<{
       product_id: number;
       quantity: number;
@@ -655,6 +705,7 @@ export default function SalesPage() {
       minimum_selling_price: number;
       warrenty_month: string;
       product_name?: string;
+      discount_percent?: number;
     }>;
   }
   const proformaCreateHandled = useRef(false);
@@ -691,7 +742,7 @@ export default function SalesPage() {
         invoice_no: "",
         branch_code: navState.branchCode || defaultBranchCode || "MAIN",
         customer_id: navState.customerId || 0,
-        customer_agent_id: undefined,
+        customer_agent_id: navState.customer_agent_id || undefined,
         sale_rep_id: 1,
         payment_method: "cash",
         cash_amount: 0,
@@ -700,13 +751,14 @@ export default function SalesPage() {
         card_amex_amount: 0,
         cheque_amount: 0,
         bank_transfer_amount: 0,
-        credit_amount: 0,
+        credit_amount: navState.advance_amount && navState.advance_amount > 0 ? navState.advance_amount : 0,
         payment_adjustments: 0,
         remarks: navState.remarks || "",
         special: false,
         items: [],
         source_quote_id: navState.proformaId,
-        source_quote_type: "proforma",
+        source_quote_type: navState.source_quote_type || "proforma",
+        customer_advance_payments_id: navState.advance_payment_id,
       });
 
       // Pre-fill line items from proforma (without barcodes — user scans barcodes to assign)
@@ -717,14 +769,15 @@ export default function SalesPage() {
           selling_price: item.selling_price,
           minimum_selling_price: item.minimum_selling_price,
           warrenty_month: item.warrenty_month || "0",
-          barcode: undefined, // Barcode not yet assigned — user scans to assign
+          barcode: undefined,
           product_name: item.product_name || "",
+          discount_percent: item.discount_percent || 0,
         }));
         setLineItems(prefilledItems);
       }
 
       showSuccessToast(
-        `Creating Sales Order from Proforma ${navState.proformaNo}. Scan barcodes to assign stock items.`,
+        `Creating Sales Order from ${navState.source_quote_type === 'quotation' ? 'Quotation' : 'Proforma'} ${navState.proformaNo}. Scan barcodes to assign stock items.`,
       );
       // Clear navigation state to prevent re-triggering
       window.history.replaceState({}, document.title);
@@ -756,38 +809,59 @@ export default function SalesPage() {
       return keys;
     },
     errorMessage: "Failed to create sales order",
-    onSuccess: (createdInvoice) => {
+    onSuccess: async (createdInvoice) => {
       const paymentMethod = pendingPaymentMethod.toLowerCase();
       const isCreditPayment = paymentMethod === "credit";
 
       if (isCreditPayment) {
-        // Credit payment - needs approval, stay on this page
-        showSuccessToast(
-          "Sales order created. Credit payment requires approval.",
-        );
+        showSuccessToast("Sales order created. Credit payment requires approval.");
       } else {
-        // Cash/Card/Cheque/Bank Transfer - auto-approved
-        showSuccessToast(
-          "Sales order created and payment completed successfully.",
-        );
+        showSuccessToast("Sales order created and payment completed successfully.");
       }
 
-      // Notify customer payments page to refresh
-      window.dispatchEvent(new CustomEvent("sales-order-updated"));
+      // If agent commission should be paid now, do it immediately
+      if (payCommissionNow && createdInvoice?.id && state.formData.customer_agent_id) {
+        try {
+          const commissionsResult = await commissionsApi.getAll({ agent_id: state.formData.customer_agent_id, limit: 5 });
+          const invoiceCommission = commissionsResult.items.find(
+            (c) => c.invoice_id === createdInvoice.id
+          );
+          if (invoiceCommission) {
+            // Use manual override if set, otherwise use the recorded commission amount
+            const finalAmount = manualCommissionAmount !== null
+              ? manualCommissionAmount
+              : invoiceCommission.commission_amount;
+            await commissionPaymentsApi.create({
+              customer_agent_id: state.formData.customer_agent_id,
+              payment_date: new Date().toISOString().split("T")[0],
+              payment_method: commissionPaymentMethod,
+              payment_amount: finalAmount,
+              branch_code: (state.formData as any).branch_code || "MAIN",
+              remarks: `Commission paid at time of SO ${(createdInvoice as any).invoice_no}`,
+              items: [{ commission_id: invoiceCommission.id, paid_amount: finalAmount }],
+            });
+            showSuccessToast(`Agent commission of Rs. ${finalAmount.toFixed(2)} recorded as paid.`);
+          }
+        } catch (err) {
+          console.warn("Could not auto-pay commission:", err);
+        }
+        setPayCommissionNow(false);
+        setCommissionPaymentMethod("Cash");
+        setManualCommissionRate(null);
+        setManualCommissionAmount(null);
+      }
 
+      window.dispatchEvent(new CustomEvent("sales-order-updated"));
       state.setIsCreating(false);
       setLineItems([]);
       setFormStep(0);
       state.setFormData(emptyInvoiceForm);
-      // Reset discount and tax state
       setDiscountType("percent");
       setDiscountValue(0);
       setTaxRate(companySettings?.default_tax_rate ?? 0);
-      // Reset coupon and voucher state
       setCouponCode("");
       setCouponValidation(null);
       setAppliedVouchers([]);
-      // Select the newly created invoice so it appears at the top
       state.setSelectedItem(createdInvoice as Invoice);
       setPendingPaymentMethod("");
     },
@@ -901,6 +975,13 @@ export default function SalesPage() {
     setDiscountType("percent");
     setDiscountValue(0);
     setTaxRate(companySettings?.default_tax_rate ?? 0);
+    // Reset commission state
+    setPayCommissionNow(false);
+    setCommissionPaymentMethod("Cash");
+    setManualCommissionRate(null);
+    setManualCommissionAmount(null);
+    // Reset split payments
+    setSplitPayments([makeSplitRow("cash", 0)]);
     setPaymentDetails({
       cheque_number: "",
       cheque_bank: "",
@@ -1248,15 +1329,27 @@ export default function SalesPage() {
     }
     const grandTotal = Math.max(0, afterCreditNote + serviceCharge);
 
+    // Aggregate split payment amounts
+    const splitCash = splitPayments.filter((p) => p.method === "cash").reduce((s, p) => s + (p.amount || 0), 0);
+    const splitCard = splitPayments.filter((p) => p.method === "card").reduce((s, p) => s + (p.amount || 0), 0);
+    const splitCheque = splitPayments.filter((p) => p.method === "cheque").reduce((s, p) => s + (p.amount || 0), 0);
+    const splitBank = splitPayments.filter((p) => p.method === "bank_transfer").reduce((s, p) => s + (p.amount || 0), 0);
+    const splitCreditPay = splitPayments.filter((p) => p.method === "credit").reduce((s, p) => s + (p.amount || 0), 0);
+    const firstChequeRow = splitPayments.find((p) => p.method === "cheque");
+    const firstCardRow = splitPayments.find((p) => p.method === "card");
+    const firstBankRow = splitPayments.find((p) => p.method === "bank_transfer");
+    const primaryMethod = splitPayments.length === 1 ? splitPayments[0].method : (splitPayments.length > 0 ? splitPayments[0].method : paymentMethod);
+
     const invoiceData: InvoiceCreate = {
       ...(state.formData as InvoiceCreate),
-      cash_amount: paymentMethod === "cash" ? grandTotal : 0,
-      card_visa_amount: paymentMethod === "card" ? grandTotal : 0, // Use card_visa_amount for generic card payment
+      payment_method: primaryMethod,
+      cash_amount: splitCash,
+      card_visa_amount: splitCard,
       card_mastercard_amount: 0,
       card_amex_amount: 0,
-      cheque_amount: paymentMethod === "cheque" ? grandTotal : 0,
-      bank_transfer_amount: paymentMethod === "bank_transfer" ? grandTotal : 0,
-      credit_amount: paymentMethod === "credit" ? grandTotal : 0,
+      cheque_amount: splitCheque,
+      bank_transfer_amount: splitBank,
+      credit_amount: splitCreditPay,
       // Include service charge in payment adjustments (for card payments)
       payment_adjustments: serviceCharge,
       items: lineItems,
@@ -1285,21 +1378,20 @@ export default function SalesPage() {
               amount_to_redeem: Number(v.amountToRedeem),
             })),
         }),
-      // Include payment details based on payment method
-      ...(paymentMethod === "cheque" && {
-        cheque_number: paymentDetails.cheque_number,
-        cheque_bank: paymentDetails.cheque_bank,
-        cheque_date: paymentDetails.cheque_date,
+      // Include payment details from split rows
+      ...(firstChequeRow && {
+        cheque_number: firstChequeRow.cheque_number,
+        cheque_bank: firstChequeRow.cheque_bank,
+        cheque_date: firstChequeRow.cheque_date,
       }),
-      ...(paymentMethod === "card" &&
-        selectedPaymentCard && {
-          card_ref_number: paymentDetails.card_ref_number,
-          card_holder_name: paymentDetails.card_holder_name,
-          payment_card_id: selectedPaymentCard.id, // Include selected card ID
-        }),
-      ...(paymentMethod === "bank_transfer" && {
-        bank_transfer_ref: paymentDetails.bank_transfer_ref,
-        bank_name: paymentDetails.bank_name,
+      ...(firstCardRow && selectedPaymentCard && {
+        card_ref_number: firstCardRow.card_ref_number,
+        card_holder_name: firstCardRow.card_holder_name,
+        payment_card_id: selectedPaymentCard.id,
+      }),
+      ...(firstBankRow && {
+        bank_transfer_ref: firstBankRow.bank_transfer_ref,
+        bank_name: firstBankRow.bank_name,
       }),
       ...(paymentMethod === "credit_note" &&
         paymentDetails.credit_note_id && {
@@ -1450,7 +1542,15 @@ export default function SalesPage() {
 
   // Step navigation functions
   const handleNextStep = () => {
-    if (formStep < FORM_STEPS.length - 1) setFormStep((prev) => prev + 1);
+    if (formStep < FORM_STEPS.length - 1) {
+      if (formStep === 0) {
+        // Initialize split payments with full grand total in chosen method
+        const totals = calcOrderTotals();
+        const initMethod = state.formData.payment_method || "cash";
+        setSplitPayments([makeSplitRow(initMethod, totals.grandTotal)]);
+      }
+      setFormStep((prev) => prev + 1);
+    }
   };
 
   const handlePreviousStep = () => {
@@ -2028,16 +2128,22 @@ export default function SalesPage() {
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
                     <TableCell sx={{ width: 110 }}>Barcode</TableCell>
-                    <TableCell sx={{ width: 180 }}>Product</TableCell>
-                    <TableCell align="right" sx={{ width: 150 }}>Unit Price (Rs.)</TableCell>
-                    <TableCell align="center" sx={{ width: 90 }}>Warranty</TableCell>
-                    <TableCell sx={{ width: 150 }}>Remark</TableCell>
-                    <TableCell align="right" sx={{ width: 150}}>Amount (Rs.)</TableCell>
+                    <TableCell sx={{ width: 200 }}>Product</TableCell>
+                    <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
+                    <TableCell align="right" sx={{ width: 70 }}>Disc %</TableCell>
+                    <TableCell align="center" sx={{ width: 80 }}>Warranty</TableCell>
+                    <TableCell sx={{ width: 120 }}>Remark</TableCell>
+                    <TableCell align="right" sx={{ width: 140 }}>Net Amount (Rs.)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {fullInvoice.items.map((item: any, index: number) => {
                     const product = productMap.get(item.product_id);
+                    const lineGross = item.quantity * item.selling_price;
+                    const discAmt = item.discount_amount > 0
+                      ? item.discount_amount
+                      : lineGross * ((item.discount_percent || 0) / 100);
+                    const netAmount = item.line_total > 0 ? item.line_total : lineGross - discAmt;
                     return (
                       <TableRow
                         key={index}
@@ -2060,6 +2166,15 @@ export default function SalesPage() {
                         <TableCell align="right">
                           {fmtLKR(item.selling_price)}
                         </TableCell>
+                        <TableCell align="right">
+                          {(item.discount_percent || 0) > 0 ? (
+                            <Typography variant="body2" color="warning.main" fontWeight="medium">
+                              {Number(item.discount_percent).toFixed(1)}%
+                            </Typography>
+                          ) : (
+                            <Typography variant="body2" color="text.disabled">—</Typography>
+                          )}
+                        </TableCell>
                         <TableCell align="center">
                           {item.warrenty_month || "0"} mo
                         </TableCell>
@@ -2074,7 +2189,7 @@ export default function SalesPage() {
                             <Typography
                               variant="body2"
                               sx={{
-                                maxWidth: 100,
+                                maxWidth: 80,
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
@@ -2096,21 +2211,35 @@ export default function SalesPage() {
                           </Box>
                         </TableCell>
                         <TableCell align="right">
-                          {fmtLKR(item.quantity * item.selling_price)}
+                          <Box sx={{ textAlign: "right" }}>
+                            <Typography variant="body2" fontWeight="medium">
+                              {fmtLKR(netAmount)}
+                            </Typography>
+                            {(item.discount_percent || 0) > 0 && (
+                              <Typography variant="caption" color="text.disabled" sx={{ textDecoration: "line-through" }}>
+                                {fmtLKR(lineGross)}
+                              </Typography>
+                            )}
+                          </Box>
                         </TableCell>
                       </TableRow>
                     );
                   })}
                   <TableRow sx={modernTableStyles.footerRow}>
-                    <TableCell colSpan={5} align="right">
-                      <strong>Subtotal:</strong>
+                    <TableCell colSpan={6} align="right">
+                      <strong>Subtotal (after item discounts):</strong>
                     </TableCell>
                     <TableCell align="right">
                       <strong>
                         {fmtLKR(
                           fullInvoice.items.reduce(
-                            (sum: number, item: any) =>
-                              sum + item.quantity * item.selling_price,
+                            (sum: number, item: any) => {
+                              const lineGross = item.quantity * item.selling_price;
+                              const discAmt = item.discount_amount > 0
+                                ? item.discount_amount
+                                : lineGross * ((item.discount_percent || 0) / 100);
+                              return sum + (item.line_total > 0 ? item.line_total : lineGross - discAmt);
+                            },
                             0,
                           ) || 0,
                         )}
@@ -2120,7 +2249,7 @@ export default function SalesPage() {
                   {/* Coupon Discount Row */}
                   {fullInvoice.cupon_amount > 0 && (
                     <TableRow sx={{ bgcolor: "success.lighter" }}>
-                      <TableCell colSpan={5} align="right">
+                      <TableCell colSpan={6} align="right">
                         <Typography fontWeight="medium" color="success.dark">
                           Coupon Discount:
                         </Typography>
@@ -2135,7 +2264,7 @@ export default function SalesPage() {
                   {/* Invoice Discount Row */}
                   {fullInvoice.discount_amount > 0 && (
                     <TableRow sx={{ bgcolor: "warning.lighter" }}>
-                      <TableCell colSpan={5} align="right">
+                      <TableCell colSpan={6} align="right">
                         <Typography fontWeight="medium" color="warning.dark">
                           Invoice Discount
                           {fullInvoice.discount_percent > 0
@@ -2154,7 +2283,7 @@ export default function SalesPage() {
                   {/* Tax Row - shown as inclusive */}
                   {fullInvoice.tax_amount > 0 && (
                     <TableRow sx={{ bgcolor: "info.lighter" }}>
-                      <TableCell colSpan={5} align="right">
+                      <TableCell colSpan={6} align="right">
                         <Typography fontWeight="medium" color="info.dark">
                           Tax included ({fullInvoice.tax_rate}%):
                         </Typography>
@@ -2169,7 +2298,7 @@ export default function SalesPage() {
                   {/* Gift Voucher Payment Row */}
                   {fullInvoice.gift_voucher_amount > 0 && (
                     <TableRow sx={{ bgcolor: "secondary.lighter" }}>
-                      <TableCell colSpan={5} align="right">
+                      <TableCell colSpan={6} align="right">
                         <Typography fontWeight="medium" color="secondary.dark">
                           Voucher Payment:
                         </Typography>
@@ -2186,7 +2315,7 @@ export default function SalesPage() {
                     fullInvoice.payment_method === "card" &&
                     fullInvoice.service_charge_amount > 0 && (
                       <TableRow sx={{ bgcolor: "grey.100" }}>
-                        <TableCell colSpan={5} align="right">
+                        <TableCell colSpan={6} align="right">
                           <Typography
                             fontWeight="medium"
                             color="text.secondary"
@@ -2207,7 +2336,7 @@ export default function SalesPage() {
                       </TableRow>
                     )}
                   <TableRow sx={{ bgcolor: "success.lighter" }}>
-                    <TableCell colSpan={5} align="right">
+                    <TableCell colSpan={6} align="right">
                       <Typography
                         fontWeight="bold"
                         fontSize="1.1rem"
@@ -2229,7 +2358,7 @@ export default function SalesPage() {
                   {/* Balance Due Row */}
                   {fullInvoice.balance_due > 0 && (
                     <TableRow sx={{ bgcolor: "error.lighter" }}>
-                      <TableCell colSpan={5} align="right">
+                      <TableCell colSpan={6} align="right">
                         <Typography fontWeight="bold" color="error.main">
                           Balance Due:
                         </Typography>
@@ -4112,238 +4241,185 @@ export default function SalesPage() {
       {/* Step 3: Payment Details */}
       {formStep === 1 && (
         <>
-          <FormSection title="Payment Details" columns={1}>
-            <TextField
-              label="Payment Method"
-              size="small"
-              select
-              value={state.formData.payment_method}
-              onChange={(e) => {
-                state.setFormData({
-                  ...state.formData,
-                  payment_method: e.target.value,
-                });
-                // Reset payment details when method changes
-                setPaymentDetails({
-                  cheque_number: "",
-                  cheque_bank: "",
-                  cheque_date: new Date().toISOString().split("T")[0],
-                  card_ref_number: "",
-                  card_holder_name: "",
-                  bank_transfer_ref: "",
-                  bank_name: "",
-                  credit_note_id: 0,
-                  credit_note_amount: 0,
-                });
-                // Reset selected payment card when method changes
-                setSelectedPaymentCardId(null);
-              }}
-            >
-              {CUSTOMER_PAYMENT_METHOD.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </FormSection>
-
-          {/* Payment Details Section - Based on selected payment method */}
-          {state.formData.payment_method === "cheque" && (
-            <FormSection title="Cheque Details" columns={3}>
-              <TextField
-                label="Cheque Number"
+          {/* Split Payment UI */}
+          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+              <Typography variant="h6" fontWeight="bold">Payment Details</Typography>
+              <Button
                 size="small"
-                value={paymentDetails.cheque_number}
-                onChange={(e) =>
-                  setPaymentDetails({
-                    ...paymentDetails,
-                    cheque_number: e.target.value.replace(/\D/g, ""),
-                  })
-                }
-                required
-                inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
-                helperText="Numbers only"
-              />
-              <TextField
-                label="Bank Name"
-                size="small"
-                value={paymentDetails.cheque_bank}
-                onChange={(e) =>
-                  setPaymentDetails({
-                    ...paymentDetails,
-                    cheque_bank: e.target.value,
-                  })
-                }
-                required
-              />
-              <TextField
-                label="Cheque Date"
-                size="small"
-                type="date"
-                value={paymentDetails.cheque_date}
-                onChange={(e) =>
-                  setPaymentDetails({
-                    ...paymentDetails,
-                    cheque_date: e.target.value,
-                  })
-                }
-                InputLabelProps={{ shrink: true }}
-                required
-              />
-            </FormSection>
-          )}
-
-          {state.formData.payment_method === "card" && (
-            <FormSection title="Card Payment Details" columns={2}>
-              <TextField
-                select
-                label="Select Card"
-                size="small"
-                value={selectedPaymentCardId || ""}
-                onChange={(e) =>
-                  setSelectedPaymentCardId(Number(e.target.value))
-                }
-                required
+                startIcon={<AddIcon />}
+                variant="outlined"
+                onClick={addSplitRow}
               >
-                <MenuItem value="" disabled>
-                  Select a card type
-                </MenuItem>
-                {paymentCards.map((card: PaymentCard) => (
-                  <MenuItem key={card.id} value={card.id}>
-                    {card.card_name} ({card.card_type}){!hideServiceCharge && ` - ${card.service_charge_percent}% fee`}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                label="Card Reference Number"
-                size="small"
-                value={paymentDetails.card_ref_number}
-                onChange={(e) =>
-                  setPaymentDetails({
-                    ...paymentDetails,
-                    card_ref_number: e.target.value,
-                  })
-                }
-                placeholder="Transaction/Approval code"
-              />
-              <TextField
-                label="Card Holder Name"
-                size="small"
-                value={paymentDetails.card_holder_name}
-                onChange={(e) =>
-                  setPaymentDetails({
-                    ...paymentDetails,
-                    card_holder_name: e.target.value,
-                  })
-                }
-              />
-              {selectedPaymentCard && !hideServiceCharge && (
-                <Box
-                  sx={{
-                    gridColumn: "span 2",
-                    p: 1.5,
-                    bgcolor: "warning.lighter",
-                    borderRadius: 1,
-                  }}
-                >
-                  <Typography variant="body2" color="warning.dark">
-                    <strong>Service Charge:</strong>{" "}
-                    {selectedPaymentCard.service_charge_percent}% will be
-                    applied to the total amount
-                    {selectedPaymentCard.description && (
-                      <span> - {selectedPaymentCard.description}</span>
-                    )}
-                  </Typography>
-                </Box>
-              )}
-            </FormSection>
-          )}
+                Add Payment Method
+              </Button>
+            </Box>
 
-          {state.formData.payment_method === "bank_transfer" && (
-            <FormSection title="Bank Transfer Details" columns={2}>
-              <TextField
-                label="Bank Name"
-                size="small"
-                value={paymentDetails.bank_name}
-                onChange={(e) =>
-                  setPaymentDetails({
-                    ...paymentDetails,
-                    bank_name: e.target.value,
-                  })
-                }
-                required
-              />
-              <TextField
-                label="Reference Number"
-                size="small"
-                value={paymentDetails.bank_transfer_ref}
-                onChange={(e) =>
-                  setPaymentDetails({
-                    ...paymentDetails,
-                    bank_transfer_ref: e.target.value,
-                  })
-                }
-                placeholder="Bank transfer reference"
-                required
-              />
-            </FormSection>
-          )}
-
-          {state.formData.payment_method === "credit_note" && (
-            <FormSection title="Credit Note Details" columns={1}>
-              {customerCreditNotes && customerCreditNotes.length > 0 ? (
-                <>
+            {splitPayments.map((row, idx) => (
+              <Box key={row.id} sx={{ mb: 2, p: 1.5, bgcolor: "grey.50", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+                {/* Row header */}
+                <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 20 }}>#{idx + 1}</Typography>
                   <TextField
-                    select
-                    label="Select Credit Note"
-                    size="small"
-                    value={paymentDetails.credit_note_id || ""}
+                    select size="small" label="Method"
+                    value={row.method}
                     onChange={(e) => {
-                      const selectedNote = customerCreditNotes.find(
-                        (cn: any) => cn.id === Number(e.target.value),
-                      );
-                      setPaymentDetails({
-                        ...paymentDetails,
-                        credit_note_id: Number(e.target.value),
-                        credit_note_amount: selectedNote?.amount || 0,
-                      });
+                      updateSplitRow(row.id, { method: e.target.value });
+                      if (idx === 0) state.setFormData({ ...state.formData, payment_method: e.target.value });
                     }}
-                    required
+                    sx={{ minWidth: 160 }}
                   >
-                    {customerCreditNotes.map((creditNote: any) => (
-                      <MenuItem key={creditNote.id} value={creditNote.id}>
-                        {creditNote.credit_note_no} - Rs.{" "}
-                        {fmtLKR(creditNote.amount || 0)} (Balance: Rs.{" "}
-                        {fmtLKR(creditNote.balance || 0)})
-                      </MenuItem>
+                    {CUSTOMER_PAYMENT_METHOD.map((opt) => (
+                      <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
                     ))}
                   </TextField>
-                  {paymentDetails.credit_note_id > 0 && (
-                    <Box
-                      sx={{
-                        p: 2,
-                        bgcolor: "success.lighter",
-                        borderRadius: 1,
-                        mt: 1,
+                  <TextField
+                    size="small" type="number" label="Amount (Rs.)"
+                    value={row.amount}
+                    onChange={(e) => updateSplitRow(row.id, { amount: parseFloat(e.target.value) || 0 })}
+                    sx={{ width: 160 }}
+                    inputProps={{ min: 0, step: 0.01 }}
+                  />
+                  {splitPayments.length > 1 && (
+                    <Tooltip title="Remove this payment">
+                      <IconButton size="small" color="error" onClick={() => removeSplitRow(row.id)}>
+                        <RemoveCircleOutlineIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </Box>
+
+                {/* Cheque details */}
+                {row.method === "cheque" && (
+                  <Box sx={{ display: "flex", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
+                    <TextField
+                      size="small" label="Cheque No."
+                      value={row.cheque_number}
+                      onChange={(e) => updateSplitRow(row.id, { cheque_number: e.target.value.replace(/\D/g, "") })}
+                      inputProps={{ inputMode: "numeric" }}
+                      sx={{ width: 150 }}
+                      required
+                    />
+                    <TextField
+                      size="small" label="Bank"
+                      value={row.cheque_bank}
+                      onChange={(e) => updateSplitRow(row.id, { cheque_bank: e.target.value })}
+                      sx={{ width: 180 }}
+                      required
+                    />
+                    <TextField
+                      size="small" label="Cheque Date" type="date"
+                      value={row.cheque_date}
+                      onChange={(e) => updateSplitRow(row.id, { cheque_date: e.target.value })}
+                      InputLabelProps={{ shrink: true }}
+                      sx={{ width: 160 }}
+                    />
+                  </Box>
+                )}
+
+                {/* Card details */}
+                {row.method === "card" && (
+                  <Box sx={{ display: "flex", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
+                    <TextField
+                      select size="small" label="Card Type"
+                      value={selectedPaymentCardId || ""}
+                      onChange={(e) => setSelectedPaymentCardId(Number(e.target.value))}
+                      sx={{ minWidth: 200 }}
+                      required
+                    >
+                      <MenuItem value="" disabled>Select card</MenuItem>
+                      {paymentCards.map((card: PaymentCard) => (
+                        <MenuItem key={card.id} value={card.id}>
+                          {card.card_name} ({card.card_type}){!hideServiceCharge && ` — ${card.service_charge_percent}% fee`}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <TextField
+                      size="small" label="Card Ref / Approval Code"
+                      value={row.card_ref_number}
+                      onChange={(e) => updateSplitRow(row.id, { card_ref_number: e.target.value })}
+                      sx={{ width: 200 }}
+                    />
+                    <TextField
+                      size="small" label="Card Holder"
+                      value={row.card_holder_name}
+                      onChange={(e) => updateSplitRow(row.id, { card_holder_name: e.target.value })}
+                      sx={{ width: 180 }}
+                    />
+                    {selectedPaymentCard && !hideServiceCharge && (
+                      <Box sx={{ p: 1, bgcolor: "warning.lighter", borderRadius: 1, alignSelf: "center" }}>
+                        <Typography variant="caption" color="warning.dark">
+                          {selectedPaymentCard.service_charge_percent}% service charge applies
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+
+                {/* Bank Transfer details */}
+                {row.method === "bank_transfer" && (
+                  <Box sx={{ display: "flex", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
+                    <TextField
+                      size="small" label="Bank Name"
+                      value={row.bank_name}
+                      onChange={(e) => updateSplitRow(row.id, { bank_name: e.target.value })}
+                      sx={{ width: 200 }}
+                      required
+                    />
+                    <TextField
+                      size="small" label="Reference No."
+                      value={row.bank_transfer_ref}
+                      onChange={(e) => updateSplitRow(row.id, { bank_transfer_ref: e.target.value })}
+                      sx={{ width: 200 }}
+                      required
+                    />
+                  </Box>
+                )}
+              </Box>
+            ))}
+
+            {/* Payment totals balance */}
+            {(() => {
+              const totals = calcOrderTotals();
+              const grandTotal = totals.grandTotal;
+              const entered = splitPayments.reduce((s, p) => s + (p.amount || 0), 0);
+              const remaining = grandTotal - entered;
+              const isBalanced = Math.abs(remaining) < 0.01;
+              return (
+                <Box sx={{ mt: 1 }}>
+                  <Divider sx={{ mb: 1 }} />
+                  <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">Total Entered:</Typography>
+                    <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "warning.main"}>
+                      Rs. {fmtLKR(entered)}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                    <Typography variant="body2" color="text.secondary">Remaining:</Typography>
+                    <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "error.main"}>
+                      {remaining > 0.01 ? `Rs. ${fmtLKR(remaining)}` : remaining < -0.01 ? `- Rs. ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✓ Fully paid"}
+                    </Typography>
+                  </Box>
+                  {!isBalanced && (
+                    <Button
+                      size="small" variant="text" color="primary" sx={{ mt: 0.5, p: 0 }}
+                      onClick={() => {
+                        if (splitPayments.length === 1) {
+                          updateSplitRow(splitPayments[0].id, { amount: grandTotal });
+                        } else {
+                          const lastRow = splitPayments[splitPayments.length - 1];
+                          const otherTotal = splitPayments.slice(0, -1).reduce((s, p) => s + (p.amount || 0), 0);
+                          updateSplitRow(lastRow.id, { amount: Math.max(0, grandTotal - otherTotal) });
+                        }
                       }}
                     >
-                      <Typography variant="body2" color="success.dark">
-                        Available Credit: Rs.{" "}
-                        {fmtLKR(paymentDetails.credit_note_amount)}
-                      </Typography>
-                    </Box>
+                      Auto-fill remaining to last row
+                    </Button>
                   )}
-                </>
-              ) : (
-                <Box sx={{ p: 2, bgcolor: "warning.lighter", borderRadius: 1 }}>
-                  <Typography variant="body2" color="warning.dark">
-                    No credit notes available for this customer. Please select a
-                    different payment method.
-                  </Typography>
                 </Box>
-              )}
-            </FormSection>
-          )}
+              );
+            })()}
+          </Paper>
 
           {/* Order Summary - Show final calculation */}
           <Paper
@@ -4587,6 +4663,111 @@ export default function SalesPage() {
               </Box>
             </Box>
           </Paper>
+
+          {/* Agent Commission Section */}
+          {state.formData.customer_agent_id && (() => {
+            const agent = (customers || []).find((c: any) => c.id === state.formData.customer_agent_id);
+            const baseRate = agent?.commission_rate ?? 0;
+            const totals = calcOrderTotals();
+            // Effective rate: manual override > agent rate > 0
+            const effectiveRate = manualCommissionRate !== null ? manualCommissionRate : baseRate;
+            const calculatedAmt = totals.grandTotal * (effectiveRate / 100);
+            // Effective amount: manual amount override > calculated
+            const effectiveAmt = manualCommissionAmount !== null ? manualCommissionAmount : calculatedAmt;
+            return (
+              <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: payCommissionNow ? "success.main" : "divider", bgcolor: payCommissionNow ? "success.50" : "background.paper" }}>
+                {/* Header row */}
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight="bold">
+                      Agent Commission — {agent?.customer_name ?? `Agent #${state.formData.customer_agent_id}`}
+                    </Typography>
+                    {baseRate > 0 && manualCommissionRate === null && manualCommissionAmount === null && (
+                      <Typography variant="caption" color="text.secondary">
+                        Default: {baseRate}% × Rs. {fmtLKR(totals.grandTotal)} = Rs. {fmtLKR(calculatedAmt)}
+                      </Typography>
+                    )}
+                  </Box>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={payCommissionNow}
+                        onChange={(e) => setPayCommissionNow(e.target.checked)}
+                        color="success"
+                      />
+                    }
+                    label={payCommissionNow ? "Pay Now" : "Pay Later"}
+                    labelPlacement="start"
+                  />
+                </Box>
+
+                {/* Manual override row */}
+                <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mb: payCommissionNow ? 1.5 : 0 }}>
+                  <TextField
+                    size="small"
+                    label="Rate % (override)"
+                    type="number"
+                    value={manualCommissionRate ?? ""}
+                    placeholder={baseRate > 0 ? `Default: ${baseRate}%` : "Enter rate"}
+                    onChange={(e) => {
+                      const v = e.target.value === "" ? null : parseFloat(e.target.value);
+                      setManualCommissionRate(v);
+                      // If rate changes, clear manual amount so it recalculates
+                      setManualCommissionAmount(null);
+                    }}
+                    inputProps={{ min: 0, max: 100, step: 0.01 }}
+                    sx={{ width: 160 }}
+                    InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                  />
+                  <TextField
+                    size="small"
+                    label="Commission Amount (Rs.)"
+                    type="number"
+                    value={manualCommissionAmount !== null ? manualCommissionAmount : effectiveAmt.toFixed(2)}
+                    onChange={(e) => {
+                      setManualCommissionAmount(parseFloat(e.target.value) || 0);
+                    }}
+                    inputProps={{ min: 0, step: 0.01 }}
+                    sx={{ width: 200 }}
+                    InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                  />
+                  {(manualCommissionRate !== null || manualCommissionAmount !== null) && (
+                    <Button
+                      size="small" variant="text" color="secondary"
+                      onClick={() => { setManualCommissionRate(null); setManualCommissionAmount(null); }}
+                    >
+                      Reset to default
+                    </Button>
+                  )}
+                  <Chip
+                    label={`Payable: Rs. ${fmtLKR(effectiveAmt)}`}
+                    color={payCommissionNow ? "success" : "default"}
+                    size="small"
+                    variant={payCommissionNow ? "filled" : "outlined"}
+                  />
+                </Box>
+
+                {payCommissionNow && (
+                  <TextField
+                    select size="small"
+                    label="Commission Payment Method"
+                    value={commissionPaymentMethod}
+                    onChange={(e) => setCommissionPaymentMethod(e.target.value)}
+                    sx={{ width: 220 }}
+                  >
+                    {["Cash", "Bank Transfer", "Cheque"].map((m) => (
+                      <MenuItem key={m} value={m}>{m}</MenuItem>
+                    ))}
+                  </TextField>
+                )}
+                {!payCommissionNow && (
+                  <Typography variant="caption" color="text.secondary">
+                    Commission will be recorded as <strong>unpaid</strong> and can be paid later from Agent Commissions.
+                  </Typography>
+                )}
+              </Paper>
+            );
+          })()}
 
           {/* Step 3 Navigation */}
         </>

@@ -317,20 +317,6 @@ class SalesAccountingIntegration:
         payment_method = (invoice.payment_method or "").lower()
         is_credit = payment_method == "credit"
 
-        # Determine the debit account (where money comes from)
-        if payment_method == "cash":
-            debit_account = ACCT_CASH_ON_HAND
-        elif payment_method in ("card_visa", "card_mastercard", "card_amex"):
-            debit_account = ACCT_BANK_ACCOUNT
-        elif payment_method == "cheque":
-            debit_account = ACCT_BANK_ACCOUNT
-        elif payment_method == "bank_transfer":
-            debit_account = ACCT_BANK_ACCOUNT
-        elif is_credit:
-            debit_account = ACCT_TRADE_DEBTORS
-        else:
-            debit_account = ACCT_CASH_ON_HAND  # Fallback
-
         # Revenue account
         revenue_account = ACCT_CREDIT_SALES if is_credit else ACCT_CASH_SALES
 
@@ -347,27 +333,71 @@ class SalesAccountingIntegration:
         # Revenue = subtotal - discount - coupon (before tax, voucher, service charge)
         revenue_amount = subtotal - discount_amount - coupon_amount
 
-        # Amount received by the business (for debit side)
-        # grand_total = revenue_amount - voucher - credit_note + tax + service_charge
-        # But the debit to asset/receivable = grand_total (what customer pays / owes)
-        receivable_amount = grand_total
-
         # Build journal entry lines
         lines = []
 
-        # --- DEBIT: Asset / Receivable ---
-        # For voucher-reduced amounts, we need to split:
-        # Customer pays: grand_total (after voucher & credit note deduction)
-        # Voucher redeemed: reduces outstanding liability
-        # Credit note redeemed: reduces outstanding liability
+        # --- DEBIT: Asset / Receivable (split payment aware) ---
+        # Each non-zero payment component gets its own GL debit line.
+        cash_amt   = Decimal(str(invoice.cash_amount or 0))
+        card_amt   = Decimal(str((invoice.card_visa_amount or 0) + (invoice.card_mastercard_amount or 0) + (invoice.card_amex_amount or 0)))
+        cheque_amt = Decimal(str(invoice.cheque_amount or 0))
+        bank_amt   = Decimal(str(invoice.bank_transfer_amount or 0))
+        credit_amt = Decimal(str(invoice.credit_amount or 0))
 
-        if receivable_amount > 0:
-            lines.append({
-                "account_code": debit_account,
-                "debit": receivable_amount,
-                "credit": Decimal("0"),
-                "description": f"Sale {invoice.invoice_no} - {payment_method.replace('_', ' ').title()} received",
-            })
+        total_split = cash_amt + card_amt + cheque_amt + bank_amt + credit_amt
+
+        if total_split > 0:
+            # Multi-method split: post each component separately
+            if cash_amt > 0:
+                lines.append({
+                    "account_code": ACCT_CASH_ON_HAND,
+                    "debit": cash_amt,
+                    "credit": Decimal("0"),
+                    "description": f"Sale {invoice.invoice_no} - Cash received",
+                })
+            if card_amt > 0:
+                lines.append({
+                    "account_code": ACCT_BANK_ACCOUNT,
+                    "debit": card_amt,
+                    "credit": Decimal("0"),
+                    "description": f"Sale {invoice.invoice_no} - Card received",
+                })
+            if cheque_amt > 0:
+                lines.append({
+                    "account_code": ACCT_BANK_ACCOUNT,
+                    "debit": cheque_amt,
+                    "credit": Decimal("0"),
+                    "description": f"Sale {invoice.invoice_no} - Cheque received",
+                })
+            if bank_amt > 0:
+                lines.append({
+                    "account_code": ACCT_BANK_ACCOUNT,
+                    "debit": bank_amt,
+                    "credit": Decimal("0"),
+                    "description": f"Sale {invoice.invoice_no} - Bank transfer received",
+                })
+            if credit_amt > 0:
+                lines.append({
+                    "account_code": ACCT_TRADE_DEBTORS,
+                    "debit": credit_amt,
+                    "credit": Decimal("0"),
+                    "description": f"Sale {invoice.invoice_no} - Credit (receivable)",
+                })
+        else:
+            # Fallback: use payment_method for full grand_total
+            if is_credit:
+                debit_account = ACCT_TRADE_DEBTORS
+            elif payment_method == "cash":
+                debit_account = ACCT_CASH_ON_HAND
+            else:
+                debit_account = ACCT_BANK_ACCOUNT
+            if grand_total > 0:
+                lines.append({
+                    "account_code": debit_account,
+                    "debit": grand_total,
+                    "credit": Decimal("0"),
+                    "description": f"Sale {invoice.invoice_no} - {payment_method.replace('_', ' ').title()} received",
+                })
 
         # If voucher was used, debit the voucher liability (reduce outstanding voucher obligation)
         if voucher_amount > 0:
@@ -429,8 +459,8 @@ class SalesAccountingIntegration:
 
         description = (
             f"Auto GL - Sale Revenue | Invoice: {invoice.invoice_no} | "
-            f"Method: {payment_method} | Amount: {grand_total} | "
-            f"Invoice ID: {invoice.id}"
+            f"Method: {payment_method} (split: cash={cash_amt} card={card_amt} cheque={cheque_amt} bank={bank_amt} credit={credit_amt}) | "
+            f"Amount: {grand_total} | Invoice ID: {invoice.id}"
         )
 
         je = self._create_je_and_post(
@@ -447,7 +477,7 @@ class SalesAccountingIntegration:
         if je:
             logger.info(
                 f"✅ GL Posted: Sale {invoice.invoice_no} → JE {je.journal_entry_no} "
-                f"(Dr {debit_account} / Cr {revenue_account})"
+                f"(split payment: cash={cash_amt} card={card_amt} cheque={cheque_amt} bank={bank_amt} credit={credit_amt})"
             )
 
         return je

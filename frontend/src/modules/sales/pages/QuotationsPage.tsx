@@ -32,6 +32,7 @@ import {
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
+import { customersApi } from "@/modules/customers/api";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import {
   Add as AddIcon,
@@ -124,6 +125,7 @@ const getEmptyQuoteForm = (quoteType: QuoteType): Partial<SalesQuoteCreate> => (
   branch_code: "MAIN",
   customer_id: 0,
   sale_rep_id: undefined,
+  customer_agent_id: undefined,
   valid_until: format(addDays(new Date(), 30), "yyyy-MM-dd"),
   is_estimate: quoteType === "quotation",
   remarks: "",
@@ -168,6 +170,17 @@ export default function QuotationsPage() {
   const [stockCheckedQuoteId, setStockCheckedQuoteId] = useState<number | null>(null);
   const [stockCheckLoading, setStockCheckLoading] = useState(false);
   const [stockAllSufficient, setStockAllSufficient] = useState(false);
+  // Per-item qty overrides for partial SO dialog (item_id → qty to convert)
+  const [partialQtyMap, setPartialQtyMap] = useState<Record<number, number>>({});
+  // Cancel item state
+  const [cancelItemDialogOpen, setCancelItemDialogOpen] = useState(false);
+  const [cancelItemTarget, setCancelItemTarget] = useState<{ quoteId: number; itemId: number; productName: string } | null>(null);
+  const [cancelItemReason, setCancelItemReason] = useState("");
+  const [cancelItemLoading, setCancelItemLoading] = useState(false);
+
+  // Derived: whether any items need a PO, and whether any items are in stock (can go to SO)
+  const hasItemsNeedingPO = stockAvailability.some(sa => !sa.is_sufficient);
+  const hasItemsInStock = stockAvailability.some(sa => sa.is_sufficient);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [cancelLinkedPO, setCancelLinkedPO] = useState(false);
@@ -221,11 +234,20 @@ export default function QuotationsPage() {
   });
 
   // OPTIMIZED: Use aggregated reference data endpoint instead of separate API calls
-  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches", "customers", "employees"], { productsLimit: 2000 });
+  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches", "customers"], { productsLimit: 2000 });
   const products = refData?.products || [];
   const branches = filteredBranches || [];
   const customers = refData?.customers || [];
-  const employees = refData?.employees || [];
+
+  // Fetch all customers to filter customer agents (is_customer_agent=true)
+  const { data: allCustomers } = useQuery({
+    queryKey: ["customers-all"],
+    queryFn: () => customersApi.getAll(0, 500),
+  });
+  const customerAgents = useMemo(
+    () => (allCustomers || []).filter((c) => c.is_customer_agent && c.active),
+    [allCustomers]
+  );
 
   // Auto-default branch filter for non-superuser users
   useEffect(() => {
@@ -549,7 +571,7 @@ export default function QuotationsPage() {
             quantity: item.quantity,
             unit_price: product?.cost_price ?? Number(item.selling_price),
             warrenty_month: item.warrenty_month || "0",
-            remark: `From Proforma ${selectedQuote.quote_no}`,
+            remark: `From ${selectedQuote.quote_type === 'proforma' ? 'Proforma' : 'Quotation'} ${selectedQuote.quote_no}`,
           };
         });
 
@@ -559,24 +581,93 @@ export default function QuotationsPage() {
         proformaId: selectedQuote.id,
         proformaNo: selectedQuote.quote_no,
         branchCode: selectedQuote.branch_code,
-        remarks: `PO for Proforma ${selectedQuote.quote_no}`,
+        remarks: `PO for ${selectedQuote.quote_type === 'proforma' ? 'Proforma' : 'Quotation'} ${selectedQuote.quote_no}`,
         items: itemsForPO,
       },
     });
   }, [selectedQuote, selectedQuoteDetails, stockAvailability, products, navigate]);
 
-  // Navigate to Sales Order page with pre-filled data from proforma (all items available)
+  // Navigate to Sales Order page with pre-filled data — only in-stock items
+  const handleCreatePartialSO = useCallback(async () => {
+    if (!selectedQuote || !selectedQuoteDetails?.items) return;
+    // Build items list: items that are in-stock and pending/partial, using partialQtyMap
+    const itemsToConvert = stockAvailability
+      .filter(sa => sa.is_sufficient)
+      .map(sa => {
+        const quoteItem = selectedQuoteDetails.items.find(i => i.product_id === sa.product_id);
+        if (!quoteItem) return null;
+        // Only include pending/partial items
+        if (quoteItem.item_status === 'completed' || quoteItem.item_status === 'cancelled') return null;
+        const remaining = quoteItem.quantity - (quoteItem.converted_qty || 0);
+        const qty = partialQtyMap[quoteItem.id] ?? remaining;
+        if (qty <= 0) return null;
+        return { item_id: quoteItem.id, quantity: qty };
+      })
+      .filter(Boolean) as { item_id: number; quantity: number }[];
+
+    if (itemsToConvert.length === 0) {
+      showErrorToast("No items selected for Sales Order.");
+      return;
+    }
+
+    try {
+      await quotationApi.createPartialSO(selectedQuote.id, { items: itemsToConvert });
+      queryClient.invalidateQueries({ queryKey: ["quotations"] });
+      queryClient.invalidateQueries({ queryKey: ["quotation", selectedQuote.id] });
+      showSuccessToast(`Partial Sales Order created from ${selectedQuote.quote_no}.`);
+      setStockCheckDialogOpen(false);
+      setPartialQtyMap({});
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create partial SO";
+      showErrorToast(msg);
+    }
+  }, [selectedQuote, selectedQuoteDetails, stockAvailability, partialQtyMap, queryClient]);
+
+  const handleCancelItemSubmit = useCallback(async () => {
+    if (!cancelItemTarget) return;
+    setCancelItemLoading(true);
+    try {
+      await quotationApi.cancelItem(cancelItemTarget.quoteId, cancelItemTarget.itemId, cancelItemReason || undefined);
+      queryClient.invalidateQueries({ queryKey: ["quotations"] });
+      queryClient.invalidateQueries({ queryKey: ["quotation", cancelItemTarget.quoteId] });
+      showSuccessToast(`Item "${cancelItemTarget.productName}" cancelled.`);
+      setCancelItemDialogOpen(false);
+      setCancelItemTarget(null);
+      setCancelItemReason("");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to cancel item";
+      showErrorToast(msg);
+    } finally {
+      setCancelItemLoading(false);
+    }
+  }, [cancelItemTarget, cancelItemReason, queryClient]);
+
   const handleCreateSONavigate = useCallback(() => {
     if (!selectedQuote || !selectedQuoteDetails?.items) return;
 
-    const itemsForSO = selectedQuoteDetails.items.map(item => ({
-      product_id: item.product_id,
-      quantity: item.quantity,
-      selling_price: Number(item.selling_price),
-      minimum_selling_price: Number(item.minimum_selling_price),
-      warrenty_month: item.warrenty_month || "0",
-    }));
+    // Only include items that have sufficient stock (skip items needing procurement)
+    const sufficientProductIds = stockAvailability.length > 0
+      ? new Set(stockAvailability.filter(sa => sa.is_sufficient).map(sa => sa.product_id))
+      : null; // null = no stock check done yet, include all
 
+    const itemsForSO = selectedQuoteDetails.items
+      .filter(item => sufficientProductIds === null || sufficientProductIds.has(item.product_id))
+      .map(item => ({
+        product_id: item.product_id,
+        product_name: products.find(p => p.id === item.product_id)?.name || "",
+        quantity: item.quantity,
+        selling_price: Number(item.selling_price),
+        minimum_selling_price: Number(item.minimum_selling_price),
+        warrenty_month: item.warrenty_month || "0",
+        discount_percent: item.discount_percentage || 0,
+      }));
+
+    if (itemsForSO.length === 0) {
+      showErrorToast("No in-stock items available to create a Sales Order.");
+      return;
+    }
+
+    const quoteLabel = selectedQuote.quote_type === 'proforma' ? 'Proforma' : 'Quotation';
     navigate("/sales/orders", {
       state: {
         fromProforma: true,
@@ -584,14 +675,18 @@ export default function QuotationsPage() {
         proformaId: selectedQuote.id,
         proformaNo: selectedQuote.quote_no,
         customerId: selectedQuote.customer_id,
+        customer_agent_id: selectedQuote.customer_agent_id,
         branchCode: selectedQuote.branch_code,
-        remarks: `SO from Proforma ${selectedQuote.quote_no}`,
+        remarks: `SO from ${quoteLabel} ${selectedQuote.quote_no}`,
         items: itemsForSO,
-        taxMode,
-        taxRate: effectiveTaxRate,
+        taxMode: selectedQuote.tax_mode ?? taxMode,
+        taxRate: selectedQuote.tax_rate ?? effectiveTaxRate,
+        source_quote_type: selectedQuote.quote_type,
+        advance_payment_id: selectedQuote.advance_payment_id,
+        advance_amount: selectedQuote.advance_amount,
       },
     });
-  }, [selectedQuote, selectedQuoteDetails, navigate, taxMode, effectiveTaxRate]);
+  }, [selectedQuote, selectedQuoteDetails, stockAvailability, navigate, taxMode, effectiveTaxRate]);
 
   const handleRejectSubmit = useCallback(() => {
     if (!selectedQuote) return;
@@ -608,13 +703,16 @@ export default function QuotationsPage() {
     const actions: string[] = [];
 
     // Mark as proforma (toggle) — only for quotation type
-    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'cancelled'].includes(s)) actions.push('toggle_proforma');
-    // Check stock
-    if (!['cancelled', 'converted', 'converted_to_invoice', 'item_received', 'so_created'].includes(s)) actions.push('check_stock');
+    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'partially_converted', 'cancelled'].includes(s)) actions.push('toggle_proforma');
+    // Check stock — also allow when partially_converted (more items may still be pending)
+    if (!['cancelled', 'converted', 'converted_to_invoice', 'item_received'].includes(s)) actions.push('check_stock');
+    // Create PO / SO — allow even when partially_converted or so_created (more partial SOs possible)
+    if (!['cancelled', 'converted', 'converted_to_invoice', 'item_received'].includes(s)) actions.push('create_po');
+    if (!['cancelled', 'converted', 'converted_to_invoice', 'item_received'].includes(s)) actions.push('create_so');
     // Reject
-    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'cancelled', 'revised', 'rejected'].includes(s)) actions.push('reject');
+    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'partially_converted', 'cancelled', 'revised', 'rejected'].includes(s)) actions.push('reject');
     // Cancel
-    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'cancelled', 'revised'].includes(s)) actions.push('cancel');
+    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'partially_converted', 'cancelled', 'revised'].includes(s)) actions.push('cancel');
 
     return actions;
   }, [selectedQuote, isCreating, isEditing]);
@@ -670,12 +768,15 @@ export default function QuotationsPage() {
         branch_code: selectedQuote.branch_code,
         customer_id: selectedQuote.customer_id,
         sale_rep_id: selectedQuote.sale_rep_id,
+        customer_agent_id: selectedQuote.customer_agent_id,
         valid_until: selectedQuote.valid_until,
         is_estimate: selectedQuote.is_estimate,
         remarks: selectedQuote.remarks || "",
         customer_notes: selectedQuote.customer_notes || "",
         special: selectedQuote.special,
       });
+      setTaxMode((selectedQuote.tax_mode as "none" | "inclusive" | "exclusive") || "none");
+      setTaxRate(selectedQuote.tax_rate || 0);
       setLineItemsDirty(false);
       handleStartEdit();
     }
@@ -718,11 +819,13 @@ export default function QuotationsPage() {
       createMutation.mutate({
         ...formData,
         items,
+        tax_mode: taxMode,
+        tax_rate: effectiveTaxRate,
       } as SalesQuoteCreate);
     } else if (isEditing && selectedQuote) {
       updateMutation.mutate({
         id: selectedQuote.id,
-        data: { ...formData, items },
+        data: { ...formData, items, tax_mode: taxMode, tax_rate: effectiveTaxRate },
       });
     }
   }, [formData, lineItems, isCreating, isEditing, selectedQuote, createMutation, updateMutation]);
@@ -971,10 +1074,9 @@ export default function QuotationsPage() {
                     </Button>
                   </Tooltip>
                 )}
-                {pageQuoteType === 'proforma' &&
+                {getAvailableActions().includes('create_po') &&
                   stockCheckedQuoteId === selectedQuote.id &&
-                  !stockAllSufficient &&
-                  !['cancelled', 'converted', 'converted_to_invoice', 'so_created'].includes(selectedQuote.status) && (
+                  hasItemsNeedingPO && (
                   <Tooltip title="Create Purchase Order for unavailable items">
                     <Button size="small" variant="outlined" color="warning" startIcon={<POIcon />}
                       onClick={handleCreatePONavigate}>
@@ -982,11 +1084,10 @@ export default function QuotationsPage() {
                     </Button>
                   </Tooltip>
                 )}
-                {pageQuoteType === 'proforma' &&
+                {getAvailableActions().includes('create_so') &&
                   stockCheckedQuoteId === selectedQuote.id &&
-                  stockAllSufficient &&
-                  !['cancelled', 'converted', 'converted_to_invoice', 'so_created'].includes(selectedQuote.status) && (
-                  <Tooltip title="Create Sales Order from Proforma">
+                  hasItemsInStock && (
+                  <Tooltip title={hasItemsNeedingPO ? "Create Sales Order for in-stock items" : "Create Sales Order from this quote"}>
                     <Button size="small" variant="contained" color="primary" startIcon={<InvoiceIcon />}
                       onClick={handleCreateSONavigate}>
                       To Sales Order
@@ -998,14 +1099,6 @@ export default function QuotationsPage() {
                     <Button size="small" variant="outlined" color="error" startIcon={<RejectIcon />}
                       onClick={() => setRejectDialogOpen(true)}>
                       Reject
-                    </Button>
-                  </Tooltip>
-                )}
-                {getAvailableActions().includes('cancel') && (
-                  <Tooltip title="Cancel Quotation">
-                    <Button size="small" variant="outlined" color="error" startIcon={<CancelIcon />}
-                      onClick={handleCancel}>
-                      Cancel
                     </Button>
                   </Tooltip>
                 )}
@@ -1046,11 +1139,12 @@ export default function QuotationsPage() {
     if (!selectedQuote) return null;
     const quote = selectedQuote;
 
-    // Calculate totals from items
+    // Calculate totals from items (after item discounts, before tax)
     const calculateTotal = () => {
       if (!selectedQuoteDetails?.items) return quote.total_amount;
       return selectedQuoteDetails.items.reduce((sum, item) => {
-        return sum + item.quantity * Number(item.selling_price);
+        const lineGross = item.quantity * Number(item.selling_price);
+        return sum + lineGross * (1 - (item.discount_percentage || 0) / 100);
       }, 0);
     };
 
@@ -1160,6 +1254,7 @@ export default function QuotationsPage() {
                 <TableCell align="right" sx={{ width: 90 }}>Discount</TableCell>
                 <TableCell sx={{ width: 100 }}>Warranty</TableCell>
                 <TableCell align="center" sx={{ width: 120 }}>Stock</TableCell>
+                <TableCell align="center" sx={{ width: 120 }}>Item Status</TableCell>
                 <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
               </TableRow>
             </TableHead>
@@ -1173,10 +1268,14 @@ export default function QuotationsPage() {
                   const stockStatus = liveStock
                     ? (liveStock.is_sufficient ? 'in_stock' : 'needs_procurement')
                     : item.stock_status;
+                  const itemStatus = item.item_status ?? 'pending';
+                  const converted = item.converted_qty ?? 0;
+                  const canCancelItem = selectedQuote && ['pending', 'partial'].includes(itemStatus);
                   return (
                     <TableRow key={index} sx={{
                       ...modernTableStyles.bodyRow,
                       ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                      ...(itemStatus === 'cancelled' && { opacity: 0.5 }),
                     }}>
                       <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                       <TableCell align="right">{item.quantity}</TableCell>
@@ -1198,6 +1297,28 @@ export default function QuotationsPage() {
                           <Typography variant="caption" color="text.secondary">-</Typography>
                         )}
                       </TableCell>
+                      <TableCell align="center">
+                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                          {itemStatus === 'completed' ? (
+                            <Chip label="Completed" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'partial' ? (
+                            <Chip label={`Partial (${converted}/${item.quantity})`} color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'cancelled' ? (
+                            <Chip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : (
+                            <Chip label="Pending" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          )}
+                          {canCancelItem && (
+                            <Button size="small" color="error" sx={{ fontSize: '0.65rem', p: '1px 4px', minWidth: 0 }}
+                              onClick={() => {
+                                setCancelItemTarget({ quoteId: selectedQuote!.id, itemId: item.id, productName: product?.name || `Product #${item.product_id}` });
+                                setCancelItemDialogOpen(true);
+                              }}>
+                              Cancel
+                            </Button>
+                          )}
+                        </Box>
+                      </TableCell>
                       <TableCell align="right">
                         <TCurrency value={item.quantity * Number(item.selling_price) * (1 - (item.discount_percentage || 0) / 100)} />
                       </TableCell>
@@ -1206,14 +1327,14 @@ export default function QuotationsPage() {
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} sx={modernTableStyles.emptyCell}>
+                  <TableCell colSpan={8} sx={modernTableStyles.emptyCell}>
                     No items in this quote
                   </TableCell>
                 </TableRow>
               )}
               {/* Total Row */}
               <TableRow sx={modernTableStyles.footerRow}>
-                <TableCell colSpan={6} align="right">
+                <TableCell colSpan={7} align="right">
                   <Typography fontWeight="bold">Total:</Typography>
                 </TableCell>
                 <TableCell align="right">
@@ -1223,6 +1344,46 @@ export default function QuotationsPage() {
             </TableBody>
           </Table>
         </Paper>
+
+        {/* Discount & Tax Summary (view mode) */}
+        {(quote.tax_mode && quote.tax_mode !== 'none' && (quote.tax_rate || 0) > 0) && (() => {
+          const rate = quote.tax_rate || 0;
+          const subtotalAfterDiscounts = calculateTotal();
+          let taxAmount: number;
+          let grandTotal: number;
+          if (quote.tax_mode === 'exclusive') {
+            // Tax is added on top
+            taxAmount = subtotalAfterDiscounts * (rate / 100);
+            grandTotal = subtotalAfterDiscounts + taxAmount;
+          } else {
+            // Inclusive: tax is already inside the price
+            taxAmount = subtotalAfterDiscounts * rate / (100 + rate);
+            grandTotal = subtotalAfterDiscounts;
+          }
+          return (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5, mt: 1, pr: 1 }}>
+              <Box sx={{ display: 'flex', gap: 4 }}>
+                <Typography variant="body2" color="text.secondary">Subtotal (excl. tax):</Typography>
+                <Typography variant="body2">
+                  <TCurrency value={quote.tax_mode === 'inclusive' ? subtotalAfterDiscounts - taxAmount : subtotalAfterDiscounts} />
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 4 }}>
+                <Typography variant="body2" color="info.main">
+                  Tax ({rate}%{quote.tax_mode === 'exclusive' ? ' excl.' : ' incl.'}):
+                </Typography>
+                <Typography variant="body2" color="info.main">
+                  {quote.tax_mode === 'exclusive' ? '+ ' : ''}<TCurrency value={taxAmount} />
+                </Typography>
+              </Box>
+              <Divider sx={{ width: '100%' }} />
+              <Box sx={{ display: 'flex', gap: 4 }}>
+                <Typography variant="body2" fontWeight="bold">Grand Total:</Typography>
+                <Typography variant="body2" fontWeight="bold"><TCurrency value={grandTotal} /></Typography>
+              </Box>
+            </Box>
+          );
+        })()}
 
         {/* Print Preview Dialog */}
         {selectedQuoteForPrint && (
@@ -1249,6 +1410,33 @@ export default function QuotationsPage() {
             </>
           )
         }
+
+        {/* Advance Payment (for proforma invoices) */}
+        {quote.advance_payment_id && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            <FormSection title="Advance Payment">
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <Chip
+                  label="Advance Paid"
+                  color="success"
+                  size="small"
+                />
+                <Typography variant="body2" color="text.secondary">
+                  Advance #{quote.advance_payment_id}
+                </Typography>
+                {quote.advance_amount && (
+                  <Chip
+                    label={<TCurrency value={quote.advance_amount} />}
+                    color="success"
+                    variant="outlined"
+                    size="small"
+                  />
+                )}
+              </Box>
+            </FormSection>
+          </>
+        )}
 
         {
           quote.converted_to_invoice_id && (
@@ -1336,12 +1524,16 @@ export default function QuotationsPage() {
 
               <Autocomplete
                 size="small"
-                options={employees || []}
-                getOptionLabel={(option) => option.full_name || option.employee_id}
-                value={employees?.find((e) => e.id === formData.sale_rep_id) || null}
-                onChange={(_, newValue) => setFormData({ ...formData, sale_rep_id: newValue?.id || undefined })}
+                options={customerAgents}
+                getOptionLabel={(option) =>
+                  `${option.customer_name}${option.commission_rate ? ` (${option.commission_rate}%)` : ""}`
+                }
+                value={customerAgents.find((c) => c.id === formData.customer_agent_id) || null}
+                onChange={(_, newValue) =>
+                  setFormData({ ...formData, customer_agent_id: newValue?.id || undefined })
+                }
                 renderInput={(params) => (
-                  <TextField {...params} label="Sales Representative (Optional)" />
+                  <TextField {...params} label="Sales Representative / Agent (Optional)" />
                 )}
               />
             </FormSection>
@@ -1717,37 +1909,76 @@ export default function QuotationsPage() {
                     <TableCell>Product</TableCell>
                     <TableCell align="right">Required</TableCell>
                     <TableCell align="right">Available</TableCell>
+                    <TableCell align="right">Converted</TableCell>
+                    <TableCell align="center">Qty to Order</TableCell>
                     <TableCell align="center">Status</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {stockAvailability.map((item, index) => (
-                    <TableRow key={index} sx={modernTableStyles.bodyRow}>
-                      <TableCell>{item.product_name || `Product #${item.product_id}`}</TableCell>
-                      <TableCell align="right">{item.requested_quantity}</TableCell>
-                      <TableCell align="right">{item.available_quantity}</TableCell>
-                      <TableCell align="center">
-                        {item.is_sufficient ? (
-                          <Chip label="In Stock" color="success" size="small" />
-                        ) : (
-                          <Chip label="Needs Procurement" color="warning" size="small" />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {stockAvailability.map((item, index) => {
+                    const quoteItem = selectedQuoteDetails?.items?.find(i => i.product_id === item.product_id);
+                    const converted = quoteItem?.converted_qty ?? 0;
+                    const remaining = item.requested_quantity - converted;
+                    const itemStatus = quoteItem?.item_status;
+                    const isActive = itemStatus !== 'completed' && itemStatus !== 'cancelled';
+                    return (
+                      <TableRow key={index} sx={modernTableStyles.bodyRow}>
+                        <TableCell>{item.product_name || `Product #${item.product_id}`}</TableCell>
+                        <TableCell align="right">{item.requested_quantity}</TableCell>
+                        <TableCell align="right">{item.available_quantity}</TableCell>
+                        <TableCell align="right">
+                          {converted > 0 ? <Typography variant="caption" color="success.main">{converted}/{item.requested_quantity}</Typography> : "–"}
+                        </TableCell>
+                        <TableCell align="center">
+                          {item.is_sufficient && isActive && remaining > 0 ? (
+                            <TextField
+                              type="number" size="small" sx={{ width: 80 }}
+                              value={partialQtyMap[quoteItem!.id] ?? remaining}
+                              inputProps={{ min: 1, max: Math.min(remaining, item.available_quantity) }}
+                              onChange={(e) => {
+                                const v = Math.max(1, Math.min(parseInt(e.target.value) || 1, Math.min(remaining, item.available_quantity)));
+                                setPartialQtyMap(prev => ({ ...prev, [quoteItem!.id]: v }));
+                              }}
+                            />
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">–</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="center">
+                          {!item.is_sufficient ? (
+                            <Chip label="Needs Procurement" color="warning" size="small" />
+                          ) : itemStatus === 'completed' ? (
+                            <Chip label="Completed" color="success" size="small" />
+                          ) : itemStatus === 'cancelled' ? (
+                            <Chip label="Cancelled" color="default" size="small" />
+                          ) : itemStatus === 'partial' ? (
+                            <Chip label="Partial" color="info" size="small" />
+                          ) : (
+                            <Chip label="In Stock" color="success" size="small" />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </>
           )}
         </DialogContent>
         <DialogActions>
-          {!stockAllSufficient && !stockCheckLoading && selectedQuote && getAvailableActions().includes('create_po') && (
+          {hasItemsNeedingPO && !stockCheckLoading && selectedQuote && getAvailableActions().includes('create_po') && (
             <Button variant="contained" color="warning" startIcon={<POIcon />}
               onClick={() => { setStockCheckDialogOpen(false); handleCreatePONavigate(); }}>
               Create Purchase Order
             </Button>
           )}
-          <Button onClick={() => setStockCheckDialogOpen(false)}>Close</Button>
+          {hasItemsInStock && !stockCheckLoading && selectedQuote && getAvailableActions().includes('create_so') && (
+            <Button variant="contained" color="primary" startIcon={<InvoiceIcon />}
+              onClick={handleCreatePartialSO}>
+              {stockAvailability.every(sa => sa.is_sufficient) ? "Create Sales Order" : "Create Partial Sales Order"}
+            </Button>
+          )}
+          <Button onClick={() => { setStockCheckDialogOpen(false); setPartialQtyMap({}); }}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -1783,6 +2014,28 @@ export default function QuotationsPage() {
           <Button variant="contained" color="error" onClick={handleRejectSubmit}
             disabled={rejectMutation.isPending}>
             {rejectMutation.isPending ? "Rejecting..." : "Reject"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ==================== Cancel Item Dialog ==================== */}
+      <Dialog open={cancelItemDialogOpen} onClose={() => { setCancelItemDialogOpen(false); setCancelItemTarget(null); setCancelItemReason(""); }} maxWidth="sm" fullWidth>
+        <DialogTitle>Cancel Item</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Cancel <strong>{cancelItemTarget?.productName}</strong> from this quotation? This item will no longer be converted to a Sales Order.
+          </Typography>
+          <TextField
+            label="Reason (optional)" size="small" fullWidth multiline rows={2}
+            value={cancelItemReason}
+            onChange={(e) => setCancelItemReason(e.target.value)}
+            placeholder="e.g., Customer no longer needs this item"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setCancelItemDialogOpen(false); setCancelItemTarget(null); setCancelItemReason(""); }}>Back</Button>
+          <Button variant="contained" color="error" onClick={handleCancelItemSubmit} disabled={cancelItemLoading}>
+            {cancelItemLoading ? "Cancelling..." : "Cancel Item"}
           </Button>
         </DialogActions>
       </Dialog>

@@ -98,6 +98,8 @@ class SalesQuoteItem(TijaeroBaseSchema):
     description: Optional[str] = None
     remark: Optional[str] = None
     discount_percentage: float = 0
+    item_status: str = "pending"  # pending, partial, completed, cancelled
+    converted_qty: int = 0  # units already converted to SO
 
 
 class SalesQuoteItemWithProduct(SalesQuoteItem):
@@ -134,6 +136,10 @@ class SalesQuoteBase(BaseModel):
     # Discount
     discount_type: DiscountTypeEnum = DiscountTypeEnum.NONE
     discount_value: float = Field(default=0, ge=0)
+
+    # Tax
+    tax_mode: str = Field(default="none")  # none, inclusive, exclusive
+    tax_rate: float = Field(default=0, ge=0, le=100)
 
     # Flags
     special: bool = False
@@ -223,6 +229,16 @@ class SalesQuote(TijaeroBaseSchema):
     # Rejection
     rejection_reason: Optional[str] = None
 
+    # Discount & Tax
+    discount_type: DiscountTypeEnum = DiscountTypeEnum.NONE
+    discount_value: float = 0
+    tax_mode: str = "none"
+    tax_rate: float = 0
+
+    # Advance payment linked to this proforma
+    advance_payment_id: Optional[int] = None
+    advance_amount: Optional[float] = None
+
     created_at: datetime
     updated_at: datetime
 
@@ -279,6 +295,24 @@ class ConvertToInvoiceResponse(BaseModel):
     invoice_id: int
     invoice_no: str
     message: str
+
+
+class PartialSOItemRequest(BaseModel):
+    """One item to include in a partial SO conversion"""
+    item_id: int  # SalesQuoteItem.id
+    quantity: int = Field(..., gt=0)  # quantity to convert (may be less than total)
+
+
+class CreatePartialSORequest(BaseModel):
+    """Request to create a Sales Order from selected/partial quotation items"""
+    items: List[PartialSOItemRequest] = Field(..., min_length=1)
+    payment_method: str = Field(default="cash", max_length=30)
+    remarks: Optional[str] = None
+
+
+class CancelQuoteItemRequest(BaseModel):
+    """Request to cancel one item on a quotation"""
+    reason: Optional[str] = None
 
 
 # ==================== Revision Schema ====================

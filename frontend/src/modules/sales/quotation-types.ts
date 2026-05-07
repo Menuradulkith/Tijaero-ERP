@@ -14,6 +14,7 @@ export type QuoteStatus =
   | 'expired'
   | 'converted'
   | 'converted_to_invoice'
+  | 'partially_converted'
   | 'po_created'
   | 'item_received'
   | 'so_created'
@@ -21,6 +22,7 @@ export type QuoteStatus =
   | 'revised';
 
 export type DiscountType = 'none' | 'percentage' | 'fixed';
+export type TaxMode = 'none' | 'inclusive' | 'exclusive';
 
 // ==================== Quote Item Types ====================
 
@@ -38,6 +40,8 @@ export interface SalesQuoteItem {
   description?: string;
   remark?: string;
   discount_percentage: number;
+  item_status: 'pending' | 'partial' | 'completed' | 'cancelled';  // per-item conversion status
+  converted_qty: number;  // units already converted to SO
 }
 
 export interface SalesQuoteItemCreate {
@@ -67,6 +71,12 @@ export interface SalesQuote {
   customer_id: number;
   sale_rep_id: number;
   customer_agent_id?: number;
+
+  // Discount & Tax (persisted)
+  discount_type?: DiscountType;
+  discount_value?: number;
+  tax_mode?: TaxMode;
+  tax_rate?: number;
 
   created_date: string;
   created_date_time: string;
@@ -104,6 +114,10 @@ export interface SalesQuote {
   // Rejection
   rejection_reason?: string;
 
+  // Advance payment linked to this proforma
+  advance_payment_id?: number;
+  advance_amount?: number;
+
   created_at: string;
   updated_at: string;
 }
@@ -130,6 +144,11 @@ export interface SalesQuoteCreate {
   valid_until: string;
   expected_delivery_date?: string;
 
+  discount_type?: DiscountType;
+  discount_value?: number;
+  tax_mode?: TaxMode;
+  tax_rate?: number;
+
   is_estimate?: boolean;
   remarks?: string;
   customer_notes?: string;
@@ -145,6 +164,11 @@ export interface SalesQuoteUpdate {
   customer_agent_id?: number;
   valid_until?: string;
   expected_delivery_date?: string;
+
+  discount_type?: DiscountType;
+  discount_value?: number;
+  tax_mode?: TaxMode;
+  tax_rate?: number;
 
   is_estimate?: boolean;
   remarks?: string;
@@ -232,6 +256,7 @@ export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
   expired: 'Expired',
   converted: 'Converted',
   converted_to_invoice: 'Converted to Invoice',
+  partially_converted: 'Partially Converted',
   po_created: 'PO Created',
   item_received: 'Item Received',
   so_created: 'SO Created',
@@ -251,12 +276,24 @@ export const QUOTE_STATUS_COLORS: Record<QuoteStatus, string> = {
   expired: 'orange',
   converted: 'teal',
   converted_to_invoice: 'teal',
+  partially_converted: 'orange',
   po_created: 'cyan',
   item_received: 'teal',
   so_created: 'indigo',
   cancelled: 'red',
   revised: 'gray',
 };
+
+// Partial SO request
+export interface PartialSOItemRequest {
+  item_id: number;
+  quantity: number;
+}
+export interface CreatePartialSORequest {
+  items: PartialSOItemRequest[];
+  payment_method?: string;
+  remarks?: string;
+}
 
 export const QUOTE_TYPE_LABELS: Record<QuoteType, string> = {
   quotation: 'Quotation',
