@@ -27,7 +27,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { usePermission } from "@/auth/permissions";
+import { PERMISSIONS, usePermission } from "@/auth/permissions";
 import { customersApi } from "@/modules/customers/api";
 import { commissionsApi, commissionPaymentsApi } from "@/modules/sales/commission-api";
 import type { CustomerAgentCommissionWithDetails } from "@/modules/sales/commission-types";
@@ -43,8 +43,14 @@ function fmtAmount(val: number) {
 
 export default function AgentCommissionsPage() {
   const queryClient = useQueryClient();
-  const canView = usePermission("AGENT_COMMISSIONS_VIEW");
-  const canPay = usePermission("AGENT_COMMISSIONS_CREATE");
+  const canView = usePermission(
+    PERMISSIONS.AGENT_COMMISSIONS_VIEW.resource,
+    PERMISSIONS.AGENT_COMMISSIONS_VIEW.action
+  );
+  const canPay = usePermission(
+    PERMISSIONS.AGENT_COMMISSIONS_CREATE.resource,
+    PERMISSIONS.AGENT_COMMISSIONS_CREATE.action
+  );
 
   const [filterAgent, setFilterAgent] = useState<number | "">("");
   const [filterStatus, setFilterStatus] = useState<string>("");
