@@ -94,6 +94,8 @@ export interface InvoiceCreate {
   // Source proforma/quotation link
   source_quote_id?: number;
   source_quote_type?: string;
+  // Customer advance payment link
+  customer_advance_payments_id?: number;
   // Cheque payment details
   cheque_number?: string;
   cheque_bank?: string;

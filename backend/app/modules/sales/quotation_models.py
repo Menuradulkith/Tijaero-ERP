@@ -26,6 +26,7 @@ class QuoteStatus(str, enum.Enum):
     EXPIRED = "expired"  
     CONVERTED = "converted" 
     CONVERTED_TO_INVOICE = "converted_to_invoice"  # Successfully converted to invoice
+    PARTIALLY_CONVERTED = "partially_converted"  # Some items converted, some pending
     PO_CREATED = "po_created"  # PO raised from this quotation
     ITEM_RECEIVED = "item_received"  # GRN completed for linked PO
     SO_CREATED = "so_created"  # Sales Order created from proforma
@@ -71,7 +72,9 @@ class SalesQuote(Base, TimestampMixin):
     discount_type = Column(
         String(30), nullable=False, default=DiscountType.NONE.value
     )
-    discount_percentage = Column(Numeric(60, 2), nullable=False, default=0) 
+    discount_percentage = Column(Numeric(60, 2), nullable=False, default=0)
+    tax_mode = Column(String(20), nullable=False, default="none")  # none, inclusive, exclusive
+    tax_rate = Column(Numeric(5, 2), nullable=False, default=0)
     total_amount = Column(Numeric(60, 2), nullable=False, default=0)
 
     converted_to_invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
@@ -152,6 +155,10 @@ class SalesQuoteItem(Base, TimestampMixin):
     )  # 'in_stock', 'needs_procurement', or None (not checked)
     description = Column(Text, nullable=True)  
     remark = Column(Text, nullable=True)  
+
+    # Per-item conversion tracking
+    item_status = Column(String(30), nullable=False, default="pending")  # pending, completed, cancelled, partial
+    converted_qty = Column(Integer, nullable=False, default=0)  # how many units have been converted to SO
 
     quote = relationship("SalesQuote", back_populates="items")
     product = relationship("Product", backref="sales_quote_items")

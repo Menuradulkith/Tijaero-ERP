@@ -67,6 +67,7 @@ class CustomerAdvancePaymentBase(BaseModel):
     payment_amount: Decimal
     remarks: Optional[str] = None
     cheque_date: date
+    proforma_invoice_id: Optional[int] = None
 
 class CustomerAdvancePaymentCreate(CustomerAdvancePaymentBase):
     pass

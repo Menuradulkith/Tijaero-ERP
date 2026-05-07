@@ -167,6 +167,7 @@ export interface CustomerAdvancePayment {
   customer_id: number;
   cheque_date: string;
   active: boolean;
+  proforma_invoice_id?: number;
 }
 
 export interface CustomerAdvancePaymentCreate {
@@ -178,6 +179,7 @@ export interface CustomerAdvancePaymentCreate {
   customer_id: number;
   cheque_date: string;
   active?: boolean;
+  proforma_invoice_id?: number;
 }
 
 // Customer Credit Note Types

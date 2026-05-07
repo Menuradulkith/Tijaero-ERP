@@ -148,7 +148,15 @@ class CommissionService:
         data: CustomerAgentCommissionUpdate,
     ) -> CustomerAgentCommission:
         """Update a commission record"""
-        commission = self.get_commission(db, commission_id)
+        # Lock the commission row to prevent concurrent update/delete race
+        commission = db.query(CustomerAgentCommission).filter(
+            CustomerAgentCommission.id == commission_id
+        ).with_for_update().first()
+        if not commission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Commission with id {commission_id} not found"
+            )
 
         if commission.status == "paid":
             raise HTTPException(
@@ -198,7 +206,15 @@ class CommissionService:
 
     def delete_commission(self, db: Session, commission_id: int) -> dict:
         """Delete a pending commission"""
-        commission = self.get_commission(db, commission_id)
+        # Lock the commission row to prevent concurrent delete/approve race
+        commission = db.query(CustomerAgentCommission).filter(
+            CustomerAgentCommission.id == commission_id
+        ).with_for_update().first()
+        if not commission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Commission with id {commission_id} not found"
+            )
 
         if commission.status != "pending":
             raise HTTPException(
@@ -318,9 +334,24 @@ class CommissionService:
 
         payment = commission_repository.create_payment(db, payment_data, items_data)
 
+        # ── GL Auto-Posting for immediate payment methods (cash) ─────────
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(db)
+            gl_service.post_commission_payment_to_gl(payment, user_id=created_by)
+            db.commit()
+        except Exception as gl_err:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(f"GL posting for commission payment failed (non-blocking): {gl_err}")
+            db.rollback()
+        # ─────────────────────────────────────────────────────────────────
+
         # Update commission statuses to 'paid' for fully paid commissions
         for item in data.items:
-            commission = commission_repository.get_commission_by_id(db, item.commission_id)
+            # Lock each commission row before updating status to prevent concurrent payment race
+            commission = db.query(CustomerAgentCommission).filter(
+                CustomerAgentCommission.id == item.commission_id
+            ).with_for_update().first()
             if commission:
                 # Calculate total paid for this commission
                 total_paid = db.query(
@@ -374,7 +405,10 @@ class CommissionService:
 
         # Revert commission statuses if needed
         for item in payment.items:
-            commission = commission_repository.get_commission_by_id(db, item.commission_id)
+            # Lock each commission row before reverting status to prevent concurrent race
+            commission = db.query(CustomerAgentCommission).filter(
+                CustomerAgentCommission.id == item.commission_id
+            ).with_for_update().first()
             if commission and commission.status == "paid":
                 commission.status = "approved"
                 db.commit()

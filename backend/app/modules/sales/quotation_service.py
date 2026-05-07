@@ -9,6 +9,8 @@ from app.modules.sales.quotation_models import (DiscountType, QuoteStatus,
                                                 SalesQuoteItem)
 from app.modules.sales.quotation_repository import sales_quote_repository
 from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
+                                                 CreatePartialSORequest,
+                                                 CancelQuoteItemRequest,
                                                  DiscountTypeEnum,
                                                  QuoteStatusEnum,
                                                  QuoteTypeEnum,
@@ -125,6 +127,10 @@ class SalesQuoteService:
             remarks=quote_data.remarks,
             customer_notes=quote_data.customer_notes,
             special=quote_data.special,
+            discount_type=quote_data.discount_type.value if quote_data.discount_type else 'none',
+            discount_percentage=quote_data.discount_value or 0,
+            tax_mode=quote_data.tax_mode or 'none',
+            tax_rate=quote_data.tax_rate or 0,
             total_amount=0
         )
         
@@ -146,8 +152,11 @@ class SalesQuoteService:
         quote_data: SalesQuoteUpdate
     ) -> SalesQuote:
         """Update an existing quote"""
-        quote = self.repository.get_by_id(db, quote_id)
-        
+        # Lock the quote row to prevent concurrent edits from clobbering each other
+        quote = db.query(SalesQuote).filter(
+            SalesQuote.id == quote_id
+        ).with_for_update().first()
+
         if not quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -188,6 +197,8 @@ class SalesQuoteService:
             if value is not None:
                 if key == 'discount_type':
                     setattr(quote, key, value.value)
+                elif key == 'discount_value':
+                    setattr(quote, 'discount_percentage', value)
                 else:
                     setattr(quote, key, value)
         
@@ -236,8 +247,9 @@ class SalesQuoteService:
         status_update: SalesQuoteStatusUpdate
     ) -> SalesQuote:
         """Update quote status"""
-        quote = self.repository.get_by_id(db, quote_id)
-        
+        # Lock the quote row to prevent concurrent status transition conflicts
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
+
         if not quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -281,7 +293,8 @@ class SalesQuoteService:
     
     def submit_to_customer(self, db: Session, quote_id: int) -> SalesQuote:
         """Submit quote to customer - updates status and sets submitted_date"""
-        quote = self.repository.get_by_id(db, quote_id)
+        # Lock the quote row to prevent concurrent status changes
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
         if not quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -304,7 +317,8 @@ class SalesQuoteService:
     
     def mark_under_review(self, db: Session, quote_id: int) -> SalesQuote:
         """Mark quote as under review by customer (proforma stage)"""
-        quote = self.repository.get_by_id(db, quote_id)
+        # Lock the quote row to prevent concurrent status changes
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
         if not quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -322,7 +336,8 @@ class SalesQuoteService:
     
     def toggle_proforma(self, db: Session, quote_id: int, is_proforma: bool) -> SalesQuote:
         """Promote a quotation to proforma invoice type (one-way: quotation → proforma only)"""
-        quote = self.repository.get_by_id(db, quote_id)
+        # Lock the quote row to prevent concurrent type/status changes
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
         if not quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -357,7 +372,8 @@ class SalesQuoteService:
     
     def customer_approve(self, db: Session, quote_id: int, approved_by: Optional[str] = None, remarks: Optional[str] = None) -> SalesQuote:
         """Customer approves the quotation - ready to convert"""
-        quote = self.repository.get_by_id(db, quote_id)
+        # Lock the quote row to prevent concurrent double-approval
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
         if not quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -395,7 +411,8 @@ class SalesQuoteService:
     
     def reject_quote(self, db: Session, quote_id: int, reason: Optional[str] = None, cancel_linked_po: bool = False) -> SalesQuote:
         """Reject a quote with optional reason and optional PO cancellation"""
-        quote = self.repository.get_by_id(db, quote_id)
+        # Lock the quote row to prevent concurrent approve/reject race
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
         if not quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -451,7 +468,188 @@ class SalesQuoteService:
         )
     
     # ==================== Conversion to Invoice ====================
-    
+
+    def _recompute_quote_status(self, db: Session, quote: SalesQuote) -> None:
+        """
+        Recompute the overall quote status based on item statuses.
+        Rules:
+          - All completed/cancelled → CLOSED (use CONVERTED_TO_INVOICE for backward compat)
+          - Some completed or partial → PARTIALLY_CONVERTED
+          - None converted → keep current (don't regress)
+        """
+        items = quote.items
+        if not items:
+            return
+        completed = sum(1 for i in items if i.item_status in ("completed", "cancelled"))
+        partial   = sum(1 for i in items if i.item_status == "partial")
+        pending   = sum(1 for i in items if i.item_status == "pending")
+
+        if pending == 0 and partial == 0:
+            # Every item is completed or cancelled → fully closed
+            quote.status = QuoteStatus.CONVERTED_TO_INVOICE.value
+        elif completed > 0 or partial > 0:
+            quote.status = QuoteStatus.PARTIALLY_CONVERTED.value
+        # else: all pending — leave status as-is
+
+    def create_partial_so(
+        self,
+        db: Session,
+        quote_id: int,
+        request: CreatePartialSORequest,
+        created_by: Optional[int] = None,
+    ) -> Invoice:
+        """
+        Create a Sales Order from selected items / partial quantities of a quotation.
+        Updates per-item converted_qty and item_status, then recomputes quote status.
+        """
+        from sqlalchemy.orm import joinedload
+        quote = db.query(SalesQuote).filter(
+            SalesQuote.id == quote_id
+        ).options(joinedload(SalesQuote.items)).with_for_update().first()
+
+        if not quote:
+            raise HTTPException(status_code=404, detail=f"Quote {quote_id} not found")
+
+        # Quote must be in an active (non-terminal) state
+        terminal = {
+            QuoteStatus.CANCELLED.value,
+            QuoteStatus.REJECTED.value,
+            QuoteStatus.REVISED.value,
+            QuoteStatus.CONVERTED_TO_INVOICE.value,
+            QuoteStatus.CONVERTED.value,
+        }
+        if quote.status in terminal:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot create SO — quotation is in terminal status: {quote.status}"
+            )
+
+        # Build a lookup of quote items by id
+        item_map = {i.id: i for i in quote.items}
+
+        # Validate requested items and quantities
+        invoice_items_to_create = []
+        for req_item in request.items:
+            qi = item_map.get(req_item.item_id)
+            if not qi:
+                raise HTTPException(status_code=400, detail=f"Quote item id {req_item.item_id} not found")
+            if qi.item_status == "cancelled":
+                raise HTTPException(status_code=400, detail=f"Item {req_item.item_id} is already cancelled")
+            remaining = qi.quantity - qi.converted_qty
+            if req_item.quantity > remaining:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Requested qty {req_item.quantity} exceeds remaining qty {remaining} for item {req_item.item_id}"
+                )
+            invoice_items_to_create.append((qi, req_item.quantity))
+
+        # Generate invoice number
+        now = tz.now()
+        year = now.year
+        prefix = f"INV-{year}"
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last_invoice = db.query(Invoice).filter(
+            Invoice.invoice_no.like(f"INV-{year}-%")
+        ).order_by(Invoice.id.desc()).first()
+        if last_invoice:
+            try:
+                next_seq = int(last_invoice.invoice_no.split('-')[-1]) + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        invoice_no = f"INV-{year}-{next_seq:05d}"
+
+        # Create the invoice
+        invoice = Invoice(
+            invoice_no=invoice_no,
+            branch_code=quote.branch_code,
+            customer_id=quote.customer_id,
+            sale_rep_id=quote.sale_rep_id,
+            customer_agent_id=quote.customer_agent_id,
+            payment_method=request.payment_method or "cash",
+            cash_amount=0,
+            card_visa_amount=0,
+            card_mastercard_amount=0,
+            card_amex_amount=0,
+            cheque_amount=0,
+            bank_transfer_amount=0,
+            credit_amount=0,
+            payment_adjustments=0,
+            remarks=request.remarks or f"Partial SO from {quote.quote_no}",
+            created_date=now.date(),
+            created_date_time=now,
+            special=quote.special,
+            status=True,
+            approval=True,
+            cupon_amount=0,
+            source_quote_id=quote.id,
+            source_quote_type=quote.quote_type,
+        )
+        db.add(invoice)
+        db.flush()
+
+        for qi, qty in invoice_items_to_create:
+            db.add(InvoiceItems(
+                invoice_id=invoice.id,
+                product_id=qi.product_id,
+                quantity=qty,
+                selling_price=qi.selling_price,
+                minimum_selling_price=qi.minimum_selling_price,
+                warrenty_month=qi.warrenty_month,
+                created_date=now,
+            ))
+            qi.converted_qty = (qi.converted_qty or 0) + qty
+            remaining_after = qi.quantity - qi.converted_qty
+            if remaining_after <= 0:
+                qi.item_status = "completed"
+            elif qi.converted_qty > 0:
+                qi.item_status = "partial"
+
+        # Recompute overall quote status
+        self._recompute_quote_status(db, quote)
+        db.commit()
+        db.refresh(invoice)
+        return invoice
+
+    def cancel_quote_item(
+        self,
+        db: Session,
+        quote_id: int,
+        item_id: int,
+        reason: Optional[str] = None,
+        cancelled_by: Optional[int] = None,
+    ) -> SalesQuote:
+        """
+        Cancel a single item on a quotation.
+        Re-evaluates overall quote status after cancellation.
+        """
+        from sqlalchemy.orm import joinedload
+        quote = db.query(SalesQuote).filter(
+            SalesQuote.id == quote_id
+        ).options(joinedload(SalesQuote.items)).with_for_update().first()
+
+        if not quote:
+            raise HTTPException(status_code=404, detail=f"Quote {quote_id} not found")
+
+        item = next((i for i in quote.items if i.id == item_id), None)
+        if not item:
+            raise HTTPException(status_code=404, detail=f"Item {item_id} not found on quote {quote_id}")
+
+        if item.item_status == "cancelled":
+            raise HTTPException(status_code=400, detail="Item is already cancelled")
+        if item.item_status == "completed":
+            raise HTTPException(status_code=400, detail="Cannot cancel a fully converted item")
+
+        item.item_status = "cancelled"
+        if reason:
+            item.remark = (item.remark or "") + f" [Cancelled: {reason}]"
+
+        self._recompute_quote_status(db, quote)
+        db.commit()
+        db.refresh(quote)
+        return quote
+
     def convert_to_invoice(
         self,
         db: Session,
@@ -602,6 +800,9 @@ class SalesQuoteService:
                 created_date=now
             )
             db.add(invoice_item)
+            # Mark item as fully converted
+            quote_item.converted_qty = quote_item.quantity
+            quote_item.item_status = "completed"
         
         # Update quote status
         quote.status = QuoteStatus.CONVERTED_TO_INVOICE.value
@@ -624,8 +825,13 @@ class SalesQuoteService:
         reason: Optional[str] = None
     ) -> SalesQuote:
         """Create a new revision of a quotation"""
-        original_quote = self.repository.get_by_id_with_items(db, quote_id)
-        
+        from sqlalchemy.orm import joinedload
+        # Lock the original quote row to prevent two concurrent revision requests
+        # from both setting status=REVISED and both creating a new revision
+        original_quote = db.query(SalesQuote).filter(
+            SalesQuote.id == quote_id
+        ).options(joinedload(SalesQuote.items)).with_for_update().first()
+
         if not original_quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -756,7 +962,13 @@ class SalesQuoteService:
             total += item_total
         
         quote.total_amount = float(total)
-    
+
+        # Apply quote-level tax if exclusive (adds to total)
+        tax_mode = getattr(quote, 'tax_mode', 'none') or 'none'
+        tax_rate = Decimal(str(getattr(quote, 'tax_rate', 0) or 0))
+        if tax_mode == 'exclusive' and tax_rate > 0:
+            quote.total_amount = float(total * (1 + tax_rate / 100))
+
     def _is_valid_status_transition(self, current: str, new: str) -> bool:
         """Check if status transition is valid"""
         valid_transitions = {
@@ -916,16 +1128,12 @@ class SalesQuoteService:
     ):
         """Create a Purchasing Order from an accepted/approved quotation"""
         from app.modules.purchasing.models import PurchasingOrder, PurchasingOrderItems
-        
-        # Lock the quote row to prevent concurrent PO creation
+        from sqlalchemy.orm import joinedload
+
+        # Lock the quote row AND eagerly load items in one query to prevent concurrent PO creation
         quote = db.query(SalesQuote).filter(
             SalesQuote.id == quote_id
-        ).with_for_update().first()
-        if not quote:
-            # Eagerly load items after locking
-            pass
-        # Re-fetch with items loaded
-        quote = self.repository.get_by_id_with_items(db, quote_id)
+        ).options(joinedload(SalesQuote.items)).with_for_update().first()
         if not quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

@@ -27,6 +27,7 @@ import {
 import { advancePaymentsApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
 import { suppliersApi, supplierAdvancePaymentsApi } from "@/modules/purchasing/api";
+import { quotationApi } from "@/modules/sales/quotation-api";
 import { CustomerAdvancePaymentCreate } from "@/modules/finance/types";
 import {
   SupplierAdvancePaymentCreate,
@@ -94,6 +95,7 @@ const CUSTOMER_INITIAL_FORM: Partial<CustomerAdvancePaymentCreate> = {
   customer_id: 0,
   cheque_date: new Date().toISOString().split("T")[0],
   active: true,
+  proforma_invoice_id: undefined,
 };
 
 const SUPPLIER_INITIAL_FORM: Partial<SupplierAdvancePaymentCreate> = {
@@ -163,6 +165,15 @@ export default function AdvancePaymentsPage() {
     queryKey: ["suppliers"],
     queryFn: () => suppliersApi.getAll(),
     enabled: canViewSuppliers,
+  });
+
+  // Fetch proforma invoices for selected customer (for linking advance payment)
+  const selectedCustomerId = customerForm.customer_id || 0;
+  const { data: customerProformas = [] } = useQuery({
+    queryKey: ["customer-proformas", selectedCustomerId],
+    queryFn: () => quotationApi.getAll({ quote_type: "proforma", customer_id: selectedCustomerId, per_page: 200 }),
+    enabled: advanceType === "customer" && isCreating && selectedCustomerId > 0,
+    select: (data) => data.items,
   });
 
   // Fetch customer advance payments
@@ -705,7 +716,7 @@ export default function AdvancePaymentsPage() {
         ) : advanceType === "customer" ? (
           /* ======= CUSTOMER FORM ======= */
           <>
-            <FormSection title="Customer Information" columns={3}>
+            <FormSection title="Customer Information" columns={2}>
               <Autocomplete
                 size="small"
                 options={customers}
@@ -716,7 +727,7 @@ export default function AdvancePaymentsPage() {
                 }
                 value={customers.find((c: Customer) => c.id === customerForm.customer_id) || null}
                 onChange={(_, newValue: Customer | null) => {
-                  setCustomerForm({ ...customerForm, customer_id: newValue?.id || 0 });
+                  setCustomerForm({ ...customerForm, customer_id: newValue?.id || 0, proforma_invoice_id: undefined });
                   handleBlur("customer_id");
                 }}
                 disabled={!isEditing && !isCreating}
@@ -727,6 +738,30 @@ export default function AdvancePaymentsPage() {
                     required
                     error={hasError("customer_id")}
                     helperText={getFieldError("customer_id")}
+                  />
+                )}
+              />
+              <Autocomplete
+                size="small"
+                options={customerProformas}
+                getOptionLabel={(option: any) =>
+                  `${option.quote_no} — ${option.total_amount ? fmtLKR(option.total_amount) : ""}`
+                }
+                value={customerProformas.find((p: any) => p.id === customerForm.proforma_invoice_id) || null}
+                onChange={(_, newValue: any | null) => {
+                  setCustomerForm({
+                    ...customerForm,
+                    proforma_invoice_id: newValue?.id ?? undefined,
+                    payment_amount: newValue ? Number(newValue.total_amount) : customerForm.payment_amount,
+                  });
+                }}
+                disabled={!isEditing && !isCreating || !selectedCustomerId}
+                noOptionsText={selectedCustomerId ? "No proforma invoices found for this customer" : "Select a customer first"}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Proforma Invoice (Optional)"
+                    helperText="Link this advance to a specific proforma"
                   />
                 )}
               />

@@ -1334,7 +1334,10 @@ class SalesService:
         return invoice
     
     def update_invoice(self, db: Session, invoice_id: int, invoice_data: schemas.InvoiceUpdate, user_id: int):
-        invoice = self.get_invoice(db, invoice_id)
+        # Lock the invoice row to prevent concurrent edits / double-approval
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if not invoice:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
         
         # ── Validate customer is active (if customer is being changed) ──
         update_data_raw = invoice_data.model_dump(exclude_unset=True, exclude={'items'})
@@ -1629,8 +1632,11 @@ class SalesService:
         """
         Mark an approved invoice as completed (e.g., when delivered/paid).
         """
-        invoice = self.get_invoice(db, invoice_id)
-        
+        # Lock the invoice row to prevent concurrent complete/cancel
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if not invoice:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+
         if invoice.approval_status not in ['approved', 'pending_approval']:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1668,8 +1674,11 @@ class SalesService:
         """
         Cancel an invoice and restore stock to available.
         """
-        invoice = self.get_invoice(db, invoice_id)
-        
+        # Lock the invoice row to prevent concurrent cancel / approve race
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if not invoice:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+
         if invoice.approval_status == DocumentStatus.COMPLETED:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1871,8 +1880,11 @@ class SalesService:
         """
         Approve a pending sale return through the centralized approval system.
         """
-        sale_return = self.get_sale_return(db, return_id)
-        
+        # Lock the sale_return row to prevent concurrent double-approval
+        sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).with_for_update().first()
+        if not sale_return:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sale return not found")
+
         if sale_return.status != DocumentStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1919,8 +1931,11 @@ class SalesService:
         """
         Reject a pending sale return through the centralized approval system.
         """
-        sale_return = self.get_sale_return(db, return_id)
-        
+        # Lock the sale_return row to prevent concurrent approve/reject race
+        sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).with_for_update().first()
+        if not sale_return:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sale return not found")
+
         if sale_return.status not in ['pending', 'approved']:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1952,16 +1967,19 @@ class SalesService:
         3. Update invoice payment status if needed
         4. Mark return as processed
         """
-        sale_return = self.get_sale_return(db, return_id)
-        
+        # Lock the sale_return row first to prevent double-processing
+        sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).with_for_update().first()
+        if not sale_return:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sale return not found")
+
         if sale_return.status not in [DocumentStatus.PENDING, DocumentStatus.APPROVED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot process sale return with status: {sale_return.status}"
             )
-        
-        # Get the original invoice
-        invoice = db.query(Invoice).filter(Invoice.id == sale_return.invoice_id).first()
+
+        # Lock the original invoice to prevent concurrent payment updates
+        invoice = db.query(Invoice).filter(Invoice.id == sale_return.invoice_id).with_for_update().first()
         if not invoice:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
