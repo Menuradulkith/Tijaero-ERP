@@ -26,7 +26,9 @@ class QuoteStatus(str, enum.Enum):
     EXPIRED = "expired"  
     CONVERTED = "converted" 
     CONVERTED_TO_INVOICE = "converted_to_invoice"  # Successfully converted to invoice
-    PARTIALLY_CONVERTED = "partially_converted"  # Some items converted, some pending
+    PARTIALLY_CONVERTED = "partially_converted"  # Legacy partial status
+    PARTIALLY_PROCESSED = "partially_processed"  # Some items converted/procured
+    COMPLETED = "completed"  # All items fulfilled/cancelled
     PO_CREATED = "po_created"  # PO raised from this quotation
     ITEM_RECEIVED = "item_received"  # GRN completed for linked PO
     SO_CREATED = "so_created"  # Sales Order created from proforma

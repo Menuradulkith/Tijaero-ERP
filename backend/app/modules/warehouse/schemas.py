@@ -17,6 +17,7 @@ class ItemTransferNoteBase(BaseModel):
 class ItemTransferNoteCreate(ItemTransferNoteBase):
     approval_id: Optional[int] = None
     status: Optional[str] = "pending"
+    sales_quote_id: Optional[int] = None
 
 class ItemTransferNote(ItemTransferNoteBase, TijaeroBaseSchema):
     id: int
@@ -25,6 +26,7 @@ class ItemTransferNote(ItemTransferNoteBase, TijaeroBaseSchema):
     status: str = DocumentStatus.PENDING
     from_location_name: Optional[str] = None
     to_location_name: Optional[str] = None
+    sales_quote_id: Optional[int] = None
 
 # Item Transfer Note Items Schemas
 class ItemTransferNoteItemBase(BaseModel):

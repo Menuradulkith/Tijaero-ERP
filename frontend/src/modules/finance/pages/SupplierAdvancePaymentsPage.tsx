@@ -649,25 +649,6 @@ export default function SupplierAdvancePaymentsPage() {
               />
             </FormSection>
 
-            {detailAdvance && detailAdvance.purchasing_order_id && !isCreating && (
-              <FormSection title="Linked Purchase Order" columns={2}>
-                <TextField
-                  label="PO ID"
-                  size="small"
-                  value={detailAdvance.purchasing_order_id}
-                  disabled
-                  InputProps={{ readOnly: true }}
-                />
-                <TextField
-                  label="PO Number"
-                  size="small"
-                  value={detailAdvance.po_no || "-"}
-                  disabled
-                  InputProps={{ readOnly: true }}
-                />
-              </FormSection>
-            )}
-
             <FormSection title="Payment Details" columns={3}>
               <TextField
                 select

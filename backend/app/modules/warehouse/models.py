@@ -42,6 +42,7 @@ class ItemTransferNote(Base):
     approval_id = Column(Integer, ForeignKey("approvals.id"))
 
     status = Column(String(50), nullable=False, default="pending")  # pending, approved, dispatched, in_transit, partially_received, received, rejected, cancelled
+    sales_quote_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True)  # Link to source quotation
     
     # Relationships
     from_location = relationship(

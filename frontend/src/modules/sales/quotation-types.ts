@@ -15,6 +15,8 @@ export type QuoteStatus =
   | 'converted'
   | 'converted_to_invoice'
   | 'partially_converted'
+  | 'partially_processed'
+  | 'completed'
   | 'po_created'
   | 'item_received'
   | 'so_created'
@@ -36,11 +38,11 @@ export interface SalesQuoteItem {
   warrenty_month: string;
   created_date: string;
   is_price_estimate: boolean;
-  stock_status?: string; // 'in_stock', 'needs_procurement', or null
+  stock_status?: string; // 'in_stock', 'needs_procurement', 'needs_transfer', or null
   description?: string;
   remark?: string;
   discount_percentage: number;
-  item_status: 'pending' | 'partial' | 'completed' | 'cancelled';  // per-item conversion status
+  item_status: 'pending' | 'so_created' | 'procurement' | 'po_created' | 'itn_created' | 'completed' | 'cancelled';  // per-item conversion status
   converted_qty: number;  // units already converted to SO
 }
 
@@ -257,6 +259,8 @@ export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
   converted: 'Converted',
   converted_to_invoice: 'Converted to Invoice',
   partially_converted: 'Partially Converted',
+  partially_processed: 'Partially Processed',
+  completed: 'Completed',
   po_created: 'PO Created',
   item_received: 'Item Received',
   so_created: 'SO Created',
@@ -277,6 +281,8 @@ export const QUOTE_STATUS_COLORS: Record<QuoteStatus, string> = {
   converted: 'teal',
   converted_to_invoice: 'teal',
   partially_converted: 'orange',
+  partially_processed: 'orange',
+  completed: 'green',
   po_created: 'cyan',
   item_received: 'teal',
   so_created: 'indigo',
@@ -307,7 +313,9 @@ export interface StockAvailabilityItem {
   product_name?: string;
   requested_quantity: number;
   available_quantity: number;
+  current_branch_available: number;
   is_sufficient: boolean;
+  other_branches?: Array<{ branch_code: string; available_quantity: number }>;
 }
 
 export interface StockAvailabilityResponse {

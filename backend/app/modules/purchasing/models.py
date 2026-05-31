@@ -98,7 +98,7 @@ class PurchasingOrder(Base):
     credit_date = Column(Integer)
     created_date = Column(Date, nullable=False)
     first_suppliers_id = Column(Integer, ForeignKey("supplier.id"), nullable=False)
-    second_suppliers_id = Column(Integer, ForeignKey("supplier.id"), nullable=False)
+    second_suppliers_id = Column(Integer, ForeignKey("supplier.id"), nullable=True)
     added_date = Column(TIMESTAMP, nullable=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"))
     status = Column(String(30), nullable=False, default="pending", index=True)

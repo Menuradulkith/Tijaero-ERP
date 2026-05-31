@@ -1006,8 +1006,7 @@ export default function PurchaseOrdersPage() {
           return "Primary supplier is required";
         break;
       case "second_suppliers_id":
-        if (!formData.second_suppliers_id || formData.second_suppliers_id === 0)
-          return "Secondary supplier is required";
+        // Secondary supplier is optional
         break;
       case "purchasing_order_date":
         if (!formData.purchasing_order_date) return "Order date is required";
@@ -1038,7 +1037,6 @@ export default function PurchaseOrdersPage() {
     : formData.purchasing_order_no;
   const isStep1Valid =
     formData.first_suppliers_id > 0 &&
-    formData.second_suppliers_id > 0 &&
     effectivePONumber &&
     formData.branch_code;
 
@@ -1453,7 +1451,6 @@ export default function PurchaseOrdersPage() {
                       <TextField
                         {...params}
                         label="Secondary Supplier"
-                        required
                         error={hasError("second_suppliers_id")}
                         helperText={getFieldError("second_suppliers_id")}
                       />
@@ -1794,9 +1791,8 @@ export default function PurchaseOrdersPage() {
                                     sx={{
                                       width: 100,
                                       "& .MuiInputBase-input.Mui-disabled": {
-                                        WebkitTextFillColor:
-                                          "rgba(0, 0, 0, 0.87)",
-                                        color: "rgba(0, 0, 0, 0.87)",
+                                        WebkitTextFillColor: "inherit",
+                                        color: "inherit",
                                       },
                                     }}
                                     inputProps={{ min: 0, step: 0.01 }}

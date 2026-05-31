@@ -24,6 +24,7 @@ export interface ItemTransferNoteCreate {
   branch_code: string;
   approval_id?: number;
   status?: string;
+  sales_quote_id?: number;
 }
 
 export interface ItemTransferNoteWithItems extends ItemTransferNote {

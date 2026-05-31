@@ -572,6 +572,71 @@ def get_grn(grn_id: int, db: Session = Depends(get_db)):
     return grn_service.get_by_id(grn_id)
 
 
+@router.get("/grn/{grn_id}/items")
+def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
+    """Return all received items for a GRN (from sales_stock + company_assets)
+    including warranty_month, product_name, and saved-to flags."""
+    from app.modules.inventory.models import SalesStock, CompanyAssets
+    from app.modules.purchasing.models import GoodReceivedNote
+
+    grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
+    if not grn:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="GRN not found")
+
+    results = []
+    seen_barcodes: set = set()
+
+    # Sales stock items
+    stock_items = db.query(SalesStock).filter(SalesStock.good_received_note_id == grn_id).all()
+    for s in stock_items:
+        product_name = s.product.name if s.product else None
+        results.append({
+            "id": s.id,
+            "barcode": s.barcode,
+            "branch_code": s.branch_code,
+            "active": s.status == "available",
+            "good_received_note": grn.good_received_no,
+            "purchasing_order_items_id": s.purchasing_order_items_id,
+            "product_id": s.product_id,
+            "product_name": product_name,
+            "warranty_month": s.warranty_month,
+            "saved_to_sales_stock": True,
+            "saved_to_company_assets": False,
+            "added_date": s.added_date,
+            "created_date": s.added_date,
+        })
+        seen_barcodes.add(s.barcode)
+
+    # Company asset items (skip barcodes already in sales stock)
+    asset_items = db.query(CompanyAssets).filter(CompanyAssets.good_received_note_id == grn_id).all()
+    for a in asset_items:
+        product_name = a.product.name if a.product else a.item
+        if a.barcode in seen_barcodes:
+            # Already listed under sales stock; add company-asset flag to existing entry
+            for r in results:
+                if r["barcode"] == a.barcode:
+                    r["saved_to_company_assets"] = True
+            continue
+        results.append({
+            "id": a.id,
+            "barcode": a.barcode or "",
+            "branch_code": a.branch_code,
+            "active": a.status == "available",
+            "good_received_note": grn.good_received_no,
+            "purchasing_order_items_id": a.purchasing_order_items_id or 0,
+            "product_id": a.product_id,
+            "product_name": product_name,
+            "warranty_month": a.warranty_month,
+            "saved_to_sales_stock": False,
+            "saved_to_company_assets": True,
+            "added_date": a.added_date,
+            "created_date": a.added_date,
+        })
+
+    return results
+
+
 @router.get("/grn", response_model=List[schemas.GoodReceivedNote])
 def list_grns(
     branch_code: Optional[str] = None,

@@ -95,7 +95,7 @@ class PurchasingOrderBase(BaseModel):
     remarks: Optional[str] = None
     credit_date: Optional[int] = None
     first_suppliers_id: int
-    second_suppliers_id: int
+    second_suppliers_id: Optional[int] = None
     sales_quote_id: Optional[int] = None  # Link to source proforma/quotation
 
 class PurchasingOrderCreate(PurchasingOrderBase):
@@ -190,7 +190,10 @@ class BarcodeValidationResponse(BaseModel):
     product_id: Optional[int] = None
     product_name: Optional[str] = None
     purchasing_price: Optional[Decimal] = None
-    status: Optional[str] = None 
+    status: Optional[str] = None
+    warranty_month: Optional[str] = None  # Warranty period from stock item
+    warranty_expired: bool = False  # True if warranty period has passed
+    warranty_expiry_date: Optional[str] = None  # When warranty expires
 
 
 class PurchaseReturnApprovalRequest(BaseModel):
