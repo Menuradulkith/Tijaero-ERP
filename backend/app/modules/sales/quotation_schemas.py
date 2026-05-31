@@ -24,6 +24,8 @@ class QuoteStatusEnum(str, Enum):
     EXPIRED = "expired"
     CONVERTED = "converted"
     CONVERTED_TO_INVOICE = "converted_to_invoice"
+    PARTIALLY_PROCESSED = "partially_processed"
+    COMPLETED = "completed"
     PO_CREATED = "po_created"
     ITEM_RECEIVED = "item_received"
     SO_CREATED = "so_created"
@@ -315,6 +317,11 @@ class CancelQuoteItemRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class MarkQuoteItemsRequest(BaseModel):
+    """Mark selected quotation items as procurement (PO/ITN)"""
+    item_ids: List[int] = Field(..., min_length=1)
+
+
 # ==================== Revision Schema ====================
 
 
@@ -355,13 +362,20 @@ class SalesQuoteFilter(BaseModel):
 # ==================== Stock Availability Schema ====================
 
 
+class StockAvailabilityBranch(BaseModel):
+    branch_code: str
+    available_quantity: int
+
+
 class StockAvailabilityItem(BaseModel):
     """Stock availability for a single product"""
     product_id: int
     product_name: Optional[str] = None
     requested_quantity: int
     available_quantity: int
+    current_branch_available: int
     is_sufficient: bool
+    other_branches: List[StockAvailabilityBranch] = []
 
 
 class StockAvailabilityResponse(BaseModel):

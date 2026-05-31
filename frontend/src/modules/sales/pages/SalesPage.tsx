@@ -91,6 +91,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { paymentCardsApi, salesApi } from "../api";
 import { commissionsApi, commissionPaymentsApi } from "../commission-api";
+import { quotationApi } from "../quotation-api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate, PaymentCard } from "../types";
 
@@ -709,6 +710,8 @@ export default function SalesPage() {
     }>;
   }
   const proformaCreateHandled = useRef(false);
+  // Capture source_quote_id + product_ids before createMutation clears lineItems/formData
+  const pendingQuoteRef = useRef<{ quoteId: number; productIds: number[] } | null>(null);
   useEffect(() => {
     const navState = location.state as ProformaNavState | null;
     if (
@@ -864,6 +867,17 @@ export default function SalesPage() {
       setAppliedVouchers([]);
       state.setSelectedItem(createdInvoice as Invoice);
       setPendingPaymentMethod("");
+
+      // If this SO was created from a quotation, mark those quote items as so_created
+      const pendingQuote = pendingQuoteRef.current;
+      pendingQuoteRef.current = null;
+      if (pendingQuote && pendingQuote.productIds.length > 0) {
+        try {
+          await quotationApi.markItemsSoCreated(pendingQuote.quoteId, pendingQuote.productIds);
+        } catch (err) {
+          console.warn("Could not update quotation item statuses after SO creation:", err);
+        }
+      }
     },
     onError: () => {
       setPendingPaymentMethod("");
@@ -1410,6 +1424,16 @@ export default function SalesPage() {
       });
     } else {
       // Create new invoice
+      // Capture source_quote_id before formData is cleared in onSuccess
+      const sourceQuoteId = (state.formData as any).source_quote_id as number | undefined;
+      if (sourceQuoteId) {
+        pendingQuoteRef.current = {
+          quoteId: sourceQuoteId,
+          productIds: lineItems.map(li => li.product_id).filter((id): id is number => !!id),
+        };
+      } else {
+        pendingQuoteRef.current = null;
+      }
       createMutation.mutate(invoiceData);
     }
   };

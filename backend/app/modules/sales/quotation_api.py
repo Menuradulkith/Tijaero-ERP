@@ -3,29 +3,32 @@ from typing import List, Optional
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
-from app.modules.sales.quotation_schemas import (CancelQuoteItemRequest,
-                                                 ConvertToInvoiceRequest,
-                                                 ConvertToInvoiceResponse,
-                                                 CreatePartialSORequest,
-                                                 CreatePOFromQuoteRequest,
-                                                 CreatePOFromQuoteResponse,
-                                                 CreateRevisionRequest,
-                                                 CreateRevisionResponse,
-                                                 CustomerApprovalRequest,
-                                                 QuoteStatusEnum,
-                                                 QuoteTypeEnum,
-                                                 RejectQuoteRequest,
-                                                 SalesQuote,
-                                                 SalesQuoteCreate,
-                                                 SalesQuoteDetail,
-                                                 SalesQuoteFilter,
-                                                 SalesQuoteList,
-                                                 SalesQuoteStatusUpdate,
-                                                 SalesQuoteUpdate,
-                                                 SalesQuoteWithItems,
-                                                 StockAvailabilityResponse,
-                                                 ToggleProformaRequest,
-                                                 ToggleProformaResponse)
+from app.modules.sales.quotation_schemas import (
+    CancelQuoteItemRequest,
+    ConvertToInvoiceRequest,
+    ConvertToInvoiceResponse,
+    CreatePartialSORequest,
+    CreatePOFromQuoteRequest,
+    CreatePOFromQuoteResponse,
+    CreateRevisionRequest,
+    CreateRevisionResponse,
+    CustomerApprovalRequest,
+    MarkQuoteItemsRequest,
+    QuoteStatusEnum,
+    QuoteTypeEnum,
+    RejectQuoteRequest,
+    SalesQuote,
+    SalesQuoteCreate,
+    SalesQuoteDetail,
+    SalesQuoteFilter,
+    SalesQuoteList,
+    SalesQuoteStatusUpdate,
+    SalesQuoteUpdate,
+    SalesQuoteWithItems,
+    StockAvailabilityResponse,
+    ToggleProformaRequest,
+    ToggleProformaResponse,
+)
 from app.modules.sales.quotation_service import sales_quote_service
 from app.modules.sales.schemas import InvoiceWithItems
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -647,6 +650,25 @@ def create_partial_so(
 
 
 @router.post(
+    "/{quote_id}/mark-so-created",
+    response_model=SalesQuoteWithItems,
+    summary="Mark quote items as SO Created",
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
+)
+def mark_items_so_created(
+    quote_id: int,
+    product_ids: List[int],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
+):
+    """
+    Called after a Sales Order is saved from the SO page.
+    Marks the given product_ids on this quote as 'so_created' and recomputes header status.
+    """
+    return sales_quote_service.mark_items_so_created(db, quote_id, product_ids)
+
+
+@router.post(
     "/{quote_id}/items/{item_id}/cancel",
     response_model=SalesQuoteWithItems,
     summary="Cancel a single quotation item",
@@ -665,5 +687,24 @@ def cancel_quote_item(
     """
     quote = sales_quote_service.cancel_quote_item(
         db, quote_id, item_id, reason=body.reason, cancelled_by=current_user.id
+    )
+    return quote
+
+
+@router.post(
+    "/{quote_id}/items/procurement",
+    response_model=SalesQuoteWithItems,
+    summary="Mark quotation items as procurement",
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
+)
+def mark_quote_items_procurement(
+    quote_id: int,
+    body: MarkQuoteItemsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
+):
+    """Mark selected quotation items as procurement (PO/ITN)."""
+    quote = sales_quote_service.mark_items_procurement(
+        db, quote_id, body.item_ids
     )
     return quote

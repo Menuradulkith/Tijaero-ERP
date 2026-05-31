@@ -1,0 +1,426 @@
+﻿FFFFFFFFFFFFFFFFFFFF.....................                                [100%]
+================================== FAILURES ===================================
+_______________ TestPurchaseOrderCRUD.test_get_order_returns_po _______________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6A988EBD0>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AB62F850>
+make_branch = <function make_branch.<locals>._make_branch at 0x000002C6AB488360>
+make_supplier = <function make_supplier.<locals>._make_supplier at 0x000002C6AB4884A0>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AB4885E0>
+
+    def test_get_order_returns_po(self, db, make_branch, make_supplier, make_product):
+        from app.modules.purchasing import service
+    
+>       po, svc, *_ = self._create_po(db, make_branch, make_supplier, make_product)
+
+tests\integration\test_workflows\test_crud_operations.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6A988EBD0>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AB62F850>
+make_branch = <function make_branch.<locals>._make_branch at 0x000002C6AB488360>
+make_supplier = <function make_supplier.<locals>._make_supplier at 0x000002C6AB4884A0>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AB4885E0>
+
+    def _create_po(self, db, make_branch, make_supplier, make_product):
+        from app.modules.purchasing import schemas, service
+    
+        branch = make_branch()
+        supplier = make_supplier()
+        product = make_product()
+>       svc = service.PurchaseOrderService(db)
+E       AttributeError: module 'app.modules.purchasing.service' has no attribute 'PurchaseOrderService'
+
+tests\integration\test_workflows\test_crud_operations.py:37: AttributeError
+__________________ TestPurchaseOrderCRUD.test_get_order_404 ___________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6A8FD9310>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AB62D050>
+
+    def test_get_order_404(self, db):
+        from app.modules.purchasing import service
+    
+>       svc = service.PurchaseOrderService(db)
+E       AttributeError: module 'app.modules.purchasing.service' has no attribute 'PurchaseOrderService'
+
+tests\integration\test_workflows\test_crud_operations.py:70: AttributeError
+___________ TestPurchaseOrderCRUD.test_update_order_changes_remarks ___________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6AB62EED0>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD206A50>
+make_branch = <function make_branch.<locals>._make_branch at 0x000002C6AB4885E0>
+make_supplier = <function make_supplier.<locals>._make_supplier at 0x000002C6AB4884A0>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AB488680>
+
+    def test_update_order_changes_remarks(self, db, make_branch, make_supplier, make_product):
+        from app.modules.purchasing import schemas, service
+    
+>       po, svc, *_ = self._create_po(db, make_branch, make_supplier, make_product)
+
+tests\integration\test_workflows\test_crud_operations.py:78: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6AB62EED0>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD206A50>
+make_branch = <function make_branch.<locals>._make_branch at 0x000002C6AB4885E0>
+make_supplier = <function make_supplier.<locals>._make_supplier at 0x000002C6AB4884A0>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AB488680>
+
+    def _create_po(self, db, make_branch, make_supplier, make_product):
+        from app.modules.purchasing import schemas, service
+    
+        branch = make_branch()
+        supplier = make_supplier()
+        product = make_product()
+>       svc = service.PurchaseOrderService(db)
+E       AttributeError: module 'app.modules.purchasing.service' has no attribute 'PurchaseOrderService'
+
+tests\integration\test_workflows\test_crud_operations.py:37: AttributeError
+____________ TestPurchaseOrderCRUD.test_update_nonexistent_po_404 _____________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6AB62FA90>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AC0D6D50>
+
+    def test_update_nonexistent_po_404(self, db):
+        from app.modules.purchasing import schemas, service
+    
+>       svc = service.PurchaseOrderService(db)
+E       AttributeError: module 'app.modules.purchasing.service' has no attribute 'PurchaseOrderService'
+
+tests\integration\test_workflows\test_crud_operations.py:87: AttributeError
+___________ TestPurchaseOrderCRUD.test_approve_order_changes_status ___________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6AB62D410>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AC0D4E50>
+make_branch = <function make_branch.<locals>._make_branch at 0x000002C6AC0E5A80>
+make_supplier = <function make_supplier.<locals>._make_supplier at 0x000002C6AC0E58A0>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AC0E6020>
+
+    def test_approve_order_changes_status(self, db, make_branch, make_supplier, make_product):
+        from app.modules.purchasing import service
+        from app.common.enums import PurchaseOrderStatus
+    
+>       po, svc, *_ = self._create_po(db, make_branch, make_supplier, make_product)
+
+tests\integration\test_workflows\test_crud_operations.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6AB62D410>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AC0D4E50>
+make_branch = <function make_branch.<locals>._make_branch at 0x000002C6AC0E5A80>
+make_supplier = <function make_supplier.<locals>._make_supplier at 0x000002C6AC0E58A0>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AC0E6020>
+
+    def _create_po(self, db, make_branch, make_supplier, make_product):
+        from app.modules.purchasing import schemas, service
+    
+        branch = make_branch()
+        supplier = make_supplier()
+        product = make_product()
+>       svc = service.PurchaseOrderService(db)
+E       AttributeError: module 'app.modules.purchasing.service' has no attribute 'PurchaseOrderService'
+
+tests\integration\test_workflows\test_crud_operations.py:37: AttributeError
+___________ TestPurchaseOrderCRUD.test_reject_order_changes_status ____________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6AB62D2D0>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1DC2D0>
+make_branch = <function make_branch.<locals>._make_branch at 0x000002C6AB3CF920>
+make_supplier = <function make_supplier.<locals>._make_supplier at 0x000002C6AB3CF7E0>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AB3CF6A0>
+
+    def test_reject_order_changes_status(self, db, make_branch, make_supplier, make_product):
+        from app.modules.purchasing import service
+        from app.common.enums import PurchaseOrderStatus
+    
+>       po, svc, *_ = self._create_po(db, make_branch, make_supplier, make_product)
+
+tests\integration\test_workflows\test_crud_operations.py:104: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6AB62D2D0>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1DC2D0>
+make_branch = <function make_branch.<locals>._make_branch at 0x000002C6AB3CF920>
+make_supplier = <function make_supplier.<locals>._make_supplier at 0x000002C6AB3CF7E0>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AB3CF6A0>
+
+    def _create_po(self, db, make_branch, make_supplier, make_product):
+        from app.modules.purchasing import schemas, service
+    
+        branch = make_branch()
+        supplier = make_supplier()
+        product = make_product()
+>       svc = service.PurchaseOrderService(db)
+E       AttributeError: module 'app.modules.purchasing.service' has no attribute 'PurchaseOrderService'
+
+tests\integration\test_workflows\test_crud_operations.py:37: AttributeError
+____________ TestPurchaseOrderCRUD.test_approve_nonexistent_po_404 ____________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestPurchaseOrderCRUD object at 0x000002C6AB62D7D0>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1F3ED0>
+
+    def test_approve_nonexistent_po_404(self, db):
+        from app.modules.purchasing import service
+    
+>       svc = service.PurchaseOrderService(db)
+E       AttributeError: module 'app.modules.purchasing.service' has no attribute 'PurchaseOrderService'
+
+tests\integration\test_workflows\test_crud_operations.py:111: AttributeError
+____________________ TestCategoryCRUD.test_create_category ____________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestCategoryCRUD object at 0x000002C6AB62E190>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1F5D10>
+
+    def test_create_category(self, db):
+        from app.modules.products.service import ProductService
+        from app.modules.products import schemas
+    
+        svc = ProductService()
+>       cat = svc.create_category(
+            db,
+            schemas.CategoryCreate(name="Electronics", category_code=_uid("CAT")),
+            user_id=1,
+        )
+E       AttributeError: 'ProductService' object has no attribute 'create_category'
+
+tests\integration\test_workflows\test_crud_operations.py:128: AttributeError
+___________ TestCategoryCRUD.test_duplicate_category_code_rejected ____________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestCategoryCRUD object at 0x000002C6AB62ED50>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD211F10>
+
+    def test_duplicate_category_code_rejected(self, db):
+        from app.modules.products.service import ProductService
+        from app.modules.products import schemas
+    
+        svc = ProductService()
+        code = _uid("CAT")
+>       svc.create_category(db, schemas.CategoryCreate(name="A", category_code=code), user_id=1)
+E       AttributeError: 'ProductService' object has no attribute 'create_category'
+
+tests\integration\test_workflows\test_crud_operations.py:142: AttributeError
+_____________________ TestCategoryCRUD.test_get_category ______________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestCategoryCRUD object at 0x000002C6AB62C650>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1E93D0>
+
+    def test_get_category(self, db):
+        from app.modules.products.service import ProductService
+        from app.modules.products import schemas
+    
+        svc = ProductService()
+>       cat = svc.create_category(
+            db, schemas.CategoryCreate(name="Audio", category_code=_uid("CAT")), user_id=1
+        )
+E       AttributeError: 'ProductService' object has no attribute 'create_category'
+
+tests\integration\test_workflows\test_crud_operations.py:152: AttributeError
+___________________ TestCategoryCRUD.test_get_category_404 ____________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestCategoryCRUD object at 0x000002C6A97FA150>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1DCF90>
+
+    def test_get_category_404(self, db):
+        from app.modules.products.service import ProductService
+    
+        svc = ProductService()
+        with pytest.raises(HTTPException) as exc:
+>           svc.get_category(db, 999_999)
+E           AttributeError: 'ProductService' object has no attribute 'get_category'
+
+tests\integration\test_workflows\test_crud_operations.py:163: AttributeError
+____________________ TestCategoryCRUD.test_update_category ____________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestCategoryCRUD object at 0x000002C6AB61F8D0>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD221490>
+
+    def test_update_category(self, db):
+        from app.modules.products.service import ProductService
+        from app.modules.products import schemas
+    
+        svc = ProductService()
+>       cat = svc.create_category(
+            db, schemas.CategoryCreate(name="Old", category_code=_uid("CAT")), user_id=1
+        )
+E       AttributeError: 'ProductService' object has no attribute 'create_category'
+
+tests\integration\test_workflows\test_crud_operations.py:171: AttributeError
+____________________ TestCategoryCRUD.test_delete_category ____________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestCategoryCRUD object at 0x000002C6AB61FC90>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1D2790>
+
+    def test_delete_category(self, db):
+        from app.modules.products.service import ProductService
+        from app.modules.products import schemas
+    
+        svc = ProductService()
+>       cat = svc.create_category(
+            db, schemas.CategoryCreate(name="ToDelete", category_code=_uid("CAT")), user_id=1
+        )
+E       AttributeError: 'ProductService' object has no attribute 'create_category'
+
+tests\integration\test_workflows\test_crud_operations.py:182: AttributeError
+________ TestCategoryCRUD.test_delete_category_with_products_rejected _________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestCategoryCRUD object at 0x000002C6AB61D910>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1F2FD0>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AC0E5EE0>
+
+    def test_delete_category_with_products_rejected(self, db, make_product):
+        from app.modules.products.service import ProductService
+    
+        svc = ProductService()
+        product = make_product()
+        with pytest.raises(HTTPException) as exc:
+>           svc.delete_category(db, product.category_id)
+E           AttributeError: 'ProductService' object has no attribute 'delete_category'
+
+tests\integration\test_workflows\test_crud_operations.py:194: AttributeError
+_______________________ TestBrandCRUD.test_create_brand _______________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestBrandCRUD object at 0x000002C6AB61D150>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD234190>
+
+    def test_create_brand(self, db):
+        from app.modules.products.service import ProductService
+        from app.modules.products import schemas
+    
+        svc = ProductService()
+>       brand = svc.create_brand(db, schemas.BrandCreate(brand_name="Sony", brand_code=_uid("")[:4]))
+E       AttributeError: 'ProductService' object has no attribute 'create_brand'
+
+tests\integration\test_workflows\test_crud_operations.py:209: AttributeError
+______________ TestBrandCRUD.test_duplicate_brand_code_rejected _______________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestBrandCRUD object at 0x000002C6AB61DB50>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1E5950>
+
+    def test_duplicate_brand_code_rejected(self, db):
+        from app.modules.products.service import ProductService
+        from app.modules.products import schemas
+    
+        svc = ProductService()
+        code = _uid("")[:4]
+>       svc.create_brand(db, schemas.BrandCreate(brand_name="A", brand_code=code))
+E       AttributeError: 'ProductService' object has no attribute 'create_brand'
+
+tests\integration\test_workflows\test_crud_operations.py:219: AttributeError
+________________________ TestBrandCRUD.test_get_brand _________________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestBrandCRUD object at 0x000002C6AB62C110>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1EA9D0>
+
+    def test_get_brand(self, db):
+        from app.modules.products.service import ProductService
+        from app.modules.products import schemas
+    
+        svc = ProductService()
+>       brand = svc.create_brand(db, schemas.BrandCreate(brand_name="LG", brand_code=_uid("")[:4]))
+E       AttributeError: 'ProductService' object has no attribute 'create_brand'
+
+tests\integration\test_workflows\test_crud_operations.py:229: AttributeError
+______________________ TestBrandCRUD.test_get_brand_404 _______________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestBrandCRUD object at 0x000002C6AB62FE90>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1698D0>
+
+    def test_get_brand_404(self, db):
+        from app.modules.products.service import ProductService
+    
+        svc = ProductService()
+        with pytest.raises(HTTPException) as exc:
+>           svc.get_brand(db, 999_999)
+E           AttributeError: 'ProductService' object has no attribute 'get_brand'
+
+tests\integration\test_workflows\test_crud_operations.py:238: AttributeError
+_______________________ TestBrandCRUD.test_delete_brand _______________________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestBrandCRUD object at 0x000002C6AB61DA10>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD1DA8D0>
+
+    def test_delete_brand(self, db):
+        from app.modules.products.service import ProductService
+        from app.modules.products import schemas
+    
+        svc = ProductService()
+>       brand = svc.create_brand(db, schemas.BrandCreate(brand_name="Del", brand_code=_uid("")[:4]))
+E       AttributeError: 'ProductService' object has no attribute 'create_brand'
+
+tests\integration\test_workflows\test_crud_operations.py:246: AttributeError
+___________ TestBrandCRUD.test_delete_brand_with_products_rejected ____________
+
+self = <tests.integration.test_workflows.test_crud_operations.TestBrandCRUD object at 0x000002C6AB61D950>
+db = <sqlalchemy.orm.session.Session object at 0x000002C6AD223B50>
+make_product = <function make_product.<locals>._make_product at 0x000002C6AC0E6A20>
+
+    def test_delete_brand_with_products_rejected(self, db, make_product):
+        from app.modules.products.service import ProductService
+    
+        svc = ProductService()
+        product = make_product()
+        with pytest.raises(HTTPException) as exc:
+>           svc.delete_brand(db, product.items_brand_id)
+E           AttributeError: 'ProductService' object has no attribute 'delete_brand'
+
+tests\integration\test_workflows\test_crud_operations.py:256: AttributeError
+============================== warnings summary ===============================
+app\db\base.py:3
+  C:\MyProjects\TijaeroERP\backend\app\db\base.py:3: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+app\core\config.py:5
+  C:\MyProjects\TijaeroERP\backend\app\core\config.py:5: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class Settings(BaseSettings):
+
+..\..\..\Users\medulk\AppData\Local\pypoetry\Cache\virtualenvs\erp-backend-fek8k-gW-py3.11\Lib\site-packages\pydantic\_internal\_generate_schema.py:319: 158 warnings
+  C:\Users\medulk\AppData\Local\pypoetry\Cache\virtualenvs\erp-backend-fek8k-gW-py3.11\Lib\site-packages\pydantic\_internal\_generate_schema.py:319: PydanticDeprecatedSince20: `json_encoders` is deprecated. See https://docs.pydantic.dev/2.12/concepts/serialization/#custom-serializers for alternatives. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    warnings.warn(
+
+app\modules\customers\schemas.py:153
+  C:\MyProjects\TijaeroERP\backend\app\modules\customers\schemas.py:153: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CustomerPaymentReportItem(BaseModel):
+
+app\modules\purchasing\invoice_schemas.py:27
+  C:\MyProjects\TijaeroERP\backend\app\modules\purchasing\invoice_schemas.py:27: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class PurchaseInvoiceItemResponse(PurchaseInvoiceItemBase):
+
+app\modules\purchasing\invoice_schemas.py:74
+  C:\MyProjects\TijaeroERP\backend\app\modules\purchasing\invoice_schemas.py:74: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class PurchaseInvoiceResponse(PurchaseInvoiceBase):
+
+app\modules\purchasing\invoice_schemas.py:94
+  C:\MyProjects\TijaeroERP\backend\app\modules\purchasing\invoice_schemas.py:94: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class PurchaseInvoiceListResponse(PurchaseInvoiceBase):
+
+app\modules\purchasing\invoice_schemas.py:143
+  C:\MyProjects\TijaeroERP\backend\app\modules\purchasing\invoice_schemas.py:143: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class PaymentAllocationResponse(BaseModel):
+
+app\modules\reporting\api.py:138
+  C:\MyProjects\TijaeroERP\backend\app\modules\reporting\api.py:138: DeprecationWarning: `regex` has been deprecated, please use `pattern` instead
+    period: str = Query("today", regex="^(today|week|month|year)$"),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestPurchaseOrderCRUD::test_get_order_returns_po
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestPurchaseOrderCRUD::test_get_order_404
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestPurchaseOrderCRUD::test_update_order_changes_remarks
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestPurchaseOrderCRUD::test_update_nonexistent_po_404
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestPurchaseOrderCRUD::test_approve_order_changes_status
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestPurchaseOrderCRUD::test_reject_order_changes_status
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestPurchaseOrderCRUD::test_approve_nonexistent_po_404
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestCategoryCRUD::test_create_category
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestCategoryCRUD::test_duplicate_category_code_rejected
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestCategoryCRUD::test_get_category
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestCategoryCRUD::test_get_category_404
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestCategoryCRUD::test_update_category
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestCategoryCRUD::test_delete_category
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestCategoryCRUD::test_delete_category_with_products_rejected
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestBrandCRUD::test_create_brand
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestBrandCRUD::test_duplicate_brand_code_rejected
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestBrandCRUD::test_get_brand
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestBrandCRUD::test_get_brand_404
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestBrandCRUD::test_delete_brand
+FAILED tests/integration/test_workflows/test_crud_operations.py::TestBrandCRUD::test_delete_brand_with_products_rejected
+20 failed, 21 passed, 166 warnings in 1.26s

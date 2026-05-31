@@ -157,7 +157,7 @@ class ItemTransferNoteService:
                 detail=f"Cannot edit transfer note with status '{db_transfer_note.status}'. Only pending transfer notes can be edited."
             )
         
-        for key, value in transfer_note.model_dump().items():
+        for key, value in transfer_note.model_dump(exclude={'item_transfer_note', 'status', 'approval_id'}).items():
             setattr(db_transfer_note, key, value)
         self.db.commit()
         self.db.refresh(db_transfer_note)
@@ -481,6 +481,35 @@ class ItemTransferNoteItemService:
         db_item.item_recieved = True
         self.db.commit()
         self.db.refresh(db_item)
+
+        # Check if all items in the ITN are now received
+        itn_id = db_item.itemtransfernote_id
+        all_items = self.db.query(ItemTransferNoteItems).filter(
+            ItemTransferNoteItems.itemtransfernote_id == itn_id
+        ).all()
+        if all_items and all(i.item_recieved for i in all_items):
+            # Mark ITN status as received
+            itn = self.db.query(ItemTransferNote).filter(ItemTransferNote.id == itn_id).first()
+            if itn:
+                itn.status = "received"
+                # Update linked quote items to itn_created
+                if itn.sales_quote_id:
+                    try:
+                        from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
+                        # Get product_ids in this ITN
+                        product_ids = {i.product_id for i in all_items if i.product_id}
+                        for qi in self.db.query(SalesQuoteItem).filter(
+                            SalesQuoteItem.quote_id == itn.sales_quote_id,
+                            SalesQuoteItem.product_id.in_(product_ids),
+                            SalesQuoteItem.item_status == "procurement"
+                        ).all():
+                            qi.item_status = "itn_created"
+                            qi.stock_status = "in_stock"
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"Failed to update quote items on ITN completion: {e}")
+                self.db.commit()
+
         return db_item
 
 # Item Transfer Note Approval Service
@@ -747,6 +776,20 @@ class ItemReceiveNoteService:
             transfer_note.status = TransferNoteStatus.RECEIVED
         elif already_received > 0:
             transfer_note.status = TransferNoteStatus.PARTIALLY_RECEIVED
+
+        # ── When fully received, mark linked quotation items as itn_created ──
+        if already_received == total_items and transfer_note.sales_quote_id:
+            try:
+                from app.modules.sales.quotation_service import sales_quote_service
+                product_ids = list({i.product_id for i in transfer_items if i.product_id})
+                if product_ids:
+                    sales_quote_service.mark_quote_items_itn_created_by_product(
+                        self.db, transfer_note.sales_quote_id, product_ids
+                    )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to mark quote items itn_created on ITN bulk-receive: {e}")
+        # ─────────────────────────────────────────────────────────────────
         
         # Create or update receive note
         # received_approval_status: 0=pending, 1=complete, 2=partial

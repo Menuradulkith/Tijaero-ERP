@@ -248,6 +248,9 @@ export interface BarcodeValidationResponse {
   purchasing_price?: number;
   status?: string;
   sales_stock?: BarcodeValidationStockInfo;
+  warranty_month?: string;
+  warranty_expired?: boolean;
+  warranty_expiry_date?: string;
 }
 
 export interface PurchaseReturnApprovalRequest {

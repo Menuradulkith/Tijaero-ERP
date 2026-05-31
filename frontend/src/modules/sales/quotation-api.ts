@@ -121,6 +121,17 @@ export const quotationApi = {
   },
 
   /**
+   * Mark selected quote items as procurement (PO/ITN)
+   */
+  markItemsProcurement: async (id: number, item_ids: number[]): Promise<SalesQuoteWithItems> => {
+    const response = await apiClient.post<SalesQuoteWithItems>(
+      `${BASE_URL}/${id}/items/procurement`,
+      { item_ids }
+    );
+    return response.data;
+  },
+
+  /**
    * Delete a quote (only drafts can be deleted)
    */
   delete: async (id: number): Promise<void> => {
@@ -307,6 +318,18 @@ export const quotationApi = {
    */
   createPartialSO: async (id: number, data: CreatePartialSORequest): Promise<any> => {
     const response = await apiClient.post<any>(`${BASE_URL}/${id}/partial-so`, data);
+    return response.data;
+  },
+
+  /**
+   * Mark quote items as so_created after a Sales Order is saved from the SO page.
+   * product_ids: the product IDs included in the SO.
+   */
+  markItemsSoCreated: async (quoteId: number, productIds: number[]): Promise<SalesQuoteWithItems> => {
+    const response = await apiClient.post<SalesQuoteWithItems>(
+      `${BASE_URL}/${quoteId}/mark-so-created`,
+      productIds
+    );
     return response.data;
   },
 

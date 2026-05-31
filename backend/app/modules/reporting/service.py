@@ -891,7 +891,7 @@ class ReportingService:
             for cust in recent_customers:
                 recent_activities.append(
                     {
-                        "title": f"New customer: {cust.name}",
+                        "title": f"New customer: {cust.customer_name}",
                         "time": cust.created_at.isoformat() if cust.created_at else "",
                         "type": "customer",
                     }

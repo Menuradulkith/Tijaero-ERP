@@ -47,7 +47,9 @@ import {
   Receipt as InvoiceIcon,
   Receipt as TaxIcon,
   SwapHoriz as ProformaIcon,
+  Send as SendIcon,
   ThumbDown as RejectIcon,
+  Warehouse as WarehouseIcon,
 } from "@mui/icons-material";
 import {
   Alert,
@@ -172,6 +174,7 @@ export default function QuotationsPage() {
   const [stockAllSufficient, setStockAllSufficient] = useState(false);
   // Per-item qty overrides for partial SO dialog (item_id → qty to convert)
   const [partialQtyMap, setPartialQtyMap] = useState<Record<number, number>>({});
+  const [transferFromBranch, setTransferFromBranch] = useState<string | null>(null);
   // Cancel item state
   const [cancelItemDialogOpen, setCancelItemDialogOpen] = useState(false);
   const [cancelItemTarget, setCancelItemTarget] = useState<{ quoteId: number; itemId: number; productName: string } | null>(null);
@@ -180,7 +183,22 @@ export default function QuotationsPage() {
 
   // Derived: whether any items need a PO, and whether any items are in stock (can go to SO)
   const hasItemsNeedingPO = stockAvailability.some(sa => !sa.is_sufficient);
-  const hasItemsInStock = stockAvailability.some(sa => sa.is_sufficient);
+  const hasItemsInStock = stockAvailability.some(sa => (sa.current_branch_available || 0) > 0);
+  const hasItemsInOtherBranches = stockAvailability.some(sa => (sa.other_branches?.length || 0) > 0);
+
+  const transferBranchOptions = useMemo(() => {
+    const branchesSet = new Set<string>();
+    stockAvailability.forEach(sa => {
+      sa.other_branches?.forEach(b => branchesSet.add(b.branch_code));
+    });
+    return Array.from(branchesSet);
+  }, [stockAvailability]);
+
+  useEffect(() => {
+    if (!transferFromBranch && transferBranchOptions.length > 0) {
+      setTransferFromBranch(transferBranchOptions[0]);
+    }
+  }, [transferBranchOptions, transferFromBranch]);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [cancelLinkedPO, setCancelLinkedPO] = useState(false);
@@ -216,6 +234,7 @@ export default function QuotationsPage() {
     handleNew: handleNewQuote,
     handleCancel: baseHandleCancel,
     handleStartEdit,
+    markAsSaved,
   } = useMasterDetailState<SalesQuote, Partial<SalesQuoteCreate>>({
     initialFormData: getEmptyQuoteForm(pageQuoteType),
     resetFormFromItem: (quote) => quote,
@@ -438,10 +457,13 @@ export default function QuotationsPage() {
     successMessage: "Quote updated successfully",
     errorMessage: "Failed to update quote",
     onSuccess: (updatedQuote: SalesQuote) => {
-      handleSelectQuote(updatedQuote);
+      setSelectedQuote(updatedQuote);
+      setFormData(updatedQuote);
+      markAsSaved();
       setIsEditing(false);
       setLineItemsDirty(false);
       setLineItems([]);
+      queryClient.invalidateQueries({ queryKey: ["sales-quote-details", updatedQuote.id] });
     },
   });
 
@@ -497,6 +519,16 @@ export default function QuotationsPage() {
     },
   });
 
+  const markSentMutation = useCrudMutation({
+    mutationFn: (id: number) => quotationApi.markAsSent(id),
+    getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType], ["sales-quote-details"]],
+    successMessage: "Quotation marked as sent",
+    errorMessage: "Failed to mark as sent",
+    onSuccess: (updatedQuote: SalesQuote) => {
+      handleSelectQuote(updatedQuote);
+    },
+  });
+
   // ==================== Workflow Handlers ====================
 
   const handleCheckStock = useCallback(async () => {
@@ -544,36 +576,120 @@ export default function QuotationsPage() {
     }
   }, [selectedQuote, confirmDialog, cancelMutation]);
 
+  const handleCreateITNNavigate = useCallback(async () => {
+    if (!selectedQuote || !selectedQuoteDetails?.items || !transferFromBranch) return;
+
+    const itemsForITN = stockAvailability
+      .filter(sa => {
+        if ((sa.other_branches?.length || 0) === 0) return false;
+        // Skip fulfilled items
+        const quoteItem = selectedQuoteDetails.items.find(qi => qi.product_id === sa.product_id);
+        if (!quoteItem) return false;
+        if (['completed', 'cancelled', 'so_created', 'po_created', 'itn_created'].includes(quoteItem.item_status)) return false;
+        return true;
+      })
+      .map(sa => {
+        const branchEntry = sa.other_branches?.find(b => b.branch_code === transferFromBranch);
+        if (!branchEntry) return null;
+        const quoteItem = selectedQuoteDetails.items.find(qi => qi.product_id === sa.product_id);
+        const remaining = quoteItem ? quoteItem.quantity - (quoteItem.converted_qty || 0) : sa.requested_quantity;
+        const qty = Math.min(remaining, branchEntry.available_quantity);
+        return qty > 0
+          ? {
+              product_id: sa.product_id,
+              product_name: sa.product_name || `Product #${sa.product_id}`,
+              quantity: qty,
+            }
+          : null;
+      })
+      .filter(Boolean) as Array<{ product_id: number; product_name: string; quantity: number }>;
+
+    if (itemsForITN.length === 0) {
+      showErrorToast("No items available in the selected branch for transfer.");
+      return;
+    }
+
+    const itemIds = selectedQuoteDetails.items
+      .filter(item => itemsForITN.some(itnItem => itnItem.product_id === item.product_id))
+      .map(item => item.id);
+
+    try {
+      if (itemIds.length > 0) {
+        await quotationApi.markItemsProcurement(selectedQuote.id, itemIds);
+      }
+      navigate("/warehouse/item-transfer-notes", {
+        state: {
+          prefillTransfer: {
+            fromBranch: transferFromBranch,
+            toBranch: selectedQuote.branch_code,
+            items: itemsForITN,
+            quoteId: selectedQuote.id,
+            quoteNo: selectedQuote.quote_no,
+          },
+        },
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to mark items for transfer";
+      showErrorToast(msg);
+    }
+  }, [selectedQuote, selectedQuoteDetails, stockAvailability, transferFromBranch, navigate]);
+
   // Navigate to PO page with pre-filled data from proforma
-  const handleCreatePONavigate = useCallback(() => {
+  const handleCreatePONavigate = useCallback(async () => {
     if (!selectedQuote || !selectedQuoteDetails?.items) return;
 
     // Determine which items need procurement: use stock check data if available, otherwise all items
+    // Filter out completed/cancelled items and use remaining quantities
     const itemsForPO = stockAvailability.length > 0
       ? stockAvailability
-          .filter(sa => !sa.is_sufficient)
+          .filter(sa => {
+            if (sa.is_sufficient) return false;
+            const quoteItem = selectedQuoteDetails.items.find(qi => qi.product_id === sa.product_id);
+            if (!quoteItem) return false;
+            // Skip items already fulfilled
+            if (['completed', 'cancelled', 'so_created', 'po_created', 'itn_created'].includes(quoteItem.item_status)) return false;
+            const remaining = quoteItem.quantity - (quoteItem.converted_qty || 0);
+            return remaining > 0;
+          })
           .map(sa => {
             const quoteItem = selectedQuoteDetails.items.find(qi => qi.product_id === sa.product_id);
             const product = products.find(p => p.id === sa.product_id);
-            const shortfall = sa.requested_quantity - sa.available_quantity;
+            const remaining = quoteItem ? quoteItem.quantity - (quoteItem.converted_qty || 0) : sa.requested_quantity;
+            const shortfall = remaining - (sa.current_branch_available || 0);
             return {
               product_id: sa.product_id,
-              quantity: shortfall > 0 ? shortfall : sa.requested_quantity,
+              quantity: shortfall > 0 ? shortfall : remaining,
               unit_price: product?.cost_price ?? (quoteItem ? Number(quoteItem.selling_price) : 0),
               warrenty_month: quoteItem?.warrenty_month || "0",
               remark: `From Proforma ${selectedQuote.quote_no}`,
             };
           })
-      : selectedQuoteDetails.items.map(item => {
-          const product = products.find(p => p.id === item.product_id);
-          return {
-            product_id: item.product_id,
-            quantity: item.quantity,
-            unit_price: product?.cost_price ?? Number(item.selling_price),
-            warrenty_month: item.warrenty_month || "0",
-            remark: `From ${selectedQuote.quote_type === 'proforma' ? 'Proforma' : 'Quotation'} ${selectedQuote.quote_no}`,
-          };
-        });
+      : selectedQuoteDetails.items
+          .filter(item => !['completed', 'cancelled', 'so_created', 'po_created', 'itn_created'].includes(item.item_status))
+          .map(item => {
+            const product = products.find(p => p.id === item.product_id);
+            const remaining = item.quantity - (item.converted_qty || 0);
+            return {
+              product_id: item.product_id,
+              quantity: remaining > 0 ? remaining : item.quantity,
+              unit_price: product?.cost_price ?? Number(item.selling_price),
+              warrenty_month: item.warrenty_month || "0",
+              remark: `From ${selectedQuote.quote_type === 'proforma' ? 'Proforma' : 'Quotation'} ${selectedQuote.quote_no}`,
+            };
+          });
+
+    const itemIds = selectedQuoteDetails.items
+      .filter(item => itemsForPO.some(poItem => poItem.product_id === item.product_id))
+      .map(item => item.id);
+
+    try {
+      if (itemIds.length > 0) {
+        await quotationApi.markItemsProcurement(selectedQuote.id, itemIds);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to mark items for procurement";
+      showErrorToast(msg);
+    }
 
     navigate("/purchasing/orders", {
       state: {
@@ -585,25 +701,40 @@ export default function QuotationsPage() {
         items: itemsForPO,
       },
     });
-  }, [selectedQuote, selectedQuoteDetails, stockAvailability, products, navigate]);
+  }, [selectedQuote, selectedQuoteDetails, stockAvailability, products, navigate, transferFromBranch]);
 
   // Navigate to Sales Order page with pre-filled data — only in-stock items
   const handleCreatePartialSO = useCallback(async () => {
     if (!selectedQuote || !selectedQuoteDetails?.items) return;
-    // Build items list: items that are in-stock and pending/partial, using partialQtyMap
-    const itemsToConvert = stockAvailability
-      .filter(sa => sa.is_sufficient)
+
+    // 1) Items with current-branch stock from the stock check
+    const stockItems = stockAvailability
+      .filter(sa => (sa.current_branch_available || 0) > 0)
       .map(sa => {
         const quoteItem = selectedQuoteDetails.items.find(i => i.product_id === sa.product_id);
         if (!quoteItem) return null;
-        // Only include pending/partial items
-        if (quoteItem.item_status === 'completed' || quoteItem.item_status === 'cancelled') return null;
+        if (['completed', 'cancelled', 'so_created'].includes(quoteItem.item_status)) return null;
         const remaining = quoteItem.quantity - (quoteItem.converted_qty || 0);
-        const qty = partialQtyMap[quoteItem.id] ?? remaining;
+        const maxQty = Math.min(remaining, sa.current_branch_available || 0);
+        const qty = partialQtyMap[quoteItem.id] ?? maxQty;
         if (qty <= 0) return null;
         return { item_id: quoteItem.id, quantity: qty };
       })
       .filter(Boolean) as { item_id: number; quantity: number }[];
+
+    // 2) po_created / itn_created items are always eligible (stock was procured/transferred)
+    const procuredItems = selectedQuoteDetails.items
+      .filter(item => ['po_created', 'itn_created'].includes(item.item_status))
+      .filter(item => !stockItems.some(si => si.item_id === item.id)) // avoid duplicates
+      .map(item => {
+        const remaining = item.quantity - (item.converted_qty || 0);
+        const qty = partialQtyMap[item.id] ?? remaining;
+        if (qty <= 0) return null;
+        return { item_id: item.id, quantity: qty };
+      })
+      .filter(Boolean) as { item_id: number; quantity: number }[];
+
+    const itemsToConvert = [...stockItems, ...procuredItems];
 
     if (itemsToConvert.length === 0) {
       showErrorToast("No items selected for Sales Order.");
@@ -651,16 +782,31 @@ export default function QuotationsPage() {
       : null; // null = no stock check done yet, include all
 
     const itemsForSO = selectedQuoteDetails.items
-      .filter(item => sufficientProductIds === null || sufficientProductIds.has(item.product_id))
-      .map(item => ({
-        product_id: item.product_id,
-        product_name: products.find(p => p.id === item.product_id)?.name || "",
-        quantity: item.quantity,
-        selling_price: Number(item.selling_price),
-        minimum_selling_price: Number(item.minimum_selling_price),
-        warrenty_month: item.warrenty_month || "0",
-        discount_percent: item.discount_percentage || 0,
-      }));
+      .filter(item => {
+        // Skip items already fulfilled or cancelled
+        if (['completed', 'cancelled', 'so_created'].includes(item.item_status)) return false;
+        // po_created / itn_created items always qualify for SO (stock was procured/transferred)
+        if (['po_created', 'itn_created'].includes(item.item_status)) {
+          return (item.quantity - (item.converted_qty || 0)) > 0;
+        }
+        // For pending/procurement items, only include if stock check shows sufficient
+        if (sufficientProductIds !== null && !sufficientProductIds.has(item.product_id)) return false;
+        // Must have remaining qty
+        const remaining = item.quantity - (item.converted_qty || 0);
+        return remaining > 0;
+      })
+      .map(item => {
+        const remaining = item.quantity - (item.converted_qty || 0);
+        return {
+          product_id: item.product_id,
+          product_name: products.find(p => p.id === item.product_id)?.name || "",
+          quantity: remaining,
+          selling_price: Number(item.selling_price),
+          minimum_selling_price: Number(item.minimum_selling_price),
+          warrenty_month: item.warrenty_month || "0",
+          discount_percent: item.discount_percentage || 0,
+        };
+      });
 
     if (itemsForSO.length === 0) {
       showErrorToast("No in-stock items available to create a Sales Order.");
@@ -702,17 +848,17 @@ export default function QuotationsPage() {
     const s = selectedQuote.status;
     const actions: string[] = [];
 
-    // Mark as proforma (toggle) — only for quotation type
-    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'partially_converted', 'cancelled'].includes(s)) actions.push('toggle_proforma');
-    // Check stock — also allow when partially_converted (more items may still be pending)
-    if (!['cancelled', 'converted', 'converted_to_invoice', 'item_received'].includes(s)) actions.push('check_stock');
-    // Create PO / SO — allow even when partially_converted or so_created (more partial SOs possible)
-    if (!['cancelled', 'converted', 'converted_to_invoice', 'item_received'].includes(s)) actions.push('create_po');
-    if (!['cancelled', 'converted', 'converted_to_invoice', 'item_received'].includes(s)) actions.push('create_so');
-    // Reject
-    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'partially_converted', 'cancelled', 'revised', 'rejected'].includes(s)) actions.push('reject');
-    // Cancel
-    if (!['converted', 'converted_to_invoice', 'item_received', 'so_created', 'partially_converted', 'cancelled', 'revised'].includes(s)) actions.push('cancel');
+    // Mark as sent — allowed from draft or sent (idempotent re-send)
+    if (['draft', 'sent'].includes(s)) actions.push('send');
+    // Mark as proforma (toggle) — only for quotation type, not terminal
+    if (!['completed', 'cancelled'].includes(s)) actions.push('toggle_proforma');
+    // Check stock — allowed for any non-terminal status
+    if (!['completed', 'cancelled'].includes(s)) actions.push('check_stock');
+    // Create PO / SO / ITN — allowed while not completed or cancelled
+    if (!['completed', 'cancelled'].includes(s)) actions.push('create_po');
+    if (!['completed', 'cancelled'].includes(s)) actions.push('create_so');
+    // Cancel — allowed from any non-final status
+    if (!['completed', 'cancelled'].includes(s)) actions.push('cancel');
 
     return actions;
   }, [selectedQuote, isCreating, isEditing]);
@@ -1031,8 +1177,14 @@ export default function QuotationsPage() {
             selectedQuote && !isCreating && !isEditing
               ? [
                 {
-                  label: selectedQuote.status.toUpperCase(),
-                  color: selectedQuote.status === 'draft' ? 'default' : selectedQuote.status === 'approved' ? 'success' : 'info'
+                  label: selectedQuote.status === 'sent' ? '✓ Sent' : selectedQuote.status.replace(/_/g, ' ').toUpperCase(),
+                  color: selectedQuote.status === 'draft' ? 'default'
+                    : selectedQuote.status === 'sent' ? 'success'
+                    : selectedQuote.status === 'approved' ? 'success'
+                    : selectedQuote.status === 'partially_processed' ? 'warning'
+                    : selectedQuote.status === 'completed' ? 'success'
+                    : selectedQuote.status === 'cancelled' || selectedQuote.status === 'rejected' ? 'error'
+                    : 'info'
                 }
               ]
               : undefined
@@ -1057,6 +1209,15 @@ export default function QuotationsPage() {
             selectedQuote && !isCreating && !isEditing ? (
               <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
                 {/* Workflow Action Buttons */}
+                {getAvailableActions().includes('send') && (
+                  <Tooltip title="Mark as Sent to Customer">
+                    <Button size="small" variant="outlined" color="success" startIcon={<SendIcon />}
+                      onClick={() => markSentMutation.mutate(selectedQuote.id)}
+                      disabled={markSentMutation.isPending}>
+                      {selectedQuote.status === 'sent' ? '✓ Sent' : 'Mark Sent'}
+                    </Button>
+                  </Tooltip>
+                )}
                 {/* Only quotations can be promoted to proforma — not the reverse */}
                 {getAvailableActions().includes('toggle_proforma') && selectedQuote.quote_type === 'quotation' && (
                   <Tooltip title="Convert to Proforma Invoice">
@@ -1081,6 +1242,14 @@ export default function QuotationsPage() {
                     <Button size="small" variant="outlined" color="warning" startIcon={<POIcon />}
                       onClick={handleCreatePONavigate}>
                       Create PO
+                    </Button>
+                  </Tooltip>
+                )}
+                {stockCheckedQuoteId === selectedQuote.id && hasItemsInOtherBranches && (
+                  <Tooltip title="Create ITN for items available in other branches">
+                    <Button size="small" variant="outlined" color="info" startIcon={<WarehouseIcon />}
+                      onClick={handleCreateITNNavigate}>
+                      Create ITN
                     </Button>
                   </Tooltip>
                 )}
@@ -1253,8 +1422,7 @@ export default function QuotationsPage() {
                 <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
                 <TableCell align="right" sx={{ width: 90 }}>Discount</TableCell>
                 <TableCell sx={{ width: 100 }}>Warranty</TableCell>
-                <TableCell align="center" sx={{ width: 120 }}>Stock</TableCell>
-                <TableCell align="center" sx={{ width: 120 }}>Item Status</TableCell>
+                <TableCell align="center" sx={{ width: 140 }}>Item Status</TableCell>
                 <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
               </TableRow>
             </TableHead>
@@ -1265,12 +1433,16 @@ export default function QuotationsPage() {
                   const lineTotal = item.quantity * Number(item.selling_price);
                   // Prefer live stock check result; fall back to stored stock_status from DB
                   const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
+                  // Derive stock status: live check overrides stored value
                   const stockStatus = liveStock
-                    ? (liveStock.is_sufficient ? 'in_stock' : 'needs_procurement')
+                    ? (liveStock.is_sufficient ? 'in_stock'
+                        : (liveStock.other_branches && liveStock.other_branches.length > 0) ? 'needs_transfer'
+                        : 'needs_procurement')
                     : item.stock_status;
                   const itemStatus = item.item_status ?? 'pending';
-                  const converted = item.converted_qty ?? 0;
-                  const canCancelItem = selectedQuote && ['pending', 'partial'].includes(itemStatus);
+                  // Item can be cancelled if it hasn't been fulfilled or already cancelled
+                  const canCancelItem = selectedQuote &&
+                    !['so_created', 'cancelled', 'completed'].includes(itemStatus);
                   return (
                     <TableRow key={index} sx={{
                       ...modernTableStyles.bodyRow,
@@ -1286,27 +1458,31 @@ export default function QuotationsPage() {
                           : <Typography variant="body2" color="text.disabled">-</Typography>}
                       </TableCell>
                       <TableCell>{item.warrenty_month || "-"}</TableCell>
-                      <TableCell align="center">
-                        {stockCheckLoading && stockCheckedQuoteId !== selectedQuote?.id ? (
-                          <Typography variant="caption" color="text.secondary">…</Typography>
-                        ) : stockStatus === 'in_stock' ? (
-                          <Chip label="In Stock" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                        ) : stockStatus === 'needs_procurement' ? (
-                          <Chip label="Needs PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">-</Typography>
-                        )}
-                      </TableCell>
+                      {/* ── Item Status Column ── */}
                       <TableCell align="center">
                         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                          {itemStatus === 'completed' ? (
-                            <Chip label="Completed" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                          ) : itemStatus === 'partial' ? (
-                            <Chip label={`Partial (${converted}/${item.quantity})`} color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          {itemStatus === 'so_created' || itemStatus === 'completed' ? (
+                            <Chip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'po_created' ? (
+                            <Chip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'itn_created' ? (
+                            <Chip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'procurement' ? (
+                            // PO/ITN in progress — show what was initiated
+                            stockStatus === 'needs_transfer'
+                              ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              : <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'cancelled' ? (
                             <Chip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : (
-                            <Chip label="Pending" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            // Pending — show based on stock availability
+                            stockStatus === 'needs_transfer'
+                              ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              : stockStatus === 'needs_procurement'
+                                ? <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                : stockStatus === 'in_stock'
+                                  ? <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                  : <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           )}
                           {canCancelItem && (
                             <Button size="small" color="error" sx={{ fontSize: '0.65rem', p: '1px 4px', minWidth: 0 }}
@@ -1327,14 +1503,14 @@ export default function QuotationsPage() {
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={8} sx={modernTableStyles.emptyCell}>
+                  <TableCell colSpan={7} sx={modernTableStyles.emptyCell}>
                     No items in this quote
                   </TableCell>
                 </TableRow>
               )}
               {/* Total Row */}
               <TableRow sx={modernTableStyles.footerRow}>
-                <TableCell colSpan={7} align="right">
+                <TableCell colSpan={6} align="right">
                   <Typography fontWeight="bold">Total:</Typography>
                 </TableCell>
                 <TableCell align="right">
@@ -1583,6 +1759,7 @@ export default function QuotationsPage() {
                       <TableCell align="right" sx={{ width: 90 }}>Qty</TableCell>
                       <TableCell align="right" sx={{ width: 130 }}>Price (Rs.)</TableCell>
                       <TableCell align="right" sx={{ width: 110 }}>Disc %</TableCell>
+                      <TableCell align="right" sx={{ width: 110 }}>Warranty (Months)</TableCell>
                       {formData.quote_type === "quotation" && (
                         <TableCell align="right" sx={{ width: 130 }}>Min Price (Rs.)</TableCell>
                       )}
@@ -1657,6 +1834,19 @@ export default function QuotationsPage() {
                               endAdornment: <InputAdornment position="end">%</InputAdornment>,
                             }}
                             inputProps={{ min: 0, max: 100, step: 0.5 }}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TextField
+                            type="number"
+                            value={item.warrenty_month || ""}
+                            onChange={(e) =>
+                              handleUpdateLineItem(index, "warrenty_month", e.target.value)
+                            }
+                            size="small"
+                            sx={{ width: "100%" }}
+                            placeholder="0"
+                            inputProps={{ min: 0, step: 1 }}
                           />
                         </TableCell>
                         {formData.quote_type === "quotation" && (
@@ -1883,7 +2073,7 @@ export default function QuotationsPage() {
       <TConfirmDialog {...confirmDialog.dialogProps} />
 
       {/* ==================== Stock Availability Dialog ==================== */}
-      <Dialog open={stockCheckDialogOpen} onClose={() => setStockCheckDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={stockCheckDialogOpen} onClose={() => setStockCheckDialogOpen(false)} maxWidth="lg" fullWidth>
         <DialogTitle>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <StockIcon color="info" />
@@ -1901,7 +2091,9 @@ export default function QuotationsPage() {
               <Alert severity={stockAllSufficient ? "success" : "warning"} sx={{ mb: 2 }}>
                 {stockAllSufficient
                   ? "All items are available in stock. Ready to proceed."
-                  : "Some items are not available in stock and need procurement."}
+                  : hasItemsInOtherBranches
+                    ? "Some items are not in this branch. You can transfer from another branch or procure if needed."
+                    : "Some items are not available in stock and need procurement."}
               </Alert>
               <Table size="small">
                 <TableHead>
@@ -1909,52 +2101,68 @@ export default function QuotationsPage() {
                     <TableCell>Product</TableCell>
                     <TableCell align="right">Required</TableCell>
                     <TableCell align="right">Available</TableCell>
-                    <TableCell align="right">Converted</TableCell>
-                    <TableCell align="center">Qty to Order</TableCell>
-                    <TableCell align="center">Status</TableCell>
+                    <TableCell align="center">Other Branches</TableCell>
+                    <TableCell align="center">Stock</TableCell>
+                    <TableCell align="center">Item Status</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {stockAvailability.map((item, index) => {
                     const quoteItem = selectedQuoteDetails?.items?.find(i => i.product_id === item.product_id);
-                    const converted = quoteItem?.converted_qty ?? 0;
-                    const remaining = item.requested_quantity - converted;
-                    const itemStatus = quoteItem?.item_status;
-                    const isActive = itemStatus !== 'completed' && itemStatus !== 'cancelled';
+                    const itemStatus = quoteItem?.item_status ?? 'pending';
+                    const currentAvailable = item.current_branch_available ?? item.available_quantity;
+                    // Derive stockStatus from live check
+                    const stockStatus = item.is_sufficient ? 'in_stock'
+                      : (item.other_branches && item.other_branches.length > 0) ? 'needs_transfer'
+                      : 'needs_procurement';
                     return (
                       <TableRow key={index} sx={modernTableStyles.bodyRow}>
                         <TableCell>{item.product_name || `Product #${item.product_id}`}</TableCell>
                         <TableCell align="right">{item.requested_quantity}</TableCell>
-                        <TableCell align="right">{item.available_quantity}</TableCell>
-                        <TableCell align="right">
-                          {converted > 0 ? <Typography variant="caption" color="success.main">{converted}/{item.requested_quantity}</Typography> : "–"}
-                        </TableCell>
+                        <TableCell align="right">{currentAvailable}</TableCell>
                         <TableCell align="center">
-                          {item.is_sufficient && isActive && remaining > 0 ? (
-                            <TextField
-                              type="number" size="small" sx={{ width: 80 }}
-                              value={partialQtyMap[quoteItem!.id] ?? remaining}
-                              inputProps={{ min: 1, max: Math.min(remaining, item.available_quantity) }}
-                              onChange={(e) => {
-                                const v = Math.max(1, Math.min(parseInt(e.target.value) || 1, Math.min(remaining, item.available_quantity)));
-                                setPartialQtyMap(prev => ({ ...prev, [quoteItem!.id]: v }));
-                              }}
-                            />
+                          {item.other_branches && item.other_branches.length > 0 ? (
+                            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, justifyContent: "center" }}>
+                              {item.other_branches.map((b) => (
+                                <Chip key={`${item.product_id}-${b.branch_code}`} label={`${b.branch_code}: ${b.available_quantity}`} size="small" />
+                              ))}
+                            </Box>
                           ) : (
                             <Typography variant="caption" color="text.disabled">–</Typography>
                           )}
                         </TableCell>
+                        {/* Stock: In Stock / Out of Stock */}
                         <TableCell align="center">
-                          {!item.is_sufficient ? (
-                            <Chip label="Needs Procurement" color="warning" size="small" />
-                          ) : itemStatus === 'completed' ? (
-                            <Chip label="Completed" color="success" size="small" />
-                          ) : itemStatus === 'cancelled' ? (
-                            <Chip label="Cancelled" color="default" size="small" />
-                          ) : itemStatus === 'partial' ? (
-                            <Chip label="Partial" color="info" size="small" />
+                          {itemStatus === 'cancelled' ? (
+                            <Typography variant="caption" color="text.disabled">—</Typography>
+                          ) : ['so_created', 'completed', 'po_created', 'itn_created'].includes(itemStatus) ? (
+                            <Chip label="In Stock" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : stockStatus === 'in_stock' ? (
+                            <Chip label="In Stock" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : (
-                            <Chip label="In Stock" color="success" size="small" />
+                            <Chip label="Out of Stock" color="error" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          )}
+                        </TableCell>
+                        {/* Item Status */}
+                        <TableCell align="center">
+                          {itemStatus === 'so_created' || itemStatus === 'completed' ? (
+                            <Chip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'po_created' ? (
+                            <Chip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'itn_created' ? (
+                            <Chip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'procurement' ? (
+                            stockStatus === 'needs_transfer'
+                              ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              : <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'cancelled' ? (
+                            <Chip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : (
+                            stockStatus === 'needs_transfer'
+                              ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              : stockStatus === 'needs_procurement'
+                                ? <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                : <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           )}
                         </TableCell>
                       </TableRow>
@@ -1965,21 +2173,7 @@ export default function QuotationsPage() {
             </>
           )}
         </DialogContent>
-        <DialogActions>
-          {hasItemsNeedingPO && !stockCheckLoading && selectedQuote && getAvailableActions().includes('create_po') && (
-            <Button variant="contained" color="warning" startIcon={<POIcon />}
-              onClick={() => { setStockCheckDialogOpen(false); handleCreatePONavigate(); }}>
-              Create Purchase Order
-            </Button>
-          )}
-          {hasItemsInStock && !stockCheckLoading && selectedQuote && getAvailableActions().includes('create_so') && (
-            <Button variant="contained" color="primary" startIcon={<InvoiceIcon />}
-              onClick={handleCreatePartialSO}>
-              {stockAvailability.every(sa => sa.is_sufficient) ? "Create Sales Order" : "Create Partial Sales Order"}
-            </Button>
-          )}
-          <Button onClick={() => { setStockCheckDialogOpen(false); setPartialQtyMap({}); }}>Close</Button>
-        </DialogActions>
+        <DialogActions />
       </Dialog>
 
       {/* ==================== Reject Dialog ==================== */}

@@ -91,6 +91,9 @@ class PurchasingOrderRepository:
         order_data = order.model_dump(exclude={'items'})
         # Server-side sequential number generation
         order_data['purchasing_order_no'] = self.get_next_po_number()
+        # Treat 0 as NULL for optional FK fields
+        if not order_data.get('second_suppliers_id'):
+            order_data['second_suppliers_id'] = None
         db_order = models.PurchasingOrder(
             **order_data,
             status=initial_status,
@@ -163,6 +166,10 @@ class PurchasingOrderRepository:
         db_order = self.get_by_id(order_id)
         if db_order:
             update_data = order_update.model_dump(exclude_unset=True)
+            
+            # Treat 0 as NULL for optional FK fields
+            if 'second_suppliers_id' in update_data and not update_data['second_suppliers_id']:
+                update_data['second_suppliers_id'] = None
             
             items_data = update_data.pop('items', None)
             

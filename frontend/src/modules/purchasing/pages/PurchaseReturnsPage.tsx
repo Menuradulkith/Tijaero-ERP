@@ -390,7 +390,12 @@ export default function PurchaseReturnsPage() {
 
   const createMutation = useCrudMutation({
     mutationFn: purchaseReturnsApi.create,
-    invalidateQueryKeys: [["purchaseReturns"]],
+    invalidateQueryKeys: [
+      ["purchaseReturns"],
+      ["journal-entries"],     // Finance: auto GL journal entry is posted on purchase return
+      ["general-ledger"],      // Finance: GL account balances change
+      ["trial-balance"],       // Finance: trial balance totals change
+    ],
     successMessage: "Purchase return created successfully",
     errorMessage: "Failed to create purchase return",
     onSuccess: (newReturn) => {
@@ -454,6 +459,26 @@ export default function PurchaseReturnsPage() {
       });
 
       if (response.valid && response.sales_stock_id) {
+        // Warranty expiry warning — ask user to confirm before adding
+        if (response.warranty_expired) {
+          const expiryDate = response.warranty_expiry_date || "unknown";
+          const warrantyMonths = response.warranty_month || "?";
+          const proceed = window.confirm(
+            `⚠️ WARRANTY EXPIRED\n\n` +
+            `Product: ${response.product_name || barcode}\n` +
+            `Warranty: ${warrantyMonths} months (expired on ${expiryDate})\n\n` +
+            `The warranty period for this item has passed. ` +
+            `The supplier may reject this return.\n\n` +
+            `Do you still want to add this item to the return?`
+          );
+          if (!proceed) {
+            setBarcodeInput("");
+            barcodeInputRef.current?.focus();
+            setIsValidating(false);
+            return;
+          }
+        }
+
         // Add to validated items list
         const validatedItem: ValidatedItem = {
           barcode: barcode.trim(),

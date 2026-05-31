@@ -5,6 +5,7 @@
  */
 
 import { useMemo, useCallback, useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -132,7 +133,11 @@ const getITNStatus = (itn: ItemTransferNote | ItemTransferNoteWithItems): string
 
 export default function ItemTransferNotesPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const prefillTransfer = (location.state as { prefillTransfer?: { fromBranch: string; toBranch: string; items: Array<{ product_id: number; product_name: string; quantity: number }>; quoteId?: number; quoteNo?: string } } | null)?.prefillTransfer;
+  const prefillAppliedRef = useRef(false);
   const [lineItems, setLineItems] = useState<ITNLineItem[]>([]);
+  const [prefillItems, setPrefillItems] = useState<Array<{ product_id: number; product_name: string; quantity: number }>>([]);
   const [formStep, setFormStep] = useState(0);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   
@@ -231,6 +236,31 @@ export default function ItemTransferNotesPage() {
     setFormStep(0);
     setTouched({});
   }, [handleNewITNBase, setFormData, defaultBranchCode]);
+
+  useEffect(() => {
+    if (!prefillTransfer || prefillAppliedRef.current) return;
+    handleNewITN();
+    setFormData(prev => ({
+      ...prev,
+      branch_code: prefillTransfer.fromBranch,
+      ...(prefillTransfer.quoteId ? { sales_quote_id: prefillTransfer.quoteId } : {}),
+    }));
+    setPrefillItems(prefillTransfer.items || []);
+    prefillAppliedRef.current = true;
+  }, [prefillTransfer, handleNewITN, setFormData]);
+
+  useEffect(() => {
+    if (!prefillTransfer || locations.length === 0) return;
+    if (formData.from_location_id && formData.to_location_id) return;
+    const fromLocation = locations.find(l => l.branch_code === prefillTransfer.fromBranch);
+    const toLocation = locations.find(l => l.branch_code === prefillTransfer.toBranch && l.id !== fromLocation?.id)
+      || locations.find(l => l.branch_code === prefillTransfer.toBranch);
+    setFormData(prev => ({
+      ...prev,
+      from_location_id: fromLocation?.id || prev.from_location_id,
+      to_location_id: toLocation?.id || prev.to_location_id,
+    }));
+  }, [prefillTransfer, locations, formData.from_location_id, formData.to_location_id, setFormData]);
 
   // Load ITN items when selecting an ITN
   const loadITNItems = useCallback(async (itnId: number) => {
@@ -454,7 +484,9 @@ export default function ItemTransferNotesPage() {
   };
 
   // Validation
-  const isStep1Valid = formData.item_transfer_note && 
+  // When creating, ITN number is auto-generated (shown in UI but not stored in formData), so use nextITNNumber
+  const effectiveITNNumber = isCreating ? nextITNNumber : formData.item_transfer_note;
+  const isStep1Valid = effectiveITNNumber && 
     formData.from_location_id > 0 && 
     formData.to_location_id > 0 &&
     formData.from_location_id !== formData.to_location_id &&
@@ -756,6 +788,24 @@ export default function ItemTransferNotesPage() {
                     </Alert>
                   ) : null;
                 })()}
+
+                {isCreating && prefillItems.length > 0 && (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 0.5 }}>
+                      Transfer requested from quotation
+                    </Typography>
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
+                      {prefillItems.map((item, idx) => (
+                        <Typography key={`${item.product_id}-${idx}`} variant="body2">
+                          {item.product_name} — Qty {item.quantity}
+                        </Typography>
+                      ))}
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                      Scan items below to add them to this transfer.
+                    </Typography>
+                  </Alert>
+                )}
 
                 {/* Barcode Scanner Section (Purchase Returns pattern) */}
                 {isCreating && (

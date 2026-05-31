@@ -22,7 +22,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ActionToolbar,
@@ -48,6 +48,7 @@ import {
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
+import { useLocation } from "react-router-dom";
 import { suppliersApi, purchaseOrdersApi } from "@/modules/purchasing/api";
 import {
   purchaseInvoicesApi,
@@ -95,6 +96,8 @@ const resetFormFromInvoice = (invoice: PurchaseInvoiceListItem): InvoiceFormData
 export default function PurchaseInvoicesPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const location = useLocation();
+  const navigationState = location.state as { supplier_id?: number; branch_code?: string; grn_id?: number } | null;
 
   const [selectedGRNs, setSelectedGRNs] = useState<GRNInvoiceableItem[]>([]);
   const [invoiceableGRNs, setInvoiceableGRNs] = useState<GRNInvoiceableItem[]>([]);
@@ -157,11 +160,15 @@ export default function PurchaseInvoicesPage() {
     [handleCancelBase],
   );
 
-  const handleNewOrder = useCallback(() => {
-    handleNewBase();
+  const handleNewOrder = useCallback(async () => {
+    const result = await handleNewBase();
     setSelectedGRNs([]);
     setInvoiceableGRNs([]);
+    return result;
   }, [handleNewBase]);
+
+  // Ref to hold pending nav-state fill values until isCreating is confirmed true
+  const pendingNavFillRef = useRef<{ supplier_id: number; branch_code: string } | null>(null);
 
   // Fetch suppliers
   const canViewSuppliers = hasPermission(user, "suppliers", "view");
@@ -183,6 +190,28 @@ export default function PurchaseInvoicesPage() {
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  // Auto-fill from navigation state (e.g. from GRN page "Make Payment" button)
+  // Step 1: On mount, stash the nav values in a ref and call handleNewOrder
+  useEffect(() => {
+    if (navigationState?.supplier_id && navigationState?.branch_code) {
+      pendingNavFillRef.current = {
+        supplier_id: navigationState.supplier_id,
+        branch_code: navigationState.branch_code,
+      };
+      handleNewOrder();
+      window.history.replaceState({}, document.title);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Step 2: Once handleNew flips isCreating to true, apply the stashed values
+  useEffect(() => {
+    if (isCreating && pendingNavFillRef.current) {
+      const { supplier_id, branch_code } = pendingNavFillRef.current;
+      pendingNavFillRef.current = null;
+      setFormData((prev) => ({ ...prev, supplier_id, branch_code }));
+    }
+  }, [isCreating]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch POs for the filter dropdown (scoped to selected supplier/branch)
   const { data: purchaseOrders = [] } = useQuery({
@@ -584,7 +613,7 @@ export default function PurchaseInvoicesPage() {
                 onChange={(e) => setFormData({ ...formData, payment_type: e.target.value })}
                 disabled={!isEditing && !isCreating}
               >
-                <MenuItem value="non_credit">Non-Credit (Cash)</MenuItem>
+                <MenuItem value="non_credit">Non-Credit</MenuItem>
                 <MenuItem value="credit">Credit</MenuItem>
               </TextField>
             </FormSection>

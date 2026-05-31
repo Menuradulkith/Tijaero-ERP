@@ -21,6 +21,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import PaymentIcon from "@mui/icons-material/Payment";
 import SaveIcon from "@mui/icons-material/Save";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import {
@@ -59,6 +60,7 @@ import {
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 
 // Import tijaero components
@@ -183,6 +185,7 @@ const resetFormFromGRN = (grn: GoodReceivedNote): GoodReceivedNoteCreate => ({
 
 export default function GoodReceivedNotesPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const [lineItems, setLineItems] = useState<GRNLineItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -296,7 +299,6 @@ export default function GoodReceivedNotesPage() {
 
   // Load suppliers for filter and form
   useEffect(() => {
-    if (!isCreating && !filterSupplier) return;
     const loadSuppliers = async () => {
       try {
         const data = await suppliersApi.getAll();
@@ -306,7 +308,7 @@ export default function GoodReceivedNotesPage() {
       }
     };
     loadSuppliers();
-  }, [isCreating, filterSupplier]);
+  }, []);
 
   // Filter locations for the selected branch from the aggregated data
   const locations = useMemo(() => {
@@ -406,7 +408,7 @@ export default function GoodReceivedNotesPage() {
   const { data: purchaseOrders } = useQuery({
     queryKey: ["purchaseOrders"],
     queryFn: () => purchaseOrdersApi.getAll(),
-    enabled: isCreating || !!filterPOId || !!filterCreatedByUser,
+    enabled: isCreating || !!filterPOId || !!filterCreatedByUser || !!selectedGRN,
   });
 
   // Separate query for PO dropdown in GRN creation — only approved/partially_completed (not fully received)
@@ -1455,12 +1457,31 @@ export default function GoodReceivedNotesPage() {
               Next
             </Button>
           ) : selectedGRN && !isCreating && !isEditing ? (
-            <TPrintButton
-              documentType="grn"
-              documentId={selectedGRN.id}
-              tooltip="Print GRN"
-              onClick={() => handlePrint(selectedGRN.id)}
-            />
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<PaymentIcon />}
+                onClick={() => {
+                  const po = purchaseOrderMap.get(selectedGRN.purchasingorders_id);
+                  navigate("/purchasing/invoices", {
+                    state: {
+                      supplier_id: po?.first_suppliers_id || 0,
+                      branch_code: selectedGRN.branch_code,
+                      grn_id: selectedGRN.id,
+                    },
+                  });
+                }}
+              >
+                Make Payment
+              </Button>
+              <TPrintButton
+                documentType="grn"
+                documentId={selectedGRN.id}
+                tooltip="Print GRN"
+                onClick={() => handlePrint(selectedGRN.id)}
+              />
+            </Box>
           ) : undefined
         }
       />
@@ -1920,6 +1941,7 @@ export default function GoodReceivedNotesPage() {
                           <TableRow sx={modernTableStyles.headerRow}>
                             <TableCell>Barcode</TableCell>
                             <TableCell>Product</TableCell>
+                            <TableCell>Warranty</TableCell>
                             <TableCell>Saved To</TableCell>
                             <TableCell>Branch</TableCell>
                             <TableCell align="center">Active</TableCell>
@@ -1929,13 +1951,13 @@ export default function GoodReceivedNotesPage() {
                         <TableBody>
                           {loadingItems ? (
                             <TableRow>
-                              <TableCell colSpan={isEditing || isCreating ? 6 : 5} align="center">
+                              <TableCell colSpan={isEditing || isCreating ? 7 : 6} align="center">
                                 <CircularProgress size={24} sx={{ my: 2 }} />
                               </TableCell>
                             </TableRow>
                           ) : lineItems.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={isEditing || isCreating ? 6 : 5} sx={modernTableStyles.emptyCell}>
+                              <TableCell colSpan={isEditing || isCreating ? 7 : 6} sx={modernTableStyles.emptyCell}>
                                 {isCreating
                                   ? "Select a Purchase Order to load items"
                                   : "No items received yet"}
@@ -1987,7 +2009,7 @@ export default function GoodReceivedNotesPage() {
                               <>
                                 {/* Product group header */}
                                 <TableRow key={`group-${group.product_name}`} sx={{ bgcolor: "action.hover" }}>
-                                  <TableCell colSpan={5}>
+                                  <TableCell colSpan={6}>
                                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                                       <InventoryIcon fontSize="small" color="primary" />
                                       <Typography variant="subtitle2" fontWeight="bold">
@@ -2006,6 +2028,7 @@ export default function GoodReceivedNotesPage() {
                                         {item.product_name}
                                       </Typography>
                                     </TableCell>
+                                    <TableCell>{item.warranty_month ? `${item.warranty_month} mo` : "—"}</TableCell>
                                     <TableCell>
                                       <Box sx={{ display: "flex", gap: 0.5 }}>
                                         {item.saveToSalesStock && (

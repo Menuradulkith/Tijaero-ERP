@@ -134,17 +134,18 @@ class PurchasingOrderService:
                 detail=f"Supplier '{first_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
             )
         
-        second_supplier = self.supplier_repo.get_by_id(order.second_suppliers_id)
-        if not second_supplier:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Second supplier with id {order.second_suppliers_id} not found"
-            )
-        if not second_supplier.active:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
-            )
+        if order.second_suppliers_id:
+            second_supplier = self.supplier_repo.get_by_id(order.second_suppliers_id)
+            if not second_supplier:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Second supplier with id {order.second_suppliers_id} not found"
+                )
+            if not second_supplier.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
+                )
         
         # ── Validate all products in order items are active ──
         if order.items:
@@ -196,24 +197,20 @@ class PurchasingOrderService:
         log_audit(self.db, user_id=created_by, action="create", entity_type="purchase_order", entity_id=created_order.id, changes={"status": initial_status, "po_no": created_order.purchasing_order_no})
         self.db.commit()
 
-        # If PO was created from a proforma/quotation, update the quote status to po_created
+        # If PO was created from a proforma/quotation, record the PO link on the quote.
+        # NOTE: we do NOT change the quote header status here — only SO creation drives
+        # the header (DRAFT → SENT → PARTIALLY_PROCESSED → COMPLETED).
         if order.sales_quote_id:
             try:
-                from app.modules.sales.quotation_models import SalesQuote, QuoteStatus
+                from app.modules.sales.quotation_models import SalesQuote
                 linked_quote = self.db.query(SalesQuote).filter(SalesQuote.id == order.sales_quote_id).first()
-                if linked_quote and linked_quote.status not in [
-                    QuoteStatus.PO_CREATED.value,
-                    QuoteStatus.ITEM_RECEIVED.value,
-                    QuoteStatus.CONVERTED_TO_INVOICE.value,
-                    QuoteStatus.CANCELLED.value,
-                ]:
-                    linked_quote.status = QuoteStatus.PO_CREATED.value
+                if linked_quote:
                     linked_quote.linked_po_id = created_order.id
                     linked_quote.po_created_date = tz.now()
                     self.db.commit()
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning(f"Failed to update linked quote status: {e}")
+                logging.getLogger(__name__).warning(f"Failed to link PO to quote: {e}")
 
         return created_order
     
@@ -264,7 +261,7 @@ class PurchasingOrderService:
                     detail=f"Supplier '{first_supplier.full_name}' is inactive. Please reactivate the supplier before updating the purchase order."
                 )
         
-        if order_update.second_suppliers_id is not None:
+        if order_update.second_suppliers_id:
             second_supplier = self.supplier_repo.get_by_id(order_update.second_suppliers_id)
             if not second_supplier:
                 raise HTTPException(
@@ -528,6 +525,22 @@ class PurchasingReturnService:
         ).first()
         purchasing_price = po_item.unit_price if po_item else None
 
+        # Warranty check
+        warranty_month = stock_item.warranty_month
+        warranty_expired = False
+        warranty_expiry_date = None
+        if warranty_month:
+            try:
+                from dateutil.relativedelta import relativedelta
+                months = int(warranty_month)
+                received_date = stock_item.added_date
+                if received_date:
+                    expiry = received_date + relativedelta(months=months)
+                    warranty_expiry_date = expiry.strftime("%Y-%m-%d")
+                    warranty_expired = tz.now() > expiry
+            except (ValueError, TypeError):
+                pass
+
         return schemas.BarcodeValidationResponse(
             valid=True,
             barcode=barcode,
@@ -536,7 +549,10 @@ class PurchasingReturnService:
             product_id=stock_item.product_id,
             product_name=product_name,
             purchasing_price=purchasing_price,
-            status=stock_item.status
+            status=stock_item.status,
+            warranty_month=warranty_month,
+            warranty_expired=warranty_expired,
+            warranty_expiry_date=warranty_expiry_date,
         )
     
     def create_return(
@@ -895,16 +911,28 @@ class GoodReceivedNoteService:
         po_status = self._determine_po_completion_status(po.id)
         po.status = po_status
         
-        # If PO is linked to a sales quote/proforma and is completed, update quote status to item_received
+        # If PO is linked to a sales quote and is completed, update linked quote items to 'po_created'
         if po_status == "completed" and po.sales_quote_id:
             try:
-                from app.modules.sales.quotation_models import SalesQuote, QuoteStatus
+                from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem, QuoteStatus
                 linked_quote = self.db.query(SalesQuote).filter(SalesQuote.id == po.sales_quote_id).first()
-                if linked_quote and linked_quote.status == QuoteStatus.PO_CREATED.value:
-                    linked_quote.status = QuoteStatus.ITEM_RECEIVED.value
+                if linked_quote:
+                    # Get PO item product_ids
+                    from app.modules.purchasing.models import PurchasingOrderItems
+                    po_product_ids = {pi.product_id for pi in self.db.query(PurchasingOrderItems).filter(
+                        PurchasingOrderItems.purchasingorders_id == po.id
+                    ).all()}
+                    # Update matching quote items that are in 'procurement' state
+                    for qi in self.db.query(SalesQuoteItem).filter(
+                        SalesQuoteItem.quote_id == linked_quote.id,
+                        SalesQuoteItem.product_id.in_(po_product_ids),
+                        SalesQuoteItem.item_status == "procurement"
+                    ).all():
+                        qi.item_status = "po_created"
+                        qi.stock_status = "in_stock"
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning(f"Failed to update linked quote status on GRN: {e}")
+                logging.getLogger(__name__).warning(f"Failed to update linked quote items on GRN: {e}")
         
         # Update credit balance in the same transaction for atomicity
         credit_service = SupplierCreditService()
