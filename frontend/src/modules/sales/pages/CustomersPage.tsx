@@ -245,7 +245,7 @@ export default function CustomersPage() {
   // Mutations
   const createMutation = useCrudMutation({
     mutationFn: customersApi.create,
-    invalidateQueryKeys: [["customers"], ["referenceData"]],
+    invalidateQueryKeys: [["customers"], ["customers-all"], ["referenceData"]],
     successMessage: "Customer created successfully",
     errorMessage: "Failed to create customer",
     onSuccess: (newCustomer) => {
@@ -259,17 +259,19 @@ export default function CustomersPage() {
   const updateMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: CustomerCreate }) =>
       customersApi.update(id, data),
-    invalidateQueryKeys: [["customers"], ["referenceData"]],
+    invalidateQueryKeys: [["customers"], ["customers-all"], ["referenceData"]],
     successMessage: "Customer updated successfully",
     errorMessage: "Failed to update customer",
-    onSuccess: () => {
+    onSuccess: (updatedCustomer) => {
       setIsEditing(false);
+      // Refresh selectedCustomer with the latest data from the server
+      setSelectedCustomer(updatedCustomer as Customer);
     },
   });
 
   const deleteMutation = useCrudMutation({
     mutationFn: customersApi.delete,
-    invalidateQueryKeys: [["customers"], ["referenceData"]],
+    invalidateQueryKeys: [["customers"], ["customers-all"], ["referenceData"]],
     successMessage: "Customer deleted successfully",
     errorMessage: "Failed to delete customer",
     onSuccess: () => {
@@ -847,7 +849,7 @@ export default function CustomersPage() {
                 <FormControlLabel
                   control={
                     <Switch
-                      checked={formData.active}
+                      checked={formData.active ?? true}
                       onChange={(e) =>
                         setFormData({ ...formData, active: e.target.checked })
                       }

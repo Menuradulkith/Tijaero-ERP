@@ -105,6 +105,7 @@ export default function CustomerDialog({
     mutationFn: customersApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["customers-all"] });
       showSuccessToast("Customer created successfully");
       onClose();
     },
@@ -118,6 +119,7 @@ export default function CustomerDialog({
       customersApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["customers-all"] });
       showSuccessToast("Customer updated successfully");
       onClose();
     },

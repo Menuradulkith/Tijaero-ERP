@@ -103,6 +103,8 @@ class PurchasingOrder(Base):
     approval_id = Column(Integer, ForeignKey("approvals.id"))
     status = Column(String(30), nullable=False, default="pending", index=True)
     sales_quote_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True)  # Link to source quotation
+    created_by = Column(Integer, nullable=True)
+    updated_by = Column(Integer, nullable=True)
 
     first_supplier = relationship("Supplier", foreign_keys=[first_suppliers_id], back_populates="purchasing_orders_first")
     second_supplier = relationship("Supplier", foreign_keys=[second_suppliers_id], back_populates="purchasing_orders_second")
@@ -143,6 +145,8 @@ class PurchasingReturn(Base):
     approved_date = Column(TIMESTAMP, nullable=True)
     goodreceivednote_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"))
+    created_by = Column(Integer, nullable=True)
+    updated_by = Column(Integer, nullable=True)
 
     good_received_note = relationship("GoodReceivedNote", back_populates="purchasing_returns")
     approval = relationship("Approvals", back_populates="purchasing_returns")
@@ -222,6 +226,7 @@ class SupplierPayment(Base):
     verified_date = Column(TIMESTAMP, nullable=True)
     created_date = Column(TIMESTAMP, nullable=False)
     created_by = Column(Integer, nullable=True)
+    updated_by = Column(Integer, nullable=True)
     
     supplier = relationship("Supplier", back_populates="payments")
     purchasing_order = relationship("PurchasingOrder", back_populates="payments")
@@ -256,6 +261,8 @@ class SupplierAdvancePayment(Base):
     is_fully_applied = Column(Boolean, nullable=False, default=False)  # True when fully applied
     remarks = Column(Text)
     created_by = Column(Integer, nullable=True)  # No FK constraint
+    updated_by = Column(Integer, nullable=True)
+    updated_by = Column(Integer, nullable=True)
     created_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP"))
     

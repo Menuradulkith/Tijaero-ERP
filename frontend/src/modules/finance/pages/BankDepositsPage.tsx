@@ -8,11 +8,13 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
   Box,
+  Button,
   Chip,
   InputAdornment,
   TextField,
   Typography,
 } from "@mui/material";
+import { Download as DownloadIcon } from "@mui/icons-material";
 import {
   AccountBalance as BankIcon,
 } from "@mui/icons-material";
@@ -157,19 +159,49 @@ export default function BankDepositsPage() {
       onSelectItem={handleSelectWithCheck}
       emptyMessage="No bank deposits found"
       listHeader={
-        <TFilterPanel>
-          <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} />
-          <TStatusFilter
-            options={[
-              { value: null, label: "All" },
-              { value: "verified", label: "Verified" },
-              { value: "pending", label: "Pending" },
-            ]}
-            value={filterVerified}
-            onChange={setFilterVerified}
-            label="Status"
-          />
-        </TFilterPanel>
+        <>
+          <TFilterPanel>
+            <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} />
+            <TStatusFilter
+              options={[
+                { value: null, label: "All" },
+                { value: "verified", label: "Verified" },
+                { value: "pending", label: "Pending" },
+              ]}
+              value={filterVerified}
+              onChange={setFilterVerified}
+              label="Status"
+            />
+          </TFilterPanel>
+          <Box sx={{ display: "flex", justifyContent: "flex-end", px: 1, pb: 1 }}>
+            <Button
+              size="small"
+              startIcon={<DownloadIcon />}
+              onClick={() => {
+                if (!filteredDeposits.length) return;
+                const headers = ["Date", "Bank", "Branch", "Amount", "Status", "Remarks"];
+                const rows = filteredDeposits.map((d: BankDeposit) => [
+                  d.created_date ?? "",
+                  d.bank_name ?? "",
+                  d.branch_code ?? "",
+                  d.deposits_amount ?? "",
+                  d.verified ? "Verified" : "Pending",
+                  (d.remarks ?? "").replace(/,/g, " "),
+                ]);
+                const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+                const blob = new Blob([csv], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "bank_deposits.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              Export CSV
+            </Button>
+          </Box>
+        </>
       }
       renderItem={(dep, isSelected) => (
         <SelectableListItem

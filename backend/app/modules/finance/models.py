@@ -106,6 +106,8 @@ class BankDeposits(Base):
     status = Column(String(30), nullable=False, default="pending")  # pending, confirmed, rejected
     confirmed_by = Column(Integer, nullable=True)  # User ID who confirmed
     confirmed_date = Column(TIMESTAMP, nullable=True)
+    created_by = Column(Integer, nullable=True)
+    updated_by = Column(Integer, nullable=True)
 
     invoices = relationship("Invoice", back_populates="bank_transfer")
 
@@ -207,6 +209,8 @@ class PettyCash(Base):
     receipt_reference = Column(String(200), nullable=True)
     approved = Column(Boolean, default=False)
     approval_id = Column(Integer, ForeignKey("approvals.id"), nullable=True)
+    created_by = Column(Integer, nullable=True)
+    updated_by = Column(Integer, nullable=True)
 
     # Relationships
     transactions = relationship("PettyCashTransaction", back_populates="fund", order_by="PettyCashTransaction.transaction_date.desc()")
@@ -240,6 +244,8 @@ class PettyCashTransaction(Base):
     branch_code = Column(String(200), nullable=False)
     remarks = Column(Text, nullable=True)
     created_date = Column(TIMESTAMP, nullable=False)
+    created_by = Column(Integer, nullable=True)
+    updated_by = Column(Integer, nullable=True)
 
     # Relationships
     fund = relationship("PettyCash", back_populates="transactions")
@@ -302,3 +308,7 @@ class Expenses(Base):
     created_date = Column(Date, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    # Audit
+    created_by = Column(Integer, nullable=True)
+    updated_by = Column(Integer, nullable=True)
