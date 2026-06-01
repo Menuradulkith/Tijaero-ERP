@@ -604,6 +604,25 @@ export default function FinanceDashboard() {
           </Grid>
           <Grid item xs={12} sm={6} md={4} lg={2}>
             <TransactionBreakdownCard
+              label="Supplier Advances"
+              amount={cashbookData?.summary?.supplier_advances_out || 0}
+              count={cashbookData?.summary?.supplier_advances_out_count || 0}
+              color="warning"
+              icon={<AdvanceIcon />}
+              isOut
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <TransactionBreakdownCard
+              label="Purchase Returns"
+              amount={cashbookData?.summary?.purchase_returns_in || 0}
+              count={cashbookData?.summary?.purchase_returns_in_count || 0}
+              color="success"
+              icon={<CreditNoteIcon />}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <TransactionBreakdownCard
               label="Expenses"
               amount={cashbookData?.summary?.expenses || 0}
               count={cashbookData?.summary?.expenses_count || 0}

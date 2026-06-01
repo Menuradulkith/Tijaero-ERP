@@ -105,7 +105,7 @@ interface PaymentFormData {
 
 const INITIAL_PAYMENT_FORM: PaymentFormData = {
   settlement_no: "",
-  payment_method: "Bank Transfer",
+  payment_method: "bank_transfer",
   payment_method_number: "",
   cheque_date: new Date().toISOString().split("T")[0],
   payment_amount: 0,

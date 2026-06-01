@@ -71,6 +71,16 @@ class SupplierService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier with id {supplier_id} not found"
             )
+
+        # When max_credit_limit changes, recalculate left_credit_amount
+        if supplier_update.max_credit_limit is not None:
+            from app.modules.purchasing.credit_service import SupplierCreditService
+            credit_service = SupplierCreditService()
+            supplier.initial_credit_amount = supplier.max_credit_limit
+            credit_service.update_supplier_credit_balance(self.repo.db, supplier_id)
+            self.repo.db.commit()
+            self.repo.db.refresh(supplier)
+
         return supplier
     
     def delete_supplier(self, supplier_id: int) -> bool:
@@ -668,6 +678,9 @@ class PurchasingReturnService:
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Purchase return GL posting failed: {e}")
+
+            # ── Cashbook Hook: Record purchase return as money-in ──
+            self._ensure_cashbook_entry_for_purchase_return(db_return)
         
         return db_return
     
@@ -767,8 +780,76 @@ class PurchasingReturnService:
                 import logging
                 logging.getLogger(__name__).warning(f"Purchase return GL posting failed: {e}")
 
+            # ── Cashbook Hook: Record purchase return as money-in ──
+            self._ensure_cashbook_entry_for_purchase_return(return_record)
+
         return return_record
     
+    def _ensure_cashbook_entry_for_purchase_return(self, purchase_return: models.PurchasingReturn) -> None:
+        """Create a cashbook money-in entry for an approved purchase return."""
+        if purchase_return.status != "approved":
+            return
+
+        try:
+            from app.modules.finance.models import CashbookEntryRecord
+            from sqlalchemy import text
+
+            existing = self.db.query(CashbookEntryRecord.id).filter(
+                CashbookEntryRecord.source_table == "purchasing_returns",
+                CashbookEntryRecord.source_id == purchase_return.id,
+            ).first()
+            if existing:
+                return
+
+            # Calculate total return amount
+            total_amount = Decimal("0")
+            for item in (purchase_return.items or []):
+                total_amount += Decimal(str(item.return_price or item.purchasing_price or 0))
+
+            if total_amount <= 0:
+                return
+
+            # Resolve supplier name via GRN → PO → supplier
+            supplier_name = "Supplier"
+            grn = purchase_return.good_received_note
+            if grn and grn.purchasing_order and grn.purchasing_order.first_supplier:
+                supplier_name = grn.purchasing_order.first_supplier.full_name or supplier_name
+
+            return_no = purchase_return.purchasing_return_no or f"PR-{purchase_return.id}"
+
+            self.db.execute(
+                text("""
+                    SELECT fn_insert_cashbook_entry(
+                        :entry_type, :transaction_date, :source_table, :source_id,
+                        :reference_no, :description, :party_name, :payment_method,
+                        :money_in, :money_out, :branch_code
+                    )
+                """),
+                {
+                    "entry_type": "purchase_return",
+                    "transaction_date": datetime.combine(
+                        purchase_return.approved_date or purchase_return.added_date or tz.today(),
+                        datetime.min.time()
+                    ),
+                    "source_table": "purchasing_returns",
+                    "source_id": purchase_return.id,
+                    "reference_no": return_no,
+                    "description": f"Purchase Return {return_no} - refund from supplier",
+                    "party_name": supplier_name,
+                    "payment_method": "CASH",
+                    "money_in": total_amount,
+                    "money_out": Decimal("0"),
+                    "branch_code": purchase_return.branch_code,
+                },
+            )
+            self.db.commit()
+        except Exception as cashbook_err:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Cashbook posting for purchase return {purchase_return.purchasing_return_no} failed (non-blocking): {cashbook_err}"
+            )
+            self.db.rollback()
+
     def get_return(self, return_id: int) -> models.PurchasingReturn:
         return_record = self.repo.get_by_id(return_id)
         if not return_record:

@@ -114,6 +114,7 @@ interface ReturnLineItem extends PurchasingReturnItemCreate {
   branch_code?: string;
   added_date?: string;
   product_name?: string;
+  warranty_month?: string;
 }
 
 const resetFormFromReturn = (ret: PurchasingReturn | PurchasingReturnWithItems): PurchasingReturnCreate => ({
@@ -141,6 +142,7 @@ interface ValidatedItem {
   grn_no: string;
   supplier_name: string;
   branch_code: string;
+  warranty_month?: string;
 }
 
 export default function PurchaseReturnsPage() {
@@ -297,6 +299,7 @@ export default function PurchaseReturnsPage() {
           branch_code: item.branch_code,
           added_date: item.added_date,
           product_name: item.product_name,
+          warranty_month: item.warranty_month,
         })));
       } else {
         setLineItems([]);
@@ -330,7 +333,6 @@ export default function PurchaseReturnsPage() {
 
   // Load suppliers for filter and form
   useEffect(() => {
-    if (!isCreating && !isEditing && !filterSupplier) return;
     const loadSuppliers = async () => {
       try {
         const data = await suppliersApi.getAll();
@@ -490,6 +492,7 @@ export default function PurchaseReturnsPage() {
           grn_no: getGRNNumberById(formData.goodreceivednote_id),
           supplier_name: "",
           branch_code: formData.branch_code,
+          warranty_month: response.warranty_month,
         };
         setValidatedItems(prev => [...prev, validatedItem]);
 
@@ -501,6 +504,7 @@ export default function PurchaseReturnsPage() {
           return_price: response.purchasing_price || 0, // Default to purchase price
           barcode: barcode.trim(),
           sales_stock_id: response.sales_stock_id,
+          warranty_month: response.warranty_month,
         };
         setLineItems(prev => [...prev, newLineItem]);
 
@@ -1040,7 +1044,7 @@ export default function PurchaseReturnsPage() {
                         <TableRow sx={modernTableStyles.headerRow}>
                           <TableCell>Barcode</TableCell>
                           <TableCell>Product</TableCell>
-                          <TableCell>Branch Code</TableCell>
+                          <TableCell>Warranty</TableCell>
                           <TableCell>Added Date</TableCell>
                           <TableCell align="right" sx={{ width: 120 }}>Purchase Price (Rs.)</TableCell>
                           <TableCell align="right" sx={{ width: 120 }}>Return Price (Rs.)</TableCell>
@@ -1101,7 +1105,7 @@ export default function PurchaseReturnsPage() {
                                   )}
                                 </TableCell>
                                 <TableCell>
-                                  {validatedItem?.branch_code || item.branch_code || formData.branch_code || "-"}
+                                  {validatedItem?.warranty_month || item.warranty_month || "-"}
                                 </TableCell>
                                 <TableCell>
                                   {item.added_date ? new Date(item.added_date).toLocaleDateString() : (isCreating ? "New" : "-")}
