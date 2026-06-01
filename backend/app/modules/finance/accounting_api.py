@@ -20,6 +20,7 @@ from app.db.session import get_db
 from app.auth.dependencies import get_current_active_user
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
+from app.utils.csv_export import build_csv_response
 from . import accounting_schemas as schemas
 from .accounting_service import (
     ChartOfAccountsService,
@@ -790,3 +791,73 @@ def _serialize_cfs(statement) -> dict:
         "updated_at": statement.updated_at,
         "lines": lines,
     }
+
+
+# =============================================================================
+# CSV EXPORT ENDPOINTS
+# =============================================================================
+
+@router.get("/journal-entries/export-csv", summary="Export Journal Entries to CSV", dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
+def export_journal_entries_csv(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    fiscal_year: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Export journal entries to CSV."""
+    entries = JournalEntryService(db).list_entries(schemas.JournalEntryListFilter(
+        status=status_filter, fiscal_year=fiscal_year, skip=0, limit=100000,
+    ))
+    items = entries.items if hasattr(entries, 'items') else entries
+    return build_csv_response(
+        filename="journal_entries",
+        headers=["JE No", "Date", "Description", "Status", "Fiscal Year", "Period", "Total Debit", "Total Credit", "Created By"],
+        rows=[
+            [e.journal_entry_no, e.entry_date, e.description, e.status, e.fiscal_year, e.fiscal_period, e.total_debit, e.total_credit, e.created_by]
+            for e in items
+        ],
+    )
+
+
+@router.get("/general-ledger/export-csv", summary="Export General Ledger to CSV", dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
+def export_general_ledger_csv(
+    fiscal_year: Optional[int] = None,
+    account_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Export general ledger entries to CSV."""
+    entries = GeneralLedgerService(db).list_entries(schemas.GLListFilter(
+        fiscal_year=fiscal_year, account_id=account_id, skip=0, limit=100000,
+    ))
+    items = entries.items if hasattr(entries, 'items') else entries
+    return build_csv_response(
+        filename="general_ledger",
+        headers=["GL No", "Date", "Account Code", "Account Name", "Description", "Debit", "Credit", "JE No", "Fiscal Year", "Period"],
+        rows=[
+            [e.gl_entry_no, e.entry_date, e.account_code, e.account_name, e.description, e.debit_amount, e.credit_amount, e.journal_entry_no, e.fiscal_year, e.fiscal_period]
+            for e in items
+        ],
+    )
+
+
+@router.get("/trial-balance/export-csv", summary="Export Trial Balance to CSV", dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
+def export_trial_balance_csv(
+    fiscal_year: Optional[int] = None,
+    fiscal_period: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Export trial balance to CSV."""
+    tb = GeneralLedgerService(db).get_trial_balance(
+        fiscal_year=fiscal_year or date.today().year,
+        fiscal_period=fiscal_period,
+    )
+    return build_csv_response(
+        filename="trial_balance",
+        headers=["Account Code", "Account Name", "Account Type", "Debit Balance", "Credit Balance"],
+        rows=[
+            [a.account_code, a.account_name, a.account_type, a.debit_balance, a.credit_balance]
+            for a in tb.accounts
+        ],
+    )

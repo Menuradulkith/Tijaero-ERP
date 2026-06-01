@@ -183,10 +183,13 @@ export default function CustomersPage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: CustomerCreate }) =>
       customersApi.update(id, data),
-    onSuccess: () => {
+    onSuccess: (updatedCustomer) => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["customers-all"] });
       showSuccessToast("Customer updated successfully");
       setIsEditing(false);
+      // Refresh selected customer with latest server data
+      handleSelectCustomer(updatedCustomer);
     },
     onError: () => showErrorToast("Failed to update customer"),
   });

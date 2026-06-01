@@ -91,6 +91,7 @@ class Invoice(Base, TimestampMixin):
 
     # Creator tracking
     created_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
+    updated_by = Column(Integer, nullable=True)
 
     # Relationships
     customer = relationship(

@@ -231,6 +231,23 @@ export default function ExpensesPage() {
 
   // ─── Filter & Sort ─────────────────────────────────────────────────────────
 
+  // ─── CSV Export ─────────────────────────────────────────────────────────
+  const handleExportCSV = () => {
+    if (!filteredExpenses.length) return;
+    const headers = ["Expense No", "Category", "Amount", "Method", "Status", "Date", "Vendor", "Remarks", "Branch"];
+    const rows = filteredExpenses.map(e => [
+      e.expenses_no, e.expense_category || e.category || "", e.expense_amount, e.expenses_method, e.status, e.expense_date || e.created_date, e.vendor_name || "", e.remarks || "", e.branch_code || "",
+    ]);
+    const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `expenses_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const filteredExpenses = useMemo(() => {
     let filtered = [...expenses];
     if (searchQuery) {
@@ -697,6 +714,14 @@ export default function ExpensesPage() {
                 }}
               />
             )}
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={handleExportCSV}
+              disabled={!filteredExpenses.length}
+            >
+              Export CSV
+            </Button>
           </>
         }
       />

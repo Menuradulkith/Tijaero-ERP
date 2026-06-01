@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime
 from app.db.session import get_db
 from app.auth.dependencies import (
     get_current_user,
@@ -11,7 +11,8 @@ from app.auth.dependencies import (
 )
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
-from . import schemas, service
+from app.utils.csv_export import build_csv_response
+from . import schemas, service, models
 
 
 def _enforce_branch_scope(
@@ -583,3 +584,83 @@ def list_petty_cash_transactions(
 ):
     """List all transactions for a petty cash fund"""
     return service.PettyCashService(db).list_transactions(fund_id, skip, limit)
+
+
+# =============================================================================
+# CSV EXPORT ENDPOINTS
+# =============================================================================
+
+@router.get("/cashbook/export-csv", summary="Export Cashbook to CSV", dependencies=[Depends(require_permission(*Permissions.CASHBOOK_VIEW))])
+def export_cashbook_csv(
+    branch_code: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Export cashbook entries to CSV."""
+    cashbook_svc = service.CashbookService(db)
+    filters = schemas.CashbookFilter(
+        branch_code=branch_code,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    report = cashbook_svc.get_cashbook_report(filters)
+    return build_csv_response(
+        filename="cashbook",
+        headers=["Date", "Type", "Reference", "Description", "Party", "Payment Method", "Money In", "Money Out", "Balance", "Branch"],
+        rows=[
+            [e.transaction_date, e.entry_type, e.reference_no, e.description, e.party_name, e.payment_method, e.money_in, e.money_out, e.running_balance, e.branch_code]
+            for e in report.entries
+        ],
+    )
+
+
+@router.get("/expenses/export-csv", summary="Export Expenses to CSV", dependencies=[Depends(require_permission(*Permissions.EXPENSE_VIEW))])
+def export_expenses_csv(
+    branch_code: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Export expenses to CSV."""
+    query = db.query(models.Expenses)
+    if branch_code:
+        query = query.filter(models.Expenses.branch_code == branch_code)
+    if date_from:
+        query = query.filter(models.Expenses.created_date >= date_from)
+    if date_to:
+        query = query.filter(models.Expenses.created_date <= date_to)
+    query = query.order_by(models.Expenses.created_date.desc())
+    rows = query.limit(100000).all()
+    return build_csv_response(
+        filename="expenses",
+        headers=["Expense No", "Category", "Amount", "Method", "Status", "Date", "Remarks", "Branch"],
+        rows=[
+            [r.expenses_no, r.category, r.expense_amount, r.expenses_method, r.status, r.created_date, r.remarks, r.branch_code]
+            for r in rows
+        ],
+    )
+
+
+@router.get("/bank-deposits/export-csv", summary="Export Bank Deposits to CSV", dependencies=[Depends(require_permission(*Permissions.BANK_DEPOSIT_VIEW))])
+def export_bank_deposits_csv(
+    branch_code: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Export bank deposits to CSV."""
+    query = db.query(models.BankDeposits)
+    if branch_code:
+        query = query.filter(models.BankDeposits.branch_code == branch_code)
+    query = query.order_by(models.BankDeposits.deposits_date.desc())
+    rows = query.limit(100000).all()
+    return build_csv_response(
+        filename="bank_deposits",
+        headers=["Deposit No", "Date", "Amount", "Bank", "Reference", "Verified", "Branch"],
+        rows=[
+            [r.deposits_no, r.deposits_date, r.deposits_amount, r.bank_name, r.reference_no, r.is_verified, r.branch_code]
+            for r in rows
+        ],
+    )
