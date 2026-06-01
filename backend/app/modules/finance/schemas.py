@@ -289,6 +289,8 @@ class CashbookSummary(BaseModel):
     customer_advances: Decimal = Decimal("0")
     voucher_sales: Decimal = Decimal("0")  # Gift voucher sales
     supplier_payments: Decimal = Decimal("0")
+    supplier_advances_out: Decimal = Decimal("0")
+    purchase_returns_in: Decimal = Decimal("0")
     expenses: Decimal = Decimal("0")
     bank_deposits: Decimal = Decimal("0")
     
@@ -298,6 +300,8 @@ class CashbookSummary(BaseModel):
     customer_advances_count: int = 0
     voucher_sales_count: int = 0  # Gift voucher sales count
     supplier_payments_count: int = 0
+    supplier_advances_out_count: int = 0
+    purchase_returns_in_count: int = 0
     expenses_count: int = 0
     bank_deposits_count: int = 0
 

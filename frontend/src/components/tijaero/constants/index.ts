@@ -69,12 +69,12 @@ export const SALES_RETURN_PAYMENT_METHOD = [
 
 // Simple payment method options for Purchasing (title case for UI)
 export const PURCHASING_PAYMENT_METHOD = [
-  { value: 'Cash', label: 'Cash' },
-  { value: 'Credit', label: 'Credit' },
-  { value: 'Cheque', label: 'Cheque' },
-  { value: 'Bank Transfer', label: 'Bank Transfer' },
-  { value: 'Credit Card', label: 'Credit Card' },
-  { value: 'Online Payment', label: 'Online Payment' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'credit', label: 'Credit' },
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'credit_card', label: 'Credit Card' },
+  { value: 'online_payment', label: 'Online Payment' },
 ] as const;
 
 // Purchase Order payment method options

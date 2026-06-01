@@ -101,7 +101,7 @@ const CUSTOMER_INITIAL_FORM: Partial<CustomerAdvancePaymentCreate> = {
 const SUPPLIER_INITIAL_FORM: Partial<SupplierAdvancePaymentCreate> = {
   supplier_id: 0,
   payment_date: new Date().toISOString().split("T")[0],
-  payment_method: "Bank Transfer",
+  payment_method: "bank_transfer",
   original_amount: 0,
   reference_number: "",
   bank_name: "",
@@ -277,7 +277,7 @@ export default function AdvancePaymentsPage() {
         setSupplierForm({
           supplier_id: item.supplier_id || 0,
           payment_date: (item.payment_date || "").split("T")[0] || new Date().toISOString().split("T")[0],
-          payment_method: item.payment_method || "Bank Transfer",
+          payment_method: item.payment_method || "bank_transfer",
           original_amount: Number(item.original_amount) || 0,
           reference_number: item.reference_number || "",
           bank_name: item.bank_name || "",
@@ -946,7 +946,7 @@ export default function AdvancePaymentsPage() {
                 select
                 label="Payment Method"
                 size="small"
-                value={supplierForm.payment_method || "Bank Transfer"}
+                value={supplierForm.payment_method || "bank_transfer"}
                 onChange={(e) => setSupplierForm({ ...supplierForm, payment_method: e.target.value })}
                 disabled={!isEditing && !isCreating}
               >
@@ -972,9 +972,9 @@ export default function AdvancePaymentsPage() {
                 }}
                 inputProps={{ min: 0, step: 0.01 }}
               />
-              {(supplierForm.payment_method === "Bank Transfer" || supplierForm.payment_method === "Cheque") && (
+              {(supplierForm.payment_method === "bank_transfer" || supplierForm.payment_method === "cheque") && (
                 <TextField
-                  label={supplierForm.payment_method === "Cheque" ? "Cheque Number" : "Reference Number"}
+                  label={supplierForm.payment_method === "cheque" ? "Cheque Number" : "Reference Number"}
                   size="small"
                   value={supplierForm.reference_number || ""}
                   onChange={(e) => setSupplierForm({ ...supplierForm, reference_number: e.target.value })}
@@ -984,7 +984,7 @@ export default function AdvancePaymentsPage() {
             </FormSection>
 
             {/* Bank info */}
-            {(supplierForm.payment_method === "Bank Transfer" || supplierForm.payment_method === "Cheque") && (
+            {(supplierForm.payment_method === "bank_transfer" || supplierForm.payment_method === "cheque") && (
               <FormSection title="Bank Information" columns={3}>
                 <TextField
                   label="Bank Name"

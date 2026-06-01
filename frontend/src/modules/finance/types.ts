@@ -238,6 +238,8 @@ export interface CashbookSummary {
   customer_advances: number;
   voucher_sales: number;
   supplier_payments: number;
+  supplier_advances_out: number;
+  purchase_returns_in: number;
   expenses: number;
   bank_deposits: number;
   // Breakdown by type - counts
@@ -246,6 +248,8 @@ export interface CashbookSummary {
   customer_advances_count: number;
   voucher_sales_count: number;
   supplier_payments_count: number;
+  supplier_advances_out_count: number;
+  purchase_returns_in_count: number;
   expenses_count: number;
   bank_deposits_count: number;
 }

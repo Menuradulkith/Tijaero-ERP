@@ -116,9 +116,9 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 
 const PAYMENT_METHODS = [
-  { value: "Cash", label: "Cash" },
-  { value: "Bank Transfer", label: "Bank Transfer" },
-  { value: "Cheque", label: "Cheque" },
+  { value: "cash", label: "Cash" },
+  { value: "bank_transfer", label: "Bank Transfer" },
+  { value: "cheque", label: "Cheque" },
 ];
 
 // Payment type tab
@@ -466,7 +466,7 @@ export default function SupplierPaymentsPage() {
         // Use most recent payment as the suggestion
         const last = payments[0];
         setLastPaymentSuggestion({
-          payment_method: last.payment_method || "Bank Transfer",
+          payment_method: last.payment_method || "bank_transfer",
           bank_name: last.bank_name || "",
         });
       })

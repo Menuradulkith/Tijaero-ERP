@@ -575,6 +575,30 @@ class CashbookService:
                 return advance_name_by_advance_id.get(r.source_id) or r.party_name
             return r.party_name
         
+        def _normalize_payment_method(raw: str) -> str:
+            if not raw:
+                return ""
+            mapping = {
+                "cash": "Cash",
+                "card": "Card",
+                "visa": "Visa",
+                "mastercard": "Mastercard",
+                "amex": "Amex",
+                "card_amex": "Amex",
+                "cheque": "Cheque",
+                "bank_transfer": "Bank Transfer",
+                "bank transfer": "Bank Transfer",
+                "banktransfer": "Bank Transfer",
+                "credit": "Credit",
+                "credit_card": "Credit Card",
+                "credit card": "Credit Card",
+                "online_payment": "Online Payment",
+                "online payment": "Online Payment",
+                "mobile_payment": "Mobile Payment",
+                "mobile payment": "Mobile Payment",
+            }
+            return mapping.get(raw.strip().lower(), raw.strip().title())
+
         # Convert DB records to schema entries
         entries = [
             schemas.CashbookEntry(
@@ -584,7 +608,7 @@ class CashbookService:
                 reference_no=r.reference_no,
                 description=r.description or "",
                 party_name=_resolve_party_name(r),
-                payment_method=r.payment_method,
+                payment_method=_normalize_payment_method(r.payment_method),
                 money_in=Decimal(str(r.money_in)) if r.money_in else Decimal("0"),
                 money_out=Decimal(str(r.money_out)) if r.money_out else Decimal("0"),
                 running_balance=Decimal(str(r.running_balance)) if r.running_balance else Decimal("0"),
@@ -672,9 +696,17 @@ class CashbookService:
             elif entry.entry_type == "customer_advance":
                 summary.customer_advances += entry.money_in
                 summary.customer_advances_count += 1
-            elif entry.entry_type == "supplier_payment":
+            elif entry.source_table == "supplier_advance_payment":
+                # Supplier advance trigger uses entry_type='supplier_payment'
+                # but source_table correctly identifies advances
+                summary.supplier_advances_out += entry.money_out
+                summary.supplier_advances_out_count += 1
+            elif entry.entry_type == "supplier_payment" or entry.source_table == "supplier_payments":
                 summary.supplier_payments += entry.money_out
                 summary.supplier_payments_count += 1
+            elif entry.entry_type == "purchase_return":
+                summary.purchase_returns_in += entry.money_in
+                summary.purchase_returns_in_count += 1
             elif entry.entry_type == "expense":
                 summary.expenses += entry.money_out
                 summary.expenses_count += 1

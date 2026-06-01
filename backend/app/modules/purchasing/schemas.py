@@ -152,7 +152,8 @@ class PurchasingReturnItem(PurchasingReturnItemBase, TijaeroBaseSchema):
     purchasingreturn_id: int
     branch_code: str
     added_date: datetime
-    product_name: Optional[str] = None 
+    product_name: Optional[str] = None
+    warranty_month: Optional[str] = None
 
 class PurchasingReturnBase(BaseModel):
     purchasing_return_no: Optional[str] = None 

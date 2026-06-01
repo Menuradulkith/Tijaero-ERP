@@ -497,8 +497,17 @@ def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
     return_service = service.PurchasingReturnService(db)
     return_record = return_service.get_return(return_id)
 
+    from app.modules.inventory.models import SalesStock
     items_with_names = []
     for item in return_record.items:
+        # Resolve warranty_month: try FK relationship first, fall back to barcode lookup
+        warranty_month = None
+        if item.sales_stock:
+            warranty_month = item.sales_stock.warranty_month
+        elif item.barcode:
+            stock = db.query(SalesStock).filter(SalesStock.barcode == item.barcode).first()
+            if stock:
+                warranty_month = stock.warranty_month
         item_dict = {
             "id": item.id,
             "product_id": item.product_id,
@@ -510,8 +519,17 @@ def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
             "added_date": item.added_date,
             "sales_stock_id": item.sales_stock_id,
             "product_name": item.product.name if item.product else None,
+            "warranty_month": warranty_month,
         }
         items_with_names.append(item_dict)
+
+    # Resolve supplier name via GRN → PO → Supplier
+    supplier_name = None
+    if return_record.good_received_note:
+        grn = return_record.good_received_note
+        po = getattr(grn, 'purchasing_order', None)
+        if po and po.first_supplier:
+            supplier_name = po.first_supplier.full_name
 
     return {
         "id": return_record.id,
@@ -523,6 +541,7 @@ def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
         "status": return_record.status,
         "approved_date": return_record.approved_date,
         "approval_id": return_record.approval_id,
+        "supplier_name": supplier_name,
         "items": items_with_names,
     }
 
