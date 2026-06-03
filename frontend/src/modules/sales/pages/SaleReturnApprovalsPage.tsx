@@ -58,7 +58,7 @@ import {
 } from "@/components/tijaero";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
-import { saleReturnsApi } from "@/modules/sales/api";
+import { saleReturnsApi, salesApi } from "@/modules/sales/api";
 import { useReferenceData, ProductRef } from "@/hooks";
 import { SaleReturn, SaleReturnWithItems } from "@/modules/sales/types";
 
@@ -233,12 +233,11 @@ export default function SaleReturnApprovalsPage() {
         }
     };
 
-    const invoice = selectedReturn ? {
-        invoice_no: selectedReturn.invoice_no,
-        created_date: selectedReturn.added_date,
-        branch_code: selectedReturn.branch_code,
-        payment_method: selectedReturn.payment_method
-    } : null;
+    const { data: invoice } = useQuery({
+        queryKey: ["sales-invoice", selectedReturn?.invoice_id],
+        queryFn: () => salesApi.getById(selectedReturn!.invoice_id),
+        enabled: !!selectedReturn?.invoice_id,
+    });
     const selectedIsPending = (selectedReturn?.status || "").toLowerCase() === "pending";
     const selectedIsApproved = (selectedReturn?.status || "").toLowerCase() === "approved";
 

@@ -96,10 +96,10 @@ export default function LoginPage() {
           sx={{ maxWidth: 400, opacity: 0.9 }}
         >
           Streamline your business operations with our comprehensive enterprise
-          resource planning solution
+          resource planning solution.
         </Typography>
         <Box sx={{ mt: 6, display: "flex", gap: 4 }}>
-          <Box sx={{ textAlign: "center" }}>
+          {/* <Box sx={{ textAlign: "center" }}>
             <Typography variant="h4" fontWeight={600}>
               1000+
             </Typography>
@@ -122,7 +122,7 @@ export default function LoginPage() {
             <Typography variant="body2" sx={{ opacity: 0.8 }}>
               Uptime
             </Typography>
-          </Box>
+          </Box> */}
         </Box>
       </Box>
 
@@ -217,7 +217,7 @@ export default function LoginPage() {
 
           <Box sx={{ mt: 3, textAlign: "center" }}>
             <Typography variant="body2" color="text.secondary">
-              Demo credentials: admin / admin
+              If you don't have an account, please contact your administrator to get access.
             </Typography>
           </Box>
         </Card>

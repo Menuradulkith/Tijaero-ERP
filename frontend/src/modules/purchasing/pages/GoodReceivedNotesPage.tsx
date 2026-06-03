@@ -169,6 +169,11 @@ interface ProductGroup {
   expanded: boolean;
 }
 
+interface POFilterOption {
+  id: number;
+  purchasing_order_no: string;
+}
+
 const resetFormFromGRN = (grn: GoodReceivedNote): GoodReceivedNoteCreate => ({
   good_received_no: grn.good_received_no,
   good_received_date: grn.good_received_date?.split("T")[0] || "",
@@ -423,7 +428,7 @@ export default function GoodReceivedNotesPage() {
   const poFilterOptions = useMemo(() => {
     if (!grns) return [];
     // Derive PO options from GRN enriched fields
-    const poMap = new Map<number, { id: number; purchasing_order_no: string }>();
+    const poMap = new Map<number, POFilterOption>();
     grns.forEach((grn) => {
       if (grn.po_no && grn.purchasingorders_id) {
         poMap.set(grn.purchasingorders_id, { id: grn.purchasingorders_id, purchasing_order_no: grn.po_no });
@@ -1350,9 +1355,9 @@ export default function GoodReceivedNotesPage() {
           <Autocomplete
             size="small"
             options={poFilterOptions}
-            getOptionLabel={(option: any) => option.purchasing_order_no || `PO-${option.id}`}
-            value={poFilterOptions.find((po: any) => po.id === filterPOId) || null}
-            onChange={(_, newValue: any) => setFilterPOId(newValue?.id || null)}
+            getOptionLabel={(option: POFilterOption) => option.purchasing_order_no || `PO-${option.id}`}
+            value={poFilterOptions.find((po: POFilterOption) => po.id === filterPOId) || null}
+            onChange={(_, newValue) => setFilterPOId(newValue?.id || null)}
             renderInput={(params) => (
               <TextField
                 {...params}

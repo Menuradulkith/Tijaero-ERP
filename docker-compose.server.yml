@@ -3,9 +3,9 @@ services:
   backend:
     restart: always
     environment:
-      # Frontend and backend share the same origin (10.8.0.1:80) via nginx,
+      # Frontend and backend share the same origin (tijaero.xyz.lk:80) via nginx,
       # so CORS is same-origin. Still set it explicitly for correctness.
-      BACKEND_CORS_ORIGINS: '["http://${GATEWAY_IP:-10.8.0.1}:8000", "http://${GATEWAY_IP:-10.8.0.1}:3000"]'
+      BACKEND_CORS_ORIGINS: '["http://${GATEWAY_IP:-tijaero.xyz.lk}:8000", "http://${GATEWAY_IP:-tijaero.xyz.lk}:3000", "http://${GATEWAY_IP:-tijaero.xyz.lk}:3000"]'
     command: >
       sh -c "
         echo 'Checking for migrations...' &&
@@ -32,10 +32,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Browser calls go: browser → VPN → 10.8.0.1 (nginx) → /api/ → backend
+        # Browser calls go: browser → VPN → tijaero.xyz.lk (nginx) → /api/ → backend
         # Must point to nginx, NOT the backend container port directly.
         # GATEWAY_IP is exported by docker-server-up.sh from vpn.env.
-        VITE_API_URL: http://${GATEWAY_IP:-10.8.0.1}/api/v1
+        VITE_API_URL: http://${GATEWAY_IP:-tijaero.xyz.lk}/api/v1
     ports: []
   # Database - Server Settings
   postgres:
