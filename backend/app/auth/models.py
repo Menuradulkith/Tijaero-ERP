@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 from app.db.base import Base
 from sqlalchemy import (
     TIMESTAMP,
@@ -55,7 +55,7 @@ user_branches = Table(
 )
 
 
-class User(Base, TimestampMixin):
+class User(Base, AuditMixin):
     __tablename__ = "accounts_user"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -94,7 +94,7 @@ class User(Base, TimestampMixin):
     country = relationship("Country", back_populates="users", lazy="select")
 
 
-class Group(Base, TimestampMixin):
+class Group(Base, AuditMixin):
     __tablename__ = "auth_group"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -109,7 +109,7 @@ class Group(Base, TimestampMixin):
     )
 
 
-class Permission(Base, TimestampMixin):
+class Permission(Base, AuditMixin):
     __tablename__ = "auth_permission"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -126,7 +126,7 @@ class Permission(Base, TimestampMixin):
     )
 
 
-class Branch(Base, TimestampMixin):
+class Branch(Base, AuditMixin):
     __tablename__ = "branches"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -140,7 +140,7 @@ class Branch(Base, TimestampMixin):
     users = relationship("User", secondary=user_branches, back_populates="branches")
 
 
-class LoginShortcode(Base):
+class LoginShortcode(Base, AuditMixin):
 
     __tablename__ = "login_shortcodes"
 

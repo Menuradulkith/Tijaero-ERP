@@ -1,6 +1,6 @@
 from enum import Enum
 
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 from app.db.base import Base
 from sqlalchemy import Column, ForeignKey, Integer, String
 
@@ -12,7 +12,7 @@ class WorkflowStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class WorkflowStep(Base, TimestampMixin):
+class WorkflowStep(Base, AuditMixin):
     __tablename__ = "workflow_steps"
 
     id = Column(Integer, primary_key=True, index=True)

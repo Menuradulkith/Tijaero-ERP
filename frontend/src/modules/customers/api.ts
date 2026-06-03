@@ -145,16 +145,16 @@ const cleanCustomerData = (data: CustomerCreate | CustomerUpdate) => {
 };
 
 export const customersApi = {
-  getAll: async (skip = 0, limit = 100) => {
+  getAll: async (skip = 0, limit = 100, activeOnly = true) => {
     const response = await apiClient.get<Customer[]>("/customers/", {
-      params: { skip, limit },
+      params: { skip, limit, active_only: activeOnly },
     });
     return response.data;
   },
 
-  search: async (query: string, skip = 0, limit = 100) => {
+  search: async (query: string, skip = 0, limit = 100, activeOnly = true) => {
     const response = await apiClient.get<Customer[]>("/customers/search", {
-      params: { q: query, skip, limit },
+      params: { q: query, skip, limit, active_only: activeOnly },
     });
     return response.data;
   },

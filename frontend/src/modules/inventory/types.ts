@@ -160,6 +160,7 @@ export interface SalesStock {
   location_name?: string;  // Location name from GRN
   cost_price?: number;  // Cost price from product
   selling_price?: number;  // Selling price from product
+  minimum_selling_price?: number;  // Minimum selling price from product
   product_name?: string;  // Product name from relationship
   item_code?: string;  // Item code from product
   brand_id?: number;  // Brand ID from product

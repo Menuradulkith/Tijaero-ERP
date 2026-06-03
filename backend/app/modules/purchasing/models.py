@@ -1,10 +1,10 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, Numeric, Boolean, TIMESTAMP, text
 from sqlalchemy.orm import relationship
 from app.db.base import Base
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 
 
-class GoodReceivedNote(Base):
+class GoodReceivedNote(Base, AuditMixin):
     __tablename__ = "good_received_note"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -28,7 +28,7 @@ class GoodReceivedNote(Base):
     advance_applications = relationship("SupplierAdvanceApplication", back_populates="good_received_note")
 
 
-class GoodReceivedItems(Base):
+class GoodReceivedItems(Base, AuditMixin):
     __tablename__ = "good_received_items"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -44,7 +44,7 @@ class GoodReceivedItems(Base):
     invoice_barcodes = relationship("InvoiceItemsBarcode", back_populates="good_received_item")
 
 
-class Supplier(Base, TimestampMixin):
+class Supplier(Base, AuditMixin):
     __tablename__ = "supplier"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -84,7 +84,7 @@ class Supplier(Base, TimestampMixin):
     payments = relationship("SupplierPayment", back_populates="supplier")
     advance_payments = relationship("SupplierAdvancePayment", back_populates="supplier")
 
-class PurchasingOrder(Base):
+class PurchasingOrder(Base, AuditMixin):
     __tablename__ = "purchasing_orders"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -114,7 +114,7 @@ class PurchasingOrder(Base):
     payments = relationship("SupplierPayment", back_populates="purchasing_order")
     sales_quote = relationship("SalesQuote", foreign_keys=[sales_quote_id], backref="purchasing_orders")
 
-class PurchasingOrderItems(Base):
+class PurchasingOrderItems(Base, AuditMixin):
     __tablename__ = "purchasing_order_items"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -133,7 +133,7 @@ class PurchasingOrderItems(Base):
     sales_stock_items = relationship("SalesStock", back_populates="purchasing_order_item")
     company_asset_items = relationship("CompanyAssets", back_populates="purchasing_order_item")
 
-class PurchasingReturn(Base):
+class PurchasingReturn(Base, AuditMixin):
     __tablename__ = "purchasing_return"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -153,7 +153,7 @@ class PurchasingReturn(Base):
     items = relationship("PurchasingReturnItems", back_populates="purchasing_return")
     returned_stock_items = relationship("SalesStock", back_populates="purchase_return")
 
-class PurchasingReturnItems(Base):
+class PurchasingReturnItems(Base, AuditMixin):
     __tablename__ = "purchasing_return_items"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -171,7 +171,7 @@ class PurchasingReturnItems(Base):
     sales_stock = relationship("SalesStock")
 
 
-class SupplierCreditsSettle(Base):
+class SupplierCreditsSettle(Base, AuditMixin):
     __tablename__ = "supplier_credits_settle"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -188,7 +188,7 @@ class SupplierCreditsSettle(Base):
     transactions = relationship("SupplierCreditsSettleTransaction", back_populates="credit_settle")
 
 
-class SupplierCreditsSettleTransaction(Base):
+class SupplierCreditsSettleTransaction(Base, AuditMixin):
     __tablename__ = "supplier_credits_settle_transaction"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -205,7 +205,7 @@ class SupplierCreditsSettleTransaction(Base):
     credit_settle = relationship("SupplierCreditsSettle", back_populates="transactions")
 
 
-class SupplierPayment(Base):
+class SupplierPayment(Base, AuditMixin):
     __tablename__ = "supplier_payments"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -232,7 +232,7 @@ class SupplierPayment(Base):
     purchasing_order = relationship("PurchasingOrder", back_populates="payments")
 
 
-class SupplierAdvancePayment(Base):
+class SupplierAdvancePayment(Base, AuditMixin):
     """
     Supplier Advance Payment - Payments made to supplier before goods/services are received.
     ERP Best Practice: Track advance payments separately for proper accounting and adjustment.
@@ -278,7 +278,7 @@ class SupplierAdvancePayment(Base):
         return None
 
 
-class SupplierAdvanceApplication(Base):
+class SupplierAdvanceApplication(Base, AuditMixin):
     """
     Supplier Advance Application - Records application of advance payment against GRN.
     Each application reduces the advance remaining balance and settles the corresponding GRN.

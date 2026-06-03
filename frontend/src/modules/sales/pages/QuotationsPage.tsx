@@ -3,6 +3,8 @@
  */
 
 import { usePermission } from "@/auth/permissions";
+import { exportToCSV } from "@/utils/csvExport";
+import { FileDownload as DownloadIcon } from "@mui/icons-material";
 import {
   ActionToolbar,
   canPrintDocument,
@@ -530,6 +532,36 @@ export default function QuotationsPage() {
   });
 
   // ==================== Workflow Handlers ====================
+
+  const handleExportCSV = () => {
+    const headers = [
+      "Quote No",
+      "Customer",
+      "Branch",
+      "Quote Type",
+      "Status",
+      "Created Date",
+      "Valid Until",
+      "Total Amount"
+    ];
+
+    const rows = filteredQuotes.map(quote => [
+      quote.quote_no,
+      getCustomerName(quote.customer_id),
+      getBranchName(quote.branch_code),
+      quote.quote_type,
+      quote.status,
+      quote.created_date ? new Date(quote.created_date).toLocaleDateString() : "",
+      quote.valid_until ? new Date(quote.valid_until).toLocaleDateString() : "",
+      quote.total_amount
+    ]);
+
+    exportToCSV({
+      filename: `${pageQuoteType === 'proforma' ? 'proforma_invoices' : 'quotations'}_${new Date().toISOString().split("T")[0]}`,
+      headers,
+      rows
+    });
+  };
 
   const handleCheckStock = useCallback(async () => {
     if (!selectedQuote) return;
@@ -2028,6 +2060,18 @@ export default function QuotationsPage() {
 
       <MasterDetailLayout
         title=""
+        headerActions={
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            disabled={filteredQuotes.length === 0}
+            sx={{ mr: 1 }}
+          >
+            Export CSV
+          </Button>
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
           queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });

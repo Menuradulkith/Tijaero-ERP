@@ -479,7 +479,6 @@ export const financialReportsApi = {
     date_from?: string;
     date_to?: string;
   }) => {
-    const { IncomeStatementResponse } = await import("./types");
     const response = await apiClient.get<import("./types").IncomeStatementResponse>(
       `${ACCT_BASE}/reports/income-statement`,
       { params }

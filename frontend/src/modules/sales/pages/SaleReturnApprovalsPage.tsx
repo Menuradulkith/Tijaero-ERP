@@ -233,7 +233,12 @@ export default function SaleReturnApprovalsPage() {
         }
     };
 
-    const invoice = selectedReturn ? { invoice_no: selectedReturn.invoice_no } : null;
+    const invoice = selectedReturn ? {
+        invoice_no: selectedReturn.invoice_no,
+        created_date: selectedReturn.added_date,
+        branch_code: selectedReturn.branch_code,
+        payment_method: selectedReturn.payment_method
+    } : null;
     const selectedIsPending = (selectedReturn?.status || "").toLowerCase() === "pending";
     const selectedIsApproved = (selectedReturn?.status || "").toLowerCase() === "approved";
 

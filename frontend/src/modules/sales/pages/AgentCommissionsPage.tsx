@@ -29,12 +29,15 @@ import { useState } from "react";
 
 import { usePermission } from "@/auth/permissions";
 import { customersApi } from "@/modules/customers/api";
+import { exportToCSV } from "@/utils/csvExport";
+import DownloadIcon from "@mui/icons-material/FileDownload";
 import { commissionsApi, commissionPaymentsApi } from "@/modules/sales/commission-api";
 import type { CustomerAgentCommissionWithDetails } from "@/modules/sales/commission-types";
 
 const STATUS_COLOR: Record<string, "default" | "warning" | "success" | "error"> = {
   pending: "warning",
   paid: "success",
+  cancelled: "error",
 };
 
 function fmtAmount(val: number) {
@@ -43,8 +46,8 @@ function fmtAmount(val: number) {
 
 export default function AgentCommissionsPage() {
   const queryClient = useQueryClient();
-  const canView = usePermission("AGENT_COMMISSIONS_VIEW");
-  const canPay = usePermission("AGENT_COMMISSIONS_CREATE");
+  const canView = usePermission("agent_commissions", "view");
+  const canPay = usePermission("agent_commissions", "create");
 
   const [filterAgent, setFilterAgent] = useState<number | "">("");
   const [filterStatus, setFilterStatus] = useState<string>("");
@@ -76,7 +79,7 @@ export default function AgentCommissionsPage() {
   const commissions: CustomerAgentCommissionWithDetails[] = (commissionsData?.items ?? commissionsData ?? []) as CustomerAgentCommissionWithDetails[];
 
   const totalPending = commissions
-    .filter((c) => c.status === "pending")
+    .filter((c) => c.status === "pending" || c.status === "approved")
     .reduce((s, c) => s + (c.commission_amount ?? 0), 0);
   const totalPaid = commissions
     .filter((c) => c.status === "paid")
@@ -118,6 +121,36 @@ export default function AgentCommissionsPage() {
     }
   };
 
+  const handleExportCSV = () => {
+    const headers = [
+      "Invoice",
+      "Agent",
+      "Customer",
+      "Invoice Amount",
+      "Rate",
+      "Commission",
+      "Date",
+      "Status"
+    ];
+
+    const rows = commissions.map(c => [
+      c.invoice_no || `#${c.invoice_id}`,
+      c.agent_name || `Agent #${c.customer_agent_id}`,
+      c.customer_name || "",
+      c.invoice_amount ?? 0,
+      c.commission_rate ? `${c.commission_rate}%` : "",
+      c.commission_amount ?? 0,
+      (c as any).created_at ? new Date((c as any).created_at).toLocaleDateString() : "",
+      c.status
+    ]);
+
+    exportToCSV({
+      filename: `agent_commissions_${new Date().toISOString().split("T")[0]}`,
+      headers,
+      rows
+    });
+  };
+
   if (!canView) {
     return (
       <Box sx={{ p: 3 }}>
@@ -129,11 +162,22 @@ export default function AgentCommissionsPage() {
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 3 }}>
-        <MonetizationOnIcon color="primary" sx={{ fontSize: 28 }} />
-        <Typography variant="h5" fontWeight="bold">
-          Agent Commissions
-        </Typography>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <MonetizationOnIcon color="primary" sx={{ fontSize: 28 }} />
+          <Typography variant="h5" fontWeight="bold">
+            Agent Commissions
+          </Typography>
+        </Box>
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<DownloadIcon />}
+          onClick={handleExportCSV}
+          disabled={commissions.length === 0}
+        >
+          Export CSV
+        </Button>
       </Box>
 
       {/* Summary */}
@@ -178,8 +222,10 @@ export default function AgentCommissionsPage() {
           sx={{ minWidth: 150 }}
         >
           <MenuItem value="">All</MenuItem>
-          <MenuItem value="pending">Unpaid</MenuItem>
+          <MenuItem value="pending">Pending</MenuItem>
+          <MenuItem value="approved">Approved</MenuItem>
           <MenuItem value="paid">Paid</MenuItem>
+          <MenuItem value="cancelled">Cancelled</MenuItem>
         </TextField>
       </Box>
 
@@ -242,7 +288,13 @@ export default function AgentCommissionsPage() {
                   </TableCell>
                   <TableCell align="center">
                     <Chip
-                      label={c.status === "pending" ? "Unpaid" : "Paid"}
+                      label={
+                        c.status === "pending" ? "Unpaid" :
+                        c.status === "paid" ? "Paid" :
+                        c.status === "cancelled" ? "Cancelled" :
+                        c.status === "approved" ? "Approved" :
+                        c.status
+                      }
                       size="small"
                       color={STATUS_COLOR[c.status] ?? "default"}
                       variant={c.status === "paid" ? "filled" : "outlined"}
@@ -250,7 +302,7 @@ export default function AgentCommissionsPage() {
                   </TableCell>
                   {canPay && (
                     <TableCell align="center">
-                      {c.status === "pending" ? (
+                      {c.status === "pending" || c.status === "approved" ? (
                         <Button
                           size="small"
                           variant="contained"
@@ -259,8 +311,10 @@ export default function AgentCommissionsPage() {
                         >
                           Pay
                         </Button>
+                      ) : c.status === "cancelled" ? (
+                        <Typography variant="caption" color="error">Cancelled</Typography>
                       ) : (
-                        <Typography variant="caption" color="text.disabled">�</Typography>
+                        <Typography variant="caption" color="text.disabled">—</Typography>
                       )}
                     </TableCell>
                   )}

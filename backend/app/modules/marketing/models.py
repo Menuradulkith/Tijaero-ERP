@@ -1,13 +1,14 @@
 from app.db.base import Base
 from sqlalchemy import TIMESTAMP, Column, Date, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import relationship
+from app.common.base_models import AuditMixin
 
 # NOTE: CustomerCuponCodes and CustomerGiftVoucher are defined in customers.models
 # Import them from there when needed:
 # from app.modules.customers.models import CustomerCuponCodes, CustomerGiftVoucher
 
 
-class AdvanceReceipt(Base):
+class AdvanceReceipt(Base, AuditMixin):
     __tablename__ = "advance_receipt"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -17,7 +18,7 @@ class AdvanceReceipt(Base):
     created_date = Column(TIMESTAMP, nullable=False)
 
 
-class WebPosts(Base):
+class WebPosts(Base, AuditMixin):
     """Website posts/content management with approval workflow"""
 
     __tablename__ = "web_posts"

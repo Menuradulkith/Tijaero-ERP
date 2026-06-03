@@ -11,11 +11,12 @@ from sqlalchemy import Column, Integer, String, DateTime, JSON
 from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.core import timezone as tz
+from app.common.base_models import AuditMixin
 
 logger = logging.getLogger(__name__)
 
 
-class AuditLog(Base):
+class AuditLog(Base, AuditMixin):
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)

@@ -11,9 +11,10 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.orm import relationship
+from app.common.base_models import AuditMixin
 
 
-class CustomerSupport(Base):
+class CustomerSupport(Base, AuditMixin):
     __tablename__ = "customer_support"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -37,7 +38,7 @@ class CustomerSupport(Base):
     call_logs = relationship("CustomerCallLog", back_populates="customer_support")
 
 
-class CSJobItem(Base):
+class CSJobItem(Base, AuditMixin):
     __tablename__ = "cs_job_item"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -59,7 +60,7 @@ class CSJobItem(Base):
     warranty_claim = relationship("WarrantyClaims", back_populates="cs_job_items")
 
 
-class CustomerCallLog(Base):
+class CustomerCallLog(Base, AuditMixin):
     __tablename__ = "customer_call_log"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -72,7 +73,7 @@ class CustomerCallLog(Base):
     customer_support = relationship("CustomerSupport", back_populates="call_logs")
 
 
-class WarrantyClaims(Base):
+class WarrantyClaims(Base, AuditMixin):
     __tablename__ = "warranty_claims"
 
     id = Column(Integer, primary_key=True, index=True)

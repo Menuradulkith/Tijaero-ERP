@@ -17,13 +17,17 @@ This ensures every timestamp — invoice dates, GL postings, payroll,
 approvals, audit logs — uses the same consistent clock.
 """
 
-from datetime import date as _date, datetime as _dt, timezone as _tz
+from datetime import date as _date, datetime as _dt, timezone as _tz, timedelta as _timedelta
+from app.core.config import settings
 
 # ──────────────────────────────────────────────────────────────────────────────
 # System Local Time
-# Uses the server's configured timezone automatically.
+# Uses the server's configured timezone automatically, or defaults to Colombo if configured.
 # ──────────────────────────────────────────────────────────────────────────────
-LOCAL_TZ = _dt.now(_tz.utc).astimezone().tzinfo
+if settings.TIMEZONE == "Asia/Colombo":
+    LOCAL_TZ = _tz(_timedelta(hours=5, minutes=30), name="Asia/Colombo")
+else:
+    LOCAL_TZ = _dt.now(_tz.utc).astimezone().tzinfo
 
 # Keep SL_TZ as alias for backward compatibility
 SL_TZ = LOCAL_TZ
@@ -40,12 +44,12 @@ def now() -> _dt:
     This is the primary function — use for all DB columns
     (TIMESTAMP WITHOUT TIME ZONE).
     """
-    return _dt.now()
+    return _dt.now(LOCAL_TZ).replace(tzinfo=None)
 
 
 def today() -> _date:
     """Return today's date in the system's local timezone."""
-    return _date.today()
+    return now_aware().date()
 
 
 def year() -> int:

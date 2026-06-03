@@ -13,9 +13,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+from app.common.base_models import AuditMixin
 
 
-class Attendance(Base):
+class Attendance(Base, AuditMixin):
     __tablename__ = "attendance"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -36,7 +37,7 @@ class Attendance(Base):
     employee = relationship("Employee", back_populates="attendance_records")
 
 
-class Leaves(Base):
+class Leaves(Base, AuditMixin):
     __tablename__ = "leaves"
 
     id = Column(Integer, primary_key=True, index=True)

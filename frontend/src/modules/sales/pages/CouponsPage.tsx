@@ -12,6 +12,7 @@ import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
   Box,
+  Button,
   FormControlLabel,
   InputAdornment,
   MenuItem,
@@ -53,6 +54,8 @@ import {
   modernTableStyles,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
+import { exportToCSV } from "@/utils/csvExport";
+import DownloadIcon from "@mui/icons-material/FileDownload";
 
 import { usePermission } from "@/auth/permissions";
 import { couponsApi } from "@/modules/customers/api";
@@ -251,6 +254,40 @@ export default function CouponsPage() {
   const confirmDialog = useTConfirmDialog();
 
   // Handlers
+  const handleExportCSV = () => {
+    const headers = [
+      "Coupon Code",
+      "Description",
+      "Discount Type",
+      "Discount Value",
+      "Min Invoice Amount",
+      "Total Limit",
+      "Usage Count",
+      "Customer Limit",
+      "Valid Until",
+      "Status"
+    ];
+
+    const rows = filteredCoupons.map(coupon => [
+      coupon.cupon_code,
+      coupon.description || "",
+      coupon.discount_type,
+      coupon.discount_value,
+      coupon.minimum_invoice_amount,
+      coupon.limit_by_usage,
+      coupon.usage_count || 0,
+      coupon.limit_for_customer,
+      coupon.valid_until_date ? new Date(coupon.valid_until_date).toLocaleDateString() : "",
+      getCouponStatus(coupon)
+    ]);
+
+    exportToCSV({
+      filename: `coupons_${new Date().toISOString().split("T")[0]}`,
+      headers,
+      rows
+    });
+  };
+
   const handleSave = useCallback(() => {
     // Validate
     if (!formData.cupon_code) {
@@ -739,6 +776,18 @@ export default function CouponsPage() {
     <>
       <MasterDetailLayout
         title="Coupons"
+        headerActions={
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            disabled={filteredCoupons.length === 0}
+            sx={{ mr: 1 }}
+          >
+            Export CSV
+          </Button>
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}

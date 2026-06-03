@@ -171,10 +171,10 @@ export default function CustomersPage() {
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  // Data fetching
+  // Data fetching - fetch ALL customers (including inactive) for this management page
   const { data: customers, isLoading } = useQuery({
     queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(),
+    queryFn: () => customersApi.getAll(0, 1000, false), // activeOnly=false to get all customers
     enabled: branchResolved,
   });
 

@@ -8,9 +8,10 @@ Customer Agent Commission Models
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, Numeric, TIMESTAMP, func
 from sqlalchemy.orm import relationship
 from app.db.base import Base
+from app.common.base_models import AuditMixin
 
 
-class CustomerAgentCommission(Base):
+class CustomerAgentCommission(Base, AuditMixin):
     __tablename__ = "customer_agent_commissions"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -35,7 +36,7 @@ class CustomerAgentCommission(Base):
     payment_items = relationship("CustomerAgentCommissionPaymentItem", back_populates="commission")
 
 
-class CustomerAgentCommissionPayment(Base):
+class CustomerAgentCommissionPayment(Base, AuditMixin):
     __tablename__ = "customer_agent_commission_payments"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -59,7 +60,7 @@ class CustomerAgentCommissionPayment(Base):
     items = relationship("CustomerAgentCommissionPaymentItem", back_populates="payment", cascade="all, delete-orphan")
 
 
-class CustomerAgentCommissionPaymentItem(Base):
+class CustomerAgentCommissionPaymentItem(Base, AuditMixin):
     __tablename__ = "customer_agent_commission_payment_items"
 
     id = Column(Integer, primary_key=True, index=True)

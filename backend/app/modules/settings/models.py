@@ -2,9 +2,10 @@ from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Foreign
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.base import Base
+from app.common.base_models import AuditMixin
 
 
-class Settings(Base):
+class Settings(Base, AuditMixin):
     """Company-wide settings and configuration"""
     __tablename__ = "settings"
     
@@ -40,7 +41,7 @@ class Settings(Base):
     tax_registration_number = Column(String(50))
     
 
-class UserNotification(Base):
+class UserNotification(Base, AuditMixin):
     """User notifications"""
     __tablename__ = "user_notifications"
 
@@ -56,7 +57,7 @@ class UserNotification(Base):
     extra_data = Column(JSON)  # Additional data as JSON
 
 
-class UserPreferences(Base):
+class UserPreferences(Base, AuditMixin):
     """User preferences and settings"""
     __tablename__ = "user_preferences"
 

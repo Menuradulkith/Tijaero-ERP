@@ -84,6 +84,9 @@ export interface CustomerRef {
   customer_name: string;
   mobile_contact_number?: string;
   email?: string;
+  is_customer_agent?: boolean;
+  active?: boolean;
+  commission_rate?: number;
 }
 
 export interface EmployeeRef {
@@ -180,10 +183,10 @@ export function useReferenceData(
   const query = useQuery<ReferenceDataResponse, Error>({
     queryKey: ["referenceData", sortedInclude.join(","), productsLimit],
     queryFn: () => fetchReferenceData(sortedInclude, productsLimit),
-    // Reference data rarely changes, use longer stale time
-    staleTime: 10 * 60 * 1000, // 10 minutes
+    // Reference data can change (customers, products, etc.), use shorter stale time
+    staleTime: 30 * 1000, // 30 seconds - refetch if data is older than 30 seconds
     gcTime: 30 * 60 * 1000, // 30 minutes (formerly cacheTime)
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true, // Refetch when window regains focus
     enabled,
     ...queryOptions,
   });

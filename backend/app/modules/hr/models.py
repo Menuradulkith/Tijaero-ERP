@@ -1,10 +1,10 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, DateTime, Numeric, Boolean, TIMESTAMP
 from sqlalchemy.orm import relationship
 from app.db.base import Base
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 
 
-class SalaryDeductions(Base):
+class SalaryDeductions(Base, AuditMixin):
     __tablename__ = "salary_deductions"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -30,7 +30,7 @@ class SalaryDeductions(Base):
     approval = relationship("Approvals", back_populates="salary_deductions")
 
 
-class PayrollBatch(Base):
+class PayrollBatch(Base, AuditMixin):
     """Payroll batch - groups all payroll records for a specific period"""
     __tablename__ = "payroll_batches"
 
@@ -63,7 +63,7 @@ class PayrollBatch(Base):
     completed_date = Column(TIMESTAMP, nullable=True)
 
 
-class Reimbursements(Base, TimestampMixin):
+class Reimbursements(Base, AuditMixin):
     __tablename__ = "reimbursements"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -99,7 +99,7 @@ class Reimbursements(Base, TimestampMixin):
     items = relationship("ReimbursementItem", back_populates="reimbursement", cascade="all, delete-orphan", lazy="select")
 
 
-class ReimbursementItem(Base):
+class ReimbursementItem(Base, AuditMixin):
     __tablename__ = "reimbursement_items"
 
     id = Column(Integer, primary_key=True, index=True)

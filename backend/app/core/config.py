@@ -1,14 +1,15 @@
 from pydantic_settings import BaseSettings
 from typing import List, Union
 import json
+from app.common.base_models import AuditMixin
 
-class Settings(BaseSettings):
+class Settings(BaseSettings, AuditMixin):
     PROJECT_NAME: str = "ERP System"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
     
     # Timezone for all ERP operations (system local time)
-    TIMEZONE: str = "system"
+    TIMEZONE: str = "Asia/Colombo"
     
     DATABASE_URL: str
     SECRET_KEY: str

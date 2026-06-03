@@ -161,9 +161,11 @@ export const TConfirmDialog: React.FC<TConfirmDialogProps> = ({
         )}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
-        <TButton variant="secondary" onClick={onCancel} disabled={loading}>
-          {cancelText}
-        </TButton>
+        {cancelText && (
+          <TButton variant="secondary" onClick={onCancel} disabled={loading}>
+            {cancelText}
+          </TButton>
+        )}
         <TButton
           variant={finalConfirmColor}
           onClick={onConfirm}

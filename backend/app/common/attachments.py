@@ -1,9 +1,9 @@
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 from app.db.base import Base
 from sqlalchemy import Column, ForeignKey, Integer, String
 
 
-class Attachment(Base, TimestampMixin):
+class Attachment(Base, AuditMixin):
     __tablename__ = "attachments"
 
     id = Column(Integer, primary_key=True, index=True)

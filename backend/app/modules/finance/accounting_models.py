@@ -28,13 +28,14 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import relationship
+from app.common.base_models import AuditMixin
 
 
 # =============================================================================
 # CHART OF ACCOUNTS
 # =============================================================================
 
-class ChartOfAccounts(Base):
+class ChartOfAccounts(Base, AuditMixin):
     """
     Chart of Accounts - The accounting taxonomy.
     Every financial transaction must reference an account from this table.
@@ -70,7 +71,7 @@ class ChartOfAccounts(Base):
 # JOURNAL ENTRIES
 # =============================================================================
 
-class JournalEntry(Base):
+class JournalEntry(Base, AuditMixin):
     """
     Journal Entry header - groups related debit/credit lines.
     Every accounting transaction starts as a journal entry.
@@ -113,7 +114,7 @@ class JournalEntry(Base):
     reversed_by = relationship("JournalEntry", remote_side=[id], foreign_keys=[reversed_by_je_id])
 
 
-class JournalEntryLine(Base):
+class JournalEntryLine(Base, AuditMixin):
     """
     Journal Entry line items - individual debit/credit entries.
     Each line references a COA account.
@@ -145,7 +146,7 @@ class JournalEntryLine(Base):
 # GENERAL LEDGER
 # =============================================================================
 
-class GeneralLedger(Base):
+class GeneralLedger(Base, AuditMixin):
     """
     General Ledger - The master record of all posted financial transactions.
     Each row represents a single debit or credit posting to a COA account.
@@ -186,7 +187,7 @@ class GeneralLedger(Base):
 # ACCOUNTING PERIODS
 # =============================================================================
 
-class AccountingPeriod(Base):
+class AccountingPeriod(Base, AuditMixin):
     """
     Fiscal period management - controls when transactions can be posted.
     
@@ -214,7 +215,7 @@ class AccountingPeriod(Base):
 # CASH FLOW
 # =============================================================================
 
-class CashFlowCategory(Base):
+class CashFlowCategory(Base, AuditMixin):
     """
     Cash Flow Statement category definitions (IAS 7 / ASC 230).
     Defines the structure and account mappings for cash flow reporting.
@@ -241,7 +242,7 @@ class CashFlowCategory(Base):
     )
 
 
-class CashFlowStatement(Base):
+class CashFlowStatement(Base, AuditMixin):
     """
     Cash Flow Statement header for a specific fiscal period.
     """
@@ -276,7 +277,7 @@ class CashFlowStatement(Base):
     )
 
 
-class CashFlowStatementLine(Base):
+class CashFlowStatementLine(Base, AuditMixin):
     """
     Cash Flow Statement line items with amounts and calculation sources.
     """

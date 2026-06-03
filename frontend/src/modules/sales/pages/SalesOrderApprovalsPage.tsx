@@ -16,6 +16,8 @@ import {
     DialogActions,
     DialogContent,
     DialogTitle,
+    Divider,
+    Grid,
     IconButton,
     Paper,
     Table,
@@ -55,6 +57,7 @@ import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import { customersApi } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
 import { salesApi } from "@/modules/sales/api";
+import { commissionsApi } from "@/modules/sales/commission-api";
 import { useReferenceData, ProductRef } from "@/hooks";
 import { Invoice, InvoiceWithItems } from "@/modules/sales/types";
 
@@ -105,6 +108,17 @@ export default function SalesOrderApprovalsPage() {
         queryFn: () => customersApi.getAll(),
         enabled: canViewCustomers,
     });
+
+    // Load agent commission for this invoice if applicable
+    const { data: invoiceCommissions } = useQuery({
+        queryKey: ["invoice-commissions", selectedOrder?.invoice_no],
+        queryFn: () => commissionsApi.getAll({ search: selectedOrder?.invoice_no }),
+        enabled: !!selectedOrder?.invoice_no && !!selectedOrder?.customer_agent_id,
+    });
+
+    const invoiceCommission = invoiceCommissions?.items?.find(
+        (c: any) => c.invoice_id === selectedOrder?.id
+    );
 
     // OPTIMIZED: Single API call for products and branches
     const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
@@ -507,57 +521,352 @@ export default function SalesOrderApprovalsPage() {
                         {/* Order Items */}
                         <FormSection title="Order Items" columns={1}>
                             <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
-                                <Table size="small">
+                                <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
                                     <TableHead>
                                         <TableRow sx={modernTableStyles.headerRow}>
-                                            <TableCell>Product</TableCell>
-                                            <TableCell align="right">Quantity</TableCell>
-                                            <TableCell align="right">Unit Price (Rs.)</TableCell>
-                                            <TableCell align="center">Warranty</TableCell>
-                                            <TableCell>Remark</TableCell>
-                                            <TableCell align="right">Amount (Rs.)</TableCell>
+                                            <TableCell sx={{ width: 110 }}>Barcode</TableCell>
+                                            <TableCell sx={{ width: 200 }}>Product</TableCell>
+                                            <TableCell align="right" sx={{ width: 60 }}>Qty</TableCell>
+                                            <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
+                                            <TableCell align="right" sx={{ width: 70 }}>Disc %</TableCell>
+                                            <TableCell align="center" sx={{ width: 80 }}>Warranty</TableCell>
+                                            <TableCell sx={{ width: 120 }}>Remark</TableCell>
+                                            <TableCell align="right" sx={{ width: 140 }}>Net Amount (Rs.)</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                        {selectedOrder.items?.map((item, index) => {
+                                        {selectedOrder.items?.map((item: any, index) => {
                                             const product = productMap.get(item.product_id);
+                                            const isTaxInclusive = selectedOrder.is_tax_invoice;
+                                            const taxRate = selectedOrder.tax_rate || 0;
+
+                                            const displaySellingPrice = isTaxInclusive && taxRate > 0
+                                                ? item.selling_price / (1 + taxRate / 100)
+                                                : item.selling_price;
+
+                                            const lineGross = item.quantity * displaySellingPrice;
+                                            const discAmt = item.discount_amount > 0
+                                                ? (isTaxInclusive && taxRate > 0 ? item.discount_amount / (1 + taxRate / 100) : item.discount_amount)
+                                                : lineGross * ((item.discount_percent || 0) / 100);
+                                            const netAmount = item.line_total > 0
+                                                ? (isTaxInclusive && taxRate > 0 ? item.line_total / (1 + taxRate / 100) : item.line_total)
+                                                : lineGross - discAmt;
+
                                             return (
                                                 <TableRow key={index} sx={{
                                                     ...modernTableStyles.bodyRow,
                                                     ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                                                 }}>
-                                                    <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
-                                                    <TableCell align="right">{item.quantity}</TableCell>
-                                                    <TableCell align="right">{fmtLKR(item.selling_price)}</TableCell>
-                                                    <TableCell align="center">{item.warrenty_month || "0"} mo</TableCell>
+                                                    <TableCell>
+                                                        <Typography
+                                                            variant="body2"
+                                                            sx={{
+                                                                fontFamily: "monospace",
+                                                                color: item.barcode ? "success.main" : "text.disabled",
+                                                                fontWeight: item.barcode ? 500 : 400
+                                                            }}
+                                                        >
+                                                            {item.barcode || "-"}
+                                                        </Typography>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {product?.name || `Product #${item.product_id}`}
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                        {item.quantity}
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                        {fmtLKR(displaySellingPrice)}
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                        {(item.discount_percent || 0) > 0 ? (
+                                                            <Typography variant="body2" color="warning.main" fontWeight="medium">
+                                                                {Number(item.discount_percent).toFixed(1)}%
+                                                            </Typography>
+                                                        ) : (
+                                                            <Typography variant="body2" color="text.disabled">—</Typography>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell align="center">
+                                                        {item.warrenty_month || "0"} mo
+                                                    </TableCell>
                                                     <TableCell>
                                                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                                            <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                                {(item as any).remark || "-"}
+                                                            <Typography variant="body2" sx={{ maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                {item.remark || "-"}
                                                             </Typography>
                                                             <Tooltip title="View Remark">
-                                                                <IconButton size="small" onClick={() => { setCurrentItemRemark((item as any).remark || ""); setItemRemarkModalOpen(true); }}>
+                                                                <IconButton size="small" onClick={() => { setCurrentItemRemark(item.remark || ""); setItemRemarkModalOpen(true); }}>
                                                                     <MenuBookIcon fontSize="small" />
                                                                 </IconButton>
                                                             </Tooltip>
                                                         </Box>
                                                     </TableCell>
-                                                    <TableCell align="right">{fmtLKR(item.quantity * item.selling_price)}</TableCell>
+                                                    <TableCell align="right">
+                                                        <Box sx={{ textAlign: "right" }}>
+                                                            <Typography variant="body2" fontWeight="medium">
+                                                                {fmtLKR(netAmount)}
+                                                            </Typography>
+                                                            {(item.discount_percent || 0) > 0 && (
+                                                                <Typography variant="caption" color="text.disabled" sx={{ textDecoration: "line-through" }}>
+                                                                    {fmtLKR(lineGross)}
+                                                                </Typography>
+                                                            )}
+                                                        </Box>
+                                                    </TableCell>
                                                 </TableRow>
                                             );
                                         })}
                                         <TableRow sx={modernTableStyles.footerRow}>
-                                            <TableCell colSpan={5} align="right">
+                                            <TableCell colSpan={7} align="right">
                                                 <strong>Total:</strong>
                                             </TableCell>
                                             <TableCell align="right">
-                                                <strong>{fmtLKR(selectedOrder.items?.reduce((sum, item) => sum + (item.quantity * item.selling_price), 0) || 0)}</strong>
+                                                <strong>
+                                                    {fmtLKR(selectedOrder.items?.reduce((sum, item: any) => {
+                                                        const isTaxInclusive = selectedOrder.is_tax_invoice;
+                                                        const taxRate = selectedOrder.tax_rate || 0;
+                                                        const displaySellingPrice = isTaxInclusive && taxRate > 0 ? item.selling_price / (1 + taxRate / 100) : item.selling_price;
+                                                        const lineGross = item.quantity * displaySellingPrice;
+                                                        const discAmt = item.discount_amount > 0 ? (isTaxInclusive && taxRate > 0 ? item.discount_amount / (1 + taxRate / 100) : item.discount_amount) : lineGross * ((item.discount_percent || 0) / 100);
+                                                        const netAmount = item.line_total > 0 ? (isTaxInclusive && taxRate > 0 ? item.line_total / (1 + taxRate / 100) : item.line_total) : lineGross - discAmt;
+                                                        return sum + netAmount;
+                                                    }, 0) || 0)}
+                                                </strong>
                                             </TableCell>
                                         </TableRow>
                                     </TableBody>
                                 </Table>
                             </Paper>
                         </FormSection>
+
+                        {/* Payment Breakdown (Show for credit & bank transfer payment methods) */}
+                        {(selectedOrder.payment_method === "credit" || 
+                          selectedOrder.payment_method === "bank_transfer" ||
+                          selectedOrder.credit_amount > 0 ||
+                          selectedOrder.bank_transfer_amount > 0) && (
+                            <FormSection title="Payment Breakdown" columns={1}>
+                                <Grid container spacing={3}>
+                                    {/* Settlement Breakdown */}
+                                    <Grid item xs={12} md={6}>
+                                        <Paper variant="outlined" sx={{ p: 2.5, height: "100%", borderRadius: 2 }}>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom fontWeight="bold" sx={{ mb: 2 }}>
+                                                Settlement Breakdown
+                                            </Typography>
+                                            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                                                {selectedOrder.cash_amount > 0 && (
+                                                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                        <Typography variant="body2" color="text.secondary">Cash Payment</Typography>
+                                                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.cash_amount)}</Typography>
+                                                    </Box>
+                                                )}
+                                                {selectedOrder.card_visa_amount > 0 && (
+                                                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                        <Typography variant="body2" color="text.secondary">Card Payment (Visa)</Typography>
+                                                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.card_visa_amount)}</Typography>
+                                                    </Box>
+                                                )}
+                                                {selectedOrder.card_mastercard_amount > 0 && (
+                                                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                        <Typography variant="body2" color="text.secondary">Card Payment (Mastercard)</Typography>
+                                                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.card_mastercard_amount)}</Typography>
+                                                    </Box>
+                                                )}
+                                                {selectedOrder.card_amex_amount > 0 && (
+                                                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                        <Typography variant="body2" color="text.secondary">Card Payment (Amex)</Typography>
+                                                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.card_amex_amount)}</Typography>
+                                                    </Box>
+                                                )}
+                                                {selectedOrder.cheque_amount > 0 && (
+                                                    <Box>
+                                                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                            <Typography variant="body2" color="text.secondary">Cheque Payment</Typography>
+                                                            <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.cheque_amount)}</Typography>
+                                                        </Box>
+                                                        {(selectedOrder.cheque_number || selectedOrder.cheque_bank || selectedOrder.cheque_date) && (
+                                                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}>
+                                                                {selectedOrder.cheque_bank ? `${selectedOrder.cheque_bank} ` : ""}
+                                                                {selectedOrder.cheque_number ? `#${selectedOrder.cheque_number} ` : ""}
+                                                                {selectedOrder.cheque_date ? `(Due: ${new Date(selectedOrder.cheque_date).toLocaleDateString()})` : ""}
+                                                            </Typography>
+                                                        )}
+                                                    </Box>
+                                                )}
+                                                {selectedOrder.bank_transfer_amount > 0 && (
+                                                    <Box>
+                                                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                            <Typography variant="body2" color="text.secondary">Bank Transfer</Typography>
+                                                            <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.bank_transfer_amount)}</Typography>
+                                                        </Box>
+                                                        {(selectedOrder.bank_name || selectedOrder.bank_transfer_ref) && (
+                                                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}>
+                                                                {selectedOrder.bank_name ? `${selectedOrder.bank_name} ` : ""}
+                                                                {selectedOrder.bank_transfer_ref ? `Ref: ${selectedOrder.bank_transfer_ref}` : ""}
+                                                            </Typography>
+                                                        )}
+                                                    </Box>
+                                                )}
+                                                {selectedOrder.credit_amount > 0 && (
+                                                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                        <Typography variant="body2" color="warning.main" fontWeight="medium">Credit (Owed)</Typography>
+                                                        <Typography variant="body2" fontWeight="bold" color="warning.main">Rs. {fmtLKR(selectedOrder.credit_amount)}</Typography>
+                                                    </Box>
+                                                )}
+                                                {selectedOrder.gift_voucher_amount > 0 && (
+                                                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                        <Typography variant="body2" color="secondary.main">Gift Voucher</Typography>
+                                                        <Typography variant="body2" fontWeight="medium" color="secondary.main">Rs. {fmtLKR(selectedOrder.gift_voucher_amount)}</Typography>
+                                                    </Box>
+                                                )}
+                                                {selectedOrder.credit_note_amount > 0 && (
+                                                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                        <Typography variant="body2" color="success.main">Credit Note Redeemed</Typography>
+                                                        <Typography variant="body2" fontWeight="medium" color="success.main">Rs. {fmtLKR(selectedOrder.credit_note_amount)}</Typography>
+                                                    </Box>
+                                                )}
+                                            </Box>
+                                        </Paper>
+                                    </Grid>
+
+                                    {/* Order Financials */}
+                                    <Grid item xs={12} md={6}>
+                                        <Paper variant="outlined" sx={{ p: 2.5, height: "100%", borderRadius: 2, bgcolor: "grey.50" }}>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom fontWeight="bold" sx={{ mb: 2 }}>
+                                                Order Financials
+                                            </Typography>
+                                            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                                                {(() => {
+                                                    const isTaxInclusive = selectedOrder.is_tax_invoice;
+                                                    const taxRate = selectedOrder.tax_rate || 0;
+                                                    const grossTotal = selectedOrder.items?.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0;
+                                                    const itemDiscounts = selectedOrder.items?.reduce((sum: number, item: any) => sum + (item.discount_amount || (item.selling_price * item.quantity * (item.discount_percent || 0) / 100)), 0) || 0;
+
+                                                    const displayGrossTotal = isTaxInclusive && taxRate > 0 ? grossTotal / (1 + taxRate / 100) : grossTotal;
+                                                    const displayItemDiscounts = isTaxInclusive && taxRate > 0 ? itemDiscounts / (1 + taxRate / 100) : itemDiscounts;
+                                                    const displaySubtotal = displayGrossTotal - displayItemDiscounts;
+
+                                                    return (
+                                                        <>
+                                                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                <Typography variant="body2" color="text.secondary">Gross Total</Typography>
+                                                                <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(displayGrossTotal)}</Typography>
+                                                            </Box>
+                                                            {displayItemDiscounts > 0 && (
+                                                                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                    <Typography variant="body2" color="error.main">Item Discounts</Typography>
+                                                                    <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(displayItemDiscounts)}</Typography>
+                                                                </Box>
+                                                            )}
+                                                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                <Typography variant="body2" color="text.secondary">Subtotal</Typography>
+                                                                <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(displaySubtotal)}</Typography>
+                                                            </Box>
+                                                            {selectedOrder.cupon_amount > 0 && (
+                                                                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                    <Typography variant="body2" color="error.main">Coupon Discount</Typography>
+                                                                    <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(selectedOrder.cupon_amount)}</Typography>
+                                                                </Box>
+                                                            )}
+                                                            {selectedOrder.discount_amount > 0 && (
+                                                                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                    <Typography variant="body2" color="error.main">
+                                                                        Invoice Discount {selectedOrder.discount_percent > 0 ? `(${selectedOrder.discount_percent}%)` : ""}
+                                                                    </Typography>
+                                                                    <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(selectedOrder.discount_amount)}</Typography>
+                                                                </Box>
+                                                            )}
+                                                            {selectedOrder.tax_amount > 0 && (
+                                                                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                    <Typography variant="body2" color="text.secondary">
+                                                                        Tax ({selectedOrder.tax_rate}%) {isTaxInclusive ? "(Included)" : ""}
+                                                                    </Typography>
+                                                                    <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.tax_amount)}</Typography>
+                                                                </Box>
+                                                            )}
+                                                            {selectedOrder.service_charge_amount > 0 && (
+                                                                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                    <Typography variant="body2" color="text.secondary">Service Charge ({(selectedOrder.service_charge_rate * 100).toFixed(1)}%)</Typography>
+                                                                    <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.service_charge_amount)}</Typography>
+                                                                </Box>
+                                                            )}
+                                                            <Divider sx={{ my: 0.5 }} />
+                                                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                <Typography variant="subtitle2" fontWeight="bold">Grand Total</Typography>
+                                                                <Typography variant="subtitle2" fontWeight="bold">Rs. {fmtLKR(selectedOrder.grand_total)}</Typography>
+                                                            </Box>
+                                                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                <Typography variant="body2" fontWeight="medium" color="success.main">Amount Paid</Typography>
+                                                                <Typography variant="body2" fontWeight="medium" color="success.main">Rs. {fmtLKR(selectedOrder.paid_amount)}</Typography>
+                                                            </Box>
+                                                            {selectedOrder.balance_due > 0 && (
+                                                                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                                                    <Typography variant="body2" fontWeight="medium" color="error.main">Balance Due</Typography>
+                                                                    <Typography variant="body2" fontWeight="medium" color="error.main">Rs. {fmtLKR(selectedOrder.balance_due)}</Typography>
+                                                                </Box>
+                                                            )}
+                                                        </>
+                                                    );
+                                                })()}
+                                            </Box>
+                                        </Paper>
+                                    </Grid>
+                                </Grid>
+                            </FormSection>
+                        )}
+
+                        {/* Agent Commission Section (Show for credit & bank transfer payment methods) */}
+                        {selectedOrder.customer_agent_id && 
+                         (selectedOrder.payment_method === "credit" || 
+                          selectedOrder.payment_method === "bank_transfer" ||
+                          selectedOrder.credit_amount > 0 ||
+                          selectedOrder.bank_transfer_amount > 0) && (
+                            <FormSection title="Agent Commission" columns={1}>
+                                <Paper variant="outlined" sx={{ p: 2.5, borderColor: "primary.main", borderWidth: 1, borderRadius: 2 }}>
+                                    {(() => {
+                                        const agent = customers?.find((c) => c.id === selectedOrder.customer_agent_id);
+                                        return (
+                                            <Grid container spacing={2}>
+                                                <Grid item xs={12} sm={4}>
+                                                    <Typography variant="body2" color="text.secondary">Agent Name</Typography>
+                                                    <Typography variant="body1" fontWeight={500}>{agent?.customer_name || `Agent #${selectedOrder.customer_agent_id}`}</Typography>
+                                                </Grid>
+                                                <Grid item xs={6} sm={2}>
+                                                    <Typography variant="body2" color="text.secondary">Commission Rate</Typography>
+                                                    <Typography variant="body1" fontWeight={500}>
+                                                        {invoiceCommission ? `${Number(invoiceCommission.commission_rate).toFixed(1)}%` : `${Number(agent?.commission_rate || 0).toFixed(1)}%`}
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid item xs={6} sm={2}>
+                                                    <Typography variant="body2" color="text.secondary">Status</Typography>
+                                                    <Box sx={{ mt: 0.5 }}>
+                                                        <Chip
+                                                            size="small"
+                                                            label={invoiceCommission?.status ? invoiceCommission.status.toUpperCase() : "PENDING"}
+                                                            color={
+                                                                invoiceCommission?.status === "paid"
+                                                                    ? "success"
+                                                                    : invoiceCommission?.status === "approved"
+                                                                    ? "info"
+                                                                    : invoiceCommission?.status === "cancelled"
+                                                                    ? "error"
+                                                                    : "warning"
+                                                            }
+                                                        />
+                                                    </Box>
+                                                </Grid>
+                                                <Grid item xs={12} sm={4} sx={{ textAlign: { sm: "right" } }}>
+                                                    <Typography variant="body2" color="text.secondary">Commission Amount</Typography>
+                                                    <Typography variant="h6" fontWeight="bold" color="primary.main">
+                                                        Rs. {fmtLKR(invoiceCommission ? Number(invoiceCommission.commission_amount) : (selectedOrder.grand_total * ((agent?.commission_rate || 0) / 100)))}
+                                                    </Typography>
+                                                </Grid>
+                                            </Grid>
+                                        );
+                                    })()}
+                                </Paper>
+                            </FormSection>
+                        )}
 
                         {/* Recent Sales History */}
                         <FormSection title="Recent Sales History (Last 5)" columns={1}>

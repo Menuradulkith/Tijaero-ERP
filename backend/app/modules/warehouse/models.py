@@ -11,6 +11,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.orm import relationship
+from app.common.base_models import AuditMixin
 
 
 # Transfer Note Status Constants
@@ -24,7 +25,7 @@ class TransferNoteStatus:
     REJECTED = "rejected"         # Transfer rejected
     CANCELLED = "cancelled"       # Transfer cancelled
 
-class ItemTransferNote(Base):
+class ItemTransferNote(Base, AuditMixin):
     __tablename__ = "item_transfer_note"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -66,7 +67,7 @@ class ItemTransferNote(Base):
     receive_notes = relationship("ItemReceiveNote", back_populates="item_transfer_note")
 
 
-class ItemTransferNoteItems(Base):
+class ItemTransferNoteItems(Base, AuditMixin):
     __tablename__ = "item_transfer_note_items"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -85,7 +86,7 @@ class ItemTransferNoteItems(Base):
     item_transfer_note = relationship("ItemTransferNote", back_populates="items")
 
 
-class ItemTransferNoteItemProduct(Base):
+class ItemTransferNoteItemProduct(Base, AuditMixin):
     __tablename__ = "item_transfer_note_item_product"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -100,7 +101,7 @@ class ItemTransferNoteItemProduct(Base):
     )
 
 
-class ItemTransferNoteApproved(Base):
+class ItemTransferNoteApproved(Base, AuditMixin):
     __tablename__ = "item_transfer_note_approved"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -117,7 +118,7 @@ class ItemTransferNoteApproved(Base):
     approved_user = relationship("User", foreign_keys=[approved_user_id], viewonly=True)
 
 
-class ItemReceiveNote(Base):
+class ItemReceiveNote(Base, AuditMixin):
     __tablename__ = "item_receive_note"
 
     id = Column(Integer, primary_key=True, index=True)

@@ -85,11 +85,14 @@ import {
 
 import { customersApi, CustomerCreditSummary } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
-import { salesApi } from "@/modules/sales/api";
-import { Invoice } from "@/modules/sales/types";
+import { salesApi, paymentCardsApi } from "@/modules/sales/api";
+import { Invoice, PaymentCard } from "@/modules/sales/types";
 
 import { useReferenceData } from "@/hooks";
 import apiClient from "@/api/client";
+import { useQuery } from "@tanstack/react-query";
+import { settingsApi } from "@/modules/settings/api";
+import { usePermission } from "@/auth/permissions";
 
 // Configuration
 interface SortOption {
@@ -107,8 +110,7 @@ const PAYMENT_METHODS = [
   { value: "Cash", label: "Cash" },
   { value: "Bank Transfer", label: "Bank Transfer" },
   { value: "Cheque", label: "Cheque" },
-  { value: "card_visa", label: "Card (Visa)" },
-  { value: "card_mastercard", label: "Card (Mastercard)" },
+  { value: "Card", label: "Card" },
 ];
 
 // Outstanding invoice for customer credit payment
@@ -186,6 +188,7 @@ export default function CustomerPaymentsPage() {
   const [remarks, setRemarks] = useState("");
   const [cardRefNumber, setCardRefNumber] = useState("");
   const [cardHolderName, setCardHolderName] = useState("");
+  const [selectedPaymentCardId, setSelectedPaymentCardId] = useState<number | null>(null);
 
   // Previous payment suggestions
   const [previousBankNames, setPreviousBankNames] = useState<string[]>([]);
@@ -196,6 +199,34 @@ export default function CustomerPaymentsPage() {
   const [fifoAmount, setFifoAmount] = useState(0);
 
   const confirmDialog = useConfirmDialog();
+
+  // Permissions
+  const canViewSalesSettings = usePermission("sales_settings", "view");
+
+  // Fetch active payment cards from settings
+  const { data: paymentCards = [] } = useQuery({
+    queryKey: ["payment-cards-active"],
+    queryFn: () => paymentCardsApi.getAll(true), // Only active cards
+    enabled: canViewSalesSettings,
+  });
+
+  // Fetch company settings for service charge display
+  const { data: companySettings } = useQuery({
+    queryKey: ["company-settings"],
+    queryFn: () => settingsApi.getCompanySettings(),
+  });
+
+  const hideServiceCharge = companySettings?.hide_service_charge ?? false;
+
+  // Get selected payment card details
+  const selectedPaymentCard = useMemo(() => {
+    if (!selectedPaymentCardId) return null;
+    return (
+      paymentCards.find(
+        (card: PaymentCard) => card.id === selectedPaymentCardId,
+      ) || null
+    );
+  }, [selectedPaymentCardId, paymentCards]);
 
   // Load customers
   const loadCustomers = useCallback(async () => {
@@ -327,7 +358,19 @@ export default function CustomerPaymentsPage() {
     return outstandingInvoices.filter((doc) => doc.is_overdue);
   }, [outstandingInvoices]);
 
+  const serviceChargeAmount = useMemo(() => {
+    if (paymentMethod !== "Card" || !selectedPaymentCard) return 0;
+    const base = paymentLines.reduce((sum, line) => sum + line.allocated_amount, 0);
+    return Math.round(base * (selectedPaymentCard.service_charge_percent || 0)) / 100;
+  }, [paymentLines, paymentMethod, selectedPaymentCard]);
+
   const totalPaymentAmount = useMemo(() => {
+    const base = paymentLines.reduce((sum, line) => sum + line.allocated_amount, 0);
+    return base + serviceChargeAmount;
+  }, [paymentLines, serviceChargeAmount]);
+
+  // Base (without service charge) — used for invoice balance reduction display
+  const basePaymentAmount = useMemo(() => {
     return paymentLines.reduce((sum, line) => sum + line.allocated_amount, 0);
   }, [paymentLines]);
 
@@ -448,6 +491,7 @@ export default function CustomerPaymentsPage() {
     setRemarks("");
     setCardRefNumber("");
     setCardHolderName("");
+    setSelectedPaymentCardId(null);
   };
 
   const handleStartPayment = useCallback(() => {
@@ -568,8 +612,12 @@ export default function CustomerPaymentsPage() {
       showErrorToast("Please enter cheque number and bank name");
       return;
     }
-    if ((paymentMethod === "card_visa" || paymentMethod === "card_mastercard") && !cardRefNumber) {
+    if (paymentMethod === "Card" && !cardRefNumber) {
       showErrorToast("Please enter card reference number");
+      return;
+    }
+    if (paymentMethod === "Card" && !selectedPaymentCardId) {
+      showErrorToast("Please select a card type");
       return;
     }
 
@@ -597,6 +645,11 @@ export default function CustomerPaymentsPage() {
       for (const line of paymentLines) {
         if (line.allocated_amount <= 0) continue;
 
+        const serviceCharge =
+          paymentMethod === "Card" && selectedPaymentCard
+            ? Math.round(line.allocated_amount * (selectedPaymentCard.service_charge_percent || 0)) / 100
+            : 0;
+
         const payload = {
           invoice_id: line.invoice.id,
           payment_method: paymentMethod,
@@ -607,9 +660,11 @@ export default function CustomerPaymentsPage() {
             cheque_bank: bankName,
             cheque_date: chequeDate,
           }),
-          ...((paymentMethod === "card_visa" || paymentMethod === "card_mastercard") && {
+          ...(paymentMethod === "Card" && {
             card_ref_number: cardRefNumber,
             card_holder_name: cardHolderName,
+            payment_card_id: selectedPaymentCardId,
+            service_charge_amount: serviceCharge,
           }),
           ...(paymentMethod === "Bank Transfer" && {
             bank_transfer_ref: referenceNumber,
@@ -1408,8 +1463,23 @@ export default function CustomerPaymentsPage() {
         )}
 
         {/* Card fields */}
-        {(paymentMethod === "card_visa" || paymentMethod === "card_mastercard") && (
+        {paymentMethod === "Card" && (
           <>
+            <TextField
+              select
+              size="small"
+              label="Card Type *"
+              value={selectedPaymentCardId || ""}
+              onChange={(e) => setSelectedPaymentCardId(Number(e.target.value))}
+              required
+            >
+              <MenuItem value="" disabled>Select card</MenuItem>
+              {paymentCards.map((card: PaymentCard) => (
+                <MenuItem key={card.id} value={card.id}>
+                  {card.card_name} ({card.card_type}){(card.service_charge_percent || 0) > 0 && ` — ${card.service_charge_percent}% fee`}
+                </MenuItem>
+              ))}
+            </TextField>
             <TextField
               label="Card Reference Number *"
               size="small"
@@ -1423,6 +1493,11 @@ export default function CustomerPaymentsPage() {
               value={cardHolderName}
               onChange={(e) => setCardHolderName(e.target.value)}
             />
+            {selectedPaymentCard && (selectedPaymentCard.service_charge_percent || 0) > 0 && (
+              <Alert severity="info" sx={{ gridColumn: "1 / -1" }}>
+                {selectedPaymentCard.service_charge_percent}% service charge applies
+              </Alert>
+            )}
           </>
         )}
       </FormSection>
@@ -1555,10 +1630,40 @@ export default function CustomerPaymentsPage() {
               <TableRow sx={{ bgcolor: "action.hover" }}>
                 <TableCell colSpan={2} />
                 <TableCell align="right">
-                  <Typography variant="subtitle2" fontWeight="bold">Total:</Typography>
+                  <Typography variant="subtitle2" fontWeight="bold">Sub-Total:</Typography>
                 </TableCell>
                 <TableCell align="right">
-                  <Typography variant="h5" fontWeight="bold" color="primary.main">
+                  <Typography variant="h6" fontWeight="bold" color="text.primary">
+                    Rs. {fmtLKR(basePaymentAmount)}
+                  </Typography>
+                </TableCell>
+                <TableCell />
+              </TableRow>
+              {/* Service Charge Row */}
+              {serviceChargeAmount > 0 && (
+                <TableRow sx={{ bgcolor: "warning.lighter" }}>
+                  <TableCell colSpan={2} />
+                  <TableCell align="right">
+                    <Typography variant="subtitle2" color="warning.dark">
+                      Service Charge ({selectedPaymentCard?.service_charge_percent}%):
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography variant="subtitle2" fontWeight="bold" color="warning.dark">
+                      + Rs. {fmtLKR(serviceChargeAmount)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell />
+                </TableRow>
+              )}
+              {/* Grand Total Row */}
+              <TableRow sx={{ bgcolor: serviceChargeAmount > 0 ? "primary.main" : "action.hover", opacity: serviceChargeAmount > 0 ? 0.95 : 1 }}>
+                <TableCell colSpan={2} />
+                <TableCell align="right">
+                  <Typography variant="subtitle2" fontWeight="bold" color={serviceChargeAmount > 0 ? "white" : "text.primary"}>Total to Pay:</Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="h5" fontWeight="bold" color={serviceChargeAmount > 0 ? "white" : "primary.main"}>
                     Rs. {fmtLKR(totalPaymentAmount)}
                   </Typography>
                 </TableCell>

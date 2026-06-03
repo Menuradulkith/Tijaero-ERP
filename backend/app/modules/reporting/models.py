@@ -3,9 +3,10 @@ from datetime import datetime
 from app.db.base import Base
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
+from app.common.base_models import AuditMixin
 
 
-class Report(Base):
+class Report(Base, AuditMixin):
 
     __tablename__ = "reports"
 
@@ -23,7 +24,7 @@ class Report(Base):
     last_run = Column(DateTime)
 
 
-class ReportExecution(Base):
+class ReportExecution(Base, AuditMixin):
 
     __tablename__ = "report_executions"
 

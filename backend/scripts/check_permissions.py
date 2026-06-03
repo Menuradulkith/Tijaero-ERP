@@ -9,6 +9,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import inspect, text
 from app.db.session import SessionLocal
+
+# Import all models first to avoid SQLAlchemy registration/mapper errors (e.g., Country mapping)
+import app.models  # noqa: F401
 from app.auth.models import Permission, Group, User
 
 def check_permissions():
@@ -24,7 +27,7 @@ def check_permissions():
         tables = inspector.get_table_names()
         
         print("\n1. Checking Database Tables:")
-        required_tables = ['auth_permission', 'auth_group', 'auth_group_permissions', 'users']
+        required_tables = ['auth_permission', 'auth_group', 'auth_group_permissions', 'accounts_user']
         for table in required_tables:
             if table in tables:
                 print(f"   ✓ {table} - EXISTS")

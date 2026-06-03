@@ -537,6 +537,193 @@ class TestSalesInvoiceValidation:
             svc.cancel_invoice(db, 999_999, user_id=1)
         assert exc.value.status_code == 404
 
+    def test_create_invoice_split_credit_payment(
+        self, db, make_branch, make_customer, make_product, make_sales_stock, make_user
+    ):
+        from app.modules.sales.service import SalesService
+        from app.modules.sales import schemas
+        from app.modules.finance.models import CreditPayments
+        from app.common.enums import DocumentStatus, StockStatus
+        from unittest.mock import patch
+        import datetime
+
+        branch = make_branch()
+        customer = make_customer(max_credit_limit=100000, left_credit_amount=100000)
+        customer.email = "test@example.com"
+        db.flush()
+
+        product = make_product()
+        user, _ = make_user()
+        svc = SalesService()
+
+        # Create three SalesStock rows for the product at this branch
+        s1 = make_sales_stock(product=product, branch=branch)
+        s2 = make_sales_stock(product=product, branch=branch)
+        s3 = make_sales_stock(product=product, branch=branch)
+
+        # Let's create an invoice with Cash + Credit split payment
+        # Total grand total is 1500 (items: 3 * 500)
+        # Cash: 500, Credit: 1000
+        # Mock time to 10:00 AM (business hours) to pass credit time check
+        mock_now = datetime.datetime(2026, 6, 1, 10, 0, 0, tzinfo=datetime.timezone.utc)
+        with patch("app.core.timezone.now", return_value=mock_now):
+            invoice = svc.create_invoice(
+                db,
+                schemas.InvoiceCreate(
+                    branch_code=branch.branch_code,
+                    customer_id=customer.id,
+                    sale_rep_id=user.id,
+                    payment_method="cash", # Primary/fallback payment method
+                    cash_amount=500.0,
+                    card_visa_amount=0,
+                    card_mastercard_amount=0,
+                    card_amex_amount=0,
+                    cheque_amount=0,
+                    bank_transfer_amount=0,
+                    credit_amount=1000.0,
+                    credit_terms="3 months",
+                    is_tax_invoice=False,
+                    tax_rate=0,
+                    discount_percent=0,
+                    discount_amount=0,
+                    items=[
+                        schemas.InvoiceItemCreate(
+                            product_id=product.id,
+                            quantity=1,
+                            selling_price=500.0,
+                            minimum_selling_price=400.0,
+                            warrenty_month="12",
+                            barcode=s1.barcode,
+                        ),
+                        schemas.InvoiceItemCreate(
+                            product_id=product.id,
+                            quantity=1,
+                            selling_price=500.0,
+                            minimum_selling_price=400.0,
+                            warrenty_month="12",
+                            barcode=s2.barcode,
+                        ),
+                        schemas.InvoiceItemCreate(
+                            product_id=product.id,
+                            quantity=1,
+                            selling_price=500.0,
+                            minimum_selling_price=400.0,
+                            warrenty_month="12",
+                            barcode=s3.barcode,
+                        )
+                    ],
+                ),
+                user_id=user.id,
+            )
+
+        assert invoice.id is not None
+        # Verify approval status is pending approval due to non-zero credit_amount
+        assert invoice.approval_status == "pending_approval"
+        
+        # Verify paid_amount and balance_due
+        # Total grand total = 1500.0. Cash paid is 500.0. Credit is 1000.0.
+        assert invoice.paid_amount == 500.0
+        assert invoice.balance_due == 1000.0
+        assert invoice.credit_amount == 1000.0
+
+        # Check that the CreditPayments record was created correctly
+        credit_payment = db.query(CreditPayments).filter(CreditPayments.customer_id == customer.id).first()
+        assert credit_payment is not None
+        assert credit_payment.amount == 1000.0
+        assert credit_payment.credit_terms == "3 months"
+        assert credit_payment.status == DocumentStatus.PENDING.value
+
+        # Verify that all 3 stocks are reserved
+        db.refresh(s1)
+        db.refresh(s2)
+        db.refresh(s3)
+        assert s1.status == StockStatus.RESERVED.value
+        assert s2.status == StockStatus.RESERVED.value
+        assert s3.status == StockStatus.RESERVED.value
+
+    def test_create_invoice_split_credit_payment_override_eligibility(
+        self, db, make_branch, make_customer, make_product, make_sales_stock, make_user
+    ):
+        from app.modules.sales.service import SalesService
+        from app.modules.sales import schemas
+        from app.modules.finance.models import CreditPayments
+        from app.common.enums import DocumentStatus, StockStatus
+        from unittest.mock import patch
+        import datetime
+
+        branch = make_branch()
+        # Create a customer with NO email address (so eligibility fails)
+        customer = make_customer(max_credit_limit=100000, left_credit_amount=100000)
+        
+        product = make_product()
+        user, _ = make_user()
+        svc = SalesService()
+
+        # Create three SalesStock rows for the product at this branch
+        s1 = make_sales_stock(product=product, branch=branch)
+        s2 = make_sales_stock(product=product, branch=branch)
+        s3 = make_sales_stock(product=product, branch=branch)
+
+        # Create invoice with Cash + Credit split payment and override_credit_validation=True
+        mock_now = datetime.datetime(2026, 6, 1, 10, 0, 0, tzinfo=datetime.timezone.utc)
+        with patch("app.core.timezone.now", return_value=mock_now):
+            invoice = svc.create_invoice(
+                db,
+                schemas.InvoiceCreate(
+                    branch_code=branch.branch_code,
+                    customer_id=customer.id,
+                    sale_rep_id=user.id,
+                    payment_method="cash",
+                    cash_amount=500.0,
+                    card_visa_amount=0,
+                    card_mastercard_amount=0,
+                    card_amex_amount=0,
+                    cheque_amount=0,
+                    bank_transfer_amount=0,
+                    credit_amount=1000.0,
+                    credit_terms="3 months",
+                    is_tax_invoice=False,
+                    tax_rate=0,
+                    discount_percent=0,
+                    discount_amount=0,
+                    override_credit_validation=True,  # Override should bypass eligibility check failure (missing email)
+                    items=[
+                        schemas.InvoiceItemCreate(
+                            product_id=product.id,
+                            quantity=1,
+                            selling_price=500.0,
+                            minimum_selling_price=400.0,
+                            warrenty_month="12",
+                            barcode=s1.barcode,
+                        ),
+                        schemas.InvoiceItemCreate(
+                            product_id=product.id,
+                            quantity=1,
+                            selling_price=500.0,
+                            minimum_selling_price=400.0,
+                            warrenty_month="12",
+                            barcode=s2.barcode,
+                        ),
+                        schemas.InvoiceItemCreate(
+                            product_id=product.id,
+                            quantity=1,
+                            selling_price=500.0,
+                            minimum_selling_price=400.0,
+                            warrenty_month="12",
+                            barcode=s3.barcode,
+                        )
+                    ],
+                ),
+                user_id=user.id,
+            )
+
+        assert invoice.id is not None
+        # Verify invoice is successfully created even with missing customer email
+        assert invoice.approval_status == "pending_approval"
+        assert invoice.paid_amount == 500.0
+        assert invoice.balance_due == 1000.0
+        assert invoice.credit_amount == 1000.0
+
 
 # =========================================================================== #
 # SALES STOCK — make_sales_stock and read

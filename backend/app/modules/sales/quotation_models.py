@@ -1,6 +1,6 @@
 import enum
 
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 from app.db.base import Base
 from sqlalchemy import TIMESTAMP, Boolean, Column, Date
 from sqlalchemy import Enum as SQLEnum
@@ -41,7 +41,7 @@ class DiscountType(str, enum.Enum):
     FIXED = "fixed"
 
 
-class SalesQuote(Base, TimestampMixin):
+class SalesQuote(Base, AuditMixin):
 
 
     __tablename__ = "sales_quotes"
@@ -131,7 +131,7 @@ class SalesQuote(Base, TimestampMixin):
         return self.quote_type == QuoteType.PROFORMA.value
 
 
-class SalesQuoteItem(Base, TimestampMixin):
+class SalesQuoteItem(Base, AuditMixin):
 
     __tablename__ = "sales_quote_items"
 

@@ -108,6 +108,34 @@ const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
   return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, "0")}`;
 };
 
+export const getPaymentMethodsDisplay = (invoice: any) => {
+  if (!invoice) return "";
+  const methods: string[] = [];
+  if ((invoice.cash_amount || 0) > 0) methods.push("Cash");
+  if (
+    (invoice.card_visa_amount || 0) > 0 ||
+    (invoice.card_mastercard_amount || 0) > 0 ||
+    (invoice.card_amex_amount || 0) > 0
+  ) {
+    methods.push("Card");
+  }
+  if ((invoice.cheque_amount || 0) > 0) methods.push("Cheque");
+  if ((invoice.bank_transfer_amount || 0) > 0) methods.push("Bank Transfer");
+  if ((invoice.credit_amount || 0) > 0) methods.push("Credit");
+  
+  if (methods.length > 1) {
+    return `Split (${methods.join(", ")})`;
+  }
+  if (methods.length === 1) {
+    return methods[0];
+  }
+  
+  // Fallback to stored payment method if all amounts are 0 or not populated
+  return invoice.payment_method
+    ? invoice.payment_method.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+    : "N/A";
+};
+
 // Sort options
 const sortOptions: SortOption[] = [
   { value: "created_date", label: "Date (Newest)" },
@@ -138,6 +166,7 @@ interface SplitPaymentRow {
   card_id: number | null;
   bank_name: string;
   bank_transfer_ref: string;
+  credit_terms: string;
 }
 const makeSplitRow = (method = "cash", amount = 0): SplitPaymentRow => ({
   id: Date.now().toString() + Math.random().toString(36).slice(2),
@@ -145,6 +174,7 @@ const makeSplitRow = (method = "cash", amount = 0): SplitPaymentRow => ({
   cheque_number: "", cheque_bank: "", cheque_date: new Date().toISOString().split("T")[0],
   card_ref_number: "", card_holder_name: "", card_id: null,
   bank_name: "", bank_transfer_ref: "",
+  credit_terms: "30 days",
 });
 
 // Line item type
@@ -333,10 +363,7 @@ export default function SalesPage() {
   // Effective tax rate — 0 when no tax mode selected
   const effectiveTaxRate = taxMode !== "none" ? taxRate : 0;
 
-  // Agent commission toggle state
-  const [payCommissionNow, setPayCommissionNow] = useState(false);
-  const [commissionPaymentMethod, setCommissionPaymentMethod] = useState("Cash");
-  // Manual commission override: null = use agent rate, number = user override
+  // Agent commission manual override state
   const [manualCommissionRate, setManualCommissionRate] = useState<number | null>(null);
   const [manualCommissionAmount, setManualCommissionAmount] = useState<number | null>(null);
 
@@ -415,8 +442,10 @@ export default function SalesPage() {
   // Fetch customers separately (has complex operations like credit check)
   const { data: customers } = useQuery({
     queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(0, 500),
+    queryFn: () => customersApi.getAll(0, 500, true), // activeOnly=true - only fetch active customers
     enabled: canViewCustomers,
+    staleTime: 0, // Always consider data stale to refetch on mount
+    refetchOnWindowFocus: true, // Refetch when window regains focus
   });
 
   // Fetch credit notes for selected customer when using credit_note payment
@@ -486,6 +515,17 @@ export default function SalesPage() {
     queryFn: () => salesApi.getById(state.selectedItem!.id),
     enabled: !!state.selectedItem && !state.isCreating,
   });
+
+  // Load agent commission for this invoice if applicable
+  const { data: invoiceCommissions } = useQuery({
+    queryKey: ["invoice-commissions", fullInvoice?.invoice_no],
+    queryFn: () => commissionsApi.getAll({ search: fullInvoice?.invoice_no }),
+    enabled: !!fullInvoice?.invoice_no && !!fullInvoice?.customer_agent_id,
+  });
+
+  const invoiceCommission = invoiceCommissions?.items?.find(
+    (c: any) => c.invoice_id === fullInvoice?.id
+  );
 
   // Calculate total for an invoice
   const calculateTotal = (invoice: Invoice) => {
@@ -557,8 +597,21 @@ export default function SalesPage() {
     const appliedCreditNote = r2(Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher)));
     const afterCreditNote = r2(afterVoucher - appliedCreditNote);
     let serviceCharge = 0;
-    if (state.formData.payment_method === "card" && selectedPaymentCard) {
-      serviceCharge = r2(afterCreditNote * ((selectedPaymentCard.service_charge_percent || 0) / 100));
+    if (selectedPaymentCard && (selectedPaymentCard.service_charge_percent || 0) > 0) {
+      const chargePercent = selectedPaymentCard.service_charge_percent || 0;
+      const isSingleCard = state.formData.payment_method === "card" && splitPayments.length <= 1;
+      const hasCardInSplit = splitPayments.length > 1 && splitPayments.some(p => p.method === "card");
+      if (isSingleCard) {
+        // Full remaining amount goes to card
+        serviceCharge = r2(afterCreditNote * (chargePercent / 100));
+      } else if (hasCardInSplit) {
+        // Only charge on the card portion (remaining after non-card amounts)
+        const nonCardTotal = r2(splitPayments
+          .filter(p => p.method !== "card")
+          .reduce((s, p) => s + (p.amount || 0), 0));
+        const cardBase = r2(Math.max(0, afterCreditNote - nonCardTotal));
+        serviceCharge = r2(cardBase * (chargePercent / 100));
+      }
     }
     const grandTotal = r2(Math.max(0, afterCreditNote + serviceCharge));
     return {
@@ -822,36 +875,9 @@ export default function SalesPage() {
         showSuccessToast("Sales order created and payment completed successfully.");
       }
 
-      // If agent commission should be paid now, do it immediately
-      if (payCommissionNow && createdInvoice?.id && state.formData.customer_agent_id) {
-        try {
-          const commissionsResult = await commissionsApi.getAll({ agent_id: state.formData.customer_agent_id, limit: 5 });
-          const invoiceCommission = commissionsResult.items.find(
-            (c) => c.invoice_id === createdInvoice.id
-          );
-          if (invoiceCommission) {
-            // Use manual override if set, otherwise use the recorded commission amount
-            const finalAmount = manualCommissionAmount !== null
-              ? manualCommissionAmount
-              : invoiceCommission.commission_amount;
-            await commissionPaymentsApi.create({
-              customer_agent_id: state.formData.customer_agent_id,
-              payment_date: new Date().toISOString().split("T")[0],
-              payment_method: commissionPaymentMethod,
-              payment_amount: finalAmount,
-              branch_code: (state.formData as any).branch_code || "MAIN",
-              remarks: `Commission paid at time of SO ${(createdInvoice as any).invoice_no}`,
-              items: [{ commission_id: invoiceCommission.id, paid_amount: finalAmount }],
-            });
-            showSuccessToast(`Agent commission of Rs. ${finalAmount.toFixed(2)} recorded as paid.`);
-          }
-        } catch (err) {
-          console.warn("Could not auto-pay commission:", err);
-        }
-        setPayCommissionNow(false);
-        setCommissionPaymentMethod("Cash");
-        setManualCommissionRate(null);
-        setManualCommissionAmount(null);
+      // Commission created with 'pending' status - must go through approval workflow
+      if (createdInvoice?.id && state.formData.customer_agent_id) {
+        showSuccessToast("Agent commission created and pending approval.", { duration: 3000 });
       }
 
       window.dispatchEvent(new CustomEvent("sales-order-updated"));
@@ -989,9 +1015,7 @@ export default function SalesPage() {
     setDiscountType("percent");
     setDiscountValue(0);
     setTaxRate(companySettings?.default_tax_rate ?? 0);
-    // Reset commission state
-    setPayCommissionNow(false);
-    setCommissionPaymentMethod("Cash");
+    // Reset commission override state
     setManualCommissionRate(null);
     setManualCommissionAmount(null);
     // Reset split payments
@@ -1117,6 +1141,20 @@ export default function SalesPage() {
       return;
     }
 
+    // Validate that total split payment amounts match the grand total
+    const totals = calcOrderTotals();
+    const checkGrandTotal = totals.grandTotal;
+    const entered = splitPayments.reduce((s, p) => s + (p.amount || 0), 0);
+    const remaining = checkGrandTotal - entered;
+    const isBalanced = Math.abs(remaining) < 0.01;
+
+    if (!isBalanced) {
+      showErrorToast(
+        `Cannot save: Total payments entered (Rs. ${fmtLKR(entered)}) must equal the grand total (Rs. ${fmtLKR(checkGrandTotal)}). Remaining: Rs. ${fmtLKR(remaining)}`
+      );
+      return;
+    }
+
     // Calculate effective price per item after all discounts (item + coupon + invoice discount)
     // and validate that no item goes below minimum price
     // Flow: Normalize → Item Discount → Coupon → Invoice Discount → Tax
@@ -1179,11 +1217,17 @@ export default function SalesPage() {
     }
 
     const subtotal = calculateLineItemsTotal();
-    const creditCheckAmount = calcOrderTotals().grandTotal;
     const paymentMethod = state.formData.payment_method || "cash";
+    
+    let splitCreditPay = splitPayments.filter((p) => p.method === "credit").reduce((s, p) => s + (p.amount || 0), 0);
+    const hasCreditPayment = splitPayments.some((p) => p.method === "credit") || paymentMethod === "credit";
+    const creditCheckAmount = splitCreditPay > 0 ? splitCreditPay : calcOrderTotals().grandTotal;
+
+    // Track if user has overridden credit validation
+    let creditValidationOverridden = false;
 
     // Comprehensive credit sale validation (blocking)
-    if (paymentMethod === "credit" && state.formData.customer_id) {
+    if (hasCreditPayment && state.formData.customer_id) {
       try {
         // Use comprehensive validation with blocking by default
         const validation = await customersApi.validateCreditSale(
@@ -1252,18 +1296,22 @@ export default function SalesPage() {
             }
           }
 
-          await creditWarningDialog.confirm({
+          const confirmed = await creditWarningDialog.confirm({
             title: "Credit Sale Not Allowed",
             message: errorMessages.join("\n"),
             detailsLines: detailLines.length > 0 ? detailLines : undefined,
             detailsNote:
               "Please resolve the above issues before proceeding with a credit sale.",
-            confirmText: "OK",
-            cancelText: "",
+            confirmText: "Proceed Anyway",
+            cancelText: "Cancel",
             type: "danger",
           });
 
-          return; // Block the sale
+          if (!confirmed) {
+            return; // Block the sale only if user cancels
+          }
+          // If user clicked "Proceed Anyway", set override flag
+          creditValidationOverridden = true;
         }
 
         // Show warnings if any (but allow to proceed)
@@ -1337,9 +1385,19 @@ export default function SalesPage() {
     const appliedCreditNote = t.appliedCreditNote;
     const afterCreditNote = t.afterCreditNote;
     let serviceCharge = 0;
-    if (paymentMethod === "card" && selectedPaymentCard) {
+    if (selectedPaymentCard && (selectedPaymentCard.service_charge_percent || 0) > 0) {
       const chargePercent = selectedPaymentCard.service_charge_percent || 0;
-      serviceCharge = afterCreditNote * (chargePercent / 100);
+      const isSingleCard = paymentMethod === "card" && splitPayments.length <= 1;
+      const hasCardInSplit = splitPayments.length > 1 && splitPayments.some(p => p.method === "card");
+      if (isSingleCard) {
+        serviceCharge = afterCreditNote * (chargePercent / 100);
+      } else if (hasCardInSplit) {
+        const nonCardTotal = splitPayments
+          .filter(p => p.method !== "card")
+          .reduce((s, p) => s + (p.amount || 0), 0);
+        const cardBase = Math.max(0, afterCreditNote - nonCardTotal);
+        serviceCharge = cardBase * (chargePercent / 100);
+      }
     }
     const grandTotal = Math.max(0, afterCreditNote + serviceCharge);
 
@@ -1348,10 +1406,11 @@ export default function SalesPage() {
     const splitCard = splitPayments.filter((p) => p.method === "card").reduce((s, p) => s + (p.amount || 0), 0);
     const splitCheque = splitPayments.filter((p) => p.method === "cheque").reduce((s, p) => s + (p.amount || 0), 0);
     const splitBank = splitPayments.filter((p) => p.method === "bank_transfer").reduce((s, p) => s + (p.amount || 0), 0);
-    const splitCreditPay = splitPayments.filter((p) => p.method === "credit").reduce((s, p) => s + (p.amount || 0), 0);
+    splitCreditPay = splitPayments.filter((p) => p.method === "credit").reduce((s, p) => s + (p.amount || 0), 0);
     const firstChequeRow = splitPayments.find((p) => p.method === "cheque");
     const firstCardRow = splitPayments.find((p) => p.method === "card");
     const firstBankRow = splitPayments.find((p) => p.method === "bank_transfer");
+    const firstCreditRow = splitPayments.find((p) => p.method === "credit");
     const primaryMethod = splitPayments.length === 1 ? splitPayments[0].method : (splitPayments.length > 0 ? splitPayments[0].method : paymentMethod);
 
     const invoiceData: InvoiceCreate = {
@@ -1378,8 +1437,13 @@ export default function SalesPage() {
         cupon_id: couponValidation.coupon_id,
         cupon_amount: couponDiscount,
       }),
+      // Pass agent commission rate and amount overrides
+      agent_commission_rate: manualCommissionRate !== null ? manualCommissionRate : undefined,
+      agent_commission_amount: manualCommissionAmount !== null ? manualCommissionAmount : undefined,
       // Credit note redemption
       credit_note_amount: appliedCreditNote,
+      // Credit validation override flag
+      override_credit_validation: creditValidationOverridden,
       // Gift voucher payment fields - send as array for multiple vouchers
       ...(appliedVouchers.length > 0 &&
         totalVoucherPayment > 0 && {
@@ -1406,6 +1470,9 @@ export default function SalesPage() {
       ...(firstBankRow && {
         bank_transfer_ref: firstBankRow.bank_transfer_ref,
         bank_name: firstBankRow.bank_name,
+      }),
+      ...(firstCreditRow && {
+        credit_terms: firstCreditRow.credit_terms,
       }),
       ...(paymentMethod === "credit_note" &&
         paymentDetails.credit_note_id && {
@@ -1484,10 +1551,10 @@ export default function SalesPage() {
 
   // Manual picker: sync default branch to order's branch when it changes
   useEffect(() => {
-    if (state.formData.branch_code) {
-      setManualBranchCode((prev) => prev ?? state.formData.branch_code ?? null);
+    if (state.formData.branch_code && !manualBranchCode) {
+      setManualBranchCode(state.formData.branch_code);
     }
-  }, [state.formData.branch_code]);
+  }, [state.formData.branch_code, manualBranchCode]);
 
   // Manual picker: load available stock when product or branch changes
   useEffect(() => {
@@ -1540,7 +1607,7 @@ export default function SalesPage() {
       const sellingPrice =
         stockItem.selling_price ?? productObj?.selling_price ?? 0;
       const minimumPrice =
-        (stockItem as any).minimum_price ??
+        stockItem.minimum_selling_price ??
         (productObj as any)?.minimum_price ??
         sellingPrice;
       const newItem: ItemFormData = {
@@ -1938,47 +2005,6 @@ export default function SalesPage() {
   const customActions =
     state.selectedItem && !state.isCreating && !state.isEditing ? (
       <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-        {/* Workflow Actions based on approval_status */}
-        {canApprove &&
-          state.selectedItem.approval_status === "pending_approval" && (
-            <Tooltip title="Approve Order">
-              <IconButton
-                size="small"
-                color="success"
-                onClick={() =>
-                  approveDialog.open(
-                    "Approve Sales Order",
-                    `Approve invoice ${state.selectedItem?.invoice_no}? Stock will be marked as sold and order will be completed.`,
-                    () => approveMutation.mutate(state.selectedItem!.id),
-                  )
-                }
-                disabled={approveMutation.isPending}
-              >
-                <ApproveIcon />
-              </IconButton>
-            </Tooltip>
-          )}
-        {canDelete &&
-          state.selectedItem.approval_status !== "completed" &&
-          state.selectedItem.approval_status !== "cancelled" && (
-            <Tooltip title="Cancel Order">
-              <IconButton
-                size="small"
-                color="error"
-                onClick={() =>
-                  cancelDialog.open(
-                    "Cancel Sales Order",
-                    `Cancel invoice ${state.selectedItem?.invoice_no}? Stock will be restored to available.`,
-                    () => cancelMutation.mutate(state.selectedItem!.id),
-                  )
-                }
-                disabled={cancelMutation.isPending}
-              >
-                <CancelIcon />
-              </IconButton>
-            </Tooltip>
-          )}
-
         {/* Standard Actions */}
         <Button
           size="small"
@@ -2018,7 +2044,7 @@ export default function SalesPage() {
     return (
       <>
         {/* Order Information */}
-        <FormSection title="Order Information" columns={3}>
+        <FormSection title="Order Information" columns={2}>
           <TextField
             label="Invoice Number"
             size="small"
@@ -2029,12 +2055,6 @@ export default function SalesPage() {
             label="Branch"
             size="small"
             value={state.selectedItem?.branch_code}
-            disabled
-          />
-          <TextField
-            label="Payment Method"
-            size="small"
-            value={state.selectedItem?.payment_method?.replace(/_/g, " ")}
             disabled
           />
         </FormSection>
@@ -2129,10 +2149,32 @@ export default function SalesPage() {
           <TextField
             label="Created By"
             size="small"
-            value={state.selectedItem?.created_by_name || "—"}
+            value={fullInvoice?.created_by_name || state.selectedItem?.created_by_name || "—"}
             disabled
             InputProps={{ readOnly: true }}
           />
+          {((fullInvoice?.credit_amount ?? 0) > 0 || fullInvoice?.payment_method?.toLowerCase() === "credit") && (
+            <>
+              <TextField
+                label="Approved By"
+                size="small"
+                value={fullInvoice?.approved_by_name || "—"}
+                disabled
+                InputProps={{ readOnly: true }}
+              />
+              <TextField
+                label="Approved Date"
+                size="small"
+                value={
+                  fullInvoice?.approved_date
+                    ? new Date(fullInvoice.approved_date).toLocaleString()
+                    : "—"
+                }
+                disabled
+                InputProps={{ readOnly: true }}
+              />
+            </>
+          )}
         </FormSection>
 
         {/* Order Items */}
@@ -2163,11 +2205,20 @@ export default function SalesPage() {
                 <TableBody>
                   {fullInvoice.items.map((item: any, index: number) => {
                     const product = productMap.get(item.product_id);
-                    const lineGross = item.quantity * item.selling_price;
+                    const isTaxInclusive = fullInvoice.is_tax_invoice;
+                    const taxRate = fullInvoice.tax_rate || 0;
+
+                    const displaySellingPrice = isTaxInclusive && taxRate > 0
+                      ? item.selling_price / (1 + taxRate / 100)
+                      : item.selling_price;
+
+                    const lineGross = item.quantity * displaySellingPrice;
                     const discAmt = item.discount_amount > 0
-                      ? item.discount_amount
+                      ? (isTaxInclusive && taxRate > 0 ? item.discount_amount / (1 + taxRate / 100) : item.discount_amount)
                       : lineGross * ((item.discount_percent || 0) / 100);
-                    const netAmount = item.line_total > 0 ? item.line_total : lineGross - discAmt;
+                    const netAmount = item.line_total > 0
+                      ? (isTaxInclusive && taxRate > 0 ? item.line_total / (1 + taxRate / 100) : item.line_total)
+                      : lineGross - discAmt;
                     return (
                       <TableRow
                         key={index}
@@ -2188,7 +2239,7 @@ export default function SalesPage() {
                           {product?.name || `Product #${item.product_id}`}
                         </TableCell>
                         <TableCell align="right">
-                          {fmtLKR(item.selling_price)}
+                          {fmtLKR(displaySellingPrice)}
                         </TableCell>
                         <TableCell align="right">
                           {(item.discount_percent || 0) > 0 ? (
@@ -2249,153 +2300,229 @@ export default function SalesPage() {
                       </TableRow>
                     );
                   })}
-                  <TableRow sx={modernTableStyles.footerRow}>
-                    <TableCell colSpan={6} align="right">
-                      <strong>Subtotal (after item discounts):</strong>
-                    </TableCell>
-                    <TableCell align="right">
-                      <strong>
-                        {fmtLKR(
-                          fullInvoice.items.reduce(
-                            (sum: number, item: any) => {
-                              const lineGross = item.quantity * item.selling_price;
-                              const discAmt = item.discount_amount > 0
-                                ? item.discount_amount
-                                : lineGross * ((item.discount_percent || 0) / 100);
-                              return sum + (item.line_total > 0 ? item.line_total : lineGross - discAmt);
-                            },
-                            0,
-                          ) || 0,
-                        )}
-                      </strong>
-                    </TableCell>
-                  </TableRow>
-                  {/* Coupon Discount Row */}
-                  {fullInvoice.cupon_amount > 0 && (
-                    <TableRow sx={{ bgcolor: "success.lighter" }}>
-                      <TableCell colSpan={6} align="right">
-                        <Typography fontWeight="medium" color="success.dark">
-                          Coupon Discount:
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="medium" color="success.dark">
-                          -{fmtLKR(fullInvoice.cupon_amount)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {/* Invoice Discount Row */}
-                  {fullInvoice.discount_amount > 0 && (
-                    <TableRow sx={{ bgcolor: "warning.lighter" }}>
-                      <TableCell colSpan={6} align="right">
-                        <Typography fontWeight="medium" color="warning.dark">
-                          Invoice Discount
-                          {fullInvoice.discount_percent > 0
-                            ? ` (${fullInvoice.discount_percent}%)`
-                            : ""}
-                          :
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="medium" color="warning.dark">
-                          -{fmtLKR(fullInvoice.discount_amount)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {/* Tax Row - shown as inclusive */}
-                  {fullInvoice.tax_amount > 0 && (
-                    <TableRow sx={{ bgcolor: "info.lighter" }}>
-                      <TableCell colSpan={6} align="right">
-                        <Typography fontWeight="medium" color="info.dark">
-                          Tax included ({fullInvoice.tax_rate}%):
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="medium" color="info.dark">
-                          {fmtLKR(fullInvoice.tax_amount)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {/* Gift Voucher Payment Row */}
-                  {fullInvoice.gift_voucher_amount > 0 && (
-                    <TableRow sx={{ bgcolor: "secondary.lighter" }}>
-                      <TableCell colSpan={6} align="right">
-                        <Typography fontWeight="medium" color="secondary.dark">
-                          Voucher Payment:
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="medium" color="secondary.dark">
-                          -{fmtLKR(fullInvoice.gift_voucher_amount)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {/* Service Charge Row - hidden when normalized */}
-                  {!hideServiceCharge &&
-                    fullInvoice.payment_method === "card" &&
-                    fullInvoice.service_charge_amount > 0 && (
-                      <TableRow sx={{ bgcolor: "grey.100" }}>
-                        <TableCell colSpan={6} align="right">
-                          <Typography
-                            fontWeight="medium"
-                            color="text.secondary"
-                          >
-                            Service Charge (
-                            {(fullInvoice.service_charge_rate * 100).toFixed(1)}
-                            %):
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography
-                            fontWeight="medium"
-                            color="text.secondary"
-                          >
-                            +{fmtLKR(fullInvoice.service_charge_amount)}
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  <TableRow sx={{ bgcolor: "success.lighter" }}>
-                    <TableCell colSpan={6} align="right">
-                      <Typography
-                        fontWeight="bold"
-                        fontSize="1.1rem"
-                        color="success.dark"
-                      >
-                        Grand Total (Amount Paid):
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography
-                        fontWeight="bold"
-                        fontSize="1.1rem"
-                        color="success.dark"
-                      >
-                        {fmtLKR(fullInvoice.grand_total || 0)}
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                  {/* Balance Due Row */}
-                  {fullInvoice.balance_due > 0 && (
-                    <TableRow sx={{ bgcolor: "error.lighter" }}>
-                      <TableCell colSpan={6} align="right">
-                        <Typography fontWeight="bold" color="error.main">
-                          Balance Due:
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="bold" color="error.main">
-                          {fmtLKR(fullInvoice.balance_due)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
+            </Paper>
+          </FormSection>
+        )}
+
+        {/* Payment Breakdown */}
+        {fullInvoice && (
+          <FormSection title="Payment Breakdown" columns={1}>
+            <Grid container spacing={3}>
+              {/* Settlement Breakdown */}
+              <Grid item xs={12} md={6}>
+                <Paper variant="outlined" sx={{ p: 2.5, height: "100%", borderRadius: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom fontWeight="bold" sx={{ mb: 2 }}>
+                    Settlement Breakdown
+                  </Typography>
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                    {fullInvoice.cash_amount > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="text.secondary">Cash Payment</Typography>
+                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.cash_amount)}</Typography>
+                      </Box>
+                    )}
+                    {fullInvoice.card_visa_amount > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="text.secondary">Card Payment (Visa)</Typography>
+                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.card_visa_amount)}</Typography>
+                      </Box>
+                    )}
+                    {fullInvoice.card_mastercard_amount > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="text.secondary">Card Payment (Mastercard)</Typography>
+                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.card_mastercard_amount)}</Typography>
+                      </Box>
+                    )}
+                    {fullInvoice.card_amex_amount > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="text.secondary">Card Payment (Amex)</Typography>
+                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.card_amex_amount)}</Typography>
+                      </Box>
+                    )}
+                    {fullInvoice.cheque_amount > 0 && (
+                      <Box>
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                          <Typography variant="body2" color="text.secondary">Cheque Payment</Typography>
+                          <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.cheque_amount)}</Typography>
+                        </Box>
+                        {(fullInvoice.cheque_number || fullInvoice.cheque_bank || fullInvoice.cheque_date) && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}>
+                            {fullInvoice.cheque_bank ? `${fullInvoice.cheque_bank} ` : ""}
+                            {fullInvoice.cheque_number ? `#${fullInvoice.cheque_number} ` : ""}
+                            {fullInvoice.cheque_date ? `(Due: ${new Date(fullInvoice.cheque_date).toLocaleDateString()})` : ""}
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+                    {fullInvoice.bank_transfer_amount > 0 && (
+                      <Box>
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                          <Typography variant="body2" color="text.secondary">Bank Transfer</Typography>
+                          <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.bank_transfer_amount)}</Typography>
+                        </Box>
+                        {(fullInvoice.bank_name || fullInvoice.bank_transfer_ref) && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}>
+                            {fullInvoice.bank_name ? `${fullInvoice.bank_name} ` : ""}
+                            {fullInvoice.bank_transfer_ref ? `Ref: ${fullInvoice.bank_transfer_ref}` : ""}
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+                    {fullInvoice.credit_amount > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="warning.main" fontWeight="medium">Credit (Owed)</Typography>
+                        <Typography variant="body2" fontWeight="bold" color="warning.main">Rs. {fmtLKR(fullInvoice.credit_amount)}</Typography>
+                      </Box>
+                    )}
+                    {fullInvoice.gift_voucher_amount > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="secondary.main">Gift Voucher</Typography>
+                        <Typography variant="body2" fontWeight="medium" color="secondary.main">Rs. {fmtLKR(fullInvoice.gift_voucher_amount)}</Typography>
+                      </Box>
+                    )}
+                    {fullInvoice.credit_note_amount > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="success.main">Credit Note Redeemed</Typography>
+                        <Typography variant="body2" fontWeight="medium" color="success.main">Rs. {fmtLKR(fullInvoice.credit_note_amount)}</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Paper>
+              </Grid>
+
+              {/* Order Financials */}
+              <Grid item xs={12} md={6}>
+                <Paper variant="outlined" sx={{ p: 2.5, height: "100%", borderRadius: 2, bgcolor: "grey.50" }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom fontWeight="bold" sx={{ mb: 2 }}>
+                    Order Financials
+                  </Typography>
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                    {(() => {
+                      const isTaxInclusive = fullInvoice.is_tax_invoice;
+                      const taxRate = fullInvoice.tax_rate || 0;
+                      const grossTotal = fullInvoice.items?.reduce((sum: number, item: any) => sum + (item.quantity * item.selling_price), 0) || 0;
+                      const itemDiscounts = fullInvoice.items?.reduce((sum: number, item: any) => sum + (item.discount_amount || (item.selling_price * item.quantity * (item.discount_percent || 0) / 100)), 0) || 0;
+
+                      const displayGrossTotal = isTaxInclusive && taxRate > 0 ? grossTotal / (1 + taxRate / 100) : grossTotal;
+                      const displayItemDiscounts = isTaxInclusive && taxRate > 0 ? itemDiscounts / (1 + taxRate / 100) : itemDiscounts;
+                      const displaySubtotal = displayGrossTotal - displayItemDiscounts;
+
+                      return (
+                        <>
+                          <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                            <Typography variant="body2" color="text.secondary">Gross Total</Typography>
+                            <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(displayGrossTotal)}</Typography>
+                          </Box>
+                          {displayItemDiscounts > 0 && (
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="error.main">Item Discounts</Typography>
+                              <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(displayItemDiscounts)}</Typography>
+                            </Box>
+                          )}
+                          <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                            <Typography variant="body2" color="text.secondary">Subtotal</Typography>
+                            <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(displaySubtotal)}</Typography>
+                          </Box>
+                          {fullInvoice.cupon_amount > 0 && (
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="error.main">Coupon Discount</Typography>
+                              <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(fullInvoice.cupon_amount)}</Typography>
+                            </Box>
+                          )}
+                          {fullInvoice.discount_amount > 0 && (
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="error.main">
+                                Invoice Discount {fullInvoice.discount_percent > 0 ? `(${fullInvoice.discount_percent}%)` : ""}
+                              </Typography>
+                              <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(fullInvoice.discount_amount)}</Typography>
+                            </Box>
+                          )}
+                          {fullInvoice.tax_amount > 0 && (
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="text.secondary">
+                                Tax ({fullInvoice.tax_rate}%) {isTaxInclusive ? "(Included)" : ""}
+                              </Typography>
+                              <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.tax_amount)}</Typography>
+                            </Box>
+                          )}
+                          {fullInvoice.service_charge_amount > 0 && (
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="text.secondary">Service Charge ({(fullInvoice.service_charge_rate * 100).toFixed(1)}%)</Typography>
+                              <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.service_charge_amount)}</Typography>
+                            </Box>
+                          )}
+                          <Divider sx={{ my: 0.5 }} />
+                          <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                            <Typography variant="subtitle2" fontWeight="bold">Grand Total</Typography>
+                            <Typography variant="subtitle2" fontWeight="bold">Rs. {fmtLKR(fullInvoice.grand_total)}</Typography>
+                          </Box>
+                          <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                            <Typography variant="body2" fontWeight="medium" color="success.main">Amount Paid</Typography>
+                            <Typography variant="body2" fontWeight="medium" color="success.main">Rs. {fmtLKR(fullInvoice.paid_amount)}</Typography>
+                          </Box>
+                          {fullInvoice.balance_due > 0 && (
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" fontWeight="medium" color="error.main">Balance Due</Typography>
+                              <Typography variant="body2" fontWeight="medium" color="error.main">Rs. {fmtLKR(fullInvoice.balance_due)}</Typography>
+                            </Box>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </Box>
+                </Paper>
+              </Grid>
+            </Grid>
+          </FormSection>
+        )}
+
+        {/* Agent Commission Section */}
+        {fullInvoice?.customer_agent_id && (
+          <FormSection title="Agent Commission" columns={1}>
+            <Paper variant="outlined" sx={{ p: 2.5, borderColor: "primary.main", borderWidth: 1, borderRadius: 2 }}>
+              {(() => {
+                const agent = customers?.find((c) => c.id === fullInvoice.customer_agent_id);
+                return (
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={4}>
+                      <Typography variant="body2" color="text.secondary">Agent Name</Typography>
+                      <Typography variant="body1" fontWeight={500}>{agent?.customer_name || `Agent #${fullInvoice.customer_agent_id}`}</Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={2}>
+                      <Typography variant="body2" color="text.secondary">Commission Rate</Typography>
+                      <Typography variant="body1" fontWeight={500}>
+                        {invoiceCommission ? `${Number(invoiceCommission.commission_rate).toFixed(1)}%` : `${Number(agent?.commission_rate || 0).toFixed(1)}%`}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={2}>
+                      <Typography variant="body2" color="text.secondary">Status</Typography>
+                      <Box sx={{ mt: 0.5 }}>
+                        <Chip
+                          size="small"
+                          label={invoiceCommission?.status ? invoiceCommission.status.toUpperCase() : "PENDING"}
+                          color={
+                            invoiceCommission?.status === "paid"
+                              ? "success"
+                              : invoiceCommission?.status === "approved"
+                              ? "info"
+                              : invoiceCommission?.status === "cancelled"
+                              ? "error"
+                              : "warning"
+                          }
+                        />
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={4} sx={{ textAlign: { sm: "right" } }}>
+                      <Typography variant="body2" color="text.secondary">Commission Amount</Typography>
+                      <Typography variant="h6" fontWeight="bold" color="primary.main">
+                        Rs. {fmtLKR(invoiceCommission ? Number(invoiceCommission.commission_amount) : (fullInvoice.grand_total * ((agent?.commission_rate || 0) / 100)))}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                );
+              })()}
             </Paper>
           </FormSection>
         )}
@@ -2678,13 +2805,13 @@ export default function SalesPage() {
                         </TableCell>
                         <TableCell>
                           <Chip
-                            label={sale.payment_method
-                              ?.replace(/_/g, " ")
-                              .toUpperCase()}
+                            label={getPaymentMethodsDisplay(sale).toUpperCase()}
                             size="small"
                             color={
-                              sale.payment_method === "cash"
+                              sale.payment_method === "cash" || getPaymentMethodsDisplay(sale) === "Cash"
                                 ? "success"
+                                : getPaymentMethodsDisplay(sale).startsWith("Split")
+                                ? "info"
                                 : "default"
                             }
                           />
@@ -3006,15 +3133,6 @@ export default function SalesPage() {
                           >
                             Branch
                           </TableCell>
-                          <TableCell
-                            sx={{
-                              py: 0.5,
-                              fontWeight: 600,
-                              fontSize: "0.75rem",
-                            }}
-                          >
-                            Price
-                          </TableCell>
                           <TableCell sx={{ py: 0.5, width: 64 }} />
                         </TableRow>
                       </TableHead>
@@ -3046,9 +3164,6 @@ export default function SalesPage() {
                               </TableCell>
                               <TableCell sx={{ py: 0.5, fontSize: "0.75rem", color: "text.secondary" }}>
                                 {s.branch_code}
-                              </TableCell>
-                              <TableCell sx={{ py: 0.5, fontSize: "0.8rem" }}>
-                                Rs. {fmtLKR(s.selling_price ?? 0)}
                               </TableCell>
                               <TableCell sx={{ py: 0.5 }}>
                                 <Button
@@ -3586,10 +3701,9 @@ export default function SalesPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                  {/* Service Charge Row - Only for card payments, hidden when normalized */}
-                  {!hideServiceCharge &&
-                    state.formData.payment_method === "card" &&
-                    selectedPaymentCard && (
+                  {/* Service Charge Row - show whenever a card with charge is in any split row */}
+                  {selectedPaymentCard &&
+                    calcOrderTotals().serviceCharge > 0 && (
                       <TableRow sx={{ bgcolor: "grey.100" }}>
                         <TableCell colSpan={7} align="right">
                           <Typography
@@ -4370,7 +4484,7 @@ export default function SalesPage() {
                       onChange={(e) => updateSplitRow(row.id, { card_holder_name: e.target.value })}
                       sx={{ width: 180 }}
                     />
-                    {selectedPaymentCard && !hideServiceCharge && (
+                    {selectedPaymentCard && (selectedPaymentCard.service_charge_percent || 0) > 0 && (
                       <Box sx={{ p: 1, bgcolor: "warning.lighter", borderRadius: 1, alignSelf: "center" }}>
                         <Typography variant="caption" color="warning.dark">
                           {selectedPaymentCard.service_charge_percent}% service charge applies
@@ -4397,6 +4511,58 @@ export default function SalesPage() {
                       sx={{ width: 200 }}
                       required
                     />
+                  </Box>
+                )}
+
+                {/* Credit details & terms */}
+                {row.method === "credit" && (
+                  <Box sx={{ mt: 1.5, display: "flex", flexDirection: "column", gap: 1.5 }}>
+                    {/* Customer Credit Status Info */}
+                    <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", p: 1.5, bgcolor: "info.lighter", borderRadius: 1 }}>
+                      <Typography variant="body2" color="info.dark" fontWeight="medium">
+                        Available Credit Days: <strong>{customerCreditStatus?.credit_days ?? 0} days</strong>
+                      </Typography>
+                      <Typography variant="body2" color="info.dark" fontWeight="medium">
+                        Available Credit: <strong>Rs. {customerCreditStatus ? fmtLKR(customerCreditStatus.available_credit) : "0.00"}</strong>
+                      </Typography>
+                    </Box>
+
+                    {/* Credit Terms Dropdown */}
+                    <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+                      <TextField
+                        select size="small" label="Credit Terms"
+                        value={row.credit_terms || "30 days"}
+                        onChange={(e) => updateSplitRow(row.id, { credit_terms: e.target.value })}
+                        sx={{ minWidth: 200 }}
+                      >
+                        <MenuItem value="30 days">30 Days</MenuItem>
+                        <MenuItem value="60 days">60 Days</MenuItem>
+                        <MenuItem value="90 days">90 Days</MenuItem>
+                        <MenuItem value="3 months">3 Months (Installments)</MenuItem>
+                        <MenuItem value="6 months">6 Months (Installments)</MenuItem>
+                        <MenuItem value="12 months">12 Months (Installments)</MenuItem>
+                      </TextField>
+
+                      {/* Monthly Amount Label */}
+                      {(() => {
+                        const terms = row.credit_terms || "30 days";
+                        let months = 1;
+                        if (terms.includes("3 months") || terms.includes("90 days")) months = 3;
+                        else if (terms.includes("6 months")) months = 6;
+                        else if (terms.includes("12 months")) months = 12;
+                        else if (terms.includes("60 days")) months = 2;
+                        
+                        const monthlyAmt = row.amount / months;
+                        return (
+                          <Chip
+                            color="primary"
+                            variant="outlined"
+                            label={`Monthly Amount: Rs. ${fmtLKR(monthlyAmt)} / mo`}
+                            sx={{ fontWeight: "bold" }}
+                          />
+                        );
+                      })()}
+                    </Box>
                   </Box>
                 )}
               </Box>
@@ -4642,10 +4808,9 @@ export default function SalesPage() {
                 </Box>
               )}
 
-              {/* Service Charge - Only for card payments, hidden when normalized */}
-              {!hideServiceCharge &&
-                state.formData.payment_method === "card" &&
-                selectedPaymentCard && (
+              {/* Service Charge - show whenever a card with charge is in any split row */}
+              {selectedPaymentCard &&
+                calcOrderTotals().serviceCharge > 0 && (
                   <Box
                     sx={{
                       display: "flex",
@@ -4699,34 +4864,21 @@ export default function SalesPage() {
             // Effective amount: manual amount override > calculated
             const effectiveAmt = manualCommissionAmount !== null ? manualCommissionAmount : calculatedAmt;
             return (
-              <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: payCommissionNow ? "success.main" : "divider", bgcolor: payCommissionNow ? "success.50" : "background.paper" }}>
+              <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: "primary.main", borderWidth: 2 }}>
                 {/* Header row */}
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
-                  <Box>
-                    <Typography variant="subtitle2" fontWeight="bold">
-                      Agent Commission — {agent?.customer_name ?? `Agent #${state.formData.customer_agent_id}`}
+                <Box sx={{ mb: 1.5 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" color="primary">
+                    Agent Commission — {agent?.customer_name ?? `Agent #${state.formData.customer_agent_id}`}
+                  </Typography>
+                  {baseRate > 0 && manualCommissionRate === null && manualCommissionAmount === null && (
+                    <Typography variant="caption" color="text.secondary">
+                      Default: {baseRate}% × Rs. {fmtLKR(totals.grandTotal)} = Rs. {fmtLKR(calculatedAmt)}
                     </Typography>
-                    {baseRate > 0 && manualCommissionRate === null && manualCommissionAmount === null && (
-                      <Typography variant="caption" color="text.secondary">
-                        Default: {baseRate}% × Rs. {fmtLKR(totals.grandTotal)} = Rs. {fmtLKR(calculatedAmt)}
-                      </Typography>
-                    )}
-                  </Box>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={payCommissionNow}
-                        onChange={(e) => setPayCommissionNow(e.target.checked)}
-                        color="success"
-                      />
-                    }
-                    label={payCommissionNow ? "Pay Now" : "Pay Later"}
-                    labelPlacement="start"
-                  />
+                  )}
                 </Box>
 
                 {/* Manual override row */}
-                <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mb: payCommissionNow ? 1.5 : 0 }}>
+                <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mb: 1 }}>
                   <TextField
                     size="small"
                     label="Rate % (override)"
@@ -4764,31 +4916,16 @@ export default function SalesPage() {
                     </Button>
                   )}
                   <Chip
-                    label={`Payable: Rs. ${fmtLKR(effectiveAmt)}`}
-                    color={payCommissionNow ? "success" : "default"}
+                    label={`Commission: Rs. ${fmtLKR(effectiveAmt)}`}
+                    color="primary"
                     size="small"
-                    variant={payCommissionNow ? "filled" : "outlined"}
+                    variant="outlined"
                   />
                 </Box>
 
-                {payCommissionNow && (
-                  <TextField
-                    select size="small"
-                    label="Commission Payment Method"
-                    value={commissionPaymentMethod}
-                    onChange={(e) => setCommissionPaymentMethod(e.target.value)}
-                    sx={{ width: 220 }}
-                  >
-                    {["Cash", "Bank Transfer", "Cheque"].map((m) => (
-                      <MenuItem key={m} value={m}>{m}</MenuItem>
-                    ))}
-                  </TextField>
-                )}
-                {!payCommissionNow && (
-                  <Typography variant="caption" color="text.secondary">
-                    Commission will be recorded as <strong>unpaid</strong> and can be paid later from Agent Commissions.
-                  </Typography>
-                )}
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  Commission will be created as <strong>pending</strong> and requires approval before payment.
+                </Alert>
               </Paper>
             );
           })()}
@@ -4982,7 +5119,7 @@ export default function SalesPage() {
                               variant="caption"
                               sx={{ textTransform: "capitalize" }}
                             >
-                              {invoice.payment_method?.replace(/_/g, " ")}
+                              {getPaymentMethodsDisplay(invoice)}
                             </Typography>
                             <Typography
                               component="span"
