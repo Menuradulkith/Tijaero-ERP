@@ -1,9 +1,9 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, Numeric, Boolean, TIMESTAMP
 from sqlalchemy.orm import relationship
 from app.db.base import Base
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 
-class Category(Base, TimestampMixin):
+class Category(Base, AuditMixin):
     __tablename__ = "category"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -17,7 +17,7 @@ class Category(Base, TimestampMixin):
 
     products = relationship("Product", back_populates="category")
 
-class ItemsBrand(Base):
+class ItemsBrand(Base, AuditMixin):
     __tablename__ = "items_brand"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -27,7 +27,7 @@ class ItemsBrand(Base):
     
     products = relationship("Product", back_populates="brand")
 
-class Product(Base, TimestampMixin):
+class Product(Base, AuditMixin):
     __tablename__ = "products"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -60,7 +60,7 @@ class Product(Base, TimestampMixin):
     company_assets = relationship("CompanyAssets", back_populates="product")
     sales_stock = relationship("SalesStock", back_populates="product")
 
-class MinimumPrice(Base, TimestampMixin):
+class MinimumPrice(Base, AuditMixin):
     __tablename__ = "minimum_price"
     
     id = Column(Integer, primary_key=True, index=True)

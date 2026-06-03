@@ -15,7 +15,7 @@ export interface CustomerAgentCommission {
   commission_type: 'PERCENT' | 'AMOUNT';
   commission_rate?: number;
   commission_amount: number;
-  status: 'pending' | 'approved' | 'paid';
+  status: 'pending' | 'approved' | 'paid' | 'cancelled';
   approved_by?: number;
   approved_date?: string;
   remarks?: string;
@@ -138,6 +138,7 @@ export const COMMISSION_STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending' },
   { value: 'approved', label: 'Approved' },
   { value: 'paid', label: 'Paid' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 export const COMMISSION_TYPE_OPTIONS = [

@@ -302,26 +302,10 @@ export default function DashboardPage() {
         <Stack
           direction="row"
           alignItems="center"
-          justifyContent="space-between"
+          justifyContent="flex-end"
           spacing={1.5}
-          sx={{ mb: metrics && metrics.pending_approvals > 0 ? 1.25 : 0.5 }}
+          sx={{ mb: 0.5 }}
         >
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ flexWrap: "wrap", rowGap: 0.75 }}
-          >
-            {metrics && metrics.pending_approvals > 0 && (
-              <Chip
-                icon={<WarningAmberIcon />}
-                label={`Approvals (${metrics.pending_approvals})`}
-                color="warning"
-                size="small"
-                onClick={() => navigate("/sales/approvals")}
-              />
-            )}
-          </Stack>
-
           <Tooltip title="Refresh dashboard">
             <span>
               <IconButton

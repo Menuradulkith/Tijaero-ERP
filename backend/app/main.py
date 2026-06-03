@@ -155,6 +155,38 @@ setup_middleware(app)
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
+# ── Audit User Context Middleware ────────────────────────────────────
+from app.core.audit_context import current_user_id
+from app.core.security import decode_token
+
+@app.middleware("http")
+async def audit_user_middleware(request: Request, call_next):
+    token = None
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:]
+    else:
+        token = request.query_params.get("token")
+        
+    user_id = None
+    if token:
+        try:
+            payload = decode_token(token)
+            if payload:
+                sub = payload.get("sub")
+                if sub is not None:
+                    user_id = int(sub)
+        except Exception:
+            pass
+            
+    token_token = current_user_id.set(user_id)
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        current_user_id.reset(token_token)
+
+
 # ── Global Exception Handlers ────────────────────────────────────────
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):

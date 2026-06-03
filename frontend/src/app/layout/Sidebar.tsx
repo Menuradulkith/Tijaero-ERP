@@ -119,7 +119,7 @@ const menuItems: MenuItem[] = [
         path: "/sales/approvals",
         subItems: [
           {
-            text: "SO Approvals",
+            text: "Credit SO Approvals",
             icon: <FactCheckIcon />,
             path: "/sales/approvals/so-approvals",
             permission: PERMISSIONS.SO_APPROVALS_VIEW,

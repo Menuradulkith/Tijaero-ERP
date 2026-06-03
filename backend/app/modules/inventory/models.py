@@ -1,9 +1,10 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, TIMESTAMP, Boolean
 from sqlalchemy.orm import relationship
 from app.db.base import Base
+from app.common.base_models import AuditMixin
 
 
-class CompanyAssets(Base):
+class CompanyAssets(Base, AuditMixin):
     __tablename__ = "company_assets"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -29,7 +30,7 @@ class CompanyAssets(Base):
     purchasing_order_item = relationship("PurchasingOrderItems", back_populates="company_asset_items")
 
 
-class SalesStock(Base):
+class SalesStock(Base, AuditMixin):
     __tablename__ = "sales_stock"
     
     id = Column(Integer, primary_key=True, index=True)

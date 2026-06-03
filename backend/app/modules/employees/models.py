@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 
-class Employee(Base, TimestampMixin):
+class Employee(Base, AuditMixin):
     __tablename__ = "employees"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -46,7 +46,7 @@ class Employee(Base, TimestampMixin):
     )
 
 
-class EmployeePayroll(Base):
+class EmployeePayroll(Base, AuditMixin):
     __tablename__ = "employee_payroll"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -102,7 +102,7 @@ class EmployeePayroll(Base):
     employee = relationship("Employee", back_populates="payrolls")
 
 
-class EmployeeSalaryProfile(Base):
+class EmployeeSalaryProfile(Base, AuditMixin):
     __tablename__ = "employee_salary_profile"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -123,7 +123,7 @@ class EmployeeSalaryProfile(Base):
     employee = relationship("Employee", back_populates="salary_profile")
 
 
-class EmployeePromotions(Base):
+class EmployeePromotions(Base, AuditMixin):
     __tablename__ = "employee_promotions"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -135,7 +135,7 @@ class EmployeePromotions(Base):
     employee = relationship("Employee", back_populates="promotions", lazy="select")
 
 
-class EmployeesAssets(Base):
+class EmployeesAssets(Base, AuditMixin):
     __tablename__ = "employees_assets"
 
     id = Column(Integer, primary_key=True, index=True)

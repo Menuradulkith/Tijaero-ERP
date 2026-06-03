@@ -170,7 +170,10 @@ export default function CustomersPage() {
   const createMutation = useMutation({
     mutationFn: customersApi.create,
     onSuccess: (newCustomer) => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      // Refetch queries immediately to update the UI
+      queryClient.refetchQueries({ queryKey: ["customers"] });
+      queryClient.refetchQueries({ queryKey: ["customers-all"] });
+      queryClient.refetchQueries({ queryKey: ["referenceData"] });
       showSuccessToast("Customer created successfully");
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
@@ -184,8 +187,10 @@ export default function CustomersPage() {
     mutationFn: ({ id, data }: { id: number; data: CustomerCreate }) =>
       customersApi.update(id, data),
     onSuccess: (updatedCustomer) => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-      queryClient.invalidateQueries({ queryKey: ["customers-all"] });
+      // Refetch queries immediately to update the UI
+      queryClient.refetchQueries({ queryKey: ["customers"] });
+      queryClient.refetchQueries({ queryKey: ["customers-all"] });
+      queryClient.refetchQueries({ queryKey: ["referenceData"] });
       showSuccessToast("Customer updated successfully");
       setIsEditing(false);
       // Refresh selected customer with latest server data
@@ -197,7 +202,10 @@ export default function CustomersPage() {
   const deleteMutation = useMutation({
     mutationFn: customersApi.delete,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      // Refetch queries immediately to update the UI
+      queryClient.refetchQueries({ queryKey: ["customers"] });
+      queryClient.refetchQueries({ queryKey: ["customers-all"] });
+      queryClient.refetchQueries({ queryKey: ["referenceData"] });
       showSuccessToast("Customer deleted successfully");
       baseHandleCancel(filteredCustomers);
     },

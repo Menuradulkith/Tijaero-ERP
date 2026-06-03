@@ -8,6 +8,8 @@
  */
 
 import { usePermission } from "@/auth/permissions";
+import { exportToCSV } from "@/utils/csvExport";
+import DownloadIcon from "@mui/icons-material/FileDownload";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -511,6 +513,38 @@ export default function SaleReturnsPage() {
             showSuccessToast(`${newItems.length} item(s) added`);
         }
     }, [invoiceItems, selectedCandidates, lineItems, formData.branch_code]);
+
+    const handleExportCSV = () => {
+        const headers = [
+            "Return No",
+            "Original Invoice",
+            "Branch",
+            "Date",
+            "Status",
+            "Refund Status",
+            "Subtotal",
+            "Tax Refund",
+            "Total Refund"
+        ];
+
+        const rows = filteredReturns.map(ret => [
+            ret.sale_return_no || `RET-${ret.id}`,
+            getInvoiceNo(ret),
+            getBranchDisplay(ret.branch_code),
+            ret.added_date ? new Date(ret.added_date).toLocaleDateString() : "",
+            getStatus(ret),
+            ret.refund_status || "pending",
+            ret.subtotal || 0,
+            ret.tax_refund || 0,
+            ret.total_refund || 0
+        ]);
+
+        exportToCSV({
+            filename: `sale_returns_${new Date().toISOString().split("T")[0]}`,
+            headers,
+            rows
+        });
+    };
 
     const handleSave = useCallback(() => {
         const dataToSave: SaleReturnCreate = {
@@ -1256,6 +1290,18 @@ export default function SaleReturnsPage() {
         <>
             <MasterDetailLayout
                 title="Sale Returns"
+                headerActions={
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<DownloadIcon />}
+                    onClick={handleExportCSV}
+                    disabled={filteredReturns.length === 0}
+                    sx={{ mr: 1 }}
+                  >
+                    Export CSV
+                  </Button>
+                }
                 onRefresh={() => {
                   queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
                   queryClient.invalidateQueries({ queryKey: ["sales"] });

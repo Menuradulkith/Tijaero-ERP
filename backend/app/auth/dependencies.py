@@ -47,6 +47,8 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
         )
+    from app.core.audit_context import current_user_id
+    current_user_id.set(user_id)
     # Eager load relationships for access control and serialization
     user = (
         db.query(User)
@@ -106,6 +108,8 @@ def get_current_user_flexible(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
         )
+    from app.core.audit_context import current_user_id
+    current_user_id.set(user_id)
     user = (
         db.query(User)
         .options(joinedload(User.branches))

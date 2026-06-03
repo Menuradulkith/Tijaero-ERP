@@ -9,9 +9,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from datetime import datetime
+from app.common.base_models import AuditMixin
 
 
-class MonthlyBranchSalesSummary(Base):
+class MonthlyBranchSalesSummary(Base, AuditMixin):
     """
     Monthly aggregated sales data per branch for commission calculation.
     Stores revenue, costs, returns, discounts, and calculated gross profit.
@@ -57,7 +58,7 @@ class MonthlyBranchSalesSummary(Base):
     commissions = relationship("SalesOfficerMonthlyCommission", back_populates="monthly_summary", lazy="select")
 
 
-class SalesOfficerMonthlyCommission(Base):
+class SalesOfficerMonthlyCommission(Base, AuditMixin):
     """
     Individual commission record for each Sales Officer based on branch profitability.
     Formula: Individual = (Branch Gross Profit × Commission %) ÷ Number of Sales Officers in Branch

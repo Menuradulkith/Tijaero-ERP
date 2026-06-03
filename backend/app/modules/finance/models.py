@@ -1,4 +1,4 @@
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 from app.db.base import Base
 from sqlalchemy import (
     TIMESTAMP,
@@ -21,7 +21,7 @@ from sqlalchemy.orm import relationship
 # MATERIALIZED CASHBOOK TABLE
 # =============================================================================
 
-class CashbookEntryRecord(Base):
+class CashbookEntryRecord(Base, AuditMixin):
     """
     Materialized cashbook entries table.
     
@@ -88,7 +88,7 @@ class CashbookEntryRecord(Base):
     )
 
 
-class BankDeposits(Base):
+class BankDeposits(Base, AuditMixin):
     __tablename__ = "bank_deposits"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -112,7 +112,7 @@ class BankDeposits(Base):
     invoices = relationship("Invoice", back_populates="bank_transfer")
 
 
-class CardPayments(Base):
+class CardPayments(Base, AuditMixin):
     __tablename__ = "card_payments"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -127,7 +127,7 @@ class CardPayments(Base):
     invoices = relationship("Invoice", back_populates="card_payment")
 
 
-class ChequePayments(Base):
+class ChequePayments(Base, AuditMixin):
     __tablename__ = "cheque_payments"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -145,7 +145,7 @@ class ChequePayments(Base):
     invoices = relationship("Invoice", back_populates="cheque_payment")
 
 
-class CreditPayments(Base):
+class CreditPayments(Base, AuditMixin):
     __tablename__ = "credit_payments"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -160,7 +160,7 @@ class CreditPayments(Base):
     invoices = relationship("Invoice", back_populates="credit_payment")
 
 
-class Vouchers(Base):
+class Vouchers(Base, AuditMixin):
     __tablename__ = "vouchers"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -175,7 +175,7 @@ class Vouchers(Base):
     invoices = relationship("Invoice", back_populates="voucher")
 
 
-class PettyCash(Base):
+class PettyCash(Base, AuditMixin):
     """
     Petty Cash Fund — represents a physical petty cash fund at a branch.
     Tracks opening balance, current balance, and fund lifecycle (active → closed).
@@ -216,7 +216,7 @@ class PettyCash(Base):
     transactions = relationship("PettyCashTransaction", back_populates="fund", order_by="PettyCashTransaction.transaction_date.desc()")
 
 
-class PettyCashTransaction(Base):
+class PettyCashTransaction(Base, AuditMixin):
     """
     Individual petty cash transactions — expenses deduct from the fund,
     replenishments add back to the fund.
@@ -268,7 +268,7 @@ class PettyCashTransaction(Base):
 # )
 
 
-class Expenses(Base):
+class Expenses(Base, AuditMixin):
     __tablename__ = "expenses"
 
     id = Column(Integer, primary_key=True, index=True)

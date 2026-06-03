@@ -1,4 +1,4 @@
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 from app.db.base import Base
 from sqlalchemy import (
     TIMESTAMP,
@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 
-class Invoice(Base, TimestampMixin):
+class Invoice(Base, AuditMixin):
     __tablename__ = "invoices"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -122,7 +122,7 @@ class Invoice(Base, TimestampMixin):
     )
 
 
-class InvoiceItems(Base, TimestampMixin):
+class InvoiceItems(Base, AuditMixin):
     __tablename__ = "invoice_items"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -157,7 +157,7 @@ class InvoiceItems(Base, TimestampMixin):
     sale_return_items = relationship("SaleReturnItems", back_populates="invoice_item")
 
 
-class InvoiceItemsBarcode(Base):
+class InvoiceItemsBarcode(Base, AuditMixin):
     __tablename__ = "invoice_items_barcode"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -173,7 +173,7 @@ class InvoiceItemsBarcode(Base):
     invoice_item = relationship("InvoiceItems", back_populates="barcodes")
 
 
-class SaleReturn(Base, TimestampMixin):
+class SaleReturn(Base, AuditMixin):
     __tablename__ = "sale_return"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -222,7 +222,7 @@ class SaleReturn(Base, TimestampMixin):
     credit_note = relationship("CustomerCreditNotes", backref="sale_returns")
 
 
-class SaleReturnItems(Base, TimestampMixin):
+class SaleReturnItems(Base, AuditMixin):
     __tablename__ = "sale_return_items"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -253,7 +253,7 @@ class SaleReturnItems(Base, TimestampMixin):
     product = relationship("Product", backref="sale_return_items")
 
 
-class PaymentCard(Base, TimestampMixin):
+class PaymentCard(Base, AuditMixin):
     """
     Payment card configuration for credit/debit cards.
     Allows defining different card types with their service charges.
@@ -271,7 +271,7 @@ class PaymentCard(Base, TimestampMixin):
     invoice_payments = relationship("InvoiceCardPayment", back_populates="payment_card")
 
 
-class InvoiceCardPayment(Base, TimestampMixin):
+class InvoiceCardPayment(Base, AuditMixin):
     """
     Tracks card payments for invoices with calculated service charges.
     """

@@ -1,9 +1,9 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, Date, TIMESTAMP, Numeric, SmallInteger, ForeignKey
 from sqlalchemy.orm import relationship
 from app.db.base import Base
-from app.common.base_models import TimestampMixin
+from app.common.base_models import TimestampMixin, AuditMixin
 
-class Country(Base):
+class Country(Base, AuditMixin):
     __tablename__ = "country"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -32,7 +32,7 @@ class Country(Base):
     customers = relationship("Customer", back_populates="country")
     suppliers = relationship("Supplier", back_populates="country")
 
-class Approvals(Base, TimestampMixin):
+class Approvals(Base, AuditMixin):
     __tablename__ = "approvals"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -43,6 +43,13 @@ class Approvals(Base, TimestampMixin):
     next_user_to_approve = Column(Integer)
     remark = Column(String(255))
     
+    approver = relationship(
+        "User",
+        primaryjoin="Approvals.status_changed_by == User.id",
+        foreign_keys="[Approvals.status_changed_by]",
+        uselist=False,
+    )
+    
     invoices = relationship("Invoice", back_populates="approval_record")
     purchasing_orders = relationship("PurchasingOrder", back_populates="approval")
     purchasing_returns = relationship("PurchasingReturn", back_populates="approval")
@@ -52,7 +59,7 @@ class Approvals(Base, TimestampMixin):
     reimbursements = relationship("Reimbursements", back_populates="approval")
     salary_deductions = relationship("SalaryDeductions", back_populates="approval")
 
-class Locations(Base, TimestampMixin):
+class Locations(Base, AuditMixin):
     __tablename__ = "good_received_locations"
     
     id = Column(Integer, primary_key=True, index=True)

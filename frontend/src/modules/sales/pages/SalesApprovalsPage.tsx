@@ -14,12 +14,9 @@ import {
   AssignmentReturn as ReturnIcon,
   MonetizationOn as CommissionIcon,
 } from "@mui/icons-material";
-import { useQuery } from "@tanstack/react-query";
 
 // Tijaero Components
-import { TPageHeader, TStatCard } from "@/components/tijaero";
-import { salesApi, saleReturnsApi } from "@/modules/sales/api";
-import { commissionsApi } from "@/modules/sales/commission-api";
+import { TPageHeader } from "@/components/tijaero";
 
 interface ApprovalCard {
   title: string;
@@ -55,37 +52,6 @@ const approvalTypes: ApprovalCard[] = [
 
 export default function SalesApprovalsPage() {
   const navigate = useNavigate();
-
-  // Fetch live pending counts
-  const { data: pendingSO } = useQuery({
-    queryKey: ["sales-pending-approval"],
-    queryFn: () => salesApi.getPendingApproval(0, 500),
-    staleTime: 30000,
-  });
-
-  const { data: pendingReturns } = useQuery({
-    queryKey: ["returns-pending-approval"],
-    queryFn: () => saleReturnsApi.getAll(0, 500),
-    staleTime: 30000,
-  });
-
-  const { data: pendingCommissions } = useQuery({
-    queryKey: ["commissions-pending-approval"],
-    queryFn: () => commissionsApi.getAll({ status: "pending", limit: 500 }),
-    staleTime: 30000,
-  });
-
-  const soCount = pendingSO?.length ?? "—";
-  const returnsCount = pendingReturns
-    ? pendingReturns.filter((r) => r.status === "pending").length
-    : "—";
-  const commissionCount = pendingCommissions
-    ? pendingCommissions.items.filter((c) => c.status === "pending").length
-    : "—";
-  const totalPending =
-    typeof soCount === "number" && typeof returnsCount === "number" && typeof commissionCount === "number"
-      ? soCount + returnsCount + commissionCount
-      : "—";
 
   return (
     <Box>
@@ -138,49 +104,6 @@ export default function SalesApprovalsPage() {
             </Paper>
           </Grid>
         ))}
-      </Grid>
-
-      {/* Quick Stats */}
-      <Typography variant="h6" fontWeight="bold" sx={{ mt: 4, mb: 2 }}>
-        Quick Overview
-      </Typography>
-      <Grid container spacing={2}>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="SO Approvals"
-            value={soCount}
-            icon={<SOIcon />}
-            color="primary"
-            subtitle="Pending approval"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Return Approvals"
-            value={returnsCount}
-            icon={<ReturnIcon />}
-            color="warning"
-            subtitle="Pending approval"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Commission Approvals"
-            value={commissionCount}
-            icon={<CommissionIcon />}
-            color="success"
-            subtitle="Pending approval"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Total Pending"
-            value={totalPending}
-            icon={<ApprovalIcon />}
-            color="info"
-            subtitle="Across all workflows"
-          />
-        </Grid>
       </Grid>
     </Box>
   );

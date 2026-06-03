@@ -100,7 +100,7 @@ export default function CompanySettingsPage() {
 
   const createCardMutation = useCrudMutation({
     mutationFn: paymentCardsApi.create,
-    invalidateQueryKeys: [["payment-cards"]],
+    invalidateQueryKeys: [["payment-cards"], ["payment-cards-active"]],
     successMessage: "Payment card created successfully",
     errorMessage: "Failed to create payment card",
     onSuccess: () => handleCloseCardDialog(),
@@ -109,7 +109,7 @@ export default function CompanySettingsPage() {
   const updateCardMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: PaymentCardUpdate }) =>
       paymentCardsApi.update(id, data),
-    invalidateQueryKeys: [["payment-cards"]],
+    invalidateQueryKeys: [["payment-cards"], ["payment-cards-active"]],
     successMessage: "Payment card updated successfully",
     errorMessage: "Failed to update payment card",
     onSuccess: () => handleCloseCardDialog(),

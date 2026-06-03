@@ -29,9 +29,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from app.db.base import Base
+from app.common.base_models import AuditMixin
 
 
-class PurchaseInvoice(Base):
+class PurchaseInvoice(Base, AuditMixin):
     """
     Purchase Invoice (Supplier Bill) - What the supplier is billing us for.
     
@@ -103,7 +104,7 @@ class PurchaseInvoice(Base):
     )
 
 
-class PurchaseInvoiceItem(Base):
+class PurchaseInvoiceItem(Base, AuditMixin):
     """
     Purchase Invoice Line Item - Maps invoice lines to GRN received items.
     
@@ -148,7 +149,7 @@ class PurchaseInvoiceItem(Base):
     product = relationship("Product", backref="purchase_invoice_items")
 
 
-class PurchaseInvoicePayment(Base):
+class PurchaseInvoicePayment(Base, AuditMixin):
     """
     Payment Allocation - Links payments to specific invoices with amounts.
     

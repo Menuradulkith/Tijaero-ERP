@@ -68,7 +68,7 @@ class Customer(Base, AuditMixin):
     credit_notes = relationship("CustomerCreditNotes", back_populates="customer")
 
 
-class CustomerAdvancePayments(Base):
+class CustomerAdvancePayments(Base, AuditMixin):
     __tablename__ = "customer_advance_payments"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -91,7 +91,7 @@ class CustomerAdvancePayments(Base):
     proforma_invoice = relationship("SalesQuote", foreign_keys=[proforma_invoice_id])
 
 
-class CustomerCreditNotes(Base):
+class CustomerCreditNotes(Base, AuditMixin):
     __tablename__ = "customer_credit_notes"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -106,7 +106,7 @@ class CustomerCreditNotes(Base):
     # Note: Credit notes are for sale returns/vouchers, not directly linked to invoices table
 
 
-class CustomerCreditsSettle(Base):
+class CustomerCreditsSettle(Base, AuditMixin):
     __tablename__ = "customer_credits_settle"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -119,7 +119,7 @@ class CustomerCreditsSettle(Base):
     transactions = relationship("CustomerCreditsSettleTransaction", back_populates="credit_settle")
 
 
-class CustomerCreditsSettleTransaction(Base):
+class CustomerCreditsSettleTransaction(Base, AuditMixin):
     __tablename__ = "customer_credits_settle_transaction"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -136,7 +136,7 @@ class CustomerCreditsSettleTransaction(Base):
     invoice = relationship("Invoice", back_populates="credits_settle_transactions")
 
 
-class CustomerCuponCodes(Base):
+class CustomerCuponCodes(Base, AuditMixin):
     __tablename__ = "customer_cupon_codes"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -167,7 +167,7 @@ class CustomerCuponCodes(Base):
     usages = relationship("CouponUsage", back_populates="coupon", cascade="all, delete-orphan")
 
 
-class CouponUsage(Base):
+class CouponUsage(Base, AuditMixin):
     """Track coupon usage per customer"""
     __tablename__ = "coupon_usage"
     
@@ -183,7 +183,7 @@ class CouponUsage(Base):
     invoice = relationship("Invoice")
 
 
-class CustomerGiftVoucher(Base):
+class CustomerGiftVoucher(Base, AuditMixin):
     __tablename__ = "customer_gift_voucher"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -206,7 +206,7 @@ class CustomerGiftVoucher(Base):
     usages = relationship("VoucherUsage", back_populates="voucher", cascade="all, delete-orphan")
 
 
-class VoucherUsage(Base):
+class VoucherUsage(Base, AuditMixin):
     """Track voucher usage per invoice (supports partial redemptions)"""
     __tablename__ = "voucher_usage"
     

@@ -5,11 +5,13 @@
  */
 import { useCallback, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Chip, MenuItem, TextField, Typography } from "@mui/material";
+import { Box, Button, Chip, MenuItem, TextField, Typography } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
+import DownloadIcon from "@mui/icons-material/FileDownload";
 import { format } from "date-fns";
+import { exportToCSV } from "@/utils/csvExport";
 
 import {
   ActionToolbar,
@@ -228,6 +230,44 @@ export default function AttendancePage() {
   });
 
   const confirmDialog = useTConfirmDialog();
+
+  const handleExportCSV = () => {
+    const headers = [
+      "Employee ID",
+      "Employee Name",
+      "Date",
+      "Check In",
+      "Check Out",
+      "Status",
+      "Work Hours",
+      "Overtime Hours",
+      "Late Minutes",
+      "Early Out Minutes",
+      "Absent Minutes",
+      "Leave Minutes",
+    ];
+
+    const rows = filtered.map((att) => [
+      att.employee_id,
+      att.employee_name || "",
+      att.date,
+      att.check_in ? format(new Date(att.check_in), "yyyy-MM-dd HH:mm:ss") : "",
+      att.check_out ? format(new Date(att.check_out), "yyyy-MM-dd HH:mm:ss") : "",
+      att.status || "",
+      minutesToHours(att.work_mins),
+      minutesToHours(att.ot_mins),
+      att.late_mins,
+      att.early_mins,
+      att.absent_mins,
+      att.leave_mins,
+    ]);
+
+    exportToCSV({
+      filename: `attendance_${new Date().toISOString().split("T")[0]}`,
+      headers,
+      rows,
+    });
+  };
 
   const handleSave = useCallback(() => {
     if (isCreating) createMutation.mutate(formData);
@@ -488,6 +528,18 @@ export default function AttendancePage() {
     <>
       <MasterDetailLayout
         title="Attendance"
+        headerActions={
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            disabled={filtered.length === 0}
+            sx={{ mr: 1 }}
+          >
+            Export CSV
+          </Button>
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}

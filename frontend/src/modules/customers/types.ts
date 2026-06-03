@@ -288,7 +288,7 @@ export interface CustomerGiftVoucherCreate {
   purchased_invoice_no?: string;
   // Payment tracking for cashbook
   payment_method?: string;
-  branch_code?: string;
+  branch_code: string;
   customer_name?: string;
 }
 

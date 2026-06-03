@@ -5,6 +5,8 @@
 import { useMemo, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDateTimeReadable } from "@/utils/formatters";
+import { exportToCSV } from "@/utils/csvExport";
+import DownloadIcon from "@mui/icons-material/FileDownload";
 import { useQuery } from "@tanstack/react-query";
 import {
   Box,
@@ -239,6 +241,40 @@ export default function SuppliersPage() {
       setSelectedSupplier(null);
     },
   });
+
+  const handleExportCSV = () => {
+    const headers = [
+      "Supplier Name",
+      "Company Name",
+      "Email",
+      "Mobile Contact",
+      "Company Contact",
+      "Credit Days",
+      "Max Credit Limit",
+      "Left Credit Amount",
+      "Date Joined",
+      "Status"
+    ];
+
+    const rows = filteredSuppliers.map(supplier => [
+      supplier.full_name,
+      supplier.company_name || "",
+      supplier.email || "",
+      supplier.mobile_contact_number || "",
+      supplier.company_contact_number || "",
+      supplier.credit_days,
+      supplier.max_credit_limit,
+      supplier.left_credit_amount || 0,
+      supplier.date_joined ? new Date(supplier.date_joined).toLocaleDateString() : "",
+      supplier.active ? "Active" : "Inactive"
+    ]);
+
+    exportToCSV({
+      filename: `suppliers_${new Date().toISOString().split("T")[0]}`,
+      headers,
+      rows
+    });
+  };
 
   const handleSave = useCallback(() => {
     if (isCreating) {
@@ -820,6 +856,18 @@ export default function SuppliersPage() {
     <>
       <MasterDetailLayout
         title="Suppliers"
+        headerActions={
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            disabled={filteredSuppliers.length === 0}
+            sx={{ mr: 1 }}
+          >
+            Export CSV
+          </Button>
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}

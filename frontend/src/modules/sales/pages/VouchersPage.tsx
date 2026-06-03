@@ -12,6 +12,7 @@ import ReceiptIcon from "@mui/icons-material/Receipt";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
   Box,
+  Button,
   InputAdornment,
   MenuItem,
   TextField,
@@ -51,6 +52,8 @@ import {
   modernTableStyles,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
+import { exportToCSV } from "@/utils/csvExport";
+import DownloadIcon from "@mui/icons-material/FileDownload";
 
 
 import { usePermission } from "@/auth/permissions";
@@ -254,6 +257,39 @@ export default function VouchersPage() {
   });
 
   // Handlers
+  const handleExportCSV = () => {
+    const headers = [
+      "Voucher Code",
+      "Issue Date",
+      "Original Amount",
+      "Current Balance",
+      "Linked Invoice",
+      "Validity (Months)",
+      "Expiry Date",
+      "Status"
+    ];
+
+    const rows = filteredVouchers.map(voucher => {
+      const expiryDate = calculateExpiryDate(voucher.date, voucher.valid_period_in_months);
+      return [
+        voucher.barcode_no,
+        voucher.date ? new Date(voucher.date).toLocaleDateString() : "",
+        voucher.amount,
+        voucher.balance,
+        voucher.purchased_invoice_no || "",
+        voucher.valid_period_in_months,
+        expiryDate ? expiryDate.toLocaleDateString() : "",
+        getVoucherStatus(voucher)
+      ];
+    });
+
+    exportToCSV({
+      filename: `gift_vouchers_${new Date().toISOString().split("T")[0]}`,
+      headers,
+      rows
+    });
+  };
+
   const handleSave = useCallback(() => {
     if (!formData.barcode_no.trim()) {
       showErrorToast("Voucher code is required");
@@ -261,6 +297,10 @@ export default function VouchersPage() {
     }
     if (formData.amount <= 0) {
       showErrorToast("Amount must be greater than 0");
+      return;
+    }
+    if (isCreating && !formData.branch_code?.trim()) {
+      showErrorToast("Branch is required");
       return;
     }
 
@@ -275,7 +315,7 @@ export default function VouchersPage() {
     } else {
       createMutation.mutate(formData);
     }
-  }, [formData, isEditing, selectedVoucher]);
+  }, [formData, isEditing, isCreating, selectedVoucher]);
 
   const confirmDialog = useTConfirmDialog();
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -335,7 +375,10 @@ export default function VouchersPage() {
 
   // Computed states
   const isSaving = createMutation.isPending || updateMutation.isPending;
-  const isFormValid = formData.barcode_no.trim() && formData.amount > 0;
+  const isFormValid =
+    formData.barcode_no.trim() &&
+    formData.amount > 0 &&
+    (!isCreating || (formData.branch_code && formData.branch_code.trim() !== ""));
   const isDisabled = !isEditing && !isCreating;
 
   // Master Panel
@@ -706,6 +749,18 @@ export default function VouchersPage() {
     <>
       <MasterDetailLayout
         title="Gift Vouchers"
+        headerActions={
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            disabled={filteredVouchers.length === 0}
+            sx={{ mr: 1 }}
+          >
+            Export CSV
+          </Button>
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}

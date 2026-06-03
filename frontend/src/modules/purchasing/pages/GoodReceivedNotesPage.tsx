@@ -8,6 +8,7 @@
  */
 
 import { usePermission } from "@/auth/permissions";
+import DownloadIcon from "@mui/icons-material/FileDownload";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -61,6 +62,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { exportToCSV } from "@/utils/csvExport";
 
 
 // Import tijaero components
@@ -764,6 +766,40 @@ export default function GoodReceivedNotesPage() {
     return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
   };
 
+  const handleExportCSV = () => {
+    const headers = [
+      "GRN Number",
+      "PO Number",
+      "Supplier",
+      "Location",
+      "GRN Date",
+      "Supplier Invoice No",
+      "Supplier Invoice Date",
+      "Branch",
+      "Remarks",
+      "Created Date",
+    ];
+
+    const rows = filteredGRNs.map((grn) => [
+      grn.good_received_no || `GRN-${grn.id}`,
+      getOrderNumber(grn),
+      getSupplierName(grn.purchasingorders_id),
+      getLocationName(grn.good_received_locations_id),
+      grn.good_received_date || "",
+      grn.supplier_invoice_no || "",
+      grn.supplier_invoice_date || "",
+      getBranchDisplay(grn.branch_code),
+      grn.remark || "",
+      grn.created_date || "",
+    ]);
+
+    exportToCSV({
+      filename: `grns_${new Date().toISOString().split("T")[0]}`,
+      headers,
+      rows,
+    });
+  };
+
   const handlePOChange = async (poId: number) => {
     const selectedPO = purchaseOrders?.find((o: PurchasingOrder) => o.id === poId);
     if (selectedPO) {
@@ -1330,7 +1366,7 @@ export default function GoodReceivedNotesPage() {
                 sx={{ minWidth: 200 }}
               />
             )}
-            isOptionEqualToValue={(option, value) => option.id === value.id}
+            isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
           />
           <Autocomplete
             size="small"
@@ -2078,6 +2114,18 @@ export default function GoodReceivedNotesPage() {
     <>
       <MasterDetailLayout
         title="Good Received Notes"
+        headerActions={
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            disabled={filteredGRNs.length === 0}
+            sx={{ mr: 1 }}
+          >
+            Export CSV
+          </Button>
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
           queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });

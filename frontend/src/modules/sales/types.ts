@@ -10,6 +10,7 @@ export interface InvoiceItem {
   created_date: string;
   discount_percent?: number;
   discount_amount?: number;
+  line_total?: number;
 }
 
 export interface InvoiceItemCreate {
@@ -71,6 +72,16 @@ export interface Invoice {
   // Creator
   created_by?: number;
   created_by_name?: string;
+  approved_by_name?: string;
+  approved_date?: string;
+  is_tax_invoice?: boolean;
+  cheque_number?: string;
+  cheque_bank?: string;
+  cheque_date?: string;
+  card_ref_number?: string;
+  card_holder_name?: string;
+  bank_transfer_ref?: string;
+  bank_name?: string;
 }
 
 export interface InvoiceCreate {
@@ -90,7 +101,10 @@ export interface InvoiceCreate {
   payment_adjustments?: number;
   remarks?: string;
   special?: boolean;
+  agent_commission_rate?: number;
+  agent_commission_amount?: number;
   items: InvoiceItemCreate[];
+  credit_terms?: string;
   // Source proforma/quotation link
   source_quote_id?: number;
   source_quote_type?: string;
@@ -127,6 +141,8 @@ export interface InvoiceCreate {
     voucher_id: number;
     amount_to_redeem: number;
   }>;
+  // Credit validation override
+  override_credit_validation?: boolean;
 }
 
 export interface InvoiceUpdate {

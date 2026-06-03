@@ -236,7 +236,7 @@ export default function ExpensesPage() {
     if (!filteredExpenses.length) return;
     const headers = ["Expense No", "Category", "Amount", "Method", "Status", "Date", "Vendor", "Remarks", "Branch"];
     const rows = filteredExpenses.map(e => [
-      e.expenses_no, e.expense_category || e.category || "", e.expense_amount, e.expenses_method, e.status, e.expense_date || e.created_date, e.vendor_name || "", e.remarks || "", e.branch_code || "",
+      e.expenses_no, e.expense_category || "", e.expense_amount, e.expenses_method, e.status, e.expense_date || e.created_date, e.vendor_name || "", e.remarks || "", e.branch_code || "",
     ]);
     const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
