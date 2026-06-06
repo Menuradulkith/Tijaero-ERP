@@ -49,6 +49,7 @@ import {
   FormControlLabel,
   Switch,
   Autocomplete,
+  Tooltip,
 } from "@mui/material";
 import PaymentIcon from "@mui/icons-material/Payment";
 import PersonIcon from "@mui/icons-material/Person";
@@ -62,6 +63,8 @@ import SearchIcon from "@mui/icons-material/Search";
 import WarningIcon from "@mui/icons-material/Warning";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import ReceiptIcon from "@mui/icons-material/Receipt";
+import AddIcon from "@mui/icons-material/Add";
+import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import {
   handleApiError,
   showErrorToast,
@@ -107,11 +110,41 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 
 const PAYMENT_METHODS = [
-  { value: "Cash", label: "Cash" },
-  { value: "Bank Transfer", label: "Bank Transfer" },
-  { value: "Cheque", label: "Cheque" },
-  { value: "Card", label: "Card" },
+  { value: "cash", label: "Cash" },
+  { value: "bank_transfer", label: "Bank Transfer" },
+  { value: "cheque", label: "Cheque" },
+  { value: "card", label: "Card" },
 ];
+
+// Split payment row interface
+interface SplitPaymentRow {
+  id: string;
+  method: string;
+  amount: number;
+  cheque_number: string;
+  cheque_bank: string;
+  cheque_date: string;
+  card_ref_number: string;
+  card_holder_name: string;
+  card_id: number | null;
+  bank_name: string;
+  bank_transfer_ref: string;
+}
+
+// Helper function to create a new split payment row
+const makeSplitRow = (method = "cash", amount = 0): SplitPaymentRow => ({
+  id: Date.now().toString() + Math.random().toString(36).slice(2),
+  method,
+  amount,
+  cheque_number: "",
+  cheque_bank: "",
+  cheque_date: new Date().toISOString().split("T")[0],
+  card_ref_number: "",
+  card_holder_name: "",
+  card_id: null,
+  bank_name: "",
+  bank_transfer_ref: "",
+});
 
 // Outstanding invoice for customer credit payment
 interface OutstandingInvoice {
@@ -179,8 +212,20 @@ export default function CustomerPaymentsPage() {
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<number>>(new Set());
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
 
-  // Payment form
-  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  // Split payments state
+  const [splitPayments, setSplitPayments] = useState<SplitPaymentRow[]>([makeSplitRow("cash", 0)]);
+
+  const updateSplitRow = (id: string, update: Partial<SplitPaymentRow>) =>
+    setSplitPayments((prev) => prev.map((r) => (r.id === id ? { ...r, ...update } : r)));
+
+  const removeSplitRow = (id: string) =>
+    setSplitPayments((prev) => prev.filter((r) => r.id !== id));
+
+  const addSplitRow = () =>
+    setSplitPayments((prev) => [...prev, makeSplitRow("cash", 0)]);
+
+  // Payment form (legacy - kept for backward compatibility)
+  const [paymentMethod, setPaymentMethod] = useState("cash");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [chequeDate, setChequeDate] = useState(new Date().toISOString().split("T")[0]);
@@ -628,7 +673,10 @@ export default function CustomerPaymentsPage() {
   const handlePostPayment = useCallback(async () => {
     if (!selectedCustomer || paymentLines.length === 0) return;
 
-    const confirmMessage = `Receive payment of Rs. ${fmtLKR(totalPaymentAmount)} from ${selectedCustomer.customer_name}?`;
+    // Calculate total from split payments
+    const totalFromSplit = splitPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    
+    const confirmMessage = `Receive payment of Rs. ${fmtLKR(totalFromSplit)} from ${selectedCustomer.customer_name}?`;
 
     const confirmed = await confirmDialog.confirm({
       title: "Receive Payment",
@@ -642,41 +690,77 @@ export default function CustomerPaymentsPage() {
       setSaving(true);
       setError(null);
 
+      // Process each payment line (invoice)
       for (const line of paymentLines) {
         if (line.allocated_amount <= 0) continue;
 
-        const serviceCharge =
-          paymentMethod === "Card" && selectedPaymentCard
-            ? Math.round(line.allocated_amount * (selectedPaymentCard.service_charge_percent || 0)) / 100
-            : 0;
+        // Calculate proportional split for this invoice
+        const totalAllocated = paymentLines.reduce((sum, l) => sum + l.allocated_amount, 0);
+        const proportion = line.allocated_amount / totalAllocated;
 
-        const payload = {
-          invoice_id: line.invoice.id,
-          payment_method: paymentMethod,
-          payment_amount: line.allocated_amount,
-          payment_date: paymentDate,
-          ...(paymentMethod === "Cheque" && {
-            cheque_number: referenceNumber,
-            cheque_bank: bankName,
-            cheque_date: chequeDate,
-          }),
-          ...(paymentMethod === "Card" && {
-            card_ref_number: cardRefNumber,
-            card_holder_name: cardHolderName,
-            payment_card_id: selectedPaymentCardId,
-            service_charge_amount: serviceCharge,
-          }),
-          ...(paymentMethod === "Bank Transfer" && {
-            bank_transfer_ref: referenceNumber,
-            bank_name: bankName,
-          }),
-          remarks: remarks || undefined,
-        };
+        // Process each payment method proportionally
+        for (const splitRow of splitPayments) {
+          if (splitRow.amount <= 0) continue;
 
-        await apiClient.post(`/sales/${line.invoice.id}/settle-payment`, payload);
+          const proportionalAmount = splitRow.amount * proportion;
+
+          // Calculate service charge if applicable
+          const cardDetails = splitRow.method === "card" && splitRow.card_id
+            ? paymentCards.find((c: PaymentCard) => c.id === splitRow.card_id)
+            : null;
+          
+          let paymentAmt = proportionalAmount;
+          let serviceCharge = 0;
+
+          if (cardDetails && (cardDetails.service_charge_percent || 0) > 0) {
+            const pct = cardDetails.service_charge_percent;
+            paymentAmt = Math.round((proportionalAmount / (1 + pct / 100)) * 100) / 100;
+            serviceCharge = Math.round((proportionalAmount - paymentAmt) * 100) / 100;
+          }
+
+          // Determine the correct payment method string for backend
+          let apiPaymentMethod = splitRow.method;
+          if (splitRow.method === "card" && cardDetails) {
+            const nameLower = cardDetails.card_name.toLowerCase();
+            if (nameLower.includes("visa")) {
+              apiPaymentMethod = "card_visa";
+            } else if (nameLower.includes("master")) {
+              apiPaymentMethod = "card_mastercard";
+            } else if (nameLower.includes("amex") || nameLower.includes("american")) {
+              apiPaymentMethod = "card_amex";
+            } else {
+              apiPaymentMethod = "card_visa"; // Fallback
+            }
+          }
+
+          const payload = {
+            invoice_id: line.invoice.id,
+            payment_method: apiPaymentMethod,
+            payment_amount: paymentAmt,
+            payment_date: paymentDate,
+            ...(splitRow.method === "cheque" && {
+              cheque_number: splitRow.cheque_number,
+              cheque_bank: splitRow.cheque_bank,
+              cheque_date: splitRow.cheque_date,
+            }),
+            ...(splitRow.method === "card" && {
+              card_ref_number: splitRow.card_ref_number,
+              card_holder_name: splitRow.card_holder_name,
+              payment_card_id: splitRow.card_id,
+              service_charge_amount: serviceCharge,
+            }),
+            ...(splitRow.method === "bank_transfer" && {
+              bank_transfer_ref: splitRow.bank_transfer_ref,
+              bank_name: splitRow.bank_name,
+            }),
+            remarks: remarks || undefined,
+          };
+
+          await apiClient.post(`/sales/${line.invoice.id}/settle-payment`, payload);
+        }
       }
 
-      showSuccessToast(`Payment of Rs. ${fmtLKR(totalPaymentAmount)} received successfully!`);
+      showSuccessToast(`Payment of Rs. ${fmtLKR(totalFromSplit)} received successfully!`);
 
       // Refresh data and reset
       await loadCreditStatus(selectedCustomer.id);
@@ -685,6 +769,7 @@ export default function CustomerPaymentsPage() {
       setActiveStep(0);
       setSelectedInvoiceIds(new Set());
       setPaymentLines([]);
+      setSplitPayments([makeSplitRow("cash", 0)]);
       resetPaymentForm();
     } catch (err: unknown) {
       const msg = handleApiError(err, "Failed to post payment");
@@ -696,15 +781,10 @@ export default function CustomerPaymentsPage() {
   }, [
     selectedCustomer,
     paymentLines,
-    totalPaymentAmount,
-    paymentMethod,
-    referenceNumber,
-    bankName,
-    chequeDate,
+    splitPayments,
     paymentDate,
     remarks,
-    cardRefNumber,
-    cardHolderName,
+    paymentCards,
     confirmDialog,
     loadCreditStatus,
     loadCustomerInvoices,
@@ -1366,140 +1446,317 @@ export default function CustomerPaymentsPage() {
         </TableContainer>
       </Paper>
 
-      {/* Payment Method */}
-      <FormSection title="Payment Method" columns={2}>
-        <TextField
-          select
-          label="Payment Method"
-          size="small"
-          value={paymentMethod}
-          onChange={(e) => setPaymentMethod(e.target.value)}
-        >
-          {PAYMENT_METHODS.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              {option.label}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          label="Payment Date"
-          size="small"
-          type="date"
-          value={paymentDate}
-          onChange={(e) => setPaymentDate(e.target.value)}
-          InputLabelProps={{ shrink: true }}
-        />
-
-        {/* Cheque fields */}
-        {paymentMethod === "Cheque" && (
-          <>
+      {/* Split Payment Section */}
+      <FormSection title="Payment Details" columns={1}>
+        <Box>
+          {/* Global Payment Date Field */}
+          <Box sx={{ mb: 3, maxWidth: 250 }}>
             <TextField
-              label="Cheque Number *"
+              label="Payment Date *"
               size="small"
-              value={referenceNumber}
-              onChange={(e) => setReferenceNumber(e.target.value)}
-              required
-            />
-            <Autocomplete
-              freeSolo
-              options={previousBankNames}
-              value={bankName}
-              onInputChange={(_, newValue) => setBankName(newValue)}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Bank Name *"
-                  size="small"
-                  required
-                  helperText={previousBankNames.length > 0 ? "Previously used banks shown" : undefined}
-                />
-              )}
-            />
-            <TextField
-              label="Cheque Date"
-              size="small"
+              fullWidth
               type="date"
-              value={chequeDate}
-              onChange={(e) => setChequeDate(e.target.value)}
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
-            />
-          </>
-        )}
-
-        {/* Bank Transfer fields */}
-        {paymentMethod === "Bank Transfer" && (
-          <>
-            <TextField
-              label="Reference Number *"
-              size="small"
-              value={referenceNumber}
-              onChange={(e) => setReferenceNumber(e.target.value)}
               required
             />
-            {previousBankNames.length > 0 ? (
-              <Autocomplete
-                freeSolo
-                options={previousBankNames}
-                value={bankName}
-                onInputChange={(_, newValue) => setBankName(newValue)}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Bank Name"
-                    size="small"
-                    helperText="Previously used banks shown"
-                  />
-                )}
-              />
-            ) : (
-              <TextField
-                label="Bank Name"
-                size="small"
-                value={bankName}
-                onChange={(e) => setBankName(e.target.value)}
-              />
-            )}
-          </>
-        )}
+          </Box>
 
-        {/* Card fields */}
-        {paymentMethod === "Card" && (
-          <>
-            <TextField
-              select
-              size="small"
-              label="Card Type *"
-              value={selectedPaymentCardId || ""}
-              onChange={(e) => setSelectedPaymentCardId(Number(e.target.value))}
-              required
+          {splitPayments.map((row, idx) => (
+            <Box
+              key={row.id}
+              sx={{
+                mb: 2,
+                p: 1.5,
+                bgcolor: "grey.50",
+                borderRadius: 1,
+                border: "1px solid",
+                borderColor: "divider",
+              }}
             >
-              <MenuItem value="" disabled>Select card</MenuItem>
-              {paymentCards.map((card: PaymentCard) => (
-                <MenuItem key={card.id} value={card.id}>
-                  {card.card_name} ({card.card_type}){(card.service_charge_percent || 0) > 0 && ` — ${card.service_charge_percent}% fee`}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              label="Card Reference Number *"
-              size="small"
-              value={cardRefNumber}
-              onChange={(e) => setCardRefNumber(e.target.value)}
-              required
-            />
-            <TextField
-              label="Card Holder Name"
-              size="small"
-              value={cardHolderName}
-              onChange={(e) => setCardHolderName(e.target.value)}
-            />
-            {selectedPaymentCard && (selectedPaymentCard.service_charge_percent || 0) > 0 && (
-              <Alert severity="info" sx={{ gridColumn: "1 / -1" }}>
-                {selectedPaymentCard.service_charge_percent}% service charge applies
-              </Alert>
-            )}
-          </>
-        )}
+              {/* Row header */}
+              <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
+                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 20 }}>
+                  #{idx + 1}
+                </Typography>
+                <TextField
+                  select
+                  size="small"
+                  label="Method"
+                  value={row.method}
+                  onChange={(e) => updateSplitRow(row.id, { method: e.target.value })}
+                  sx={{ minWidth: 160 }}
+                >
+                  {PAYMENT_METHODS.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Amount (Rs.) *"
+                  value={row.amount}
+                  onChange={(e) => updateSplitRow(row.id, { amount: Number(e.target.value) || 0 })}
+                  sx={{ width: 160 }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">Rs.</InputAdornment>
+                    ),
+                  }}
+                  inputProps={{ min: 0, step: 0.01 }}
+                />
+                {splitPayments.length > 1 && (
+                  <Tooltip title="Remove this payment">
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => removeSplitRow(row.id)}
+                    >
+                      <RemoveCircleOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
+
+              {/* Cheque fields */}
+              {row.method === "cheque" && (
+                <Box sx={{ display: "flex", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
+                  <TextField
+                    label="Cheque Number *"
+                    size="small"
+                    value={row.cheque_number}
+                    onChange={(e) => updateSplitRow(row.id, { cheque_number: e.target.value.replace(/\D/g, "") })}
+                    inputProps={{ inputMode: "numeric" }}
+                    sx={{ width: 150 }}
+                    required
+                  />
+                  <Autocomplete
+                    freeSolo
+                    options={previousBankNames}
+                    value={row.cheque_bank}
+                    onInputChange={(_, newValue) => updateSplitRow(row.id, { cheque_bank: newValue })}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Bank Name *"
+                        size="small"
+                        required
+                        helperText={
+                          previousBankNames.length > 0
+                            ? "Previously used banks shown"
+                            : undefined
+                        }
+                      />
+                    )}
+                    sx={{ width: 220 }}
+                  />
+                  <TextField
+                    label="Cheque Date"
+                    size="small"
+                    type="date"
+                    value={row.cheque_date}
+                    onChange={(e) => updateSplitRow(row.id, { cheque_date: e.target.value })}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ width: 160 }}
+                  />
+                </Box>
+              )}
+
+              {/* Bank Transfer fields */}
+              {row.method === "bank_transfer" && (
+                <Box sx={{ display: "flex", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
+                  <TextField
+                    label="Reference Number *"
+                    size="small"
+                    value={row.bank_transfer_ref}
+                    onChange={(e) => updateSplitRow(row.id, { bank_transfer_ref: e.target.value })}
+                    sx={{ width: 200 }}
+                    required
+                  />
+                  <Autocomplete
+                    freeSolo
+                    options={previousBankNames}
+                    value={row.bank_name}
+                    onInputChange={(_, newValue) => updateSplitRow(row.id, { bank_name: newValue })}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Bank Name"
+                        size="small"
+                        helperText={
+                          previousBankNames.length > 0
+                            ? "Previously used banks shown"
+                            : undefined
+                        }
+                      />
+                    )}
+                    sx={{ width: 220 }}
+                  />
+                </Box>
+              )}
+
+              {/* Card fields */}
+              {row.method === "card" && (
+                <Box sx={{ display: "flex", gap: 1.5, mt: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+                  <TextField
+                    select
+                    size="small"
+                    label="Card Type *"
+                    value={row.card_id || ""}
+                    onChange={(e) => updateSplitRow(row.id, { card_id: Number(e.target.value) })}
+                    sx={{ minWidth: 200 }}
+                    required
+                  >
+                    <MenuItem value="" disabled>
+                      Select card
+                    </MenuItem>
+                    {paymentCards.map((card: PaymentCard) => (
+                      <MenuItem key={card.id} value={card.id}>
+                        {card.card_name} ({card.card_type})
+                        {(card.service_charge_percent || 0) > 0 &&
+                          ` — ${card.service_charge_percent}% fee`}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    label="Card Reference Number *"
+                    size="small"
+                    value={row.card_ref_number}
+                    onChange={(e) => updateSplitRow(row.id, { card_ref_number: e.target.value })}
+                    sx={{ width: 200 }}
+                    required
+                  />
+                  <TextField
+                    label="Card Holder Name"
+                    size="small"
+                    value={row.card_holder_name}
+                    onChange={(e) => updateSplitRow(row.id, { card_holder_name: e.target.value })}
+                    sx={{ width: 180 }}
+                  />
+                  {row.card_id && (() => {
+                    const card = paymentCards.find((c: PaymentCard) => c.id === row.card_id);
+                    return card && (card.service_charge_percent || 0) > 0 ? (
+                      <Box sx={{ p: 1, bgcolor: "warning.lighter", borderRadius: 1, alignSelf: "center" }}>
+                        <Typography variant="caption" color="warning.dark">
+                          {card.service_charge_percent}% service charge applies
+                        </Typography>
+                      </Box>
+                    ) : null;
+                  })()}
+                </Box>
+              )}
+            </Box>
+          ))}
+
+          {/* Add Payment Button */}
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<PaymentIcon />}
+            onClick={addSplitRow}
+            sx={{ mt: 1 }}
+          >
+            Add Payment Method
+          </Button>
+
+          {/* Payment Balance Indicator */}
+          {(() => {
+            const totalAllocated = paymentLines.reduce(
+              (sum, line) => sum + line.allocated_amount,
+              0
+            );
+            const entered = splitPayments.reduce((s, p) => s + (p.amount || 0), 0);
+            
+            // If card with service charge is present, apply service charge rate on the remaining card portion
+            const selectedCard = splitPayments
+              .filter((p) => p.method === "card" && p.card_id)
+              .map((p) => paymentCards.find((c: PaymentCard) => c.id === p.card_id))
+              .find((c) => c !== undefined) || null;
+            
+            const cardServiceChargePercent = selectedCard?.service_charge_percent || 0;
+            
+            // Calculate service charge based on card method
+            const nonCardTotal = splitPayments
+              .filter((p) => p.method !== "card")
+              .reduce((s, p) => s + (p.amount || 0), 0);
+            
+            const cardBase = Math.max(0, totalAllocated - nonCardTotal);
+            const totalServiceCharge =
+              cardServiceChargePercent > 0
+                ? Math.round(cardBase * cardServiceChargePercent) / 100
+                : 0;
+
+            const grandTotal = totalAllocated + totalServiceCharge;
+            const remaining = grandTotal - entered;
+            const isBalanced = Math.abs(remaining) < 0.01;
+
+            return (
+              <Box sx={{ mt: 2 }}>
+                <Divider sx={{ mb: 1.5 }} />
+                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">Total Entered:</Typography>
+                  <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "warning.main"}>
+                    Rs. {fmtLKR(entered)}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <Typography variant="body2" color="text.secondary">Remaining:</Typography>
+                  <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "error.main"}>
+                    {remaining > 0.01 ? `Rs. ${fmtLKR(remaining)}` : remaining < -0.01 ? `- Rs. ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✓ Fully paid"}
+                  </Typography>
+                </Box>
+                {!isBalanced && (
+                  <Button
+                    size="small"
+                    variant="text"
+                    color="primary"
+                    sx={{ mt: 0.5, p: 0 }}
+                    onClick={() => {
+                      if (splitPayments.length === 1) {
+                        updateSplitRow(splitPayments[0].id, { amount: grandTotal });
+                      } else {
+                        const lastRow = splitPayments[splitPayments.length - 1];
+                        const otherTotal = splitPayments
+                          .slice(0, -1)
+                          .reduce((s, p) => s + (p.amount || 0), 0);
+                        updateSplitRow(lastRow.id, {
+                          amount: Math.max(0, grandTotal - otherTotal),
+                        });
+                      }
+                    }}
+                  >
+                    Auto-fill remaining to last row
+                  </Button>
+                )}
+
+                {/* Service Charge Display - separate box like in sales */}
+                {totalServiceCharge > 0 && (
+                  <Box
+                    sx={{
+                      mt: 1.5,
+                      p: 1.5,
+                      bgcolor: "info.50",
+                      borderRadius: 1,
+                      border: "1px solid",
+                      borderColor: "info.main",
+                    }}
+                  >
+                    <Typography variant="body2" fontWeight="bold" color="info.dark">
+                      Service Charge ({cardServiceChargePercent}%): + Rs.{" "}
+                      {fmtLKR(totalServiceCharge)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Applied to card payment amount of Rs. {fmtLKR(cardBase)}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            );
+          })()}
+        </Box>
       </FormSection>
 
       <FormSection title="Remarks" columns={1}>
@@ -1526,98 +1783,180 @@ export default function CustomerPaymentsPage() {
   );
 
   // ==================== RENDER: REVIEW & POST (Step 3) ====================
-  const renderReviewView = () => (
-    <Box sx={{ p: 2 }}>
-      <Button startIcon={<ArrowBackIcon />} onClick={handleBack} sx={{ mb: 2 }}>
-        Back to Payment Details
-      </Button>
+  const renderReviewView = () => {
+    const totalPaymentFromSplit = splitPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    
+    return (
+      <Box sx={{ p: 2 }}>
+        <Button startIcon={<ArrowBackIcon />} onClick={handleBack} sx={{ mb: 2 }}>
+          Back to Payment Details
+        </Button>
 
-      {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
 
-      {/* Payment Info */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Payment Summary
-        </Typography>
-        <Divider sx={{ mb: 2 }} />
+        {/* Payment Info */}
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Payment Summary
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
 
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">Customer</Typography>
-            <Typography variant="body1">{selectedCustomer?.customer_name}</Typography>
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">Payment Date</Typography>
-            <Typography variant="body1">{new Date(paymentDate).toLocaleDateString()}</Typography>
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">Payment Method</Typography>
-            <Typography variant="body1">
-              {PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.label || paymentMethod}
-            </Typography>
-          </Grid>
-          {referenceNumber && (
+          <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
-              <Typography variant="caption" color="text.secondary">Reference</Typography>
-              <Typography variant="body1">{referenceNumber}</Typography>
+              <Typography variant="caption" color="text.secondary">Customer</Typography>
+              <Typography variant="body1">{selectedCustomer?.customer_name}</Typography>
             </Grid>
-          )}
-          {bankName && (
             <Grid item xs={12} sm={6}>
-              <Typography variant="caption" color="text.secondary">Bank</Typography>
-              <Typography variant="body1">{bankName}</Typography>
+              <Typography variant="caption" color="text.secondary">Payment Date</Typography>
+              <Typography variant="body1">{new Date(paymentDate).toLocaleDateString()}</Typography>
             </Grid>
-          )}
-          {cardRefNumber && (
-            <Grid item xs={12} sm={6}>
-              <Typography variant="caption" color="text.secondary">Card Ref</Typography>
-              <Typography variant="body1">{cardRefNumber}</Typography>
-            </Grid>
-          )}
-        </Grid>
-      </Paper>
+            <Grid item xs={12}>
+              <Typography variant="caption" color="text.secondary">
+                Payment Methods
+              </Typography>
+              {splitPayments.map((row, idx) => (
+                <Box key={row.id} sx={{ mt: 1, p: 1, bgcolor: "grey.50", borderRadius: 1 }}>
+                  <Typography variant="body2">
+                    <strong>
+                      {PAYMENT_METHODS.find((m) => m.value === row.method)?.label ||
+                        row.method}
+                      :
+                    </strong>{" "}
+                    Rs. {fmtLKR(row.amount)}
+                  </Typography>
+                  {row.method === "cheque" && row.cheque_number && (
+                    <Typography variant="caption" color="text.secondary">
+                      Cheque #{row.cheque_number}, Bank: {row.cheque_bank}, Date:{" "}
+                      {new Date(row.cheque_date).toLocaleDateString()}
+                    </Typography>
+                  )}
+                  {row.method === "card" && (
+                    (() => {
+                      const card = paymentCards.find((c: PaymentCard) => c.id === row.card_id);
+                      const pct = card?.service_charge_percent || 0;
+                      if (pct > 0) {
+                        const baseAmt = Math.round((row.amount / (1 + pct / 100)) * 100) / 100;
+                        const scAmt = Math.round((row.amount - baseAmt) * 100) / 100;
+                        return (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Card Ref: {row.card_ref_number}
+                            {row.card_holder_name && `, Holder: ${row.card_holder_name}`}
+                            {` | Base: Rs. ${fmtLKR(baseAmt)} | Fee (${pct}%): Rs. ${fmtLKR(scAmt)}`}
+                          </Typography>
+                        );
+                      }
+                      return (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Card Ref: {row.card_ref_number}
+                          {row.card_holder_name && `, Holder: ${row.card_holder_name}`}
+                        </Typography>
+                      );
+                    })()
+                  )}
+                  {row.method === "bank_transfer" && row.bank_transfer_ref && (
+                    <Typography variant="caption" color="text.secondary">
+                      Ref: {row.bank_transfer_ref}
+                      {row.bank_name && `, Bank: ${row.bank_name}`}
+                    </Typography>
+                  )}
+                </Box>
+              ))}
 
-      {/* Payment Lines */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Invoices Being Settled
-        </Typography>
-        <Divider sx={{ mb: 2 }} />
+              {/* Service Charge Display - like in sales orders */}
+              {(() => {
+                let totalCardAmountInclusive = 0;
+                let totalCardAmountBase = 0;
+                let cardServiceChargePercent = 0;
+                
+                splitPayments
+                  .filter((p) => p.method === "card")
+                  .forEach((p) => {
+                    const card = paymentCards.find((c: PaymentCard) => c.id === p.card_id);
+                    const pct = card?.service_charge_percent || 0;
+                    totalCardAmountInclusive += p.amount || 0;
+                    totalCardAmountBase += Math.round(((p.amount || 0) / (1 + pct / 100)) * 100) / 100;
+                    if (pct > cardServiceChargePercent) {
+                      cardServiceChargePercent = pct;
+                    }
+                  });
 
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Invoice No.</TableCell>
-                <TableCell>Due Date</TableCell>
-                <TableCell align="right">Balance Due (Rs.)</TableCell>
-                <TableCell align="right">Payment (Rs.)</TableCell>
-                <TableCell align="right">Remaining After (Rs.)</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {paymentLines.map((line) => {
-                const remainingAfter = line.invoice.balance_due - line.allocated_amount;
-                return (
-                  <TableRow key={line.id}>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight="medium">{line.invoice.invoice_no}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      {new Date(line.invoice.due_date).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell align="right">
-                      {fmtLKR(line.invoice.balance_due)}
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography color="primary.main" fontWeight="bold">
-                        {line.allocated_amount > 0 ? fmtLKR(line.allocated_amount) : "-"}
+                const totalServiceCharge = Math.round((totalCardAmountInclusive - totalCardAmountBase) * 100) / 100;
+
+                if (totalServiceCharge > 0) {
+                  return (
+                    <Box
+                      sx={{
+                        mt: 1.5,
+                        p: 1.5,
+                        bgcolor: "info.50",
+                        borderRadius: 1,
+                        border: "1px solid",
+                        borderColor: "info.main",
+                      }}
+                    >
+                      <Typography variant="body2" fontWeight="bold" color="info.dark">
+                        Service Charge ({cardServiceChargePercent}%): + Rs.{" "}
+                        {fmtLKR(totalServiceCharge)}
                       </Typography>
-                    </TableCell>
+                      <Typography variant="caption" color="text.secondary">
+                        Applied to card payment base of Rs. {fmtLKR(totalCardAmountBase)} (Total swiped: Rs. {fmtLKR(totalCardAmountInclusive)})
+                      </Typography>
+                    </Box>
+                  );
+                }
+                return null;
+              })()}
+            </Grid>
+            {remarks && (
+              <Grid item xs={12}>
+                <Typography variant="caption" color="text.secondary">Remarks</Typography>
+                <Typography variant="body1">{remarks}</Typography>
+              </Grid>
+            )}
+          </Grid>
+        </Paper>
+
+        {/* Payment Lines */}
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Invoices Being Settled
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Invoice No.</TableCell>
+                  <TableCell>Due Date</TableCell>
+                  <TableCell align="right">Balance Due (Rs.)</TableCell>
+                  <TableCell align="right">Payment (Rs.)</TableCell>
+                  <TableCell align="right">Remaining After (Rs.)</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {paymentLines.map((line) => {
+                  const remainingAfter = line.invoice.balance_due - line.allocated_amount;
+                  return (
+                    <TableRow key={line.id}>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight="medium">{line.invoice.invoice_no}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        {new Date(line.invoice.due_date).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell align="right">
+                        {fmtLKR(line.invoice.balance_due)}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography color="primary.main" fontWeight="bold">
+                          {line.allocated_amount > 0 ? fmtLKR(line.allocated_amount) : "-"}
+                        </Typography>
+                      </TableCell>
                     <TableCell align="right">
                       <Typography color={remainingAfter > 0 ? "warning.main" : "success.main"}>
                         {fmtLKR(remainingAfter)}
@@ -1657,14 +1996,14 @@ export default function CustomerPaymentsPage() {
                 </TableRow>
               )}
               {/* Grand Total Row */}
-              <TableRow sx={{ bgcolor: serviceChargeAmount > 0 ? "primary.main" : "action.hover", opacity: serviceChargeAmount > 0 ? 0.95 : 1 }}>
+              <TableRow sx={{ bgcolor: "action.hover" }}>
                 <TableCell colSpan={2} />
                 <TableCell align="right">
-                  <Typography variant="subtitle2" fontWeight="bold" color={serviceChargeAmount > 0 ? "white" : "text.primary"}>Total to Pay:</Typography>
+                  <Typography variant="subtitle2" fontWeight="bold">Total to Pay:</Typography>
                 </TableCell>
                 <TableCell align="right">
-                  <Typography variant="h5" fontWeight="bold" color={serviceChargeAmount > 0 ? "white" : "primary.main"}>
-                    Rs. {fmtLKR(totalPaymentAmount)}
+                  <Typography variant="h5" fontWeight="bold" color="primary.main">
+                    Rs. {fmtLKR(totalPaymentFromSplit)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -1699,7 +2038,8 @@ export default function CustomerPaymentsPage() {
         </Button>
       </Box>
     </Box>
-  );
+    );
+  };
 
   // ==================== DETAIL PANEL ====================
   const detailPanel = (

@@ -8,7 +8,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from app.db.base import Base
-from datetime import datetime
+from app.core import timezone as tz
 from app.common.base_models import AuditMixin
 
 
@@ -43,8 +43,8 @@ class MonthlyBranchSalesSummary(Base, AuditMixin):
     finalized_at = Column(TIMESTAMP, nullable=True)
     
     # Timestamps
-    created_at = Column(TIMESTAMP, nullable=True, default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(TIMESTAMP, nullable=True, default=tz.now)
+    updated_at = Column(TIMESTAMP, nullable=True, default=tz.now, onupdate=tz.now)
     
     # Unique constraint
     __table_args__ = (
@@ -87,8 +87,8 @@ class SalesOfficerMonthlyCommission(Base, AuditMixin):
     remarks = Column(Text, nullable=True)
     
     # Timestamps
-    created_at = Column(TIMESTAMP, nullable=True, default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(TIMESTAMP, nullable=True, default=tz.now)
+    updated_at = Column(TIMESTAMP, nullable=True, default=tz.now, onupdate=tz.now)
     
     # Unique constraint
     __table_args__ = (

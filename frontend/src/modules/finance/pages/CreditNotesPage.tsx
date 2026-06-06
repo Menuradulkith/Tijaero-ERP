@@ -235,8 +235,8 @@ export default function CreditNotesPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Finance", href: "/finance" },
-          { label: "Payment Methods", href: "/finance/payment-methods" },
-          { label: "Credit Notes", href: "/finance/payment-methods/credit-notes" },
+          { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
+          { label: "Credit Notes", href: "/finance/customer-payment-methods/credit-notes" },
           ...(selectedItem || isCreating ? [{ label: isCreating ? "New Credit Note" : `CN-${selectedItem?.id}` }] : []),
         ]}
         title={selectedItem ? `CN-${selectedItem.id}` : ""}

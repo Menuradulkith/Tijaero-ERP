@@ -171,11 +171,11 @@ export default function PurchaseReturnApprovalsPage() {
   // Approve mutation
   const approveMutation = useCrudMutation({
     mutationFn: (id: number) => purchaseReturnsApi.approve(id, { approve: true }),
-    invalidateQueryKeys: [["purchaseReturns"], ["sales-stock"]],
+    invalidateQueryKeys: [["purchaseReturns"], ["salesStock"]],
     successMessage: "Purchase return approved successfully",
     errorMessage: "Failed to approve return",
     onSuccess: (_data, id) => {
-      queryClient.setQueryData<PurchasingReturn[]>(["purchase-returns"], (prev) =>
+      queryClient.setQueryData<PurchasingReturn[]>(["purchaseReturns"], (prev) =>
         (prev || []).map((r) => (r.id === id ? { ...r, status: "approved" as const } : r))
       );
       setSelectedReturn((prev) => (prev && prev.id === id ? { ...prev, status: "approved" as const } : prev));
@@ -186,11 +186,11 @@ export default function PurchaseReturnApprovalsPage() {
   const rejectMutation = useCrudMutation({
     mutationFn: ({ id, remarks }: { id: number; remarks: string }) =>
       purchaseReturnsApi.approve(id, { approve: false, remarks }),
-    invalidateQueryKeys: [["purchaseReturns"], ["sales-stock"]],
+    invalidateQueryKeys: [["purchaseReturns"], ["salesStock"]],
     successMessage: "Purchase return rejected",
     errorMessage: "Failed to reject return",
     onSuccess: (_data, variables) => {
-      queryClient.setQueryData<PurchasingReturn[]>(["purchase-returns"], (prev) =>
+      queryClient.setQueryData<PurchasingReturn[]>(["purchaseReturns"], (prev) =>
         (prev || []).map((r) => (r.id === variables.id ? { ...r, status: "rejected" as const } : r))
       );
       setSelectedReturn((prev) =>

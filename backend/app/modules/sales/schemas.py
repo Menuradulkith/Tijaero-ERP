@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import Optional, List
 from datetime import date, datetime
 
@@ -37,6 +37,8 @@ class InvoiceBase(BaseModel):
     cheque_amount: float = Field(default=0, ge=0)
     bank_transfer_amount: float = Field(default=0, ge=0)
     credit_amount: float = Field(default=0, ge=0)
+    credit_terms: Optional[str] = None
+    override_credit_validation: Optional[bool] = None
     payment_adjustments: float = Field(default=0)
     remarks: Optional[str] = None
     special: bool = False
@@ -111,16 +113,56 @@ class Invoice(InvoiceBase):
     # Creator tracking
     created_by: Optional[int] = None
     created_by_name: Optional[str] = None
+    approved_by_name: Optional[str] = None
+    approved_date: Optional[datetime] = None
 
+    @model_validator(mode='wrap')
     @classmethod
-    def model_validate(cls, obj, **kwargs):
-        instance = super().model_validate(obj, **kwargs)
+    def _enrich_from_orm(cls, data, handler):
+        instance = handler(data)
+        # data may be an ORM object (SQLAlchemy model) or a dict.
+        # Only enrich when coming from an ORM object with relationships.
+        obj = data
         if hasattr(obj, 'creator') and obj.creator:
             u = obj.creator
             instance.created_by_name = (f"{u.first_name} {u.last_name}".strip() or u.username)
+        
+        # Map approved details for Bank Transfer
+        if hasattr(obj, 'payment_method') and obj.payment_method and obj.payment_method.lower() == "bank_transfer":
+            if hasattr(obj, 'bank_transfer_verifier') and obj.bank_transfer_verifier:
+                u = obj.bank_transfer_verifier
+                instance.approved_by_name = (f"{u.first_name} {u.last_name}".strip() or u.username)
+            if hasattr(obj, 'bank_transfer_verified_date') and obj.bank_transfer_verified_date:
+                instance.approved_date = obj.bank_transfer_verified_date
+
+        # Map approved details for Credit / general approvals
+        if hasattr(obj, 'approval_record') and obj.approval_record:
+            ar = obj.approval_record
+            if ar.status == 'approved' and ar.status_changed_by and ar.approver:
+                u = ar.approver
+                instance.approved_by_name = (f"{u.first_name} {u.last_name}".strip() or u.username)
+                instance.approved_date = ar.updated_at
+
+        # Map cheque payment details
+        if hasattr(obj, 'cheque_payment') and obj.cheque_payment:
+            instance.cheque_number = str(int(obj.cheque_payment.cheque_number)) if obj.cheque_payment.cheque_number is not None else None
+            instance.cheque_bank = obj.cheque_payment.bank
+            instance.cheque_date = obj.cheque_payment.cheque_date
+        
+        # Map card payment details
+        if hasattr(obj, 'card_payment') and obj.card_payment:
+            instance.card_ref_number = obj.card_payment.ref_number
+            instance.card_holder_name = obj.card_payment.remark
+            
+        # Map bank transfer details
+        if hasattr(obj, 'bank_transfer') and obj.bank_transfer:
+            instance.bank_name = obj.bank_transfer.bank_name
+            instance.bank_transfer_ref = obj.bank_transfer.remarks
+            
         return instance
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class InvoiceWithItems(Invoice):
     items: List[InvoiceItem] = []
@@ -221,6 +263,7 @@ class CreditPaymentCreate(BaseModel):
     # Card details
     card_ref_number: Optional[str] = None
     card_holder_name: Optional[str] = None
+    service_charge_amount: Optional[float] = None
     # Bank transfer details
     bank_transfer_ref: Optional[str] = None
     bank_name: Optional[str] = None

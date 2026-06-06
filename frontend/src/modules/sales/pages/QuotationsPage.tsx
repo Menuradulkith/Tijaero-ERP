@@ -775,8 +775,8 @@ export default function QuotationsPage() {
 
     try {
       await quotationApi.createPartialSO(selectedQuote.id, { items: itemsToConvert });
-      queryClient.invalidateQueries({ queryKey: ["quotations"] });
-      queryClient.invalidateQueries({ queryKey: ["quotation", selectedQuote.id] });
+      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["sales-quote-details", selectedQuote.id] });
       showSuccessToast(`Partial Sales Order created from ${selectedQuote.quote_no}.`);
       setStockCheckDialogOpen(false);
       setPartialQtyMap({});
@@ -791,8 +791,8 @@ export default function QuotationsPage() {
     setCancelItemLoading(true);
     try {
       await quotationApi.cancelItem(cancelItemTarget.quoteId, cancelItemTarget.itemId, cancelItemReason || undefined);
-      queryClient.invalidateQueries({ queryKey: ["quotations"] });
-      queryClient.invalidateQueries({ queryKey: ["quotation", cancelItemTarget.quoteId] });
+      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["sales-quote-details", cancelItemTarget.quoteId] });
       showSuccessToast(`Item "${cancelItemTarget.productName}" cancelled.`);
       setCancelItemDialogOpen(false);
       setCancelItemTarget(null);

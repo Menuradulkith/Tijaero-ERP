@@ -89,37 +89,44 @@ export default function HRDashboard() {
   const { data: profiles, isLoading: profilesLoading } = useQuery({
     queryKey: ["salary-profiles-count"],
     queryFn: () => salaryProfilesApi.getAll(),
+    refetchOnMount: "always",
   });
 
   const { data: promotions, isLoading: promotionsLoading } = useQuery({
     queryKey: ["promotions-count"],
     queryFn: () => promotionsApi.getAll(),
+    refetchOnMount: "always",
   });
 
   const { data: reimbursements, isLoading: reimbursementsLoading } = useQuery({
     queryKey: ["reimbursements-count"],
     queryFn: () => reimbursementsApi.getAll({ limit: 500 }),
+    refetchOnMount: "always",
   });
 
   const { data: deductions, isLoading: deductionsLoading } = useQuery({
     queryKey: ["deductions-count"],
     queryFn: () => salaryDeductionsApi.getAll(),
+    refetchOnMount: "always",
   });
 
   const { data: assets, isLoading: assetsLoading } = useQuery({
     queryKey: ["assets-count"],
     queryFn: () => employeeAssetsApi.getAll(),
+    refetchOnMount: "always",
   });
 
   const { data: hrEmployees } = useQuery({
     queryKey: ["hr-employees-count"],
     queryFn: () => employeesApi.getAll({ limit: 500 }),
+    refetchOnMount: "always",
   });
 
   const today = new Date().toISOString().split("T")[0];
   const { data: todayAttendance } = useQuery({
     queryKey: ["attendance-today", today],
     queryFn: () => attendanceApi.getAll({ date_from: today, date_to: today, limit: 500 }),
+    refetchOnMount: "always",
   });
 
   const { data: pendingLeaves } = useQuery({

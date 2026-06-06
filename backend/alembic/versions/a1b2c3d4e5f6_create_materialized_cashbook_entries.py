@@ -68,12 +68,26 @@ def upgrade() -> None:
             v_lock_id BIGINT;
             v_last_balance NUMERIC(15,2);
             v_running_balance NUMERIC(15,2);
+            v_payment_method VARCHAR(50);
         BEGIN
             -- Acquire per-branch advisory lock to serialize cashbook writes.
             -- Different branches can write concurrently; same-branch writes
             -- are serialized to ensure correct running balance.
             v_lock_id := hashtext(COALESCE(p_branch_code, '__no_branch__'))::BIGINT;
             PERFORM pg_advisory_xact_lock(v_lock_id);
+
+            -- Map raw payment method code to display name (sales order style)
+            v_payment_method := CASE LOWER(COALESCE(p_payment_method, ''))
+                WHEN 'cash' THEN 'Cash'
+                WHEN 'card' THEN 'Card'
+                WHEN 'card_visa' THEN 'Visa Card'
+                WHEN 'card_mastercard' THEN 'Mastercard'
+                WHEN 'card_amex' THEN 'Amex Card'
+                WHEN 'bank_transfer' THEN 'Bank Transfer'
+                WHEN 'bank' THEN 'Bank Transfer'
+                WHEN 'cheque' THEN 'Cheque'
+                ELSE p_payment_method
+            END;
 
             -- Get last running balance for this branch
             SELECT COALESCE(
@@ -95,7 +109,7 @@ def upgrade() -> None:
                 money_in, money_out, running_balance, branch_code
             ) VALUES (
                 p_entry_type, p_transaction_date, p_source_table, p_source_id,
-                p_reference_no, p_description, p_party_name, p_payment_method,
+                p_reference_no, p_description, p_party_name, v_payment_method,
                 p_money_in, p_money_out, v_running_balance, p_branch_code
             );
             -- Advisory lock automatically released on transaction COMMIT/ROLLBACK
@@ -240,14 +254,17 @@ def upgrade() -> None:
             WHERE cs.id = NEW.customer_credit_settle_id;
 
             PERFORM fn_insert_cashbook_entry(
-                'customer_credit_settle',
-                COALESCE(NEW.created_date::TIMESTAMP, NOW()),
-                'customer_credits_settle_transaction', NEW.id,
-                'CCS-' || NEW.customer_credit_settle_id || '-INV-' || NEW.invoice_id,
-                'Credit Settlement for Invoice #' || NEW.invoice_id,
-                v_customer_name, NEW.payment_method,
-                NEW.payment_amount, 0,
-                v_branch_code
+                'customer_credit_settle'::VARCHAR(50),
+                COALESCE(NEW.created_date::TIMESTAMP, NOW()::TIMESTAMP),
+                'customer_credits_settle_transaction'::VARCHAR(100),
+                NEW.id::INTEGER,
+                ('CCS-' || NEW.customer_credit_settle_id || '-INV-' || NEW.invoice_id)::VARCHAR(200),
+                ('Credit Settlement for Invoice #' || NEW.invoice_id)::TEXT,
+                v_customer_name::VARCHAR(200),
+                NEW.payment_method::VARCHAR(50),
+                NEW.payment_amount::NUMERIC(15,2),
+                0::NUMERIC(15,2),
+                v_branch_code::VARCHAR(200)
             );
 
             RETURN NEW;
@@ -337,7 +354,7 @@ def upgrade() -> None:
 
             PERFORM fn_insert_cashbook_entry(
                 'supplier_payment',
-                COALESCE(NEW.created_date::TIMESTAMP, NOW()),
+                COALESCE(NEW.created_date::TIMESTAMP, NOW()::TIMESTAMP),
                 'supplier_credits_settle_transaction', NEW.id,
                 'SCS-' || NEW.supplier_credit_settle_id || '-GRN-' || NEW.good_received_id,
                 'Supplier Payment for GRN #' || NEW.good_received_id,
@@ -448,6 +465,11 @@ def upgrade() -> None:
             v_reference VARCHAR(200);
             v_bank_info TEXT;
         BEGIN
+            -- Do not insert cashbook entry for bank transfers (which go directly to bank, not cashbox)
+            IF NEW.payment_for IN ('Sales Invoice', 'Credit Settlement') THEN
+                RETURN NEW;
+            END IF;
+
             v_reference := COALESCE(NEW.invoice_no, 'DEP-' || NEW.id);
 
             IF NEW.bank_name IS NOT NULL AND NEW.bank_name != '' THEN
@@ -740,7 +762,7 @@ def upgrade() -> None:
             FOR r IN (
                 SELECT 
                     t.id, t.payment_amount, t.payment_method,
-                    COALESCE(t.created_date::TIMESTAMP, NOW()) AS txn_date,
+                    COALESCE(t.created_date::TIMESTAMP, NOW()::TIMESTAMP) AS txn_date,
                     t.supplier_credit_settle_id, t.good_received_id,
                     scs.branch_code, scs.suppliers_id
                 FROM supplier_credits_settle_transaction t
@@ -844,15 +866,20 @@ def upgrade() -> None:
                 );
             END LOOP;
 
-            -- Backfill bank deposits
+            -- Backfill bank deposits (excluding bank transfers)
             FOR r IN (
                 SELECT 
                     bd.id, bd.deposits_amount, bd.created_date,
-                    bd.branch_code, bd.bank_name, bd.invoice_no
+                    bd.branch_code, bd.bank_name, bd.invoice_no, bd.payment_for
                 FROM bank_deposits bd
                 ORDER BY bd.created_date ASC, bd.id ASC
             )
             LOOP
+                -- Skip bank transfers (payment_for in 'Sales Invoice', 'Credit Settlement')
+                IF r.payment_for IN ('Sales Invoice', 'Credit Settlement') THEN
+                    CONTINUE;
+                END IF;
+
                 v_reference := COALESCE(r.invoice_no, 'DEP-' || r.id);
                 IF r.bank_name IS NOT NULL AND r.bank_name != '' THEN
                     v_description := 'Bank Deposit to ' || r.bank_name;

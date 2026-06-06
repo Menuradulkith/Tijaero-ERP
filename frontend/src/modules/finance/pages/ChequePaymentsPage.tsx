@@ -224,8 +224,8 @@ export default function ChequePaymentsPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Finance", href: "/finance" },
-          { label: "Payment Methods", href: "/finance/payment-methods" },
-          { label: "Cheque Payments", href: "/finance/payment-methods/cheque-payments" },
+          { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
+          { label: "Cheque Payments", href: "/finance/customer-payment-methods/cheque-payments" },
           ...(selectedItem || isCreating ? [{ label: isCreating ? "New Cheque" : `CHQ-${selectedItem?.cheque_number || selectedItem?.id}` }] : []),
         ]}
         title={selectedItem ? `CHQ-${selectedItem.cheque_number || selectedItem.id}` : ""}

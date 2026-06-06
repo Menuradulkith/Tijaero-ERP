@@ -858,7 +858,7 @@ export default function SalesPage() {
   const createMutation = useCrudMutation({
     mutationFn: salesApi.create,
     getInvalidateQueryKeys: (createdInvoice) => {
-      const keys: Array<(string | number)[]> = [["sales"], ["sales-approved"]];
+      const keys: Array<(string | number)[]> = [["sales"], ["sales-approved"], ["salesStock"]];
       if (createdInvoice?.id) {
         keys.push(["sales", createdInvoice.id]);
       }
@@ -914,7 +914,7 @@ export default function SalesPage() {
     mutationFn: ({ id, data }: { id: number; data: any }) =>
       salesApi.update(id, data),
     getInvalidateQueryKeys: () => {
-      const keys: Array<(string | number)[]> = [["sales"], ["sales-approved"]];
+      const keys: Array<(string | number)[]> = [["sales"], ["sales-approved"], ["salesStock"]];
       if (state.selectedItem?.id) {
         keys.push(["sales", state.selectedItem.id]);
       }
@@ -964,7 +964,7 @@ export default function SalesPage() {
 
   const cancelMutation = useCrudMutation({
     mutationFn: salesApi.cancel,
-    invalidateQueryKeys: [["sales"], ["sales-approved"]],
+    invalidateQueryKeys: [["sales"], ["sales-approved"], ["salesStock"]],
     successMessage: "Sales order cancelled and stock restored",
     errorMessage: "Failed to cancel sales order",
     onSuccess: (updatedInvoice) => {
@@ -1549,12 +1549,12 @@ export default function SalesPage() {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
-  // Manual picker: sync default branch to order's branch when it changes
+  // Manual picker: sync default branch to order's branch when it changes or when navigating steps
   useEffect(() => {
-    if (state.formData.branch_code && !manualBranchCode) {
+    if (state.formData.branch_code) {
       setManualBranchCode(state.formData.branch_code);
     }
-  }, [state.formData.branch_code, manualBranchCode]);
+  }, [state.formData.branch_code, formStep]);
 
   // Manual picker: load available stock when product or branch changes
   useEffect(() => {
@@ -2153,7 +2153,9 @@ export default function SalesPage() {
             disabled
             InputProps={{ readOnly: true }}
           />
-          {((fullInvoice?.credit_amount ?? 0) > 0 || fullInvoice?.payment_method?.toLowerCase() === "credit") && (
+          {((fullInvoice?.credit_amount ?? 0) > 0 || 
+            fullInvoice?.payment_method?.toLowerCase() === "credit" ||
+            fullInvoice?.payment_method?.toLowerCase() === "bank_transfer") && (
             <>
               <TextField
                 label="Approved By"

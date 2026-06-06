@@ -66,30 +66,40 @@ def get_reference_data(
         ]
 
     if "products" in includes:
-        from app.modules.products.service import product_service
+        from app.modules.products.models import Product
+        from sqlalchemy.orm import joinedload
 
-        products = product_service.get_all_products(
-            db, skip=0, limit=products_limit, active_only=True
+        products = (
+            db.query(Product)
+            .options(joinedload(Product.minimum_prices))
+            .filter(Product.active == True)
+            .limit(products_limit)
+            .all()
         )
-        result["products"] = [
-            {
+        result["products"] = []
+        for p in products:
+            minimum_price = None
+            if p.minimum_prices:
+                latest_min_price = max(p.minimum_prices, key=lambda x: x.created_date)
+                minimum_price = float(latest_min_price.minimum_price) if latest_min_price else None
+            
+            result["products"].append({
                 "id": p.id,
                 "name": p.name,
                 "item_code": p.item_code,
                 "category_id": p.category_id,
                 "items_brand_id": p.items_brand_id,
-                "cost_price": p.cost_price,
-                "selling_price": p.selling_price,
+                "cost_price": float(p.cost_price) if p.cost_price is not None else None,
+                "selling_price": float(p.selling_price) if p.selling_price is not None else None,
+                "minimum_price": minimum_price,
                 "item_type": p.item_type,
                 "website_active": p.website_active,
                 "active": p.active,
                 "description": p.description,
                 "model": p.model,
-                "website_price": p.website_price,
+                "website_price": float(p.website_price) if p.website_price is not None else None,
                 "image_url": p.image_url,
-            }
-            for p in products
-        ]
+            })
 
     if "countries" in includes:
         country_service = service.CountryService(db)

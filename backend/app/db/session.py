@@ -45,20 +45,39 @@ def after_cursor_execute(conn, cursor, statement, parameters, context, executema
 
 
 @event.listens_for(Session, "before_flush")
+@event.listens_for(Session, "before_flush")
 def before_flush(session, flush_context, instances):
+    """Stamp Sri Lankan local time and audit user on every insert/update.
+
+    This guarantees that created_at / updated_at always reflect Asia/Colombo
+    (UTC+5:30) time for every CRUD operation across the whole ERP, regardless
+    of the per-column default (Python-side or DB-side func.now())."""
+    from app.core import timezone as tz
+
+    now = tz.now()
     user_id = current_user_id.get()
-    if not user_id:
-        return
-        
+
+    # New rows → set created_at / updated_at if not explicitly provided.
     for instance in session.new:
-        if hasattr(instance, "created_by") and getattr(instance, "created_by") is None:
-            instance.created_by = user_id
-        if hasattr(instance, "updated_by") and getattr(instance, "updated_by") is None:
-            instance.updated_by = user_id
-            
+        if hasattr(instance, "created_at") and getattr(instance, "created_at", None) is None:
+            instance.created_at = now
+        if hasattr(instance, "updated_at") and getattr(instance, "updated_at", None) is None:
+            instance.updated_at = now
+        if user_id:
+            if hasattr(instance, "created_by") and getattr(instance, "created_by") is None:
+                instance.created_by = user_id
+            if hasattr(instance, "updated_by") and getattr(instance, "updated_by") is None:
+                instance.updated_by = user_id
+
+    # Modified rows → always refresh updated_at to current SL time.
     for instance in session.dirty:
-        if hasattr(instance, "updated_by") and getattr(instance, "updated_by") is None:
+        if not session.is_modified(instance, include_collections=False):
+            continue
+        if hasattr(instance, "updated_at"):
+            instance.updated_at = now
+        if user_id and hasattr(instance, "updated_by"):
             instance.updated_by = user_id
+
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

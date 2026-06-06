@@ -15,7 +15,9 @@ import BankTransferVerifyPage from "./pages/BankTransferVerifyPage";
 import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
 import CustomerPaymentsPage from "./pages/CustomerPaymentsPage";
 import PaymentApprovalsPage from "./pages/PaymentApprovalsPage";
-import PaymentMethodsPage from "./pages/PaymentMethodsPage";
+import CustomerPaymentMethodsPage from "./pages/CustomerPaymentMethodsPage";
+import CreditPaymentsPage from "./pages/CreditPaymentsPage";
+import CashPaymentsPage from "./pages/CashPaymentsPage";
 import ApprovalsPage from "./pages/ApprovalsPage";
 import ChartOfAccountsPage from "./pages/ChartOfAccountsPage";
 import JournalEntriesPage from "./pages/JournalEntriesPage";
@@ -35,13 +37,18 @@ export default function FinanceRoutes() {
       <Route index element={<ProtectedRoute resource="finance_dashboard" action="view"><FinanceDashboard /></ProtectedRoute>} />
       <Route path="cashbook" element={<ProtectedRoute resource="cashbook" action="view"><CashbookPage /></ProtectedRoute>} />
       <Route path="expenses" element={<ProtectedRoute resource="expenses" action="view"><ExpensesPage /></ProtectedRoute>} />
-      {/* Payment Methods - parent and sub-routes */}
-      <Route path="payment-methods" element={<PaymentMethodsPage />} />
-      <Route path="payment-methods/bank-deposits" element={<ProtectedRoute resource="bank_deposits" action="view"><BankDepositsPage /></ProtectedRoute>} />
-      <Route path="payment-methods/card-payments" element={<ProtectedRoute resource="card_payments" action="view"><CardPaymentsPage /></ProtectedRoute>} />
-      <Route path="payment-methods/cheque-payments" element={<ProtectedRoute resource="cheque_payments" action="view"><ChequePaymentsPage /></ProtectedRoute>} />
-      <Route path="payment-methods/credit-notes" element={<ProtectedRoute resource="credit_notes" action="view"><CreditNotesPage /></ProtectedRoute>} />
+      
+      {/* Customer Payment Methods - parent and sub-routes */}
+      <Route path="customer-payment-methods" element={<CustomerPaymentMethodsPage />} />
+      <Route path="customer-payment-methods/bank-deposits" element={<ProtectedRoute resource="bank_deposits" action="view"><BankDepositsPage /></ProtectedRoute>} />
+      <Route path="customer-payment-methods/card-payments" element={<ProtectedRoute resource="card_payments" action="view"><CardPaymentsPage /></ProtectedRoute>} />
+      <Route path="customer-payment-methods/cheque-payments" element={<ProtectedRoute resource="cheque_payments" action="view"><ChequePaymentsPage /></ProtectedRoute>} />
+      <Route path="customer-payment-methods/credit-notes" element={<ProtectedRoute resource="credit_notes" action="view"><CreditNotesPage /></ProtectedRoute>} />
+      <Route path="customer-payment-methods/credit-payments" element={<ProtectedRoute resource="credit_payments" action="view"><CreditPaymentsPage /></ProtectedRoute>} />
+      <Route path="customer-payment-methods/cash-payments" element={<ProtectedRoute resource="cash_payments" action="view"><CashPaymentsPage /></ProtectedRoute>} />
+
       {/* Legacy routes for backward compatibility */}
+      <Route path="payment-methods" element={<Navigate to="../customer-payment-methods" replace />} />
       <Route path="bank-deposits" element={<ProtectedRoute resource="bank_deposits" action="view"><BankDepositsPage /></ProtectedRoute>} />
       <Route path="card-payments" element={<ProtectedRoute resource="card_payments" action="view"><CardPaymentsPage /></ProtectedRoute>} />
       <Route path="cheque-payments" element={<ProtectedRoute resource="cheque_payments" action="view"><ChequePaymentsPage /></ProtectedRoute>} />

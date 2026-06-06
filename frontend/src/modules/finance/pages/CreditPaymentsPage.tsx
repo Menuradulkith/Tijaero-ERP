@@ -1,20 +1,18 @@
 /**
- * Card Payments Page - Master-Detail Layout
- * Follows the Purchasing/Sales UI pattern with Tijaero components.
+ * Credit Payments Page - Master-Detail Layout
+ * Follows the standard ERP master-detail pattern using Tijaero components.
  */
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Autocomplete,
   Box,
   Chip,
-  InputAdornment,
   TextField,
   Typography,
 } from "@mui/material";
 import {
-  CreditCard as CardIcon,
+  CreditScore as CreditIcon,
 } from "@mui/icons-material";
 
 import {
@@ -29,12 +27,11 @@ import {
   TDetailSkeleton,
   TBranchFilter,
   TFilterPanel,
-  CARD_TYPE,
   fmtLKR,
 } from "@/components/tijaero";
 
-import { cardPaymentsApi } from "@/modules/finance/api";
-import { CardPayment, CardPaymentCreate } from "@/modules/finance/types";
+import { creditPaymentsApi } from "@/modules/finance/api";
+import { CreditPayment } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
 
 interface Branch {
@@ -43,39 +40,42 @@ interface Branch {
 }
 
 const SORT_OPTIONS: SortOption[] = [
-  { value: "date_time", label: "Date" },
+  { value: "created_date", label: "Date Created" },
   { value: "amount", label: "Amount" },
-  { value: "card_type", label: "Card Type" },
+  { value: "due_date", label: "Due Date" },
 ];
 
-const INITIAL_FORM_DATA: Partial<CardPaymentCreate> = {
-  card_type: "",
-  amount: 0,
-  remark: "",
-  ref_number: "",
+const INITIAL_FORM_DATA: Partial<CreditPayment> = {
+  customer_name: "",
   invoice_no: "",
-  deposited: false,
+  amount: 0,
+  credit_terms: "",
+  due_date: "",
+  status: "pending",
 };
 
-const resetFormFromItem = (item: CardPayment): Partial<CardPaymentCreate> => ({
-  card_type: item.card_type || "",
-  amount: Number(item.amount) || 0,
-  remark: item.remark || "",
-  ref_number: item.ref_number || "",
+const resetFormFromItem = (item: CreditPayment): Partial<CreditPayment> => ({
+  customer_name: item.customer_name || "",
   invoice_no: item.invoice_no || "",
-  deposited: item.deposited ?? false,
+  amount: Number(item.amount) || 0,
+  credit_terms: item.credit_terms || "",
+  due_date: item.due_date || "",
+  status: item.status || "pending",
 });
 
-const getCardColor = (type: string): "primary" | "secondary" | "info" | "default" => {
-  switch ((type || "").toUpperCase()) {
-    case "VISA": return "primary";
-    case "MASTERCARD": return "secondary";
-    case "AMEX": return "info";
+const getStatusColor = (status: string): "warning" | "success" | "error" | "default" => {
+  switch ((status || "").toLowerCase()) {
+    case "pending": return "warning";
+    case "settled":
+    case "active":
+    case "paid":
+      return "success";
+    case "overdue": return "error";
     default: return "default";
   }
 };
 
-export default function CardPaymentsPage() {
+export default function CreditPaymentsPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   const {
@@ -89,11 +89,11 @@ export default function CardPaymentsPage() {
     toggleFavorite,
     formData,
     handleSelectItem,
-  } = useMasterDetailState<CardPayment, Partial<CardPaymentCreate>>({
+  } = useMasterDetailState<CreditPayment, Partial<CreditPayment>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem,
-    favoritesKey: "card_payments_favorites",
-    defaultSortField: "date_time",
+    favoritesKey: "credit_payments_favorites",
+    defaultSortField: "created_date",
   });
 
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
@@ -109,9 +109,9 @@ export default function CardPaymentsPage() {
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
   const { data: payments = [], isLoading, refetch } = useQuery({
-    queryKey: ["card-payments", filterBranch],
+    queryKey: ["credit-payments", filterBranch],
     queryFn: () =>
-      cardPaymentsApi.getAll({
+      creditPaymentsApi.getAll({
         branch_code: filterBranch || undefined,
       }),
     enabled: branchResolved,
@@ -122,16 +122,17 @@ export default function CardPaymentsPage() {
     if (!payments) return [];
     let filtered = payments.filter(
       (p) =>
-        (p.card_type || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (p.ref_number || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.customer_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         (p.invoice_no || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.status || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(p.id).includes(searchQuery)
     );
     filtered.sort((a, b) => {
-      if (sortField === "date_time") return new Date(b.date_time || "").getTime() - new Date(a.date_time || "").getTime();
+      if (sortField === "created_date") return new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+      if (sortField === "due_date") return new Date(a.due_date || "").getTime() - new Date(b.due_date || "").getTime();
       if (sortField === "amount") return Number(b.amount || 0) - Number(a.amount || 0);
-      const fA = a[sortField as keyof CardPayment] || "";
-      const fB = b[sortField as keyof CardPayment] || "";
+      const fA = a[sortField as keyof CreditPayment] || "";
+      const fB = b[sortField as keyof CreditPayment] || "";
       return String(fA).localeCompare(String(fB));
     });
     return filtered;
@@ -144,25 +145,25 @@ export default function CardPaymentsPage() {
   }, [filteredPayments, selectedItem, isCreating]);
 
   const handleSelectWithCheck = useCallback(
-    async (item: CardPayment) => {
+    async (item: CreditPayment) => {
       await handleSelectItem(item);
     },
     [handleSelectItem]
   );
 
   const masterPanel = (
-    <SearchableList<CardPayment>
+    <SearchableList<CreditPayment>
       items={filteredPayments}
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search card payments..."
+      placeholder="Search credit payments..."
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedItem}
       onSelectItem={handleSelectWithCheck}
-      emptyMessage="No card payments found"
+      emptyMessage="No credit payments found"
       listHeader={
         <TFilterPanel>
           <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} />
@@ -177,10 +178,10 @@ export default function CardPaymentsPage() {
           primaryText={
             <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{pmt.ref_number || `Card #${pmt.id}`}</span>
+                <span style={{ fontWeight: "bold" }}>{pmt.customer_name || `Customer #${pmt.customer_id}`}</span>
                 {isSelected && (
                   <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Ref)
+                    (Customer)
                   </Typography>
                 )}
               </Box>
@@ -194,22 +195,28 @@ export default function CardPaymentsPage() {
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      {pmt.date_time ? new Date(pmt.date_time).toLocaleDateString() : "-"}
+                      {pmt.invoice_no || "-"}
                     </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Date)</Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Invoice No)</Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography component="span" variant="caption">
+                      {pmt.due_date ? new Date(pmt.due_date).toLocaleDateString() : "-"}
+                    </Typography>
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Due Date)</Typography>
                   </Box>
                   <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip label={pmt.card_type || "N/A"} size="small" color={getCardColor(pmt.card_type)} sx={{ height: 18, fontSize: "0.65rem" }} />
-                    {pmt.deposited && <Chip label="Deposited" size="small" color="success" sx={{ height: 18, fontSize: "0.65rem" }} />}
+                    <Chip label={pmt.status || "pending"} size="small" color={getStatusColor(pmt.status)} sx={{ height: 18, fontSize: "0.65rem" }} />
+                    <Chip label={pmt.credit_terms || "N/A"} size="small" sx={{ height: 18, fontSize: "0.65rem" }} />
                   </Box>
                 </>
               )}
             </Box>
           }
-          secondaryText={!isSelected ? `Rs. ${fmtLKR(Number(pmt.amount || 0))} - ${pmt.card_type || ""}` : undefined}
+          secondaryText={!isSelected ? `Rs. ${fmtLKR(Number(pmt.amount || 0))} - ${pmt.invoice_no || "No Invoice"}` : undefined}
           isFavorite={favorites.includes(pmt.id)}
           onToggleFavorite={(e) => toggleFavorite(pmt.id, e)}
-          statusChip={!isSelected ? { label: pmt.card_type || "N/A", color: getCardColor(pmt.card_type) as "primary" | "secondary" | "info" | "default" } : undefined}
+          statusChip={!isSelected ? { label: pmt.status || "pending", color: getStatusColor(pmt.status) } : undefined}
         />
       )}
     />
@@ -221,14 +228,14 @@ export default function CardPaymentsPage() {
         breadcrumbs={[
           { label: "Finance", href: "/finance" },
           { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
-          { label: "Card Payments", href: "/finance/customer-payment-methods/card-payments" },
-          ...(selectedItem || isCreating ? [{ label: isCreating ? "New Payment" : `Payment #${selectedItem?.id}` }] : []),
+          { label: "Credit Payments", href: "/finance/customer-payment-methods/credit-payments" },
+          ...(selectedItem || isCreating ? [{ label: `Credit Payment #${selectedItem?.id}` }] : []),
         ]}
-        title={selectedItem ? (selectedItem.ref_number || `Payment #${selectedItem.id}`) : ""}
-        titleIcon={<CardIcon color="primary" />}
+        title={selectedItem ? (selectedItem.customer_name || `Payment #${selectedItem.id}`) : ""}
+        titleIcon={<CreditIcon color="primary" />}
         isCreating={isCreating}
-        createTitle="New Card Payment"
-        noSelectionTitle="Select a Payment"
+        createTitle="New Credit Payment"
+        noSelectionTitle="Select a Credit Payment"
         isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
         onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
@@ -237,22 +244,18 @@ export default function CardPaymentsPage() {
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
-          <EmptyState message="Select a card payment from the list or create a new one" />
+          <EmptyState message="Select a customer credit payment from the list to view its details" />
         ) : isLoading && !isCreating ? (
           <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
-            <FormSection title="Card Information" columns={3}>
-              <Autocomplete
+            <FormSection title="Customer & Financial Details" columns={3}>
+              <TextField
+                label="Customer Name"
                 size="small"
-                options={CARD_TYPE.map((ct) => ct.value)}
-                getOptionLabel={(option) => CARD_TYPE.find((ct) => ct.value === option)?.label || option}
-                value={formData.card_type || null}
+                value={formData.customer_name || ""}
                 disabled
-                readOnly
-                renderInput={(params) => (
-                  <TextField {...params} label="Card Type" InputProps={{ ...params.InputProps, readOnly: true }} />
-                )}
+                InputProps={{ readOnly: true }}
               />
               <TextField
                 label="Amount"
@@ -263,55 +266,57 @@ export default function CardPaymentsPage() {
                 InputProps={{ readOnly: true }}
               />
               <TextField
-                label="Reference Number"
-                size="small"
-                value={formData.ref_number || ""}
-                disabled
-                InputProps={{ readOnly: true }}
-              />
-            </FormSection>
-
-            <FormSection title="Reference Details" columns={2}>
-              <TextField
                 label="Invoice Number"
                 size="small"
                 value={formData.invoice_no || ""}
                 disabled
                 InputProps={{ readOnly: true }}
               />
+            </FormSection>
+
+            <FormSection title="Credit Terms & Schedule" columns={3}>
+              <TextField
+                label="Credit Terms"
+                size="small"
+                value={formData.credit_terms || ""}
+                disabled
+                InputProps={{ readOnly: true }}
+              />
+              <TextField
+                label="Due Date"
+                size="small"
+                value={formData.due_date ? new Date(formData.due_date).toLocaleDateString() : "-"}
+                disabled
+                InputProps={{ readOnly: true }}
+              />
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Typography variant="body2" color="text.secondary">Deposited:</Typography>
+                <Typography variant="body2" color="text.secondary">Status:</Typography>
                 <Chip
-                  label={formData.deposited ? "Yes" : "No"}
+                  label={formData.status ? (formData.status.charAt(0).toUpperCase() + formData.status.slice(1)) : "Pending"}
                   size="small"
-                  color={formData.deposited ? "success" : "default"}
+                  color={getStatusColor(formData.status || "")}
                 />
               </Box>
             </FormSection>
 
             {selectedItem && !isCreating && (
-              <FormSection title="Date" columns={1}>
+              <FormSection title="Metadata & Audit" columns={2}>
                 <TextField
-                  label="Payment Date"
+                  label="Date Created"
                   size="small"
-                  value={selectedItem.date_time ? new Date(selectedItem.date_time).toLocaleString() : "-"}
+                  value={selectedItem.created_date ? new Date(selectedItem.created_date).toLocaleString() : "-"}
+                  disabled
+                  InputProps={{ readOnly: true }}
+                />
+                <TextField
+                  label="Status Update"
+                  size="small"
+                  value={selectedItem.status ? `Payment is currently ${selectedItem.status}` : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
               </FormSection>
             )}
-
-            <FormSection title="Remarks" columns={1}>
-              <TextField
-                label="Remark"
-                size="small"
-                value={formData.remark || ""}
-                disabled
-                InputProps={{ readOnly: true }}
-                multiline
-                rows={2}
-              />
-            </FormSection>
           </>
         )}
       </Box>
@@ -320,7 +325,7 @@ export default function CardPaymentsPage() {
 
   return (
     <MasterDetailLayout
-      title="Card Payments"
+      title="Credit Payments"
       onRefresh={refetch}
       isLoading={isLoading}
       masterPanel={masterPanel}

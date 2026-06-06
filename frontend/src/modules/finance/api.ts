@@ -15,6 +15,9 @@ import {
   CustomerAdvancePaymentCreate,
   CustomerCreditNote,
   CustomerCreditNoteCreate,
+  CreditPayment,
+  CreditPaymentCreate,
+  CashPayment,
   CashbookReport,
   CashbookFilter,
   ChartOfAccount,
@@ -270,6 +273,54 @@ export const creditNotesApi = {
   getCustomerCreditNotes: async (customerId: number) => {
     const response = await apiClient.get<CustomerCreditNote[]>(
       `/finance/customers/${customerId}/credit-notes`
+    );
+    return response.data;
+  },
+};
+
+// Credit Payments API
+export const creditPaymentsApi = {
+  getAll: async (params?: {
+    branch_code?: string;
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<CreditPayment[]>(
+      "/finance/credit-payments",
+      { params }
+    );
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<CreditPayment>(
+      `/finance/credit-payments/${id}`
+    );
+    return response.data;
+  },
+};
+
+// Cash Payments API
+export const cashPaymentsApi = {
+  getAll: async (params?: {
+    branch_code?: string;
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<CashPayment[]>(
+      "/finance/cash-payments",
+      { params }
+    );
+    return response.data;
+  },
+
+  getById: async (id: number) => {
+    const response = await apiClient.get<CashPayment>(
+      `/finance/cash-payments/${id}`
     );
     return response.data;
   },

@@ -125,8 +125,8 @@ class SalesService:
         """
         from sqlalchemy import or_, desc, asc
         
-        # Base query
-        query = db.query(Invoice)
+        # Base query with eager loading for creator and approvals
+        query = db.query(Invoice).options(*repository._invoice_eager_options())
         
         # Apply branch access filter
         if user_branches:
@@ -699,7 +699,7 @@ class SalesService:
         
         # Get payment method
         payment_method = invoice_data.payment_method.lower() if invoice_data.payment_method else ""
-        is_credit_payment = payment_method == "credit"
+        is_credit_payment = payment_method == "credit" or (getattr(invoice_data, 'credit_amount', 0) or 0) > 0
         credit_validation = None
         
         # Calculate tax rate (discount values already calculated above)
@@ -802,13 +802,30 @@ class SalesService:
         # Step 8: Calculate grand total (remaining amount to pay)
         grand_total = after_credit_note + service_charge_amount
 
+        # Define immediate_payment and total_prepaid
+        immediate_payment = (
+            Decimal(str(invoice_data.cash_amount or 0)) +
+            Decimal(str(invoice_data.card_visa_amount or 0)) +
+            Decimal(str(invoice_data.card_mastercard_amount or 0)) +
+            Decimal(str(invoice_data.card_amex_amount or 0)) +
+            Decimal(str(invoice_data.cheque_amount or 0))
+        )
+        total_prepaid = total_voucher_amount + credit_note_amount
+
         # Comprehensive credit sale validation (BLOCKING validations)
-        if is_credit_payment:
+        if is_credit_payment and not getattr(invoice_data, 'override_credit_validation', False):
+            # Calculate credit amount portion for validation
+            calculated_credit = getattr(invoice_data, 'credit_amount', 0) or 0
+            if calculated_credit <= 0:
+                calculated_credit = grand_total - total_prepaid - immediate_payment
+            if calculated_credit < 0:
+                calculated_credit = Decimal("0")
+                
             # Use comprehensive validation - blocking by default
             credit_validation = customer_credit_service.validate_credit_sale_comprehensive(
                 db,
                 invoice_data.customer_id,
-                Decimal(str(grand_total)),
+                Decimal(str(calculated_credit)),
                 skip_time_check=False,  # Enforce time restriction
                 allow_over_limit=False  # Block if credit limit exceeded
             )
@@ -829,7 +846,8 @@ class SalesService:
             'bank_name', 'tax_rate', 'discount_percent', 'discount_amount',
             'cupon_id', 'cupon_amount',  # We'll set these explicitly below
             'gift_voucher_id', 'gift_voucher_amount',  # We'll handle voucher separately
-            'voucher_redemptions'  # Array field - not stored in Invoice table
+            'voucher_redemptions',  # Array field - not stored in Invoice table
+            'credit_terms', 'override_credit_validation'
         })
         
         # Override sale_rep_id with the logged-in user
@@ -853,7 +871,17 @@ class SalesService:
         invoice_dict['service_charge_rate'] = float(service_charge_rate)
         invoice_dict['service_charge_amount'] = float(service_charge_amount)
         invoice_dict['grand_total'] = float(grand_total)
-        invoice_dict['credit_amount'] = float(grand_total) if is_credit_payment else 0
+        
+        # Calculate final credit amount for the DB field
+        if is_credit_payment:
+            calculated_credit = getattr(invoice_data, 'credit_amount', 0) or 0
+            if calculated_credit <= 0:
+                calculated_credit = grand_total - total_prepaid - immediate_payment
+            if calculated_credit < 0:
+                calculated_credit = Decimal("0")
+            invoice_dict['credit_amount'] = float(calculated_credit)
+        else:
+            invoice_dict['credit_amount'] = 0
         
         # Set voucher fields (already calculated above)
         invoice_dict['gift_voucher_id'] = gift_voucher_id
@@ -903,13 +931,20 @@ class SalesService:
                     advance_for_gl = advance  # Save for GL posting
         
         # Set payment tracking fields
+        immediate_payment = (
+            Decimal(str(invoice_data.cash_amount or 0)) +
+            Decimal(str(invoice_data.card_visa_amount or 0)) +
+            Decimal(str(invoice_data.card_mastercard_amount or 0)) +
+            Decimal(str(invoice_data.card_amex_amount or 0)) +
+            Decimal(str(invoice_data.cheque_amount or 0))
+        )
         if is_credit_payment:
             # Credit payment - needs approval, unpaid until settled
             invoice_dict['approval'] = False
             invoice_dict['approval_status'] = "pending_approval"
-            invoice_dict['paid_amount'] = float(total_prepaid)  # Voucher + credit note paid
-            invoice_dict['balance_due'] = float(amount_after_voucher)
-            invoice_dict['payment_status'] = "unpaid" if amount_after_voucher > 0 else "paid"
+            invoice_dict['paid_amount'] = float(total_prepaid + immediate_payment)  # Voucher + credit note + immediate paid
+            invoice_dict['balance_due'] = float(amount_after_voucher - immediate_payment)
+            invoice_dict['payment_status'] = "unpaid" if (amount_after_voucher - immediate_payment) > 0 else "paid"
         elif payment_method == "bank_transfer":
             # Bank transfer - needs verification by finance manager
             invoice_dict['approval'] = False
@@ -984,7 +1019,7 @@ class SalesService:
             db.flush()
         
         # Handle card payment
-        if payment_method in ["card_visa", "card_mastercard", "card_amex"]:
+        if payment_method in ["card_visa", "card_mastercard", "card_amex"] or payment_method == "card":
             card_type_map = {
                 "card_visa": "VISA",
                 "card_mastercard": "MASTER",
@@ -1039,8 +1074,8 @@ class SalesService:
             
             credit_payment = CreditPayments(
                 customer_id=invoice_data.customer_id,
-                amount=grand_total,
-                credit_terms=f"{credit_days} days",
+                amount=invoice_dict['credit_amount'],
+                credit_terms=getattr(invoice_data, 'credit_terms', None) or f"{credit_days} days",
                 due_date=due_date,
                 status=DocumentStatus.PENDING,  # Will be updated when approved
                 created_date=tz.now()
@@ -1330,8 +1365,7 @@ class SalesService:
                 logging.getLogger(__name__).warning(f"Failed to update linked proforma status: {e}")
         
         db.commit()
-        db.refresh(invoice)
-        return invoice
+        return repository.sales_repository.get_by_id(db, invoice.id)
     
     def update_invoice(self, db: Session, invoice_id: int, invoice_data: schemas.InvoiceUpdate, user_id: int):
         # Lock the invoice row to prevent concurrent edits / double-approval
@@ -1473,7 +1507,7 @@ class SalesService:
         db.refresh(invoice)
         
         # If a completed/approved sales order was edited, reset to pending_approval
-        if was_completed and invoice.payment_method and invoice.payment_method.lower() == 'credit':
+        if was_completed and ((invoice.payment_method or '').lower() == 'credit' or (invoice.credit_amount or 0) > 0):
             from app.modules.common.models import Approvals
             
             invoice.approval = False
@@ -1510,9 +1544,8 @@ class SalesService:
                         stock_item.is_active = True
             
             db.commit()
-            db.refresh(invoice)
         
-        return invoice
+        return repository.sales_repository.get_by_id(db, invoice.id)
     
     def delete_invoice(self, db: Session, invoice_id: int):
         invoice = self.get_invoice(db, invoice_id)
@@ -1625,8 +1658,7 @@ class SalesService:
             )
         
         db.commit()
-        db.refresh(invoice)
-        return invoice
+        return repository.sales_repository.get_by_id(db, invoice.id)
     
     def complete_invoice(self, db: Session, invoice_id: int, user_id: int):
         """
@@ -1667,8 +1699,7 @@ class SalesService:
             )
         
         db.commit()
-        db.refresh(invoice)
-        return invoice
+        return repository.sales_repository.get_by_id(db, invoice.id)
     
     def cancel_invoice(self, db: Session, invoice_id: int, user_id: int):
         """
@@ -1710,8 +1741,7 @@ class SalesService:
         if invoice.credit_amount and invoice.credit_amount > 0:
             customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
         
-        db.refresh(invoice)
-        return invoice
+        return repository.sales_repository.get_by_id(db, invoice.id)
     
     def get_sale_return(self, db: Session, return_id: int):
         sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).first()
@@ -2124,7 +2154,7 @@ class SalesService:
             # Credit note: track via credit_note_amount, adjust balance_due for credit sales
             invoice.credit_note_amount = float(invoice.credit_note_amount or 0) + refund_total
             # For credit sales, reduce balance_due
-            if (invoice.payment_method or '').lower() == 'credit':
+            if (invoice.payment_method or '').lower() == 'credit' or (invoice.credit_amount or 0) > 0:
                 invoice.balance_due = max(0, float(invoice.balance_due or 0) - refund_total)
         else:
             # Cash/bank/cheque refund: reduce paid_amount (money going out)
@@ -2161,7 +2191,7 @@ class SalesService:
         
         # Update customer credit balance if this return affects a credit invoice
         # (balance_due may have been reduced by credit note, changing outstanding credit)
-        if invoice.customer_id and (invoice.payment_method or '').lower() == 'credit':
+        if invoice.customer_id and ((invoice.payment_method or '').lower() == 'credit' or (invoice.credit_amount or 0) > 0):
             try:
                 customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
             except Exception as cred_err:
@@ -2239,7 +2269,7 @@ class SalesService:
             )
         
         # Validate it's a credit invoice
-        if invoice.payment_method != 'credit':
+        if (invoice.payment_method or '').lower() != 'credit' and (invoice.credit_amount or 0) <= 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="This invoice is not a credit sale"
@@ -2302,11 +2332,16 @@ class SalesService:
                 "card_mastercard": "MASTER",
                 "card_amex": "AMEX"
             }
+            remark_parts = []
+            if payment_data.card_holder_name:
+                remark_parts.append(payment_data.card_holder_name)
+            if payment_data.service_charge_amount and payment_data.service_charge_amount > 0:
+                remark_parts.append(f"Service Charge: Rs. {payment_data.service_charge_amount:,.2f}")
             card_payment = CardPayments(
                 card_type=card_type_map.get(payment_method, "VISA"),
-                amount=payment_data.payment_amount,
+                amount=payment_data.payment_amount + (payment_data.service_charge_amount or 0),
                 date_time=tz.now(),
-                remark=payment_data.card_holder_name or f"Credit settlement for {invoice.invoice_no}",
+                remark=" | ".join(remark_parts) if remark_parts else f"Credit settlement for {invoice.invoice_no}",
                 ref_number=payment_data.card_ref_number or "",
                 invoice_no=invoice.invoice_no,
                 deposited=True
@@ -2332,16 +2367,25 @@ class SalesService:
             db.flush()
         
         # Create settlement transaction
+        txn_remarks = payment_data.remarks
+        if payment_data.service_charge_amount and payment_data.service_charge_amount > 0:
+            sc_text = f"Service Charge: Rs. {payment_data.service_charge_amount:,.2f}"
+            if txn_remarks:
+                txn_remarks = f"{txn_remarks} ({sc_text})"
+            else:
+                txn_remarks = sc_text
+
         settle_transaction = CustomerCreditsSettleTransaction(
             payment_method=payment_data.payment_method,
             cheque_date=payment_data.cheque_date or payment_data.payment_date,
             payment_amount=payment_data.payment_amount,
             payment_method_number=payment_data.cheque_number or payment_data.card_ref_number or payment_data.bank_transfer_ref,
-            remarks=payment_data.remarks,
+            remarks=txn_remarks,
             created_date=payment_data.payment_date,
             customer_credit_settle_id=credit_settle.id,
             invoice_id=invoice.id
         )
+        settle_transaction.service_charge_amount = Decimal(str(payment_data.service_charge_amount or 0))
         db.add(settle_transaction)
         
         # Update invoice payment tracking
@@ -2393,7 +2437,7 @@ class SalesService:
         
         invoice = self.get_invoice(db, invoice_id)
         
-        if invoice.payment_method != 'credit':
+        if (invoice.payment_method or '').lower() != 'credit' and (invoice.credit_amount or 0) <= 0:
             return []
         
         transactions = db.query(CustomerCreditsSettleTransaction).filter(
@@ -2401,18 +2445,29 @@ class SalesService:
         ).order_by(CustomerCreditsSettleTransaction.created_date.desc()).all()
         
         # Calculate running balance
-        current_balance = invoice.grand_total
+        current_balance = invoice.credit_amount
         history = []
         
         # Sort by date ascending for balance calculation
         sorted_transactions = sorted(transactions, key=lambda x: x.created_date)
+        
+        pm_map = {
+            "cash": "Cash",
+            "card": "Card",
+            "card_visa": "Visa Card",
+            "card_mastercard": "Mastercard",
+            "card_amex": "Amex Card",
+            "bank_transfer": "Bank Transfer",
+            "bank": "Bank Transfer",
+            "cheque": "Cheque",
+        }
         
         for trans in sorted_transactions:
             current_balance -= trans.payment_amount
             history.append({
                 "id": trans.id,
                 "payment_date": trans.created_date,
-                "payment_method": trans.payment_method,
+                "payment_method": pm_map.get(trans.payment_method.lower(), trans.payment_method) if trans.payment_method else "",
                 "payment_amount": float(trans.payment_amount),
                 "balance_after_payment": float(current_balance),
                 "remarks": trans.remarks,

@@ -203,7 +203,7 @@ export default function POApprovalsPage() {
   const approveMutation = useCrudMutation({
     mutationFn: ({ approvalId }: { approvalId: number; poId: number }) =>
       approvalsApi.approve(approvalId),
-    invalidateQueryKeys: [["purchaseOrders"]],
+    invalidateQueryKeys: [["purchase-orders"], ["purchaseOrders"]],
     successMessage: "Purchase order approved successfully",
     errorMessage: "Failed to approve order",
     onSuccess: (_data, { poId }) => {
@@ -218,7 +218,7 @@ export default function POApprovalsPage() {
   const rejectMutation = useCrudMutation({
     mutationFn: ({ approvalId, remarks }: { approvalId: number; poId: number; remarks: string }) =>
       approvalsApi.reject(approvalId, remarks),
-    invalidateQueryKeys: [["purchaseOrders"]],
+    invalidateQueryKeys: [["purchase-orders"], ["purchaseOrders"]],
     successMessage: "Purchase order rejected",
     errorMessage: "Failed to reject order",
     onSuccess: (_data, { poId, remarks }) => {

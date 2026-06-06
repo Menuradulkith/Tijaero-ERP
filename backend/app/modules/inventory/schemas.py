@@ -41,6 +41,8 @@ class SalesStock(SalesStockBase, TijaeroBaseSchema):
     location_name: Optional[str] = None  # Location name from GRN
     cost_price: Optional[float] = None  # Cost price from product
     selling_price: Optional[float] = None  # Selling price from product
+    minimum_price: Optional[float] = None  # Minimum price from product
+    minimum_selling_price: Optional[float] = None  # Minimum selling price for frontend mapping
 
 
 # Company Assets Schemas - Real table for company-owned items

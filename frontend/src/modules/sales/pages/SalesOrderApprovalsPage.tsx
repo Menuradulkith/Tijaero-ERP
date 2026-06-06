@@ -196,7 +196,7 @@ export default function SalesOrderApprovalsPage() {
     // Approve mutation
     const approveMutation = useCrudMutation({
         mutationFn: (id: number) => salesApi.approve(id),
-        invalidateQueryKeys: [["sales-orders"]],
+        invalidateQueryKeys: [["sales-orders-pending"], ["sales"], ["sales-track-list"]],
         successMessage: "Sales order approved successfully",
         errorMessage: "Failed to approve order",
         onSuccess: (_data, id) => {
@@ -216,7 +216,7 @@ export default function SalesOrderApprovalsPage() {
         mutationFn: ({ id }: { id: number }) =>
             // Using delete for rejection as per discussion/assumption
             salesApi.delete(id),
-        invalidateQueryKeys: [["sales-orders"]],
+        invalidateQueryKeys: [["sales-orders-pending"], ["sales"], ["sales-track-list"]],
         successMessage: "Sales order rejected (deleted)",
         errorMessage: "Failed to reject order",
         onSuccess: (_data, variables) => {
