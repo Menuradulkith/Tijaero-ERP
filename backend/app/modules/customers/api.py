@@ -147,21 +147,6 @@ def export_customers_csv(
     return response
 
 
-@router.get(
-    "/{customer_id}",
-    response_model=schemas.Customer,
-    summary="Get Customer by ID",
-    description="Retrieve customer details by ID",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
-)
-def get_customer(
-    customer_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
-):
-    return service.customer_service.get_customer(db, customer_id)
-
-
 @router.post(
     "/",
     response_model=schemas.Customer,
@@ -176,40 +161,6 @@ def create_customer(
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_CREATE)),
 ):
     return service.customer_service.create_customer(db, customer, current_user.id)
-
-
-@router.put(
-    "/{customer_id}",
-    response_model=schemas.Customer,
-    summary="Update Customer",
-    description="Update an existing customer",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
-)
-def update_customer(
-    customer_id: int,
-    customer: schemas.CustomerUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
-):
-    return service.customer_service.update_customer(
-        db, customer_id, customer, current_user.id
-    )
-
-
-@router.delete(
-    "/{customer_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete Customer",
-    description="Delete a customer",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_DELETE))],
-)
-def delete_customer(
-    customer_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_DELETE)),
-):
-
-    return service.customer_service.delete_customer(db, customer_id)
 
 
 from datetime import date
@@ -752,3 +703,51 @@ def get_voucher_usage_history(
     return service.voucher_service.get_voucher_usage_history(
         db, voucher_id, skip, limit
     )
+
+
+@router.get(
+    "/{customer_id}",
+    response_model=schemas.Customer,
+    summary="Get Customer by ID",
+    description="Retrieve customer details by ID",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+)
+def get_customer(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+):
+    return service.customer_service.get_customer(db, customer_id)
+
+
+@router.put(
+    "/{customer_id}",
+    response_model=schemas.Customer,
+    summary="Update Customer",
+    description="Update an existing customer",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
+)
+def update_customer(
+    customer_id: int,
+    customer: schemas.CustomerUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
+):
+    return service.customer_service.update_customer(
+        db, customer_id, customer, current_user.id
+    )
+
+
+@router.delete(
+    "/{customer_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete Customer",
+    description="Delete a customer",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_DELETE))],
+)
+def delete_customer(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_DELETE)),
+):
+    return service.customer_service.delete_customer(db, customer_id)

@@ -1208,3 +1208,38 @@ class PettyCashService:
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Petty cash GL posting failed: {e}")
+
+
+class CreditPaymentService:
+    def __init__(self, db: Session):
+        self.repo = repository.CreditPaymentRepository(db)
+
+    def get_payment(self, payment_id: int):
+        payment = self.repo.get_by_id(payment_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Credit payment with id {payment_id} not found"
+            )
+        return payment
+
+    def list_payments(self, filters: schemas.PaymentListFilter) -> List[models.CreditPayments]:
+        return self.repo.get_all(filters)
+
+
+class CashPaymentService:
+    def __init__(self, db: Session):
+        self.repo = repository.CashPaymentRepository(db)
+
+    def get_payment(self, payment_id: int):
+        payment = self.repo.get_by_id(payment_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Cash payment with id {payment_id} not found"
+            )
+        return payment
+
+    def list_payments(self, filters: schemas.PaymentListFilter):
+        return self.repo.get_all(filters)
+

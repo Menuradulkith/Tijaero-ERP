@@ -199,6 +199,41 @@ export interface CustomerCreditNoteCreate {
   invoice_no?: string;
 }
 
+// Credit Payment Types
+export interface CreditPayment {
+  id: number;
+  customer_id?: number;
+  customer_name?: string;
+  invoice_no?: string;
+  amount: number;
+  credit_terms?: string;
+  due_date?: string;
+  status: string;
+  created_date?: string;
+}
+
+export interface CreditPaymentCreate {
+  customer_id: number;
+  amount: number;
+  credit_terms?: string;
+  due_date?: string;
+  status?: string;
+}
+
+// Cash Payment Types
+export interface CashPayment {
+  id: number;
+  invoice_no: string;
+  branch_code: string;
+  amount: number;
+  customer_id: number;
+  customer_name?: string;
+  created_date: string;
+  created_date_time: string;
+  remarks?: string;
+  created_by?: number;
+}
+
 // Cashbook Types
 export type CashbookEntryType = 
   | "invoice_receipt"

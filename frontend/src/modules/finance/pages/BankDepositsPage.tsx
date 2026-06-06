@@ -258,8 +258,8 @@ export default function BankDepositsPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Finance", href: "/finance" },
-          { label: "Payment Methods", href: "/finance/payment-methods" },
-          { label: "Bank Deposits", href: "/finance/payment-methods/bank-deposits" },
+          { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
+          { label: "Bank Deposits", href: "/finance/customer-payment-methods/bank-deposits" },
           ...(selectedItem || isCreating ? [{ label: isCreating ? "New Deposit" : `Deposit #${selectedItem?.id}` }] : []),
         ]}
         title={selectedItem ? (selectedItem.bank_name || `Deposit #${selectedItem.id}`) : ""}

@@ -197,6 +197,78 @@ def list_cheque_payments(
     return payment_service.list_payments(filters)
 
 # =============================================================================
+# CREDIT PAYMENTS
+# =============================================================================
+
+@router.get("/credit-payments/{payment_id}", response_model=schemas.CreditPaymentResponse, dependencies=[Depends(require_permission(*Permissions.CREDIT_PAYMENT_VIEW))])
+def get_credit_payment(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    payment_service = service.CreditPaymentService(db)
+    return payment_service.get_payment(payment_id)
+
+@router.get("/credit-payments", response_model=List[schemas.CreditPaymentResponse], dependencies=[Depends(require_permission(*Permissions.CREDIT_PAYMENT_VIEW))])
+def list_credit_payments(
+    branch_code: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    scoped_branch = _enforce_branch_scope(branch_code, user_branches)
+    payment_service = service.CreditPaymentService(db)
+    filters = schemas.PaymentListFilter(
+        branch_code=scoped_branch,
+        branch_codes=_scoped_branch_codes(user_branches),
+        date_from=date.fromisoformat(date_from) if date_from else None,
+        date_to=date.fromisoformat(date_to) if date_to else None,
+        skip=skip,
+        limit=limit
+    )
+    return payment_service.list_payments(filters)
+
+
+# =============================================================================
+# CASH PAYMENTS
+# =============================================================================
+
+@router.get("/cash-payments/{payment_id}", response_model=schemas.CashPaymentResponse, dependencies=[Depends(require_permission(*Permissions.CASH_PAYMENT_VIEW))])
+def get_cash_payment(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    payment_service = service.CashPaymentService(db)
+    return payment_service.get_payment(payment_id)
+
+@router.get("/cash-payments", response_model=List[schemas.CashPaymentResponse], dependencies=[Depends(require_permission(*Permissions.CASH_PAYMENT_VIEW))])
+def list_cash_payments(
+    branch_code: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    scoped_branch = _enforce_branch_scope(branch_code, user_branches)
+    payment_service = service.CashPaymentService(db)
+    filters = schemas.PaymentListFilter(
+        branch_code=scoped_branch,
+        branch_codes=_scoped_branch_codes(user_branches),
+        date_from=date.fromisoformat(date_from) if date_from else None,
+        date_to=date.fromisoformat(date_to) if date_to else None,
+        skip=skip,
+        limit=limit
+    )
+    return payment_service.list_payments(filters)
+
+
+# =============================================================================
 # EXPENSES
 # =============================================================================
 

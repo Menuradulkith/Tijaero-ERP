@@ -1,4 +1,4 @@
-from datetime import datetime
+from app.core import timezone as tz
 
 from app.db.base import Base
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
@@ -17,7 +17,7 @@ class Report(Base, AuditMixin):
     category = Column(String(50))  # summary, detailed, comparison, etc.
     parameters = Column(Text)  # JSON string of report parameters
     created_by = Column(Integer, ForeignKey("accounts_user.id"))
-    created_date = Column(DateTime, default=datetime.utcnow)
+    created_date = Column(DateTime, default=tz.now)
     is_template = Column(Boolean, default=False)
     is_scheduled = Column(Boolean, default=False)
     schedule_frequency = Column(String(50))  # daily, weekly, monthly
@@ -31,7 +31,7 @@ class ReportExecution(Base, AuditMixin):
     id = Column(Integer, primary_key=True, index=True)
     report_id = Column(Integer, ForeignKey("reports.id"))
     executed_by = Column(Integer, ForeignKey("accounts_user.id"))
-    execution_date = Column(DateTime, default=datetime.utcnow)
+    execution_date = Column(DateTime, default=tz.now)
     status = Column(String(50))
     parameters = Column(Text)
     result_summary = Column(Text)

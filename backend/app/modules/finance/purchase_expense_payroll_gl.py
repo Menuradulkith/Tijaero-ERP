@@ -1050,6 +1050,11 @@ class PurchaseExpensePayrollGL:
 
         Called when a bank deposit is verified (cash deposited into bank).
         """
+        # Do not post bank deposits to GL for bank transfers (which go directly to the bank, not cashbox)
+        if getattr(deposit, "payment_for", None) in ("Sales Invoice", "Credit Settlement"):
+            logger.info(f"Skipping GL posting for bank transfer BankDeposit {deposit.id}")
+            return None
+
         marker = f"BankDeposit ID: {deposit.id}"
         if self._check_already_posted(deposit.id, marker):
             return None
@@ -1277,10 +1282,13 @@ class PurchaseExpensePayrollGL:
         # Group by payment method and create lines
         lines = []
         payment_breakdown = {}
+        total_service_charge = Decimal("0")
         for t in transactions:
             pm = getattr(t, "payment_method", "cash") or "cash"
             amt = Decimal(str(getattr(t, "payment_amount", 0) or 0))
-            payment_breakdown[pm] = payment_breakdown.get(pm, Decimal("0")) + amt
+            sc = Decimal(str(getattr(t, "service_charge_amount", 0) or 0))
+            payment_breakdown[pm] = payment_breakdown.get(pm, Decimal("0")) + amt + sc
+            total_service_charge += sc
 
         for pm, amt in payment_breakdown.items():
             if amt <= 0:
@@ -1290,7 +1298,7 @@ class PurchaseExpensePayrollGL:
                 debit_account = ACCT_CASH_ON_HAND
             elif pm_lower in ("cheque", "check"):
                 debit_account = "1030"
-            elif pm_lower in ("card", "credit_card", "debit_card"):
+            elif pm_lower in ("card", "credit_card", "debit_card") or "card" in pm_lower or pm_lower in ("visa", "mastercard", "amex"):
                 debit_account = "1040"  # Card receivables
             else:
                 debit_account = ACCT_BANK_ACCOUNT
@@ -1309,6 +1317,15 @@ class PurchaseExpensePayrollGL:
             "credit": total_amount,
             "description": f"Credit invoice settlement - {settlement.customer_credits_settle_no}",
         })
+
+        # Credit Card Payment Surcharge to Other Income
+        if total_service_charge > 0:
+            lines.append({
+                "account_code": "4110",  # Other Income
+                "debit": Decimal("0"),
+                "credit": total_service_charge,
+                "description": f"Card payment surcharge - {settlement.customer_credits_settle_no}",
+            })
 
         description = (
             f"Auto GL - Customer Credit Settlement | {settlement.customer_credits_settle_no} | "

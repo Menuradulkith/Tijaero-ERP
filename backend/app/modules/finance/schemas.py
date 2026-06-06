@@ -429,5 +429,50 @@ class PettyCashSummary(BaseModel):
     replenishment_count: int
     last_transaction_date: Optional[date] = None
 
+
+# =============================================================================
+# CREDIT PAYMENT SCHEMAS
+# =============================================================================
+
+class CreditPaymentBase(BaseModel):
+    customer_id: Optional[int] = None
+    amount: Optional[Decimal] = None
+    credit_terms: Optional[str] = None
+    due_date: Optional[date] = None
+    status: Optional[str] = "pending"
+
+class CreditPaymentCreate(CreditPaymentBase):
+    pass
+
+class CreditPaymentUpdate(BaseModel):
+    status: Optional[str] = None
+    credit_terms: Optional[str] = None
+    due_date: Optional[date] = None
+    amount: Optional[Decimal] = None
+
+class CreditPaymentResponse(CreditPaymentBase, TijaeroBaseSchema):
+    id: int
+    customer_name: Optional[str] = None
+    invoice_no: Optional[str] = None
+    created_date: Optional[datetime] = None
+
+
+# =============================================================================
+# CASH PAYMENT SCHEMAS
+# =============================================================================
+
+class CashPaymentResponse(TijaeroBaseSchema):
+    id: int
+    invoice_no: str
+    branch_code: str
+    amount: Decimal
+    customer_id: int
+    customer_name: Optional[str] = None
+    created_date: date
+    created_date_time: datetime
+    remarks: Optional[str] = None
+    created_by: Optional[int] = None
+
+
 # Forward reference resolution
 PettyCashFundWithTransactions.model_rebuild()

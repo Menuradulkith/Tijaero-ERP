@@ -157,6 +157,16 @@ export const PERMISSIONS = {
   CREDIT_NOTES_CREATE: { resource: "credit_notes", action: "create" },
   CREDIT_NOTES_UPDATE: { resource: "credit_notes", action: "update" },
   CREDIT_NOTES_DELETE: { resource: "credit_notes", action: "delete" },
+  // Credit Payments
+  CREDIT_PAYMENTS_VIEW: { resource: "credit_payments", action: "view" },
+  CREDIT_PAYMENTS_CREATE: { resource: "credit_payments", action: "create" },
+  CREDIT_PAYMENTS_UPDATE: { resource: "credit_payments", action: "update" },
+  CREDIT_PAYMENTS_DELETE: { resource: "credit_payments", action: "delete" },
+  // Cash Payments
+  CASH_PAYMENTS_VIEW: { resource: "cash_payments", action: "view" },
+  CASH_PAYMENTS_CREATE: { resource: "cash_payments", action: "create" },
+  CASH_PAYMENTS_UPDATE: { resource: "cash_payments", action: "update" },
+  CASH_PAYMENTS_DELETE: { resource: "cash_payments", action: "delete" },
   // Customer Advances
   CUSTOMER_ADVANCES_VIEW: { resource: "customer_advances", action: "view" },
   CUSTOMER_ADVANCES_CREATE: { resource: "customer_advances", action: "create" },

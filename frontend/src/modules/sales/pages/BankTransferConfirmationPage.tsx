@@ -135,7 +135,7 @@ export default function BankTransferConfirmationPage() {
   // Verify mutation
   const verifyMutation = useCrudMutation({
     mutationFn: (invoiceId: number) => bankTransferApi.verify(invoiceId),
-    invalidateQueryKeys: [["pendingBankTransfers"]],
+    invalidateQueryKeys: [["pendingBankTransfers"], ["sales"]],
     getSuccessMessage: (data) => data.message,
     errorMessage: "Failed to verify bank transfer",
     onSuccess: (data) => {
@@ -147,7 +147,7 @@ export default function BankTransferConfirmationPage() {
   const rejectMutation = useCrudMutation({
     mutationFn: ({ invoiceId, reason }: { invoiceId: number; reason: string }) =>
       bankTransferApi.reject(invoiceId, reason),
-    invalidateQueryKeys: [["pendingBankTransfers"]],
+    invalidateQueryKeys: [["pendingBankTransfers"], ["sales"]],
     getSuccessMessage: (data) => data.message,
     errorMessage: "Failed to reject bank transfer",
     onSuccess: (data) => {

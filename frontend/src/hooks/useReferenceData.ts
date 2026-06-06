@@ -65,6 +65,7 @@ export interface ProductRef {
   description?: string;
   model?: string;
   website_price?: number;
+  minimum_price?: number;
 }
 
 export interface CountryRef {

@@ -144,7 +144,9 @@ export default function InvoiceDetailsDialog({
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                     Created By: {invoiceDetails.created_by_name || "—"}
                   </Typography>
-                  {((invoiceDetails.credit_amount ?? 0) > 0 || invoiceDetails.payment_method?.toLowerCase() === "credit") && (
+                  {((invoiceDetails.credit_amount ?? 0) > 0 || 
+                    invoiceDetails.payment_method?.toLowerCase() === "credit" ||
+                    invoiceDetails.payment_method?.toLowerCase() === "bank_transfer") && (
                     <Typography variant="body2" color="text.secondary">
                       Approved By: {invoiceDetails.approved_by_name || "—"}
                       {invoiceDetails.approved_date && ` (on ${format(new Date(invoiceDetails.approved_date), "MMMM dd, yyyy HH:mm")})`}

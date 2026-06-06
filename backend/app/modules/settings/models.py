@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from app.core import timezone as tz
 from app.db.base import Base
 from app.common.base_models import AuditMixin
 
@@ -51,7 +51,7 @@ class UserNotification(Base, AuditMixin):
     message = Column(Text, nullable=False)
     notification_type = Column(String(50), nullable=False)  # info, success, warning, error
     is_read = Column(Boolean, default=False, nullable=False)
-    created_date = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_date = Column(DateTime, default=tz.now, nullable=False)
     read_date = Column(DateTime)
     action_url = Column(String(500))
     extra_data = Column(JSON)  # Additional data as JSON
@@ -73,7 +73,7 @@ class UserPreferences(Base, AuditMixin):
     items_per_page = Column(Integer, default=25)
     date_format = Column(String(20), default="YYYY-MM-DD")
     currency_format = Column(String(10), default="USD")
-    updated_date = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_date = Column(DateTime, default=tz.now, onupdate=tz.now)
 
 
 # Note: The 'settings' table already exists in the database for company-wide settings

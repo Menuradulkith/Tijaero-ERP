@@ -9,3 +9,5 @@ export { default as CreditNotesPage } from "./CreditNotesPage";
 export { default as CashbookPage } from "./CashbookPage";
 export { default as SupplierPaymentsPage } from "./SupplierPaymentsPage";
 export { default as PaymentApprovalsPage } from "./PaymentApprovalsPage";
+export { default as CustomerPaymentMethodsPage } from "./CustomerPaymentMethodsPage";
+export { default as CreditPaymentsPage } from "./CreditPaymentsPage";

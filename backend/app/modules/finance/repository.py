@@ -78,12 +78,15 @@ class CardPaymentRepository:
         ).first()
     
     def get_all(self, filters: schemas.PaymentListFilter) -> List[models.CardPayments]:
-        query = self.db.query(models.CardPayments)
+        from app.modules.sales.models import Invoice
+        query = self.db.query(models.CardPayments).outerjoin(
+            Invoice, Invoice.card_payment_id == models.CardPayments.id
+        )
         
         if filters.branch_code:
-            query = query.filter(models.CardPayments.branch_code == filters.branch_code)
+            query = query.filter(Invoice.branch_code == filters.branch_code)
         elif filters.branch_codes:
-            query = query.filter(models.CardPayments.branch_code.in_(filters.branch_codes))
+            query = query.filter(Invoice.branch_code.in_(filters.branch_codes))
         if filters.date_from:
             query = query.filter(models.CardPayments.date_time >= filters.date_from)
         if filters.date_to:
@@ -108,12 +111,15 @@ class ChequePaymentRepository:
         ).first()
     
     def get_all(self, filters: schemas.PaymentListFilter) -> List[models.ChequePayments]:
-        query = self.db.query(models.ChequePayments)
+        from app.modules.sales.models import Invoice
+        query = self.db.query(models.ChequePayments).outerjoin(
+            Invoice, Invoice.cheque_payment_id == models.ChequePayments.id
+        )
         
         if filters.branch_code:
-            query = query.filter(models.ChequePayments.branch_code == filters.branch_code)
+            query = query.filter(Invoice.branch_code == filters.branch_code)
         elif filters.branch_codes:
-            query = query.filter(models.ChequePayments.branch_code.in_(filters.branch_codes))
+            query = query.filter(Invoice.branch_code.in_(filters.branch_codes))
         if filters.date_from:
             query = query.filter(models.ChequePayments.cheque_date >= filters.date_from)
         if filters.date_to:
@@ -262,3 +268,135 @@ class CustomerCreditNoteRepository:
         return self.db.query(CustomerCreditNotes).filter(
             CustomerCreditNotes.customer_id == customer_id
         ).all()
+
+
+class CreditPaymentRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_id(self, payment_id: int):
+        from app.modules.customers.models import Customer
+        from app.modules.sales.models import Invoice
+
+        return self.db.query(
+            models.CreditPayments.id,
+            models.CreditPayments.customer_id,
+            Customer.customer_name.label("customer_name"),
+            Invoice.invoice_no.label("invoice_no"),
+            models.CreditPayments.amount,
+            models.CreditPayments.credit_terms,
+            models.CreditPayments.due_date,
+            models.CreditPayments.status,
+            models.CreditPayments.created_date,
+            models.CreditPayments.created_by,
+            models.CreditPayments.updated_by,
+            models.CreditPayments.created_at,
+            models.CreditPayments.updated_at
+        ).outerjoin(
+            Customer, Customer.id == models.CreditPayments.customer_id
+        ).outerjoin(
+            Invoice, Invoice.credit_payment_id == models.CreditPayments.id
+        ).filter(
+            models.CreditPayments.id == payment_id
+        ).first()
+
+    def get_all(self, filters: schemas.PaymentListFilter):
+        from app.modules.customers.models import Customer
+        from app.modules.sales.models import Invoice
+
+        query = self.db.query(
+            models.CreditPayments.id,
+            models.CreditPayments.customer_id,
+            Customer.customer_name.label("customer_name"),
+            Invoice.invoice_no.label("invoice_no"),
+            models.CreditPayments.amount,
+            models.CreditPayments.credit_terms,
+            models.CreditPayments.due_date,
+            models.CreditPayments.status,
+            models.CreditPayments.created_date,
+            models.CreditPayments.created_by,
+            models.CreditPayments.updated_by,
+            models.CreditPayments.created_at,
+            models.CreditPayments.updated_at
+        ).outerjoin(
+            Customer, Customer.id == models.CreditPayments.customer_id
+        ).outerjoin(
+            Invoice, Invoice.credit_payment_id == models.CreditPayments.id
+        )
+
+        if filters.branch_code:
+            query = query.filter(Invoice.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            query = query.filter(Invoice.branch_code.in_(filters.branch_codes))
+        
+        if filters.date_from:
+            query = query.filter(models.CreditPayments.created_date >= filters.date_from)
+        if filters.date_to:
+            query = query.filter(models.CreditPayments.created_date <= filters.date_to)
+
+        return query.order_by(models.CreditPayments.created_date.desc()).offset(filters.skip).limit(filters.limit).all()
+
+
+class CashPaymentRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_id(self, payment_id: int):
+        from app.modules.customers.models import Customer
+        from app.modules.sales.models import Invoice
+
+        return self.db.query(
+            Invoice.id,
+            Invoice.invoice_no,
+            Invoice.branch_code,
+            Invoice.cash_amount.label("amount"),
+            Invoice.customer_id,
+            Customer.customer_name.label("customer_name"),
+            Invoice.created_date,
+            Invoice.created_date_time,
+            Invoice.remarks,
+            Invoice.created_by,
+            Invoice.created_at,
+            Invoice.updated_at
+        ).outerjoin(
+            Customer, Customer.id == Invoice.customer_id
+        ).filter(
+            Invoice.id == payment_id,
+            Invoice.payment_method.ilike("cash")
+        ).first()
+
+    def get_all(self, filters: schemas.PaymentListFilter):
+        from app.modules.customers.models import Customer
+        from app.modules.sales.models import Invoice
+
+        query = self.db.query(
+            Invoice.id,
+            Invoice.invoice_no,
+            Invoice.branch_code,
+            Invoice.cash_amount.label("amount"),
+            Invoice.customer_id,
+            Customer.customer_name.label("customer_name"),
+            Invoice.created_date,
+            Invoice.created_date_time,
+            Invoice.remarks,
+            Invoice.created_by,
+            Invoice.created_at,
+            Invoice.updated_at
+        ).outerjoin(
+            Customer, Customer.id == Invoice.customer_id
+        ).filter(
+            Invoice.payment_method.ilike("cash")
+        )
+
+        if filters.branch_code:
+            query = query.filter(Invoice.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            query = query.filter(Invoice.branch_code.in_(filters.branch_codes))
+        
+        if filters.date_from:
+            query = query.filter(Invoice.created_date >= filters.date_from)
+        if filters.date_to:
+            query = query.filter(Invoice.created_date <= filters.date_to)
+
+        return query.order_by(Invoice.created_date_time.desc()).offset(filters.skip).limit(filters.limit).all()
+

@@ -24,9 +24,10 @@ class SalesStockService:
     ) -> List[dict]:
         """Get all sales stock items with optional filters, including related data"""
         from app.modules.common.models import Locations
+        from app.modules.products.models import Product
         
         query = self.db.query(models.SalesStock).options(
-            joinedload(models.SalesStock.product),
+            joinedload(models.SalesStock.product).joinedload(Product.minimum_prices),
             joinedload(models.SalesStock.good_received_note)
         ).filter(
             # Exclude items permanently removed from the sales cycle
@@ -91,6 +92,12 @@ class SalesStockService:
             created_at = getattr(item, 'created_at', getattr(item, 'added_date', None))
             updated_at = getattr(item, 'updated_at', getattr(item, 'updated_date', None))
             
+            # Get minimum price from MinimumPrice table
+            minimum_price = None
+            if item.product and item.product.minimum_prices:
+                latest_min_price = max(item.product.minimum_prices, key=lambda x: x.created_date)
+                minimum_price = float(latest_min_price.minimum_price) if latest_min_price else None
+
             item_dict = {
                 "id": item.id,
                 "product_id": item.product_id,
@@ -108,6 +115,8 @@ class SalesStockService:
                 "location_name": locations_map.get(location_id_to_use) if location_id_to_use else None,
                 "cost_price": item.product.cost_price if item.product else None,
                 "selling_price": item.product.selling_price if item.product else None,
+                "minimum_price": minimum_price,
+                "minimum_selling_price": minimum_price,
                 # Add product details directly
                 "product_name": item.product.name if item.product else None,
                 "item_code": item.product.item_code if item.product else None,

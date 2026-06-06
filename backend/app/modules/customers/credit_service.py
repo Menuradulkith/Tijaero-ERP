@@ -558,10 +558,20 @@ class CustomerCreditService:
 
         # Build report items
         items = []
+        pm_map = {
+            "cash": "Cash",
+            "card": "Card",
+            "card_visa": "Visa Card",
+            "card_mastercard": "Mastercard",
+            "card_amex": "Amex Card",
+            "bank_transfer": "Bank Transfer",
+            "bank": "Bank Transfer",
+            "cheque": "Cheque",
+        }
         for settle, customer_name in settlement_rows:
             txns = txn_by_settle.get(settle.id, [])
             total_amount = float(sum(txn.payment_amount for txn, _ in txns))
-            methods = list(dict.fromkeys(txn.payment_method for txn, _ in txns if txn.payment_method))
+            methods = list(dict.fromkeys(pm_map.get(txn.payment_method.lower(), txn.payment_method) for txn, _ in txns if txn.payment_method))
             inv_refs = list(dict.fromkeys(inv_no for _, inv_no in txns if inv_no))
             remarks_parts = [txn.remarks for txn, _ in txns if txn.remarks]
 
@@ -627,7 +637,7 @@ class CustomerCreditService:
                     "transaction_id": t.id,
                     "settlement_id": t.customer_credit_settle_id,
                     "payment_date": t.created_date,
-                    "payment_method": t.payment_method,
+                    "payment_method": pm_map.get(t.payment_method.lower(), t.payment_method) if t.payment_method else "",
                     "amount": float(t.payment_amount),
                     "reference": t.payment_method_number,
                     "remarks": t.remarks

@@ -6,10 +6,13 @@ from app.modules.sales.models import Invoice, SaleReturn
 
 def _invoice_eager_options():
     """Standard eager loading options to prevent N+1 queries on invoice lists."""
+    from app.modules.common.models import Approvals
     return [
         selectinload(Invoice.items),
         joinedload(Invoice.customer),
         joinedload(Invoice.creator),
+        joinedload(Invoice.bank_transfer_verifier),
+        joinedload(Invoice.approval_record).joinedload(Approvals.approver),
     ]
 
 

@@ -163,7 +163,7 @@ export default function SaleReturnApprovalsPage() {
     // Approve mutation
     const approveMutation = useCrudMutation({
         mutationFn: (id: number) => saleReturnsApi.approve(id),
-        invalidateQueryKeys: [["sale-returns"], ["sales-stock"]],
+        invalidateQueryKeys: [["sale-returns"], ["salesStock"]],
         successMessage: "Sale return approved successfully",
         errorMessage: "Failed to approve return",
         onSuccess: (_data, id) => {
@@ -196,7 +196,7 @@ export default function SaleReturnApprovalsPage() {
     // Process mutation (for approved returns)
     const processMutation = useCrudMutation({
         mutationFn: (id: number) => saleReturnsApi.process(id),
-        invalidateQueryKeys: [["sale-returns"], ["sales-stock"]],
+        invalidateQueryKeys: [["sale-returns"], ["salesStock"]],
         getSuccessMessage: (data) => `Sale return processed. ${data.items_restocked} items restocked.`,
         errorMessage: "Failed to process return",
         onSuccess: (data, id) => {
