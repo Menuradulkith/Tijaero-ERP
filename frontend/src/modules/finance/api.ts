@@ -38,6 +38,7 @@ import {
   CashFlowCategoryUpdate,
   CashFlowStatement,
   AccountingDashboardStats,
+  IncomeStatementResponse,
 } from "./types";
 
 // Bank Deposits API
@@ -530,7 +531,7 @@ export const financialReportsApi = {
     date_from?: string;
     date_to?: string;
   }) => {
-    const response = await apiClient.get<import("./types").IncomeStatementResponse>(
+    const response = await apiClient.get<IncomeStatementResponse>(
       `${ACCT_BASE}/reports/income-statement`,
       { params }
     );
