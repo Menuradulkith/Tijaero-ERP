@@ -168,7 +168,12 @@ export default function ItemTransferNoteApprovalsPage() {
       if (sortField === "item_transfer_note") {
         return a.item_transfer_note.localeCompare(b.item_transfer_note);
       }
-      return new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
+      const timeA = a.added_date ? new Date(a.added_date).getTime() : new Date(a.created_date).getTime();
+      const timeB = b.added_date ? new Date(b.added_date).getTime() : new Date(b.created_date).getTime();
+      if (timeB !== timeA) {
+        return timeB - timeA;
+      }
+      return b.id - a.id;
     });
 
     return filtered;

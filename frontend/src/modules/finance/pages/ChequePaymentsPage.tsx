@@ -128,12 +128,16 @@ export default function ChequePaymentsPage() {
         String(c.id).includes(searchQuery)
     );
     filtered.sort((a, b) => {
-      if (sortField === "cheque_date") return new Date(b.cheque_date || "").getTime() - new Date(a.cheque_date || "").getTime();
+      if (sortField === "cheque_date") {
+        const diff = new Date(b.cheque_date || "").getTime() - new Date(a.cheque_date || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
       if (sortField === "amount") return Number(b.amount || 0) - Number(a.amount || 0);
       if (sortField === "cheque_number") return Number(b.cheque_number || 0) - Number(a.cheque_number || 0);
       const fA = a[sortField as keyof ChequePayment] || "";
       const fB = b[sortField as keyof ChequePayment] || "";
-      return String(fA).localeCompare(String(fB));
+      const comp = String(fA).localeCompare(String(fB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
     return filtered;
   }, [cheques, searchQuery, sortField]);

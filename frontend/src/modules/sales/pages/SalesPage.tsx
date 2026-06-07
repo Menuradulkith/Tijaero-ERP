@@ -659,10 +659,12 @@ export default function SalesPage() {
       if (state.sortField === "invoice_no") {
         return a.invoice_no.localeCompare(b.invoice_no);
       } else if (state.sortField === "created_date") {
-        return (
-          new Date(b.created_date).getTime() -
-          new Date(a.created_date).getTime()
-        );
+        const timeA = a.created_date_time ? new Date(a.created_date_time).getTime() : new Date(a.created_date).getTime();
+        const timeB = b.created_date_time ? new Date(b.created_date_time).getTime() : new Date(b.created_date).getTime();
+        if (timeB !== timeA) {
+          return timeB - timeA;
+        }
+        return b.id - a.id;
       } else if (state.sortField === "total") {
         return calculateTotal(b) - calculateTotal(a);
       }
@@ -1129,7 +1131,13 @@ export default function SalesPage() {
     setLineItems(existingItems);
   };
 
+  const saveInProgressRef = useRef(false);
+
   const handleSave = async () => {
+    // Prevent double-submit during async credit-check / confirm-dialog window
+    if (saveInProgressRef.current || createMutation.isPending || updateMutation.isPending) return;
+    saveInProgressRef.current = true;
+    try {
     // Validate that all selling prices are not below minimum prices
     const invalidItems = lineItems.filter(
       (item) => item.selling_price < item.minimum_selling_price,
@@ -1502,6 +1510,9 @@ export default function SalesPage() {
         pendingQuoteRef.current = null;
       }
       createMutation.mutate(invoiceData);
+    }
+    } finally {
+      saveInProgressRef.current = false;
     }
   };
 

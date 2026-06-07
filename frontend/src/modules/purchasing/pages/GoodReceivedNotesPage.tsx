@@ -498,11 +498,13 @@ export default function GoodReceivedNotesPage() {
 
     filtered.sort((a, b) => {
       if (sortField === "good_received_date") {
-        return new Date(b.good_received_date || "").getTime() - new Date(a.good_received_date || "").getTime();
+        const diff = new Date(b.good_received_date || "").getTime() - new Date(a.good_received_date || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       const fieldA = a[sortField as keyof GoodReceivedNote] || "";
       const fieldB = b[sortField as keyof GoodReceivedNote] || "";
-      return String(fieldA).localeCompare(String(fieldB));
+      const comp = String(fieldA).localeCompare(String(fieldB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;

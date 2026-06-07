@@ -463,16 +463,17 @@ export default function ReimbursementsPage() {
       filtered = filtered.filter((r) => r.status === filterStatus);
     filtered.sort((a, b) => {
       if (sortField === "claim_date") {
-        return (
-          new Date(b.claim_date || "").getTime() -
-          new Date(a.claim_date || "").getTime()
-        );
+        const diff = new Date(b.claim_date || "").getTime() - new Date(a.claim_date || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
-      if (sortField === "total_amount")
-        return (b.total_amount || 0) - (a.total_amount || 0);
+      if (sortField === "total_amount") {
+        const diff = (b.total_amount || 0) - (a.total_amount || 0);
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
       const fa = a[sortField as keyof Reimbursement] || "";
       const fb = b[sortField as keyof Reimbursement] || "";
-      return String(fa).localeCompare(String(fb));
+      const comp = String(fa).localeCompare(String(fb));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
     return filtered;
   }, [reimbursements, searchQuery, sortField, filterBranch, filterStatus]);

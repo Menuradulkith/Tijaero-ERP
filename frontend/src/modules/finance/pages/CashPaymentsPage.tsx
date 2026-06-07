@@ -114,11 +114,15 @@ export default function CashPaymentsPage() {
         String(p.id).includes(searchQuery)
     );
     filtered.sort((a, b) => {
-      if (sortField === "created_date_time") return new Date(b.created_date_time || "").getTime() - new Date(a.created_date_time || "").getTime();
+      if (sortField === "created_date_time") {
+        const diff = new Date(b.created_date_time || "").getTime() - new Date(a.created_date_time || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
       if (sortField === "amount") return Number(b.amount || 0) - Number(a.amount || 0);
       const fA = a[sortField as keyof CashPayment] || "";
       const fB = b[sortField as keyof CashPayment] || "";
-      return String(fA).localeCompare(String(fB));
+      const comp = String(fA).localeCompare(String(fB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
     return filtered;
   }, [payments, searchQuery, sortField]);

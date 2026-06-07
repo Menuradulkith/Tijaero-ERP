@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SupplierPaymentsPage - Unified Supplier Payments (ERP Best Practice)
  * 
  * Following standard ERP patterns (SAP, Oracle, Odoo, ERPNext), this unified page handles:
@@ -347,7 +347,10 @@ export default function SupplierPaymentsPage() {
     }
 
     // Sort by due date (oldest first)
-    filtered.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+    filtered.sort((a, b) => {
+      const diff = new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      return diff !== 0 ? diff : (a.id || 0) - (b.id || 0);
+    });
 
     return filtered;
   }, [purchaseDocuments, paymentTypeTab, selectedBranch, documentSearchQuery]);

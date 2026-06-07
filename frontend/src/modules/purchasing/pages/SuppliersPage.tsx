@@ -37,6 +37,8 @@ import {
   SortOption,
   TConfirmDialog,
   TDetailSkeleton,
+  TFilterPanel,
+  TStatusFilter,
   TITLE_CHOICES,
   GENDER_CHOICES,
   CIVIL_CHOICES,
@@ -51,6 +53,11 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "full_name", label: "Name" },
   { value: "company_name", label: "Company" },
   { value: "email", label: "Email" },
+];
+
+const SUPPLIER_STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
 ];
 
 const INITIAL_FORM_DATA: SupplierCreate = {
@@ -137,6 +144,9 @@ export default function SuppliersPage() {
   // Confirm dialog for unsaved changes and delete actions
   const confirmDialog = useTConfirmDialog();
 
+  // Filter state
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
   // Validation state - track which fields have been touched/blurred
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   
@@ -193,6 +203,12 @@ export default function SuppliersPage() {
         (supplier.email?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
     );
 
+    // Apply status filter
+    if (filterStatus) {
+      const isActive = filterStatus === "active";
+      filtered = filtered.filter((supplier) => supplier.active === isActive);
+    }
+
     filtered.sort((a, b) => {
       const fieldA = a[sortField as keyof Supplier] || "";
       const fieldB = b[sortField as keyof Supplier] || "";
@@ -200,7 +216,7 @@ export default function SuppliersPage() {
     });
 
     return filtered;
-  }, [suppliers, searchQuery, sortField]);
+  }, [suppliers, searchQuery, sortField, filterStatus]);
 
   // Auto-select first item when data loads
   useEffect(() => {
@@ -416,6 +432,18 @@ export default function SuppliersPage() {
       selectedItem={selectedSupplier}
       onSelectItem={handleSelectSupplierWithCheck}
       emptyMessage="No suppliers found"
+      listHeader={
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: 1.5, paddingBottom: 0 }}>
+          <TFilterPanel>
+            <TStatusFilter
+              options={SUPPLIER_STATUS_OPTIONS}
+              value={filterStatus}
+              onChange={setFilterStatus}
+              label="Status"
+            />
+          </TFilterPanel>
+        </Box>
+      }
       renderItem={(supplier, isSelected) => (
         <SelectableListItem
           key={supplier.id}

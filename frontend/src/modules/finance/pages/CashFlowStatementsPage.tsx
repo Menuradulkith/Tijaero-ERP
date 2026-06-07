@@ -136,11 +136,12 @@ export default function CashFlowStatementsPage() {
     }
     filtered.sort((a, b) => {
       if (sortField === "fiscal_year") return b.fiscal_year - a.fiscal_year;
-      if (sortField === "statement_no")
-        return (b.statement_no || "").localeCompare(a.statement_no || "");
-      return (
-        new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime()
-      );
+      if (sortField === "statement_no") {
+        const diff = (b.statement_no || "").localeCompare(a.statement_no || "");
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      const timeDiff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+      return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
     });
     return filtered;
   }, [statements, searchQuery, sortField]);

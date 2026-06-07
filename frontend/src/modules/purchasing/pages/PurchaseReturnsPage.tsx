@@ -373,11 +373,13 @@ export default function PurchaseReturnsPage() {
 
     filtered.sort((a, b) => {
       if (sortField === "added_date") {
-        return new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
+        const diff = new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       const fieldA = a[sortField as keyof PurchasingReturn] || "";
       const fieldB = b[sortField as keyof PurchasingReturn] || "";
-      return String(fieldA).localeCompare(String(fieldB));
+      const comp = String(fieldA).localeCompare(String(fieldB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;

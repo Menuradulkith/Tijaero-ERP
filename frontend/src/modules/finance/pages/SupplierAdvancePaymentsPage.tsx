@@ -261,14 +261,17 @@ export default function SupplierAdvancePaymentsPage() {
     // Sort
     filtered.sort((a, b) => {
       if (sortField === "created_at") {
-        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+        const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       if (sortField === "original_amount") {
-        return Number(b.original_amount || 0) - Number(a.original_amount || 0);
+        const diff = Number(b.original_amount || 0) - Number(a.original_amount || 0);
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       const fieldA = a[sortField as keyof SupplierAdvancePayment] || "";
       const fieldB = b[sortField as keyof SupplierAdvancePayment] || "";
-      return String(fieldA).localeCompare(String(fieldB));
+      const comp = String(fieldA).localeCompare(String(fieldB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;

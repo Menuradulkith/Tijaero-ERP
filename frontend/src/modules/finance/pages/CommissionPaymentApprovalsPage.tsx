@@ -155,9 +155,11 @@ export default function CommissionPaymentApprovalsPage() {
       if (sortField === "payment_amount") {
         return Number(b.payment_amount) - Number(a.payment_amount);
       } else if (sortField === "payment_date") {
-        return new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime();
+        const diff = new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
-      return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+      const timeDiff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+      return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;

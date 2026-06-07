@@ -548,8 +548,20 @@ class ItemTransferNoteApprovalService:
     def update_approval(
         self, approval_id: int, approval: schemas.ItemTransferNoteApprovedCreate
     ) -> ItemTransferNoteApproved:
-        db_approval = self.get_approval(approval_id)
+        # Lock the approval row to prevent concurrent approve/reject race
+        db_approval = self.db.query(ItemTransferNoteApproved).filter(
+            ItemTransferNoteApproved.id == approval_id
+        ).with_for_update().first()
+        if not db_approval:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Approval record not found"
+            )
         old_status = db_approval.approved_status
+
+        # Guard against re-processing an already-decided approval
+        if old_status in (1, 2) and approval.approved_status == old_status:
+            return db_approval  # Idempotent — already in this state
         
         for key, value in approval.model_dump().items():
             setattr(db_approval, key, value)

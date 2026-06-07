@@ -14,6 +14,8 @@ import {
     SortOption,
     TabConfig,
     TConfirmDialog,
+    TFilterPanel,
+    TStatusFilter,
     useConfirmDialog,
   useCrudMutation,
     useMasterDetailState,
@@ -71,6 +73,16 @@ const categorySortOptions: SortOption[] = [
 const brandSortOptions: SortOption[] = [
   { value: "brand_name", label: "Name" },
   { value: "brand_code", label: "Code" },
+];
+
+const PRODUCT_ACTIVE_FILTER_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
+
+const PRODUCT_WEBSITE_FILTER_OPTIONS = [
+  { value: "active", label: "Website Active" },
+  { value: "inactive", label: "Website Inactive" },
 ];
 
 // Initial form data
@@ -159,6 +171,10 @@ export default function ProductsPage({
   const handleBrandBlur = (fieldName: string) => {
     setBrandTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
+
+  // Product filter states
+  const [productActiveFilter, setProductActiveFilter] = useState<string | null>(null);
+  const [productWebsiteFilter, setProductWebsiteFilter] = useState<string | null>(null);
 
   // Minimum selling price dialog state
   const [minPriceDialogOpen, setMinPriceDialogOpen] = useState(false);
@@ -262,7 +278,7 @@ export default function ProductsPage({
   //consiltered and sorted data
   const filteredProducts = useMemo(() => {
     if (!products) return [];
-    const filtered = products.filter(
+    let filtered = products.filter(
       (p) =>
         p.item_code
           .toLowerCase()
@@ -270,6 +286,19 @@ export default function ProductsPage({
         p.name.toLowerCase().includes(productState.searchQuery.toLowerCase()) ||
         p.model?.toLowerCase().includes(productState.searchQuery.toLowerCase()),
     );
+
+    // Apply active filter
+    if (productActiveFilter) {
+      const isActive = productActiveFilter === "active";
+      filtered = filtered.filter((p) => p.active === isActive);
+    }
+
+    // Apply website active filter
+    if (productWebsiteFilter) {
+      const isActive = productWebsiteFilter === "active";
+      filtered = filtered.filter((p) => p.website_active === isActive);
+    }
+
     filtered.sort((a, b) => {
       if (productState.sortField === "item_code")
         return a.item_code.localeCompare(b.item_code);
@@ -280,7 +309,7 @@ export default function ProductsPage({
       return 0;
     });
     return filtered;
-  }, [products, productState.searchQuery, productState.sortField]);
+  }, [products, productState.searchQuery, productState.sortField, productActiveFilter, productWebsiteFilter]);
 
   const preparedProducts = useMemo(
     () =>
@@ -898,6 +927,24 @@ export default function ProductsPage({
         virtualize
         estimatedItemHeight={90}
         overscanCount={8}
+        listHeader={
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: 1.5, paddingBottom: 0 }}>
+            <TFilterPanel>
+              <TStatusFilter
+                options={PRODUCT_ACTIVE_FILTER_OPTIONS}
+                value={productActiveFilter}
+                onChange={setProductActiveFilter}
+                label="Status"
+              />
+              <TStatusFilter
+                options={PRODUCT_WEBSITE_FILTER_OPTIONS}
+                value={productWebsiteFilter}
+                onChange={setProductWebsiteFilter}
+                label="Website"
+              />
+            </TFilterPanel>
+          </Box>
+        }
       >
         {preparedProducts.map(({ product, addedDateLabel }) => {
           const isSelected = productState.selectedItem?.id === product.id;

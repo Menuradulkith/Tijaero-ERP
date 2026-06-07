@@ -123,7 +123,11 @@ export default function BankDepositsPage() {
         String(d.id).includes(searchQuery)
     );
     filtered.sort((a, b) => {
-      if (sortField === "created_date") return new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+      if (sortField === "created_date") {
+        const timeDiff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+        if (timeDiff !== 0) return timeDiff;
+        return b.id - a.id;
+      }
       if (sortField === "deposits_amount") return Number(b.deposits_amount || 0) - Number(a.deposits_amount || 0);
       const fA = a[sortField as keyof BankDeposit] || "";
       const fB = b[sortField as keyof BankDeposit] || "";

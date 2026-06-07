@@ -140,14 +140,16 @@ export default function ReimbursementApprovalsPage() {
       );
     }
     filtered.sort((a, b) => {
-      if (sortField === "total_amount")
-        return Number(b.total_amount) - Number(a.total_amount);
-      if (sortField === "reimbursement_no")
-        return (b.reimbursement_no || "").localeCompare(a.reimbursement_no || "");
-      return (
-        new Date(b.claim_date || "").getTime() -
-        new Date(a.claim_date || "").getTime()
-      );
+      if (sortField === "total_amount") {
+        const diff = Number(b.total_amount) - Number(a.total_amount);
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      if (sortField === "reimbursement_no") {
+        const diff = (b.reimbursement_no || "").localeCompare(a.reimbursement_no || "");
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      const timeDiff = new Date(b.claim_date || "").getTime() - new Date(a.claim_date || "").getTime();
+      return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
     });
     return filtered;
   }, [reimbursements, searchQuery, sortField]);

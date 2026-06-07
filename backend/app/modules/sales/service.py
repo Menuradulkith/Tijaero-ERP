@@ -165,9 +165,9 @@ class SalesService:
         # Apply sorting
         sort_column = getattr(Invoice, sort_by, Invoice.created_date)
         if sort_desc:
-            query = query.order_by(desc(sort_column))
+            query = query.order_by(desc(sort_column), desc(Invoice.id))
         else:
-            query = query.order_by(asc(sort_column))
+            query = query.order_by(asc(sort_column), asc(Invoice.id))
         
         # Apply pagination
         offset = (page - 1) * page_size
@@ -814,6 +814,13 @@ class SalesService:
 
         # Comprehensive credit sale validation (BLOCKING validations)
         if is_credit_payment and not getattr(invoice_data, 'override_credit_validation', False):
+            # Lock the customer row to serialise concurrent credit-sale requests
+            # for the same customer — prevents two requests from both reading the
+            # same available-credit and exceeding the limit.
+            db.query(Customer).filter(
+                Customer.id == invoice_data.customer_id
+            ).with_for_update().first()
+
             # Calculate credit amount portion for validation
             calculated_credit = getattr(invoice_data, 'credit_amount', 0) or 0
             if calculated_credit <= 0:
@@ -2290,10 +2297,24 @@ class SalesService:
             )
         
         # Generate settlement number with advisory lock for concurrency safety
-        settle_prefix = f"CS-{invoice.branch_code}-{tz.today().strftime('%Y%m%d')}"
+        year = tz.year()
+        settle_prefix = f"CCS-{year}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": settle_prefix})
-        settle_count = db.query(func.count(CustomerCreditsSettle.id)).scalar() or 0
-        settle_no = f"{settle_prefix}-{settle_count + 1:04d}"
+        last_settle = (
+            db.query(CustomerCreditsSettle)
+            .filter(CustomerCreditsSettle.customer_credits_settle_no.like(f"{settle_prefix}-%"))
+            .order_by(CustomerCreditsSettle.id.desc())
+            .first()
+        )
+        if last_settle:
+            try:
+                last_seq = int(last_settle.customer_credits_settle_no.split("-")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        settle_no = f"{settle_prefix}-{next_seq:05d}"
         
         # Create credit settle record
         credit_settle = CustomerCreditsSettle(
@@ -2496,7 +2517,7 @@ class SalesService:
         elif branch_code:
             query = query.filter(Invoice.branch_code == branch_code)
         
-        invoices = query.order_by(Invoice.created_date.desc()).all()
+        invoices = query.order_by(Invoice.created_date.desc(), Invoice.id.desc()).all()
         
         result = []
         for inv in invoices:

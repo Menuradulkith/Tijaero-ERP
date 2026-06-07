@@ -143,9 +143,11 @@ export default function PurchaseReturnApprovalsPage() {
 
     filtered.sort((a, b) => {
       if (sortField === "purchasing_return_no") {
-        return (a.purchasing_return_no || "").localeCompare(b.purchasing_return_no || "");
+        const diff = (a.purchasing_return_no || "").localeCompare(b.purchasing_return_no || "");
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
-      return new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
+      const timeDiff = new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
+      return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;

@@ -253,14 +253,16 @@ export default function JournalEntriesPage() {
       );
     }
     filtered.sort((a, b) => {
-      if (sortField === "total_debit")
-        return Number(b.total_debit) - Number(a.total_debit);
-      if (sortField === "journal_entry_no")
-        return (b.journal_entry_no || "").localeCompare(a.journal_entry_no || "");
-      return (
-        new Date(b.entry_date || "").getTime() -
-        new Date(a.entry_date || "").getTime()
-      );
+      if (sortField === "total_debit") {
+        const diff = Number(b.total_debit) - Number(a.total_debit);
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      if (sortField === "journal_entry_no") {
+        const diff = (b.journal_entry_no || "").localeCompare(a.journal_entry_no || "");
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      const timeDiff = new Date(b.entry_date || "").getTime() - new Date(a.entry_date || "").getTime();
+      return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
     });
     return filtered;
   }, [entries, searchQuery, sortField]);

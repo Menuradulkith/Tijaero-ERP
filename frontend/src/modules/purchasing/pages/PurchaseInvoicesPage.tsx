@@ -286,11 +286,13 @@ export default function PurchaseInvoicesPage() {
 
     filtered.sort((a, b) => {
       if (sortField === "created_at") {
-        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+        const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       const fieldA = a[sortField as keyof PurchaseInvoiceListItem] || "";
       const fieldB = b[sortField as keyof PurchaseInvoiceListItem] || "";
-      return String(fieldA).localeCompare(String(fieldB));
+      const comp = String(fieldA).localeCompare(String(fieldB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
     return filtered;
   }, [invoices, searchQuery, sortField]);

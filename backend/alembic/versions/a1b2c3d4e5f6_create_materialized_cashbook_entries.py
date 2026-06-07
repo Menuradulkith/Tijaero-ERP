@@ -234,6 +234,8 @@ def upgrade() -> None:
             v_customer_name VARCHAR(200);
             v_branch_code VARCHAR(200);
             v_settle_id INTEGER;
+            v_invoice_no VARCHAR(200);
+            v_payment_method_display VARCHAR(50);
         BEGIN
             -- Get the parent settle record
             SELECT cs.branch_code, cs.customer_id, cs.id
@@ -253,13 +255,32 @@ def upgrade() -> None:
             FROM customer_credits_settle cs
             WHERE cs.id = NEW.customer_credit_settle_id;
 
+            -- Get invoice_no from invoices
+            SELECT invoice_no INTO v_invoice_no
+            FROM invoices
+            WHERE id = NEW.invoice_id;
+            v_invoice_no := COALESCE(v_invoice_no, 'INV-#' || NEW.invoice_id);
+
+            -- Map raw payment method to display name
+            v_payment_method_display := CASE LOWER(COALESCE(NEW.payment_method, ''))
+                WHEN 'cash' THEN 'Cash'
+                WHEN 'card' THEN 'Card'
+                WHEN 'card_visa' THEN 'Visa Card'
+                WHEN 'card_mastercard' THEN 'Mastercard'
+                WHEN 'card_amex' THEN 'Amex Card'
+                WHEN 'bank_transfer' THEN 'Bank Transfer'
+                WHEN 'bank' THEN 'Bank Transfer'
+                WHEN 'cheque' THEN 'Cheque'
+                ELSE NEW.payment_method
+            END;
+
             PERFORM fn_insert_cashbook_entry(
                 'customer_credit_settle'::VARCHAR(50),
                 COALESCE(NEW.created_date::TIMESTAMP, NOW()::TIMESTAMP),
                 'customer_credits_settle_transaction'::VARCHAR(100),
                 NEW.id::INTEGER,
                 ('CCS-' || NEW.customer_credit_settle_id || '-INV-' || NEW.invoice_id)::VARCHAR(200),
-                ('Credit Settlement for Invoice #' || NEW.invoice_id)::TEXT,
+                ('Invoice ' || v_invoice_no || ' - ' || v_payment_method_display)::TEXT,
                 v_customer_name::VARCHAR(200),
                 NEW.payment_method::VARCHAR(50),
                 NEW.payment_amount::NUMERIC(15,2),
@@ -588,6 +609,8 @@ def upgrade() -> None:
             v_description TEXT;
             v_reference VARCHAR(200);
             v_payment_label VARCHAR(50);
+            v_invoice_no VARCHAR(200);
+            v_payment_method_display VARCHAR(50);
         BEGIN
             -- Process all existing records in chronological order
             -- We use a UNION ALL query sorted by date to interleave all sources
@@ -692,11 +715,30 @@ def upgrade() -> None:
                 FROM customers WHERE id = r.customer_id;
                 v_customer_name := COALESCE(v_customer_name, 'Unknown Customer');
 
+                -- Get invoice_no
+                SELECT invoice_no INTO v_invoice_no
+                FROM invoices
+                WHERE id = r.invoice_id;
+                v_invoice_no := COALESCE(v_invoice_no, 'INV-#' || r.invoice_id);
+
+                -- Map raw payment method to display name
+                v_payment_method_display := CASE LOWER(COALESCE(r.payment_method, ''))
+                    WHEN 'cash' THEN 'Cash'
+                    WHEN 'card' THEN 'Card'
+                    WHEN 'card_visa' THEN 'Visa Card'
+                    WHEN 'card_mastercard' THEN 'Mastercard'
+                    WHEN 'card_amex' THEN 'Amex Card'
+                    WHEN 'bank_transfer' THEN 'Bank Transfer'
+                    WHEN 'bank' THEN 'Bank Transfer'
+                    WHEN 'cheque' THEN 'Cheque'
+                    ELSE r.payment_method
+                END;
+
                 PERFORM fn_insert_cashbook_entry(
                     'customer_credit_settle', r.txn_date,
                     'customer_credits_settle_transaction', r.id,
                     'CCS-' || r.customer_credit_settle_id || '-INV-' || r.invoice_id,
-                    'Credit Settlement for Invoice #' || r.invoice_id,
+                    'Invoice ' || v_invoice_no || ' - ' || v_payment_method_display,
                     v_customer_name, r.payment_method,
                     r.payment_amount, 0,
                     r.branch_code

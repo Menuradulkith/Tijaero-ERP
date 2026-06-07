@@ -44,7 +44,6 @@ import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
-import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
 import { Customer, CustomerCreate } from "@/modules/customers/types";
 
@@ -126,7 +125,6 @@ export default function CustomersPage() {
   // Filter states
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterAgent, setFilterAgent] = useState<string | null>(null);
-  const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   // Use reusable state hook
   const {
@@ -155,27 +153,10 @@ export default function CustomersPage() {
     defaultSortField: "customer_name",
   });
 
-  // OPTIMIZED: Using aggregated endpoint for branches
-  const { filteredBranches, defaultBranchCode } = useReferenceData([
-    "branches",
-  ]);
-  const branches = filteredBranches || [];
-
-  // Auto-default branch filter for non-superuser users
-  useEffect(() => {
-    if (defaultBranchCode && filterBranch === null) {
-      setFilterBranch(defaultBranchCode);
-    }
-  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
-  const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
-
   // Data fetching - fetch ALL customers (including inactive) for this management page
   const { data: customers, isLoading } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.getAll(0, 1000, false), // activeOnly=false to get all customers
-    enabled: branchResolved,
   });
 
   // Filter and sort
@@ -208,14 +189,6 @@ export default function CustomersPage() {
       );
     }
 
-    // Apply branch filter
-    if (filterBranch) {
-      filtered = filtered.filter(
-        (customer) =>
-          (customer as { branch_code?: string }).branch_code === filterBranch,
-      );
-    }
-
     filtered.sort((a, b) => {
       if (sortField === "customer_name") {
         return a.customer_name.localeCompare(b.customer_name);
@@ -232,7 +205,6 @@ export default function CustomersPage() {
     sortField,
     filterStatus,
     filterAgent,
-    filterBranch,
   ]);
 
   // Auto-select first item when data loads
@@ -321,11 +293,10 @@ export default function CustomersPage() {
   // CSV Export
   const handleExportCSV = async () => {
     try {
-      const branchParam = filterBranch ? `&branch_code=${filterBranch}` : "";
       const activeParam = filterStatus === "active" ? "&active_only=true" : "";
 
       const response = await apiClient.get<Blob>(
-        `/customers/export-csv?limit=100000${branchParam}${activeParam}`,
+        `/customers/export-csv?limit=100000${activeParam}`,
         {
           responseType: "blob",
         },
@@ -336,8 +307,7 @@ export default function CustomersPage() {
       const link = document.createElement("a");
       link.href = url;
       const dateStr = new Date().toISOString().split("T")[0];
-      const branchStr = filterBranch || "all_branches";
-      link.download = `customers_${branchStr}_${dateStr}.csv`;
+      link.download = `customers_${dateStr}.csv`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -374,9 +344,6 @@ export default function CustomersPage() {
             statusOptions={CUSTOMER_STATUS_OPTIONS}
             statusValue={filterStatus}
             onStatusChange={setFilterStatus}
-            branches={branches}
-            branchValue={filterBranch}
-            onBranchChange={setFilterBranch}
           >
             <TStatusFilter
               options={AGENT_FILTER_OPTIONS}

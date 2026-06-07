@@ -265,10 +265,10 @@ export default function ExpensesPage() {
         return Number(b.expense_amount) - Number(a.expense_amount);
       if (sortField === "expenses_no")
         return (b.expenses_no || "").localeCompare(a.expenses_no || "");
-      return (
-        new Date(b.created_date || "").getTime() -
-        new Date(a.created_date || "").getTime()
-      );
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : (a.created_date ? new Date(a.created_date).getTime() : 0);
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : (b.created_date ? new Date(b.created_date).getTime() : 0);
+      if (timeB !== timeA) return timeB - timeA;
+      return b.id - a.id;
     });
     return filtered;
   }, [expenses, searchQuery, sortField]);

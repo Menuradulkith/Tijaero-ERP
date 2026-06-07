@@ -389,7 +389,10 @@ export default function CustomerPaymentsPage() {
     }
 
     // Sort by due date (oldest first — FIFO)
-    filtered.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+    filtered.sort((a, b) => {
+      const diff = new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      return diff !== 0 ? diff : (a.id || 0) - (b.id || 0);
+    });
 
     return filtered;
   }, [customerInvoices, selectedCustomer, selectedBranch, documentSearchQuery]);
