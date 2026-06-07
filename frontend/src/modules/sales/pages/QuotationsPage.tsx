@@ -376,7 +376,12 @@ export default function QuotationsPage() {
       if (sortField === "quote_no") {
         return a.quote_no.localeCompare(b.quote_no);
       } else if (sortField === "created_date") {
-        return new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
+        const timeA = a.created_date_time ? new Date(a.created_date_time).getTime() : new Date(a.created_date).getTime();
+        const timeB = b.created_date_time ? new Date(b.created_date_time).getTime() : new Date(b.created_date).getTime();
+        if (timeB !== timeA) {
+          return timeB - timeA;
+        }
+        return b.id - a.id;
       } else if (sortField === "total_amount") {
         return b.total_amount - a.total_amount;
       } else if (sortField === "valid_until") {

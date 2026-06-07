@@ -120,11 +120,15 @@ export default function CreditNotesPage() {
         String(n.id).includes(searchQuery)
     );
     filtered.sort((a, b) => {
-      if (sortField === "date") return new Date(b.date || "").getTime() - new Date(a.date || "").getTime();
+      if (sortField === "date") {
+        const diff = new Date(b.date || "").getTime() - new Date(a.date || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
       if (sortField === "amount") return Number(b.amount || 0) - Number(a.amount || 0);
       const fA = a[sortField as keyof CustomerCreditNote] || "";
       const fB = b[sortField as keyof CustomerCreditNote] || "";
-      return String(fA).localeCompare(String(fB));
+      const comp = String(fA).localeCompare(String(fB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
     return filtered;
   }, [creditNotes, searchQuery, sortField, getCustomerName]);

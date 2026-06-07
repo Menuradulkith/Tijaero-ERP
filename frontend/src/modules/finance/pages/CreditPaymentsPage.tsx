@@ -128,12 +128,19 @@ export default function CreditPaymentsPage() {
         String(p.id).includes(searchQuery)
     );
     filtered.sort((a, b) => {
-      if (sortField === "created_date") return new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
-      if (sortField === "due_date") return new Date(a.due_date || "").getTime() - new Date(b.due_date || "").getTime();
+      if (sortField === "created_date") {
+        const diff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      if (sortField === "due_date") {
+        const diff = new Date(a.due_date || "").getTime() - new Date(b.due_date || "").getTime();
+        return diff !== 0 ? diff : (a.id || 0) - (b.id || 0);
+      }
       if (sortField === "amount") return Number(b.amount || 0) - Number(a.amount || 0);
       const fA = a[sortField as keyof CreditPayment] || "";
       const fB = b[sortField as keyof CreditPayment] || "";
-      return String(fA).localeCompare(String(fB));
+      const comp = String(fA).localeCompare(String(fB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
     return filtered;
   }, [payments, searchQuery, sortField]);

@@ -402,12 +402,24 @@ class CustomerCreditService:
                 )
 
         # ── Advisory lock to prevent duplicate settlement numbers ──
-        prefix = f"SETTLE{tz.today().strftime('%Y%m%d')}"
+        year = tz.year()
+        prefix = f"CCS-{year}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
-        count = db.query(func.count(CustomerCreditsSettle.id)).filter(
-            CustomerCreditsSettle.customer_credits_settle_no.like(f"{prefix}%")
-        ).scalar()
-        settle_no = f"{prefix}{count + 1:04d}"
+        last = (
+            db.query(CustomerCreditsSettle)
+            .filter(CustomerCreditsSettle.customer_credits_settle_no.like(f"{prefix}-%"))
+            .order_by(CustomerCreditsSettle.id.desc())
+            .first()
+        )
+        if last:
+            try:
+                last_seq = int(last.customer_credits_settle_no.split("-")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        settle_no = f"{prefix}-{next_seq:05d}"
 
         settlement = CustomerCreditsSettle(
             customer_credits_settle_no=settle_no,

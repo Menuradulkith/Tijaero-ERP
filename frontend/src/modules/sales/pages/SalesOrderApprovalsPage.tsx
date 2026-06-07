@@ -169,8 +169,13 @@ export default function SalesOrderApprovalsPage() {
             if (sortField === "invoice_no") {
                 return a.invoice_no.localeCompare(b.invoice_no);
             }
-            // Default: Date Descending
-            return new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
+            // Default: Date Descending (using created_date_time and id as fallback)
+            const timeA = a.created_date_time ? new Date(a.created_date_time).getTime() : new Date(a.created_date).getTime();
+            const timeB = b.created_date_time ? new Date(b.created_date_time).getTime() : new Date(b.created_date).getTime();
+            if (timeB !== timeA) {
+                return timeB - timeA;
+            }
+            return b.id - a.id;
         });
 
         return filtered;

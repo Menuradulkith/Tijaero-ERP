@@ -182,14 +182,16 @@ export default function CustomerAdvancePaymentsPage() {
     // Sort
     filtered.sort((a, b) => {
       if (sortField === "created_date") {
-        return new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+        const diff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       if (sortField === "payment_amount") {
         return Number(b.payment_amount || 0) - Number(a.payment_amount || 0);
       }
       const fieldA = a[sortField as keyof CustomerAdvancePayment] || "";
       const fieldB = b[sortField as keyof CustomerAdvancePayment] || "";
-      return String(fieldA).localeCompare(String(fieldB));
+      const comp = String(fieldA).localeCompare(String(fieldB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;

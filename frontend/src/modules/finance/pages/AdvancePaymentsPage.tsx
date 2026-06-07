@@ -238,7 +238,9 @@ export default function AdvancePaymentsPage() {
 
     filtered.sort((a: AdvanceRecord, b: AdvanceRecord) => {
       if (sortField === "created_at") {
-        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+        const timeDiff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+        if (timeDiff !== 0) return timeDiff;
+        return (b.id || 0) - (a.id || 0);
       }
       if (sortField === "amount") {
         const aAmt = advanceType === "customer" ? Number(a.payment_amount || 0) : Number(a.original_amount || 0);

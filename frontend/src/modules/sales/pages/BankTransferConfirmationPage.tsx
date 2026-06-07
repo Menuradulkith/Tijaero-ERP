@@ -202,8 +202,11 @@ export default function BankTransferConfirmationPage() {
         case "bank_transfer_amount":
           return b.bank_transfer_amount - a.bank_transfer_amount;
         case "created_date":
-        default:
-          return new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
+        default: {
+          const dateDiff = new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
+          if (dateDiff !== 0) return dateDiff;
+          return b.id - a.id;
+        }
       }
     });
 

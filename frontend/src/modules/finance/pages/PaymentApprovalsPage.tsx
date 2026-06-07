@@ -243,7 +243,9 @@ export default function PaymentApprovalsPage() {
         const bAmt = (b as any).payment_amount || 0;
         return bAmt - aAmt;
       }
-      return new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
+      const dateDiff = new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return b.id - a.id;
     });
 
     return filtered;

@@ -474,14 +474,13 @@ export default function PurchaseOrdersPage() {
 
     filtered.sort((a, b) => {
       if (sortField === "added_date") {
-        return (
-          new Date(b.added_date || "").getTime() -
-          new Date(a.added_date || "").getTime()
-        );
+        const diff = new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       const fieldA = a[sortField as keyof PurchasingOrder] || "";
       const fieldB = b[sortField as keyof PurchasingOrder] || "";
-      return String(fieldA).localeCompare(String(fieldB));
+      const comp = String(fieldA).localeCompare(String(fieldB));
+      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
@@ -868,7 +867,13 @@ export default function PurchaseOrdersPage() {
     );
   };
 
+  const poSaveInProgressRef = useRef(false);
+
   const handleSave = useCallback(async () => {
+    // Prevent double-submit during async credit-check / confirm-dialog window
+    if (poSaveInProgressRef.current || createMutation.isPending || updateMutation.isPending) return;
+    poSaveInProgressRef.current = true;
+    try {
     const dataToSave: PurchasingOrderCreate = {
       ...formData,
       items: lineItems.map(({ _id, ...item }) => item),
@@ -952,6 +957,9 @@ export default function PurchaseOrdersPage() {
         id: selectedOrder.id,
         data: updateData,
       });
+    }
+    } finally {
+      poSaveInProgressRef.current = false;
     }
   }, [
     isCreating,

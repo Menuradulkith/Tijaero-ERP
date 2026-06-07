@@ -174,9 +174,11 @@ export default function POApprovalsPage() {
 
     filtered.sort((a, b) => {
       if (sortField === "purchasing_order_no") {
-        return a.purchasing_order_no.localeCompare(b.purchasing_order_no);
+        const diff = a.purchasing_order_no.localeCompare(b.purchasing_order_no);
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
-      return new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
+      const timeDiff = new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
+      return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;

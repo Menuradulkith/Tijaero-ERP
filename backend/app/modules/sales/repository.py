@@ -30,7 +30,7 @@ class SalesRepository:
         query = db.query(Invoice).options(*_invoice_eager_options())
         if branch_codes:
             query = query.filter(Invoice.branch_code.in_(branch_codes))
-        return query.order_by(desc(Invoice.created_date))\
+        return query.order_by(desc(Invoice.created_date), desc(Invoice.id))\
             .offset(skip).limit(limit).all()
     
     def get_all_with_items(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
@@ -38,7 +38,7 @@ class SalesRepository:
         query = db.query(Invoice).options(*_invoice_eager_options())
         if branch_codes:
             query = query.filter(Invoice.branch_code.in_(branch_codes))
-        return query.order_by(desc(Invoice.created_date))\
+        return query.order_by(desc(Invoice.created_date), desc(Invoice.id))\
          .offset(skip).limit(limit).all()
     
     def search(self, db: Session, query_str: str, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
@@ -51,7 +51,7 @@ class SalesRepository:
         )
         if branch_codes:
             query = query.filter(Invoice.branch_code.in_(branch_codes))
-        return query.order_by(desc(Invoice.created_date))\
+        return query.order_by(desc(Invoice.created_date), desc(Invoice.id))\
          .offset(skip).limit(limit).all()
     
     def get_by_id(self, db: Session, invoice_id: int):
@@ -65,7 +65,7 @@ class SalesRepository:
         query = db.query(Invoice).options(*_invoice_eager_options()).filter(Invoice.approval == False)
         if branch_codes:
             query = query.filter(Invoice.branch_code.in_(branch_codes))
-        return query.order_by(desc(Invoice.created_date))\
+        return query.order_by(desc(Invoice.created_date), desc(Invoice.id))\
          .offset(skip).limit(limit).all()
     
     def get_by_customer(self, db: Session, customer_id: int, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
@@ -73,7 +73,7 @@ class SalesRepository:
         query = db.query(Invoice).options(*_invoice_eager_options()).filter(Invoice.customer_id == customer_id)
         if branch_codes:
             query = query.filter(Invoice.branch_code.in_(branch_codes))
-        return query.order_by(desc(Invoice.created_date))\
+        return query.order_by(desc(Invoice.created_date), desc(Invoice.id))\
          .offset(skip).limit(limit).all()
     
     def get_recent_by_customer(self, db: Session, customer_id: int, limit: int = 5, branch_codes: Optional[List[str]] = None):

@@ -242,13 +242,15 @@ export default function CommissionPaymentsPage() {
 
     filtered.sort((a, b) => {
       if (sortField === "created_at") {
-        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+        const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       } else if (sortField === "payment_amount") {
         return b.payment_amount - a.payment_amount;
       } else if (sortField === "payment_date") {
-        return new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime();
+        const diff = new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
-      return 0;
+      return (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
