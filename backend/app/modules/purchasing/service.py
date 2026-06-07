@@ -2064,6 +2064,88 @@ class SupplierAdvancePaymentService:
             )
         return updated
     
+    def return_advance(
+        self,
+        advance_id: int,
+        data: schemas.SupplierAdvanceReturnCreate,
+        user_id: Optional[int] = None,
+    ) -> models.SupplierAdvancePayment:
+        """Return (refund) unused advance amount from supplier."""
+        advance = self.repo.get_by_id(advance_id)
+        if not advance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Advance payment with id {advance_id} not found",
+            )
+
+        if advance.is_fully_applied:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot return a fully applied advance payment",
+            )
+
+        remaining = float(advance.remaining_amount)
+        return_amount = float(data.return_amount)
+
+        if return_amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Return amount must be greater than zero",
+            )
+
+        if return_amount > remaining + 0.001:  # small tolerance for rounding
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Return amount ({return_amount:.2f}) exceeds remaining balance ({remaining:.2f})",
+            )
+
+        # Update advance record
+        from decimal import Decimal as D
+        advance.returned_amount = D(str(float(advance.returned_amount or 0) + return_amount))
+        advance.remaining_amount = D(str(max(0.0, remaining - return_amount)))
+        advance.return_date = data.return_date
+        advance.return_method = data.return_method
+        if data.return_reference:
+            advance.return_reference = data.return_reference
+        if data.return_remarks:
+            advance.return_remarks = data.return_remarks
+
+        # If remaining is now 0, mark as fully applied
+        if float(advance.remaining_amount) <= 0.001:
+            advance.remaining_amount = D("0")
+            advance.is_fully_applied = True
+
+        self.db.flush()
+
+        # GL entry: Dr Bank/Cash, Cr Supplier Advances
+        try:
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            gl_service.post_supplier_advance_return_to_gl(
+                advance,
+                return_amount=D(str(return_amount)),
+                return_date=data.return_date,
+                return_method=data.return_method,
+                user_id=user_id or 0,
+            )
+            self.db.commit()
+        except Exception as gl_err:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"GL posting for advance return {advance.advance_no} failed (non-blocking): {gl_err}"
+            )
+            self.db.rollback()
+            # Re-apply the data change without GL
+            advance.returned_amount = D(str(float(advance.returned_amount)))
+            advance.remaining_amount = D(str(max(0.0, remaining - return_amount)))
+            if float(advance.remaining_amount) <= 0.001:
+                advance.remaining_amount = D("0")
+                advance.is_fully_applied = True
+            self.db.commit()
+
+        self.db.refresh(advance)
+        return advance
+
     def delete_advance(self, advance_id: int) -> bool:
         """Delete an advance payment (only if no applications)"""
         advance = self.repo.get_by_id(advance_id)

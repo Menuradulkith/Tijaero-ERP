@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
+from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 
 from app.modules.purchasing.invoice_schemas import (
@@ -26,10 +27,15 @@ from app.modules.purchasing.invoice_schemas import (
     PurchaseInvoiceListFilter,
     PaymentWithAllocationsCreate,
     GRNInvoiceableItem,
+    OutstandingGRNItem,
 )
 from app.modules.purchasing.invoice_service import PurchaseInvoiceService
 
-router = APIRouter(prefix="/purchasing/invoices", tags=["purchase-invoices"])
+router = APIRouter(
+    prefix="/purchasing/invoices",
+    tags=["purchase-invoices"],
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
+)
 
 
 # ─── CREATE ────────────────────────────────────────────────────────────────
@@ -38,6 +44,7 @@ router = APIRouter(prefix="/purchasing/invoices", tags=["purchase-invoices"])
     response_model=PurchaseInvoiceResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create Purchase Invoice from GRN(s)",
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_CREATE))],
 )
 def create_purchase_invoice(
     data: PurchaseInvoiceCreate,
@@ -123,6 +130,30 @@ def get_outstanding_invoices(
     return [i for i in all_invoices if i.payment_status in ("unpaid", "partial")]
 
 
+# ─── OUTSTANDING GRNs (ALL SUPPLIERS) ─────────────────────────────────────
+@router.get(
+    "/outstanding-grns",
+    response_model=List[OutstandingGRNItem],
+    summary="Get all outstanding (uninvoiced) GRNs across all suppliers",
+)
+def get_outstanding_grns(
+    supplier_id: Optional[int] = None,
+    branch_code: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns all GRNs that have NOT yet been linked to a Purchase Invoice.
+    These are goods received but not yet vouchered.
+    Optionally filter by supplier_id and/or branch_code.
+    """
+    svc = PurchaseInvoiceService(db)
+    return svc.get_all_outstanding_grns(
+        supplier_id=supplier_id,
+        branch_code=branch_code,
+    )
+
+
 @router.get(
     "/{invoice_id}",
     response_model=PurchaseInvoiceResponse,
@@ -142,6 +173,7 @@ def get_purchase_invoice(
     "/{invoice_id}",
     response_model=PurchaseInvoiceResponse,
     summary="Update draft Purchase Invoice",
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE))],
 )
 def update_purchase_invoice(
     invoice_id: int,
@@ -159,6 +191,7 @@ def update_purchase_invoice(
     "/{invoice_id}/cancel",
     response_model=PurchaseInvoiceResponse,
     summary="Cancel Purchase Invoice",
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE))],
 )
 def cancel_purchase_invoice(
     invoice_id: int,
@@ -215,6 +248,7 @@ def get_payable_invoices(
     "/pay",
     summary="Create payment with allocations to invoices",
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_CREATE))],
 )
 def pay_against_invoices(
     data: PaymentWithAllocationsCreate,

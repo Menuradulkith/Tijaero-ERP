@@ -6,11 +6,17 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Autocomplete,
   Box,
+  Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
   InputAdornment,
   MenuItem,
   TextField,
@@ -19,6 +25,7 @@ import {
 import {
   AccountBalanceWallet as WalletIcon,
   CheckCircle as CheckCircleIcon,
+  Undo as UndoIcon,
 } from "@mui/icons-material";
 
 import {
@@ -106,6 +113,7 @@ const resetFormFromItem = (item: SupplierAdvancePayment): Partial<SupplierAdvanc
 
 export default function SupplierAdvancePaymentsPage() {
   const confirmDialog = useConfirmDialog();
+  const queryClient = useQueryClient();
   const canViewSuppliers = usePermission("suppliers", "view");
 
   // Validation state
@@ -113,6 +121,15 @@ export default function SupplierAdvancePaymentsPage() {
   const handleBlur = (fieldName: string) => {
     setTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
+
+  // Return dialog state
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
+  const [returnAmount, setReturnAmount] = useState<number | "">("");
+  const [returnDate, setReturnDate] = useState(new Date().toISOString().split("T")[0]);
+  const [returnMethod, setReturnMethod] = useState("Bank Transfer");
+  const [returnReference, setReturnReference] = useState("");
+  const [returnRemarks, setReturnRemarks] = useState("");
+  const [returningAdvance, setReturningAdvance] = useState(false);
 
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -341,6 +358,51 @@ export default function SupplierAdvancePaymentsPage() {
     Number(selectedItem.applied_amount) === 0
   );
 
+  // Can return: advance has remaining balance and hasn't been fully returned
+  const remainingForReturn = selectedItem
+    ? Math.max(0, Number(selectedItem.remaining_amount) - Number(selectedItem.returned_amount || 0))
+    : 0;
+  const canReturn = !!(selectedItem && remainingForReturn > 0.001 && !isCreating);
+
+  const openReturnDialog = useCallback(() => {
+    if (!selectedItem) return;
+    setReturnAmount(remainingForReturn);
+    setReturnDate(new Date().toISOString().split("T")[0]);
+    setReturnMethod(selectedItem.payment_method as string || "Bank Transfer");
+    setReturnReference("");
+    setReturnRemarks("");
+    setReturnDialogOpen(true);
+  }, [selectedItem, remainingForReturn]);
+
+  const handleReturnSubmit = useCallback(async () => {
+    if (!selectedItem || !returnAmount || returnAmount <= 0) return;
+    if (returnAmount > remainingForReturn + 0.001) {
+      showErrorToast(`Return amount cannot exceed remaining balance Rs. ${fmtLKR(remainingForReturn)}`);
+      return;
+    }
+    setReturningAdvance(true);
+    try {
+      await supplierAdvancePaymentsApi.returnAdvance(selectedItem.id, {
+        return_amount: returnAmount,
+        return_date: returnDate,
+        return_method: returnMethod,
+        return_reference: returnReference || undefined,
+        return_remarks: returnRemarks || undefined,
+      });
+      showSuccessToast("Advance return recorded successfully");
+      setReturnDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["supplier-advance-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["supplier-advance-detail", selectedItem.id] });
+    } catch (err) {
+      showErrorToast(handleApiError(err, "Failed to record advance return"));
+    } finally {
+      setReturningAdvance(false);
+    }
+  }, [
+    selectedItem, returnAmount, returnDate, returnMethod,
+    returnReference, returnRemarks, remainingForReturn, queryClient,
+  ]);
+
   // Validation
   const getFieldError = (fieldName: string): string | undefined => {
     if (!touched[fieldName] && !isCreating) return undefined;
@@ -562,6 +624,21 @@ export default function SupplierAdvancePaymentsPage() {
         onCancel={() => handleCancel(filteredAdvances)}
         onDelete={undefined}
         canDelete={false}
+        endActions={
+          canReturn ? (
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                color="warning"
+                startIcon={<UndoIcon />}
+                onClick={openReturnDialog}
+              >
+                Return Advance
+              </Button>
+            </Box>
+          ) : undefined
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -759,6 +836,41 @@ export default function SupplierAdvancePaymentsPage() {
                     icon={trackingRemainingAmount <= 0 ? <CheckCircleIcon /> : undefined}
                   />
                 </Box>
+                {Number(detailAdvance.returned_amount || 0) > 0 && (
+                  <>
+                    <TextField
+                      label="Returned Amount"
+                      size="small"
+                      value={`Rs. ${fmtLKR(Number(detailAdvance.returned_amount))}`}
+                      disabled
+                      InputProps={{ readOnly: true }}
+                      sx={{ "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: "#c62828" } }}
+                    />
+                    <TextField
+                      label="Return Date"
+                      size="small"
+                      value={detailAdvance.return_date ? new Date(detailAdvance.return_date).toLocaleDateString() : "-"}
+                      disabled
+                      InputProps={{ readOnly: true }}
+                    />
+                    <TextField
+                      label="Return Method"
+                      size="small"
+                      value={detailAdvance.return_method || "-"}
+                      disabled
+                      InputProps={{ readOnly: true }}
+                    />
+                    {detailAdvance.return_reference && (
+                      <TextField
+                        label="Return Reference"
+                        size="small"
+                        value={detailAdvance.return_reference}
+                        disabled
+                        InputProps={{ readOnly: true }}
+                      />
+                    )}
+                  </>
+                )}
               </FormSection>
             )}
 
@@ -809,6 +921,89 @@ export default function SupplierAdvancePaymentsPage() {
         detailPanel={detailPanel}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      {/* Return Advance Dialog */}
+      <Dialog open={returnDialogOpen} onClose={() => setReturnDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <UndoIcon color="warning" />
+          Return Supplier Advance
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Record money returned by the supplier for advance{" "}
+            <strong>{selectedItem?.advance_no}</strong>. Available to return:{" "}
+            <strong>Rs. {fmtLKR(remainingForReturn)}</strong>
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <TextField
+              label="Return Amount"
+              size="small"
+              type="number"
+              value={returnAmount}
+              onChange={(e) => setReturnAmount(parseFloat(e.target.value) || "")}
+              required
+              InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+              inputProps={{ min: 0.01, max: remainingForReturn, step: 0.01 }}
+              helperText={`Max: Rs. ${fmtLKR(remainingForReturn)}`}
+              fullWidth
+            />
+            <TextField
+              label="Return Date"
+              size="small"
+              type="date"
+              value={returnDate}
+              onChange={(e) => setReturnDate(e.target.value)}
+              required
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+            />
+            <TextField
+              select
+              label="Return Method"
+              size="small"
+              value={returnMethod}
+              onChange={(e) => setReturnMethod(e.target.value)}
+              required
+              fullWidth
+            >
+              {GENERIC_PAYMENT_METHOD.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+              ))}
+            </TextField>
+            {(returnMethod === "Bank Transfer" || returnMethod === "Cheque") && (
+              <TextField
+                label={returnMethod === "Cheque" ? "Cheque Number" : "Reference Number"}
+                size="small"
+                value={returnReference}
+                onChange={(e) => setReturnReference(e.target.value)}
+                fullWidth
+              />
+            )}
+            <TextField
+              label="Remarks"
+              size="small"
+              value={returnRemarks}
+              onChange={(e) => setReturnRemarks(e.target.value)}
+              multiline
+              rows={2}
+              fullWidth
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setReturnDialogOpen(false)} disabled={returningAdvance}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleReturnSubmit}
+            disabled={returningAdvance || !returnAmount || !returnDate || !returnMethod}
+            startIcon={<UndoIcon />}
+          >
+            {returningAdvance ? "Processing..." : "Confirm Return"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

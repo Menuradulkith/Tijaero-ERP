@@ -438,6 +438,14 @@ class SupplierAdvancePaymentUpdate(BaseModel):
     remarks: Optional[str] = None
 
 
+class SupplierAdvanceReturnCreate(BaseModel):
+    return_amount: Decimal
+    return_date: date
+    return_method: str  # Cash, Bank Transfer, Cheque
+    return_reference: Optional[str] = None
+    return_remarks: Optional[str] = None
+
+
 class SupplierAdvancePayment(SupplierAdvancePaymentBase, TijaeroBaseSchema):
     id: int
     advance_no: str
@@ -445,6 +453,11 @@ class SupplierAdvancePayment(SupplierAdvancePaymentBase, TijaeroBaseSchema):
     applied_amount: Decimal  # Amount already applied
     remaining_amount: Decimal  # Remaining balance
     is_fully_applied: bool  # True when fully applied
+    returned_amount: Decimal = Decimal("0")
+    return_date: Optional[date] = None
+    return_method: Optional[str] = None
+    return_reference: Optional[str] = None
+    return_remarks: Optional[str] = None
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

@@ -259,6 +259,11 @@ class SupplierAdvancePayment(Base, AuditMixin):
     reference_number = Column(String(100))  # Cheque no, transaction ref, etc.
     bank_name = Column(String(100))  # For bank/cheque payments
     is_fully_applied = Column(Boolean, nullable=False, default=False)  # True when fully applied
+    returned_amount = Column(Numeric(18, 2), nullable=False, default=0)  # Amount returned by supplier
+    return_date = Column(Date, nullable=True)
+    return_method = Column(String(30), nullable=True)  # Cash, Bank Transfer, Cheque
+    return_reference = Column(String(100), nullable=True)
+    return_remarks = Column(Text, nullable=True)
     remarks = Column(Text)
     created_by = Column(Integer, nullable=True)  # No FK constraint
     updated_by = Column(Integer, nullable=True)

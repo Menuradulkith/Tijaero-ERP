@@ -4,6 +4,7 @@
  */
 
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import AssessmentIcon from "@mui/icons-material/Assessment";
 import {
   Alert,
   Autocomplete,
@@ -48,7 +49,7 @@ import {
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { suppliersApi, purchaseOrdersApi } from "@/modules/purchasing/api";
 import {
   purchaseInvoicesApi,
@@ -97,6 +98,7 @@ export default function PurchaseInvoicesPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
+  const navigate = useNavigate();
   const navigationState = location.state as { supplier_id?: number; branch_code?: string; grn_id?: number } | null;
 
   const [selectedGRNs, setSelectedGRNs] = useState<GRNInvoiceableItem[]>([]);
@@ -550,7 +552,19 @@ export default function PurchaseInvoicesPage() {
         onCancel={() => handleCancel(filteredInvoices)}
         onDelete={canCancelInvoice ? handleCancelInvoice : undefined}
         canDelete={!!canCancelInvoice}
-        endActions={undefined}
+        endActions={
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              color="secondary"
+              startIcon={<AssessmentIcon />}
+              onClick={() => navigate("/purchasing/invoices/outstanding-grns")}
+            >
+              Outstanding GRNs
+            </Button>
+          </Box>
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>

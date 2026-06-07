@@ -146,6 +146,22 @@ export interface GRNInvoiceableItem {
   products: GRNInvoiceableProductDetail[];
 }
 
+export interface OutstandingGRNItem {
+  grn_id: number;
+  grn_no: string;
+  grn_date: string;
+  po_id: number;
+  po_no: string;
+  supplier_id: number;
+  supplier_name: string;
+  supplier_invoice_no?: string;
+  total_received_qty: number;
+  total_received_amount: number;
+  remaining_amount: number;
+  branch_code: string;
+  days_since_grn: number;
+}
+
 export interface PaymentAllocationItem {
   purchase_invoice_id: number;
   allocated_amount: number;
@@ -273,6 +289,18 @@ export const purchaseInvoicesApi = {
     const response = await apiClient.post<PaymentResult>(
       "/purchasing/invoices/pay",
       data
+    );
+    return response.data;
+  },
+
+  // Get all outstanding (uninvoiced) GRNs across all suppliers
+  getOutstandingGRNs: async (params?: {
+    supplier_id?: number;
+    branch_code?: string;
+  }) => {
+    const response = await apiClient.get<OutstandingGRNItem[]>(
+      "/purchasing/invoices/outstanding-grns",
+      { params }
     );
     return response.data;
   },
