@@ -12,12 +12,14 @@ export function useNotifications(unreadOnly = false, skip = 0, limit = 50) {
     queryKey: [...NOTIFICATIONS_QUERY_KEY, { unreadOnly, skip, limit }],
     queryFn: () => settingsApi.getNotifications(unreadOnly, skip, limit),
     refetchInterval: 60000, // Refetch every minute
+    refetchIntervalInBackground: false, // Don't poll when tab is not visible
   });
 
   const statsQuery = useQuery({
     queryKey: NOTIFICATIONS_STATS_QUERY_KEY,
     queryFn: () => settingsApi.getNotificationStats(),
     refetchInterval: 60000,
+    refetchIntervalInBackground: false, // Don't poll when tab is not visible
   });
 
   const markAsReadMutation = useMutation({

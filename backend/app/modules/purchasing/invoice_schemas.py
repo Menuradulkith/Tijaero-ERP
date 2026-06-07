@@ -199,3 +199,20 @@ class GRNInvoiceableItem(BaseModel):
     remaining_amount: float
     branch_code: str
     products: List[GRNInvoiceableProductDetail] = []
+
+
+class OutstandingGRNItem(BaseModel):
+    """Outstanding GRN across all suppliers - for the Outstanding GRNs report page."""
+    grn_id: int
+    grn_no: str
+    grn_date: str
+    po_id: int
+    po_no: str
+    supplier_id: int
+    supplier_name: str
+    supplier_invoice_no: Optional[str] = None
+    total_received_qty: int
+    total_received_amount: float
+    remaining_amount: float
+    branch_code: str
+    days_since_grn: int = 0

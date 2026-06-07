@@ -307,7 +307,9 @@ def delete_supplier(
 
 
 @router.get(
-    "/orders/daily-limit/{branch_code}", response_model=schemas.DailyPOLimitCheck
+    "/orders/daily-limit/{branch_code}",
+    response_model=schemas.DailyPOLimitCheck,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
 def check_daily_po_limit(
     branch_code: str, check_date: Optional[str] = None, db: Session = Depends(get_db)
@@ -327,7 +329,7 @@ def check_daily_po_limit(
 def create_purchase_order(
     order: schemas.PurchasingOrderCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_CREATE)),
 ):
     # Validate user has access to the specified branch
     if not validate_branch_access(current_user, order.branch_code):
@@ -339,14 +341,22 @@ def create_purchase_order(
     return order_service.create_order(order, created_by=current_user.id)
 
 
-@router.get("/orders/{order_id}", response_model=schemas.PurchasingOrderWithItems)
+@router.get(
+    "/orders/{order_id}",
+    response_model=schemas.PurchasingOrderWithItems,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
+)
 def get_purchase_order(order_id: int, db: Session = Depends(get_db)):
     order_service = service.PurchasingOrderService(db)
     order = order_service.get_order(order_id)
     return _enrich_single_purchase_order_with_user_fields(db, order)
 
 
-@router.get("/orders", response_model=List[schemas.PurchasingOrder])
+@router.get(
+    "/orders",
+    response_model=List[schemas.PurchasingOrder],
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
+)
 def list_purchase_orders(
     status: Optional[str] = None,
     supplier_id: Optional[int] = None,
@@ -392,7 +402,11 @@ def list_purchase_orders(
     return _enrich_purchase_orders_with_user_fields(db, orders)
 
 
-@router.patch("/orders/{order_id}", response_model=schemas.PurchasingOrder)
+@router.patch(
+    "/orders/{order_id}",
+    response_model=schemas.PurchasingOrder,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE))],
+)
 def update_purchase_order(
     order_id: int,
     order_update: schemas.PurchasingOrderUpdate,
@@ -402,14 +416,22 @@ def update_purchase_order(
     return order_service.update_order(order_id, order_update)
 
 
-@router.delete("/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/orders/{order_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_DELETE))],
+)
 def delete_purchase_order(order_id: int, db: Session = Depends(get_db)):
     order_service = service.PurchasingOrderService(db)
     order_service.delete_order(order_id)
     return None
 
 
-@router.post("/orders/check-credit", response_model=schemas.POCreditCheckResponse)
+@router.post(
+    "/orders/check-credit",
+    response_model=schemas.POCreditCheckResponse,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
+)
 def check_po_credit(
     supplier_id: int = Query(..., description="Supplier ID"),
     po_value: float = Query(..., description="Total PO value"),
@@ -425,7 +447,11 @@ def check_po_credit(
     )
 
 
-@router.post("/grn/check-credit", response_model=schemas.GRNCreditCheckResponse)
+@router.post(
+    "/grn/check-credit",
+    response_model=schemas.GRNCreditCheckResponse,
+    dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
+)
 def check_grn_credit(
     supplier_id: int = Query(..., description="Supplier ID"),
     grn_value: float = Query(..., description="Total GRN value"),
@@ -442,7 +468,9 @@ def check_grn_credit(
 
 
 @router.get(
-    "/suppliers/{supplier_id}/orders", response_model=List[schemas.PurchasingOrder]
+    "/suppliers/{supplier_id}/orders",
+    response_model=List[schemas.PurchasingOrder],
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
 def get_supplier_orders(
     supplier_id: int,
@@ -459,7 +487,9 @@ def get_supplier_orders(
 
 
 @router.post(
-    "/returns/validate-barcode", response_model=schemas.BarcodeValidationResponse
+    "/returns/validate-barcode",
+    response_model=schemas.BarcodeValidationResponse,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_RETURN_VIEW))],
 )
 def validate_barcode_for_return(
     request: schemas.BarcodeValidationRequest, db: Session = Depends(get_db)
@@ -491,7 +521,11 @@ def create_purchase_return(
 # Use POST /api/v1/common/approvals/{approval_id}/approve or /reject instead
 
 
-@router.get("/returns/{return_id}", response_model=schemas.PurchasingReturnWithItems)
+@router.get(
+    "/returns/{return_id}",
+    response_model=schemas.PurchasingReturnWithItems,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_RETURN_VIEW))],
+)
 def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
 
     return_service = service.PurchasingReturnService(db)
@@ -546,7 +580,11 @@ def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/returns", response_model=List[schemas.PurchasingReturn])
+@router.get(
+    "/returns",
+    response_model=List[schemas.PurchasingReturn],
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_RETURN_VIEW))],
+)
 def list_purchase_returns(
     status_filter: Optional[str] = Query(
         None, description="Filter by status: draft, pending, approved, rejected"
@@ -572,7 +610,7 @@ def create_grn(
         description="Allow GRN creation even if credit limit exceeded (requires authorization)",
     ),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(*Permissions.GRN_CREATE)),
 ):
     # Validate user has access to the specified branch
     if not validate_branch_access(current_user, grn.branch_code):
@@ -584,14 +622,21 @@ def create_grn(
     return grn_service.create(grn, allow_credit_override=allow_credit_override)
 
 
-@router.get("/grn/{grn_id}", response_model=schemas.GoodReceivedNote)
+@router.get(
+    "/grn/{grn_id}",
+    response_model=schemas.GoodReceivedNote,
+    dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
+)
 def get_grn(grn_id: int, db: Session = Depends(get_db)):
 
     grn_service = service.GoodReceivedNoteService(db)
     return grn_service.get_by_id(grn_id)
 
 
-@router.get("/grn/{grn_id}/items")
+@router.get(
+    "/grn/{grn_id}/items",
+    dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
+)
 def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
     """Return all received items for a GRN (from sales_stock + company_assets)
     including warranty_month, product_name, and saved-to flags."""
@@ -656,7 +701,11 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
     return results
 
 
-@router.get("/grn", response_model=List[schemas.GoodReceivedNote])
+@router.get(
+    "/grn",
+    response_model=List[schemas.GoodReceivedNote],
+    dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
+)
 def list_grns(
     branch_code: Optional[str] = None,
     date_from: Optional[str] = None,
@@ -706,7 +755,9 @@ def list_grns(
 
 
 @router.get(
-    "/grn/{grn_id}/items", response_model=List[schemas.GoodReceivedItemWithDetails]
+    "/grn/{grn_id}/items",
+    response_model=List[schemas.GoodReceivedItemWithDetails],
+    dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
 )
 def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
     grn_service = service.GoodReceivedNoteService(db)
@@ -717,6 +768,7 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
     "/grn-items",
     response_model=schemas.GoodReceivedItem,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.GRN_CREATE))],
 )
 def create_grn_item(
     item: schemas.GoodReceivedItemCreate, db: Session = Depends(get_db)
@@ -728,14 +780,21 @@ def create_grn_item(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/grn-items/check-barcode/{barcode}")
+@router.get(
+    "/grn-items/check-barcode/{barcode}",
+    dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
+)
 def check_grn_item_barcode_exists(barcode: str, db: Session = Depends(get_db)):
     grn_service = service.GoodReceivedNoteService(db)
     exists = grn_service.barcode_exists(barcode)
     return {"exists": exists, "barcode": barcode}
 
 
-@router.get("/grn-items/by-po/{po_id}", response_model=List[schemas.GoodReceivedItem])
+@router.get(
+    "/grn-items/by-po/{po_id}",
+    response_model=List[schemas.GoodReceivedItem],
+    dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
+)
 def get_grn_items_by_po(po_id: int, db: Session = Depends(get_db)):
     """Get all GRN items for a specific Purchase Order"""
     grn_service = service.GoodReceivedNoteService(db)
@@ -747,6 +806,7 @@ def get_grn_items_by_po(po_id: int, db: Session = Depends(get_db)):
     "/credit-settlements",
     response_model=schemas.SupplierCreditsSettle,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_CREATE))],
 )
 def create_credit_settlement(
     settle: schemas.SupplierCreditsSettleCreate, db: Session = Depends(get_db)
@@ -758,6 +818,7 @@ def create_credit_settlement(
 @router.get(
     "/credit-settlements/{settle_id}",
     response_model=schemas.SupplierCreditsSettleWithTransactions,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
 def get_credit_settlement(settle_id: int, db: Session = Depends(get_db)):
     settle_service = service.SupplierCreditsSettleService(db)
@@ -767,6 +828,7 @@ def get_credit_settlement(settle_id: int, db: Session = Depends(get_db)):
 @router.get(
     "/credit-settlements",
     response_model=List[schemas.SupplierCreditsSettleWithTransactions],
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
 def list_credit_settlements(
     skip: int = Query(0, ge=0),
@@ -781,6 +843,7 @@ def list_credit_settlements(
 @router.get(
     "/suppliers/{supplier_id}/credit-settlements",
     response_model=List[schemas.SupplierCreditsSettle],
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
 def get_supplier_credit_settlements(supplier_id: int, db: Session = Depends(get_db)):
     settle_service = service.SupplierCreditsSettleService(db)
@@ -788,7 +851,9 @@ def get_supplier_credit_settlements(supplier_id: int, db: Session = Depends(get_
 
 
 @router.delete(
-    "/credit-settlements/{settle_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/credit-settlements/{settle_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_DELETE))],
 )
 def delete_credit_settlement(settle_id: int, db: Session = Depends(get_db)):
     settle_service = service.SupplierCreditsSettleService(db)
@@ -802,7 +867,7 @@ def delete_credit_settlement(settle_id: int, db: Session = Depends(get_db)):
 def verify_credit_settlement(
     settle_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE)),
 ):
     """Verify a credit settlement"""
     settle_service = service.SupplierCreditsSettleService(db)
@@ -816,7 +881,7 @@ def verify_credit_settlement(
 def cancel_credit_settlement(
     settle_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE)),
 ):
     """Cancel a credit settlement"""
     settle_service = service.SupplierCreditsSettleService(db)
@@ -830,17 +895,26 @@ from datetime import date
 from app.modules.purchasing.credit_service import supplier_credit_service
 
 
-@router.get("/suppliers/{supplier_id}/credit-status")
+@router.get(
+    "/suppliers/{supplier_id}/credit-status",
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
+)
 def get_supplier_credit_status(supplier_id: int, db: Session = Depends(get_db)):
     return supplier_credit_service.get_supplier_credit_status(db, supplier_id)
 
 
-@router.get("/suppliers/{supplier_id}/non-credit-status")
+@router.get(
+    "/suppliers/{supplier_id}/non-credit-status",
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
+)
 def get_supplier_non_credit_status(supplier_id: int, db: Session = Depends(get_db)):
     return supplier_credit_service.get_supplier_non_credit_status(db, supplier_id)
 
 
-@router.get("/suppliers/{supplier_id}/payment-status")
+@router.get(
+    "/suppliers/{supplier_id}/payment-status",
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
+)
 def get_supplier_payment_status(supplier_id: int, db: Session = Depends(get_db)):
     """
     Get complete payment status for a supplier - ALL outstanding documents.
@@ -856,7 +930,10 @@ def get_supplier_payment_status(supplier_id: int, db: Session = Depends(get_db))
     return supplier_credit_service.get_supplier_payment_status(db, supplier_id)
 
 
-@router.post("/suppliers/{supplier_id}/credit-check")
+@router.post(
+    "/suppliers/{supplier_id}/credit-check",
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
+)
 def check_supplier_credit(
     supplier_id: int,
     purchase_amount: float = Query(
@@ -874,7 +951,11 @@ def check_supplier_credit(
     )
 
 
-@router.get("/payments/report", response_model=schemas.PaymentReportResponse)
+@router.get(
+    "/payments/report",
+    response_model=schemas.PaymentReportResponse,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
+)
 def get_payment_report(
     date_from: Optional[date] = Query(None, description="Start date"),
     date_to: Optional[date] = Query(None, description="End date"),
@@ -890,7 +971,11 @@ def get_payment_report(
     )
 
 
-@router.get("/outstanding-documents", response_model=schemas.SupplierOutstandingDocsReport)
+@router.get(
+    "/outstanding-documents",
+    response_model=schemas.SupplierOutstandingDocsReport,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
+)
 def get_outstanding_documents(
     supplier_id: Optional[int] = Query(None, description="Filter by supplier"),
     branch_code: Optional[str] = Query(None, description="Filter by branch"),
@@ -903,17 +988,26 @@ def get_outstanding_documents(
     )
 
 
-@router.get("/suppliers/{supplier_id}/aging-report")
+@router.get(
+    "/suppliers/{supplier_id}/aging-report",
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
+)
 def get_supplier_aging_report(supplier_id: int, db: Session = Depends(get_db)):
     return supplier_credit_service.get_aging_report(db, supplier_id)
 
 
-@router.get("/reports/payables-aging")
+@router.get(
+    "/reports/payables-aging",
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
+)
 def get_all_suppliers_aging_report(db: Session = Depends(get_db)):
     return supplier_credit_service.get_aging_report(db)
 
 
-@router.get("/suppliers/{supplier_id}/statement")
+@router.get(
+    "/suppliers/{supplier_id}/statement",
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
+)
 def get_supplier_statement(
     supplier_id: int,
     from_date: Optional[date] = Query(None, description="Start date for statement"),
@@ -925,7 +1019,10 @@ def get_supplier_statement(
     )
 
 
-@router.get("/grn/{grn_id}/payment-history")
+@router.get(
+    "/grn/{grn_id}/payment-history",
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
+)
 def get_grn_payment_history(grn_id: int, db: Session = Depends(get_db)):
     return supplier_credit_service.get_grn_payment_history(db, grn_id)
 
@@ -934,6 +1031,7 @@ def get_grn_payment_history(grn_id: int, db: Session = Depends(get_db)):
     "/supplier-payments",
     response_model=schemas.SupplierPayment,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_CREATE))],
 )
 def create_supplier_payment(
     payment: schemas.SupplierPaymentCreate, db: Session = Depends(get_db)
@@ -942,13 +1040,21 @@ def create_supplier_payment(
     return payment_service.create_payment(payment)
 
 
-@router.get("/supplier-payments/{payment_id}", response_model=schemas.SupplierPayment)
+@router.get(
+    "/supplier-payments/{payment_id}",
+    response_model=schemas.SupplierPayment,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
+)
 def get_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
     payment_service = service.SupplierPaymentService(db)
     return payment_service.get_payment(payment_id)
 
 
-@router.get("/supplier-payments", response_model=List[schemas.SupplierPayment])
+@router.get(
+    "/supplier-payments",
+    response_model=List[schemas.SupplierPayment],
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
+)
 def list_supplier_payments(
     supplier_id: Optional[int] = None,
     branch_code: Optional[str] = None,
@@ -978,7 +1084,11 @@ def list_supplier_payments(
     return payment_service.list_payments(filters)
 
 
-@router.patch("/supplier-payments/{payment_id}", response_model=schemas.SupplierPayment)
+@router.patch(
+    "/supplier-payments/{payment_id}",
+    response_model=schemas.SupplierPayment,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE))],
+)
 def update_supplier_payment(
     payment_id: int,
     payment_update: schemas.SupplierPaymentUpdate,
@@ -1003,7 +1113,9 @@ def verify_supplier_payment(
 
 
 @router.post(
-    "/supplier-payments/{payment_id}/cancel", response_model=schemas.SupplierPayment
+    "/supplier-payments/{payment_id}/cancel",
+    response_model=schemas.SupplierPayment,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE))],
 )
 def cancel_supplier_payment(
     payment_id: int,
@@ -1018,7 +1130,9 @@ def cancel_supplier_payment(
 
 
 @router.delete(
-    "/supplier-payments/{payment_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/supplier-payments/{payment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_DELETE))],
 )
 def delete_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
     payment_service = service.SupplierPaymentService(db)
@@ -1027,7 +1141,9 @@ def delete_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
 
 
 @router.get(
-    "/suppliers/{supplier_id}/payments", response_model=List[schemas.SupplierPayment]
+    "/suppliers/{supplier_id}/payments",
+    response_model=List[schemas.SupplierPayment],
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
 def get_supplier_payments(
     supplier_id: int,
@@ -1150,7 +1266,11 @@ def create_supplier_advance(
     return advance_service.create_advance(data, created_by=current_user.id)
 
 
-@router.get("/supplier-advances", response_model=List[schemas.SupplierAdvancePayment])
+@router.get(
+    "/supplier-advances",
+    response_model=List[schemas.SupplierAdvancePayment],
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW))],
+)
 def list_supplier_advances(
     supplier_id: Optional[int] = None,
     branch_code: Optional[str] = None,
@@ -1182,6 +1302,7 @@ def list_supplier_advances(
 @router.get(
     "/supplier-advances/{advance_id}",
     response_model=schemas.SupplierAdvancePaymentWithApplications,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW))],
 )
 def get_supplier_advance(advance_id: int, db: Session = Depends(get_db)):
     """Get supplier advance payment by ID with applications"""
@@ -1190,7 +1311,9 @@ def get_supplier_advance(advance_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch(
-    "/supplier-advances/{advance_id}", response_model=schemas.SupplierAdvancePayment
+    "/supplier-advances/{advance_id}",
+    response_model=schemas.SupplierAdvancePayment,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_UPDATE))],
 )
 def update_supplier_advance(
     advance_id: int,
@@ -1202,8 +1325,32 @@ def update_supplier_advance(
     return advance_service.update_advance(advance_id, data)
 
 
+@router.post(
+    "/supplier-advances/{advance_id}/return",
+    response_model=schemas.SupplierAdvancePayment,
+    summary="Return (refund) unused supplier advance",
+)
+def return_supplier_advance(
+    advance_id: int,
+    data: schemas.SupplierAdvanceReturnCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(*Permissions.SUPPLIER_ADVANCE_CREATE)
+    ),
+):
+    """
+    Record a return of an unused supplier advance.
+    The supplier sends back money that was advanced but not applied to any GRN.
+    Posts a GL entry: Dr Bank/Cash, Cr Supplier Advances.
+    """
+    advance_service = service.SupplierAdvancePaymentService(db)
+    return advance_service.return_advance(advance_id, data, user_id=current_user.id)
+
+
 @router.delete(
-    "/supplier-advances/{advance_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/supplier-advances/{advance_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_DELETE))],
 )
 def delete_supplier_advance(advance_id: int, db: Session = Depends(get_db)):
     """Delete a supplier advance payment (only if no applications)"""
@@ -1215,6 +1362,7 @@ def delete_supplier_advance(advance_id: int, db: Session = Depends(get_db)):
 @router.get(
     "/suppliers/{supplier_id}/advance-balance",
     response_model=schemas.SupplierAdvanceBalanceSummary,
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW))],
 )
 def get_supplier_advance_balance(supplier_id: int, db: Session = Depends(get_db)):
     """
@@ -1229,6 +1377,7 @@ def get_supplier_advance_balance(supplier_id: int, db: Session = Depends(get_db)
 @router.get(
     "/suppliers/{supplier_id}/advances",
     response_model=List[schemas.SupplierAdvancePayment],
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW))],
 )
 def get_supplier_advances(
     supplier_id: int,
@@ -1276,6 +1425,7 @@ def create_advance_application(
 @router.get(
     "/supplier-advances/{advance_id}/applications",
     response_model=List[schemas.SupplierAdvanceApplication],
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW))],
 )
 def get_advance_applications(advance_id: int, db: Session = Depends(get_db)):
     """Get all applications for a specific advance payment"""
@@ -1286,6 +1436,7 @@ def get_advance_applications(advance_id: int, db: Session = Depends(get_db)):
 @router.get(
     "/grn/{grn_id}/advance-applications",
     response_model=List[schemas.SupplierAdvanceApplication],
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW))],
 )
 def get_grn_advance_applications(grn_id: int, db: Session = Depends(get_db)):
     """Get all advance applications applied to a specific GRN"""

@@ -453,6 +453,11 @@ export interface SupplierAdvancePayment {
   reference_number?: string;
   bank_name?: string;
   is_fully_applied: boolean;
+  returned_amount?: number;
+  return_date?: string;
+  return_method?: string;
+  return_reference?: string;
+  return_remarks?: string;
   remarks?: string;
   created_by?: number;
   created_at?: string;
@@ -460,6 +465,14 @@ export interface SupplierAdvancePayment {
   // Loaded from relationships
   supplier_name?: string;
   po_no?: string;
+}
+
+export interface SupplierAdvanceReturnCreate {
+  return_amount: number;
+  return_date: string;
+  return_method: string;
+  return_reference?: string;
+  return_remarks?: string;
 }
 
 export interface SupplierAdvancePaymentCreate {

@@ -476,6 +476,63 @@ class PurchaseExpensePayrollGL:
             logger.info(f"✅ GL Posted: Supplier Advance {advance.advance_no} → JE {je.journal_entry_no}")
         return je
 
+    def post_supplier_advance_return_to_gl(
+        self,
+        advance,
+        return_amount: Decimal,
+        return_date,
+        return_method: str,
+        user_id: int,
+    ) -> Optional[JournalEntry]:
+        """
+        Post supplier advance return (supplier refunds unused advance) to GL.
+        Reverses the original advance entry:
+            Dr 1020 Bank Account (or Cash)  ...  return_amount
+            Cr 2020 Supplier Advances       ...  return_amount
+        """
+        amount = Decimal(str(return_amount))
+        if amount <= 0:
+            return None
+
+        debit_account = ACCT_CASH_ON_HAND if (return_method or "").lower() == "cash" else ACCT_BANK_ACCOUNT
+
+        lines = [
+            {
+                "account_code": debit_account,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Advance return received - {advance.advance_no}",
+            },
+            {
+                "account_code": ACCT_SUPPLIER_ADVANCES,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Advance returned by supplier - {advance.advance_no}",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Supplier Advance Return | Advance: {advance.advance_no} | "
+            f"Return: {amount} | Advance ID: {advance.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=return_date or tz.today(),
+            description=description,
+            lines=lines,
+            branch_code=advance.branch_code,
+            user_id=user_id,
+            je_prefix="JE-ADV",
+            transaction_type="Payment",
+            reference_type="SupplierAdvanceReturn",
+            reference_id=advance.id,
+            reference_no=advance.advance_no,
+        )
+
+        if je:
+            logger.info(f"✅ GL Posted: Supplier Advance Return {advance.advance_no} → JE {je.journal_entry_no}")
+        return je
+
     def post_advance_application_to_gl(self, application, user_id: int) -> Optional[JournalEntry]:
         """
         Post advance application (when advance is applied against GRN).

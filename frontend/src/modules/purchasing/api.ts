@@ -915,6 +915,20 @@ export const supplierAdvancePaymentsApi = {
     await apiClient.delete(`/purchasing/supplier-advances/${id}`);
   },
 
+  returnAdvance: async (id: number, data: {
+    return_amount: number;
+    return_date: string;
+    return_method: string;
+    return_reference?: string;
+    return_remarks?: string;
+  }) => {
+    const response = await apiClient.post<SupplierAdvancePayment>(
+      `/purchasing/supplier-advances/${id}/return`,
+      data
+    );
+    return response.data;
+  },
+
   getBySupplier: async (supplierId: number, params?: { is_fully_applied?: boolean; skip?: number; limit?: number }) => {
     const response = await apiClient.get<SupplierAdvancePayment[]>(
       `/purchasing/suppliers/${supplierId}/advances`,

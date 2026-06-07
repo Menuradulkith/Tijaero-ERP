@@ -40,6 +40,7 @@ from app.modules.purchasing.invoice_schemas import (
     PaymentAllocationResponse,
     GRNInvoiceableItem,
     GRNInvoiceableProductDetail,
+    OutstandingGRNItem,
 )
 from app.modules.purchasing.models import (
     Supplier,
@@ -1018,3 +1019,88 @@ class PurchaseInvoiceService:
             items=items,
             remarks=invoice.remarks,
         )
+
+    # ─── GET ALL OUTSTANDING GRNs (ACROSS ALL SUPPLIERS) ───────────────
+    def get_all_outstanding_grns(
+        self,
+        supplier_id: Optional[int] = None,
+        branch_code: Optional[str] = None,
+    ) -> List[OutstandingGRNItem]:
+        """
+        Get all GRNs that have NOT yet been invoiced (no non-cancelled
+        Purchase Invoice exists for the GRN).  Optionally filter by
+        supplier and/or branch.
+        """
+        grn_query = (
+            self.db.query(GoodReceivedNote)
+            .join(PurchasingOrder, GoodReceivedNote.purchasingorders_id == PurchasingOrder.id)
+        )
+        if supplier_id:
+            grn_query = grn_query.filter(PurchasingOrder.first_suppliers_id == supplier_id)
+        if branch_code:
+            grn_query = grn_query.filter(GoodReceivedNote.branch_code == branch_code)
+
+        grns = grn_query.order_by(GoodReceivedNote.good_received_date.desc()).all()
+
+        result: List[OutstandingGRNItem] = []
+        today = date.today()
+
+        for grn in grns:
+            # Skip GRNs that already have a non-cancelled invoice
+            existing_invoice = (
+                self.db.query(PurchaseInvoiceItem)
+                .join(PurchaseInvoice, PurchaseInvoiceItem.purchase_invoice_id == PurchaseInvoice.id)
+                .filter(
+                    PurchaseInvoiceItem.grn_id == grn.id,
+                    PurchaseInvoice.status != "cancelled",
+                )
+                .first()
+            )
+            if existing_invoice:
+                continue
+
+            po = self.db.query(PurchasingOrder).filter(PurchasingOrder.id == grn.purchasingorders_id).first()
+            supplier = self.db.query(Supplier).filter(Supplier.id == po.first_suppliers_id).first() if po else None
+
+            # Total received for this GRN
+            received_items = self.db.query(GoodReceivedItems).filter(
+                GoodReceivedItems.good_received_note == grn.good_received_no,
+                GoodReceivedItems.active == True,
+            ).all()
+            total_received_qty = len(received_items)
+
+            total_received_amount = float(
+                self.db.query(
+                    func.coalesce(func.sum(PurchasingOrderItems.unit_price), 0)
+                )
+                .join(GoodReceivedItems, GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id)
+                .filter(
+                    GoodReceivedItems.good_received_note == grn.good_received_no,
+                    GoodReceivedItems.active == True,
+                )
+                .scalar() or 0
+            )
+
+            if total_received_qty <= 0 and total_received_amount <= 0:
+                continue
+
+            grn_date = grn.good_received_date
+            days_since = (today - grn_date).days if grn_date else 0
+
+            result.append(OutstandingGRNItem(
+                grn_id=grn.id,
+                grn_no=grn.good_received_no,
+                grn_date=str(grn_date),
+                po_id=po.id if po else 0,
+                po_no=po.purchasing_order_no if po else "",
+                supplier_id=supplier.id if supplier else 0,
+                supplier_name=supplier.full_name if supplier else "Unknown",
+                supplier_invoice_no=grn.supplier_invoice_no,
+                total_received_qty=total_received_qty,
+                total_received_amount=total_received_amount,
+                remaining_amount=total_received_amount,
+                branch_code=grn.branch_code or "",
+                days_since_grn=days_since,
+            ))
+
+        return result
