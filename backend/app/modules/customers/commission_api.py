@@ -30,7 +30,7 @@ router = APIRouter()
 )
 def list_commissions(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     agent_id: Optional[int] = Query(None, description="Filter by agent ID"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status (pending/approved/paid)"),
     search: Optional[str] = Query(None, description="Search by invoice no or customer name"),
@@ -177,7 +177,7 @@ def delete_commission(
 )
 def list_payments(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     agent_id: Optional[int] = Query(None, description="Filter by agent ID"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
     search: Optional[str] = Query(None, description="Search by payment no or agent name"),
@@ -295,7 +295,7 @@ def get_payment_history_report(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.AGENT_COMMISSION_VIEW)),
 ):

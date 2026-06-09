@@ -2,7 +2,7 @@ import apiClient from "@/api/client";
 import { Employee, EmployeeCreate, EmployeeUpdate } from "./types";
 
 export const employeesApi = {
-  getAll: async (skip = 0, limit = 100) => {
+  getAll: async (skip = 0, limit = 100000) => {
     const response = await apiClient.get<Employee[]>("/employees/", {
       params: { skip, limit },
     });

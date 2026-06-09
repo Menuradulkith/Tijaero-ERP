@@ -440,7 +440,7 @@ class CustomerCreditService:
                 remarks=trans.remarks,
                 customer_credit_settle_id=settlement.id,
                 invoice_id=trans.invoice_id,
-                created_date=tz.today()
+                created_date=tz.now()
             )
             db.add(transaction)
             created_transactions.append(transaction)

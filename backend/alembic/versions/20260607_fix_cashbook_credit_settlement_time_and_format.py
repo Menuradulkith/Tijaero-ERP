@@ -69,9 +69,9 @@ def upgrade():
                 ('Invoice ' || v_invoice_no || ' - ' || v_payment_method_display)::TEXT,
                 v_customer_name::VARCHAR(200),
                 NEW.payment_method::VARCHAR(50),
-                v_branch_code::VARCHAR(50),
                 NEW.payment_amount::NUMERIC(60, 2),
-                0::NUMERIC(60, 2)
+                0::NUMERIC(60, 2),
+                v_branch_code::VARCHAR(200)
             );
             RETURN NEW;
         END;
@@ -149,9 +149,9 @@ def downgrade():
                 ('Invoice ' || v_invoice_no || ' - ' || v_payment_method_display)::TEXT,
                 v_customer_name::VARCHAR(200),
                 NEW.payment_method::VARCHAR(50),
-                v_branch_code::VARCHAR(50),
                 NEW.payment_amount::NUMERIC(60, 2),
-                0::NUMERIC(60, 2)
+                0::NUMERIC(60, 2),
+                v_branch_code::VARCHAR(200)
             );
             RETURN NEW;
         END;

@@ -80,7 +80,7 @@ def list_purchase_invoices(
     date_to: Optional[str] = None,
     overdue_only: bool = False,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

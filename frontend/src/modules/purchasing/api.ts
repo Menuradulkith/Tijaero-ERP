@@ -148,7 +148,7 @@ export const purchaseOrdersApi = {
 
 
 
-  getSupplierOrders: async (supplierId: number, skip = 0, limit = 100) => {
+  getSupplierOrders: async (supplierId: number, skip = 0, limit = 100000) => {
     const response = await apiClient.get<PurchasingOrder[]>(
       `/purchasing/suppliers/${supplierId}/orders`,
       { params: { skip, limit } }
@@ -319,7 +319,7 @@ export const goodReceivedItemsApi = {
 
 // Supplier Credits Settlement API
 export const supplierCreditsSettleApi = {
-  getAll: async (skip = 0, limit = 100) => {
+  getAll: async (skip = 0, limit = 100000) => {
     const response = await apiClient.get<SupplierCreditsSettleWithTransactions[]>(
       "/purchasing/credit-settlements",
       { params: { skip, limit } }
@@ -780,7 +780,7 @@ export const supplierPaymentsApi = {
     await apiClient.delete(`/purchasing/supplier-payments/${id}`);
   },
 
-  getBySupplier: async (supplierId: number, skip = 0, limit = 100) => {
+  getBySupplier: async (supplierId: number, skip = 0, limit = 100000) => {
     const response = await apiClient.get<SupplierPayment[]>(
       `/purchasing/suppliers/${supplierId}/payments`,
       { params: { skip, limit } }

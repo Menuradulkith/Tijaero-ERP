@@ -128,12 +128,16 @@ class CustomerCreditsSettleTransaction(Base, AuditMixin):
     payment_amount = Column(Numeric(60, 2), nullable=False)
     payment_method_number = Column(String(300))
     remarks = Column(Text)
-    created_date = Column(Date, nullable=False)
+    created_date = Column(TIMESTAMP, nullable=False)
     customer_credit_settle_id = Column(Integer, ForeignKey("customer_credits_settle.id"), nullable=False)
     invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
+    # Bank transfer verification workflow
+    status = Column(String(30), nullable=False, server_default="completed")  # completed, pending_verification, rejected
+    bank_deposit_id = Column(Integer, ForeignKey("bank_deposits.id"), nullable=True)
     
     credit_settle = relationship("CustomerCreditsSettle", back_populates="transactions")
     invoice = relationship("Invoice", back_populates="credits_settle_transactions")
+    bank_deposit = relationship("BankDeposits", foreign_keys=[bank_deposit_id])
 
 
 class CustomerCuponCodes(Base, AuditMixin):

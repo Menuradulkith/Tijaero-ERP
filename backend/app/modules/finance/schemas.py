@@ -176,7 +176,7 @@ class CustomerCreditsSettleTransactionCreate(CustomerCreditsSettleTransactionBas
 
 class CustomerCreditsSettleTransaction(CustomerCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
-    created_date: date
+    created_date: datetime
     customer_credit_settle_id: int
 
 class CustomerCreditsSettleBase(BaseModel):

@@ -18,7 +18,7 @@ router = APIRouter(
 @router.get("/", response_model=dict)
 def get_branches(
     page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1, le=100),
+    size: int = Query(10, ge=1, le=100000),
     active_only: bool = Query(False, description="Only return active branches"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),

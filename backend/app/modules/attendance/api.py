@@ -30,7 +30,7 @@ def list_attendance(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(200, ge=1, le=1000),
+    limit: int = Query(200, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """List attendance records with optional filters."""
@@ -143,7 +143,7 @@ def list_leaves(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     svc = service.LeaveService(db)

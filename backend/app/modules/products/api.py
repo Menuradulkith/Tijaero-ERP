@@ -18,7 +18,7 @@ router = APIRouter()
 )
 def list_products(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     active_only: bool = Query(True),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
@@ -35,7 +35,7 @@ def list_products(
 def search_products(
     q: str = Query(..., min_length=1),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
 ):
@@ -110,7 +110,7 @@ def delete_product(
 )
 def list_categories(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     active_only: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CATEGORY_VIEW)),
@@ -186,7 +186,7 @@ def delete_category(
 )
 def list_brands(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.BRAND_VIEW)),
 ):

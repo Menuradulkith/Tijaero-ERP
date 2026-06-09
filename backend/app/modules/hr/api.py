@@ -49,7 +49,7 @@ def get_salary_deduction(deduction_id: int, db: Session = Depends(get_db)):
 def list_salary_deductions(
     employee_id: Optional[int] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """List all salary deductions with optional filters"""
@@ -124,7 +124,7 @@ def list_reimbursements(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -271,7 +271,7 @@ def get_payroll(payroll_id: int, db: Session = Depends(get_db)):
 def list_payrolls(
     employee_id: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """List all payroll records with optional filters"""
@@ -331,7 +331,7 @@ def list_payroll_batches(
     payroll_year: Optional[int] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -562,7 +562,7 @@ def list_promotions(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """List all promotions with optional filters"""
@@ -629,7 +629,7 @@ def get_asset_assignment(assignment_id: int, db: Session = Depends(get_db)):
 def list_asset_assignments(
     employee_id: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """List all employee asset assignments with optional filters"""

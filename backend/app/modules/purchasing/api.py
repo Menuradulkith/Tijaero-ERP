@@ -260,7 +260,7 @@ def list_suppliers(
     search: Optional[str] = None,
     min_credit_limit: Optional[int] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
 ):
@@ -365,7 +365,7 @@ def list_purchase_orders(
     date_to: Optional[str] = None,
     for_grn: bool = False,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -475,7 +475,7 @@ def check_grn_credit(
 def get_supplier_orders(
     supplier_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     order_service = service.PurchasingOrderService(db)
@@ -592,7 +592,7 @@ def list_purchase_returns(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     return_service = service.PurchasingReturnService(db)
@@ -711,7 +711,7 @@ def list_grns(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -832,7 +832,7 @@ def get_credit_settlement(settle_id: int, db: Session = Depends(get_db)):
 )
 def list_credit_settlements(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """List all credit settlements with transactions (eagerly loaded)"""
@@ -1064,7 +1064,7 @@ def list_supplier_payments(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     from datetime import date as date_type
@@ -1148,7 +1148,7 @@ def delete_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
 def get_supplier_payments(
     supplier_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
 
@@ -1278,7 +1278,7 @@ def list_supplier_advances(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """List all supplier advance payments with optional filters"""
@@ -1383,7 +1383,7 @@ def get_supplier_advances(
     supplier_id: int,
     is_fully_applied: Optional[bool] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """Get all advance payments for a specific supplier"""

@@ -22,7 +22,7 @@
  * } = usePaginatedData({
  *   queryKey: "sales",
  *   fetchFn: salesApi.getPaginated,
- *   defaultPageSize: 50,
+ *   defaultPageSize: 100000,
  * });
  * ```
  */
@@ -124,7 +124,7 @@ export function usePaginatedData<T, F extends PaginatedDataFilters = PaginatedDa
   const {
     queryKey,
     fetchFn,
-    defaultPageSize = 50,
+    defaultPageSize = 100000,
     defaultSortBy = "created_date",
     defaultSortDesc = true,
     initialFilters = {} as F,

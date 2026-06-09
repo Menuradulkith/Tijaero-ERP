@@ -19,14 +19,14 @@ import {
 } from "./types";
 
 export const productsApi = {
-  getAll: async (skip = 0, limit = 100, activeOnly = true) => {
+  getAll: async (skip = 0, limit = 100000, activeOnly = true) => {
     const response = await apiClient.get<Product[]>("/inventory/products/", {
       params: { skip, limit, active_only: activeOnly },
     });
     return response.data;
   },
 
-  search: async (query: string, skip = 0, limit = 100) => {
+  search: async (query: string, skip = 0, limit = 100000) => {
     const response = await apiClient.get<Product[]>(
       "/inventory/products/search",
       {
@@ -64,7 +64,7 @@ export const productsApi = {
 };
 
 export const categoriesApi = {
-  getAll: async (skip = 0, limit = 100) => {
+  getAll: async (skip = 0, limit = 100000) => {
     const response = await apiClient.get<Category[]>("/inventory/categories/", {
       params: { skip, limit },
     });
@@ -101,7 +101,7 @@ export const categoriesApi = {
 };
 
 export const brandsApi = {
-  getAll: async (skip = 0, limit = 100) => {
+  getAll: async (skip = 0, limit = 100000) => {
     const response = await apiClient.get<Brand[]>("/inventory/brands/", {
       params: { skip, limit },
     });

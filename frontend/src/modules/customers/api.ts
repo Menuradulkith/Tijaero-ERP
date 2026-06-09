@@ -145,14 +145,14 @@ const cleanCustomerData = (data: CustomerCreate | CustomerUpdate) => {
 };
 
 export const customersApi = {
-  getAll: async (skip = 0, limit = 100, activeOnly = true) => {
+  getAll: async (skip = 0, limit = 100000, activeOnly = true) => {
     const response = await apiClient.get<Customer[]>("/customers/", {
       params: { skip, limit, active_only: activeOnly },
     });
     return response.data;
   },
 
-  search: async (query: string, skip = 0, limit = 100, activeOnly = true) => {
+  search: async (query: string, skip = 0, limit = 100000, activeOnly = true) => {
     const response = await apiClient.get<Customer[]>("/customers/search", {
       params: { q: query, skip, limit, active_only: activeOnly },
     });
@@ -262,7 +262,7 @@ export const customersApi = {
     return response.data;
   },
 
-  getCreditSettlements: async (customerId: number, skip = 0, limit = 100) => {
+  getCreditSettlements: async (customerId: number, skip = 0, limit = 100000) => {
     const response = await apiClient.get<CustomerCreditsSettle[]>(
       `/customers/${customerId}/credit-settlements`,
       { params: { skip, limit } }
@@ -360,7 +360,7 @@ export interface OutstandingDocumentsReport {
 // ==================== COUPON API ====================
 
 export const couponsApi = {
-  getAll: async (skip = 0, limit = 100, activeOnly = false) => {
+  getAll: async (skip = 0, limit = 100000, activeOnly = false) => {
     const response = await apiClient.get<CustomerCuponCodes[]>("/customers/coupons/", {
       params: { skip, limit, active_only: activeOnly },
     });
@@ -399,7 +399,7 @@ export const couponsApi = {
     return response.data;
   },
 
-  getUsageHistory: async (couponId: number, skip = 0, limit = 100) => {
+  getUsageHistory: async (couponId: number, skip = 0, limit = 100000) => {
     const response = await apiClient.get<CouponUsage[]>(
       `/customers/coupons/${couponId}/usage`,
       { params: { skip, limit } }
@@ -412,7 +412,7 @@ export const couponsApi = {
 // ==================== GIFT VOUCHER API ====================
 
 export const vouchersApi = {
-  getAll: async (skip = 0, limit = 100, activeOnly = false) => {
+  getAll: async (skip = 0, limit = 100000, activeOnly = false) => {
     const response = await apiClient.get<CustomerGiftVoucher[]>("/customers/vouchers/", {
       params: { skip, limit, active_only: activeOnly },
     });
@@ -459,7 +459,7 @@ export const vouchersApi = {
     return response.data;
   },
 
-  getUsageHistory: async (voucherId: number, skip = 0, limit = 100) => {
+  getUsageHistory: async (voucherId: number, skip = 0, limit = 100000) => {
     const response = await apiClient.get<VoucherUsage[]>(
       `/customers/vouchers/${voucherId}/usage`,
       { params: { skip, limit } }

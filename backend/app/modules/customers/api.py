@@ -22,7 +22,7 @@ router = APIRouter(dependencies=[Depends(get_current_active_user)])
 def list_customers(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(
-        100, ge=1, le=1000, description="Maximum number of records to return"
+        100, ge=1, le=100000, description="Maximum number of records to return"
     ),
     active_only: bool = Query(False, description="Only return active customers"),
     db: Session = Depends(get_db),
@@ -41,7 +41,7 @@ def list_customers(
 def search_customers(
     q: str = Query(..., min_length=1, description="Search query"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
@@ -324,7 +324,7 @@ def create_customer_credit_settlement(
 def list_customer_credit_settlements(
     customer_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
@@ -412,7 +412,7 @@ def get_outstanding_documents(
 def list_coupons(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(
-        100, ge=1, le=1000, description="Maximum number of records to return"
+        100, ge=1, le=100000, description="Maximum number of records to return"
     ),
     active_only: bool = Query(False, description="Only return active coupons"),
     db: Session = Depends(get_db),
@@ -535,7 +535,7 @@ def validate_coupon(
 def get_coupon_usage_history(
     coupon_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
@@ -556,7 +556,7 @@ def get_coupon_usage_history(
 def list_vouchers(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(
-        100, ge=1, le=1000, description="Maximum number of records to return"
+        100, ge=1, le=100000, description="Maximum number of records to return"
     ),
     active_only: bool = Query(False, description="Only return active vouchers"),
     db: Session = Depends(get_db),
@@ -695,7 +695,7 @@ def redeem_voucher(
 def get_voucher_usage_history(
     voucher_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
