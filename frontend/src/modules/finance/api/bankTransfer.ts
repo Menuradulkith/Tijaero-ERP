@@ -33,6 +33,10 @@ export interface PendingBankTransfer {
   grand_total: number;
   bank_deposit_id?: number;
   items?: BankTransferItem[];
+  /** Source: "sales_order" or "credit_settlement" */
+  source?: string;
+  /** Settlement transaction ID (only for credit_settlement source) */
+  settlement_transaction_id?: number;
 }
 
 export interface BankTransferConfirmationRequest {
@@ -99,5 +103,31 @@ export const bankTransferApi = {
     } else {
       return bankTransferApi.reject(invoiceId, request.rejection_reason);
     }
+  },
+
+  /**
+   * Verify a credit settlement bank transfer payment
+   */
+  verifyCreditSettlement: async (
+    transactionId: number
+  ): Promise<BankTransferConfirmationResponse> => {
+    const response = await apiClient.post<BankTransferConfirmationResponse>(
+      `/sales/credit-settlement/${transactionId}/bank-transfer/verify`
+    );
+    return response.data;
+  },
+
+  /**
+   * Reject a credit settlement bank transfer payment
+   */
+  rejectCreditSettlement: async (
+    transactionId: number,
+    reason?: string
+  ): Promise<BankTransferConfirmationResponse> => {
+    const response = await apiClient.post<BankTransferConfirmationResponse>(
+      `/sales/credit-settlement/${transactionId}/bank-transfer/reject`,
+      { reason }
+    );
+    return response.data;
   },
 };

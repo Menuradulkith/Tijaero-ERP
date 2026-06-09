@@ -68,7 +68,7 @@ def get_sales_statistics(
 )
 def get_paginated_invoices(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    page_size: int = Query(50, ge=10, le=200, description="Items per page"),
+    page_size: int = Query(50, ge=10, le=100000, description="Items per page"),
     search: Optional[str] = Query(
         None, description="Search by invoice no, customer, or payment ref"
     ),
@@ -114,7 +114,7 @@ def get_paginated_invoices(
 )
 def list_invoices(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_ORDER_VIEW)),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -132,7 +132,7 @@ def list_invoices(
 def search_invoices(
     q: str = Query(..., min_length=1),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_ORDER_VIEW)),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -149,7 +149,7 @@ def search_invoices(
 )
 def get_pending_approval_invoices(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_ORDER_VIEW)),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -167,7 +167,7 @@ def get_pending_approval_invoices(
 def get_invoices_by_customer(
     customer_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_ORDER_VIEW)),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -186,7 +186,7 @@ def get_invoices_by_customer(
 )
 def get_recent_customer_sales(
     customer_id: int,
-    limit: int = Query(5, ge=1, le=20),
+    limit: int = Query(5, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_ORDER_VIEW)),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -276,7 +276,7 @@ def delete_invoice(
 )
 def get_paginated_sale_returns(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    page_size: int = Query(50, ge=10, le=200, description="Items per page"),
+    page_size: int = Query(50, ge=10, le=100000, description="Items per page"),
     search: Optional[str] = Query(
         None, description="Search by return no or invoice no"
     ),
@@ -310,7 +310,7 @@ def get_paginated_sale_returns(
 )
 def list_sale_returns(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_RETURN_VIEW)),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -328,7 +328,7 @@ def list_sale_returns(
 def get_returns_by_invoice(
     invoice_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_RETURN_VIEW)),
 ):
@@ -593,6 +593,43 @@ def reject_bank_transfer(
     reason = request.reason if request else None
     return service.sales_service.confirm_bank_transfer(
         db, invoice_id, "reject", current_user.id, reason
+    )
+
+
+# Credit Settlement Bank Transfer Verification Endpoints
+@router.post(
+    "/credit-settlement/{transaction_id}/bank-transfer/verify",
+    response_model=schemas.BankTransferConfirmResponse,
+    summary="Verify Credit Settlement Bank Transfer",
+    dependencies=[Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE))],
+)
+def verify_credit_settlement_bank_transfer(
+    transaction_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE)),
+):
+    """Verify a credit settlement bank transfer. Applies the deferred payment to the invoice."""
+    return service.sales_service.confirm_credit_settlement_bank_transfer(
+        db, transaction_id, "verify", current_user.id
+    )
+
+
+@router.post(
+    "/credit-settlement/{transaction_id}/bank-transfer/reject",
+    response_model=schemas.BankTransferConfirmResponse,
+    summary="Reject Credit Settlement Bank Transfer",
+    dependencies=[Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE))],
+)
+def reject_credit_settlement_bank_transfer(
+    transaction_id: int,
+    request: schemas.BankTransferRejectRequest = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE)),
+):
+    """Reject a credit settlement bank transfer. Voids the settlement transaction."""
+    reason = request.reason if request else None
+    return service.sales_service.confirm_credit_settlement_bank_transfer(
+        db, transaction_id, "reject", current_user.id, reason
     )
 
 

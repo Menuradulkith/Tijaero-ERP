@@ -53,7 +53,7 @@ def list_quotes(
     branch_code: Optional[str] = Query(None, description="Filter by branch"),
     search: Optional[str] = Query(None, description="Search in quote number"),
     page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(20, ge=1, le=500, description="Items per page"),
+    per_page: int = Query(20, ge=1, le=100000, description="Items per page"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
@@ -89,7 +89,7 @@ def list_quotes(
 def list_quotations(
     status: Optional[QuoteStatusEnum] = Query(None),
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=500),
+    per_page: int = Query(20, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
@@ -109,7 +109,7 @@ def list_quotations(
 def list_proforma_invoices(
     status: Optional[QuoteStatusEnum] = Query(None),
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=500),
+    per_page: int = Query(20, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
@@ -127,7 +127,7 @@ def list_proforma_invoices(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def get_expiring_quotes(
-    days: int = Query(7, ge=1, le=90, description="Days until expiry"),
+    days: int = Query(7, ge=1, le=100000, description="Days until expiry"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):

@@ -177,9 +177,14 @@ export default function BankTransferVerifyPage() {
     return map;
   }, [products]);
 
-  // Verify mutation
+  // Verify mutation — handles both sales order and credit settlement sources
   const verifyMutation = useCrudMutation({
-    mutationFn: (invoiceId: number) => bankTransferApi.verify(invoiceId),
+    mutationFn: (transfer: PendingBankTransfer) => {
+      if (transfer.source === "credit_settlement" && transfer.settlement_transaction_id) {
+        return bankTransferApi.verifyCreditSettlement(transfer.settlement_transaction_id);
+      }
+      return bankTransferApi.verify(transfer.id);
+    },
     invalidateQueryKeys: [["pendingBankTransfers"]],
     getSuccessMessage: (data) => data.message,
     errorMessage: "Failed to verify bank transfer",
@@ -188,10 +193,14 @@ export default function BankTransferVerifyPage() {
     },
   });
 
-  // Reject mutation
+  // Reject mutation — handles both sales order and credit settlement sources
   const rejectMutation = useCrudMutation({
-    mutationFn: ({ invoiceId, reason }: { invoiceId: number; reason: string }) =>
-      bankTransferApi.reject(invoiceId, reason),
+    mutationFn: ({ transfer, reason }: { transfer: PendingBankTransfer; reason: string }) => {
+      if (transfer.source === "credit_settlement" && transfer.settlement_transaction_id) {
+        return bankTransferApi.rejectCreditSettlement(transfer.settlement_transaction_id, reason);
+      }
+      return bankTransferApi.reject(transfer.id, reason);
+    },
     invalidateQueryKeys: [["pendingBankTransfers"]],
     getSuccessMessage: (data) => data.message,
     errorMessage: "Failed to reject bank transfer",
@@ -272,20 +281,22 @@ export default function BankTransferVerifyPage() {
 
   const handleVerify = () => {
     if (!selectedTransfer) return;
+    const sourceLabel = selectedTransfer.source === "credit_settlement" ? "Credit Settlement" : "Sales Order";
     verifyDialog.open(
       "Verify Bank Transfer",
       `Are you sure you want to verify the bank transfer for invoice ${selectedTransfer.invoice_no}? 
+       Type: ${sourceLabel}
        Amount: Rs. ${fmtLKR(selectedTransfer.bank_transfer_amount)}
        Bank: ${selectedTransfer.bank_name || "N/A"}
        Reference: ${selectedTransfer.bank_transfer_ref || "N/A"}`,
-      () => verifyMutation.mutate(selectedTransfer.id)
+      () => verifyMutation.mutate(selectedTransfer)
     );
   };
 
   const handleConfirmReject = () => {
     if (!selectedTransfer) return;
     rejectMutation.mutate({
-      invoiceId: selectedTransfer.id,
+      transfer: selectedTransfer,
       reason: rejectReason,
     });
   };
@@ -378,13 +389,22 @@ export default function BankTransferVerifyPage() {
                         (Amount)
                       </Typography>
                     </Box>
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
+                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
                       <Chip
                         label={statusChip.label}
                         size="small"
                         color={statusChip.color}
                         sx={{ height: 18, fontSize: "0.65rem" }}
                       />
+                      {transfer.source === "credit_settlement" && (
+                        <Chip
+                          label="Credit Settlement"
+                          size="small"
+                          color="info"
+                          variant="outlined"
+                          sx={{ height: 18, fontSize: "0.65rem" }}
+                        />
+                      )}
                     </Box>
                   </>
                 )}
@@ -421,7 +441,13 @@ export default function BankTransferVerifyPage() {
           selectedTransfer
             ? (() => {
                 const statusChip = getStatusChip(selectedTransfer.bank_transfer_status);
-                return [{ label: statusChip.label, color: statusChip.color }];
+                const chips: { label: string; color: "success" | "error" | "warning" | "info" | "default" }[] = [
+                  { label: statusChip.label, color: statusChip.color },
+                ];
+                if (selectedTransfer.source === "credit_settlement") {
+                  chips.push({ label: "Credit Settlement", color: "info" });
+                }
+                return chips;
               })()
             : []
         }
@@ -471,7 +497,16 @@ export default function BankTransferVerifyPage() {
             <FormSection title="Order Information" columns={3}>
               <TextField label="Invoice Number" size="small" value={selectedOrder.invoice_no} disabled />
               <TextField label="Branch" size="small" value={selectedOrder.branch_code} disabled />
-              <TextField label="Payment Method" size="small" value={selectedOrder.payment_method} disabled />
+              <TextField
+                label="Payment Type"
+                size="small"
+                value={
+                  selectedTransfer.source === "credit_settlement"
+                    ? "Credit Settlement (Bank Transfer)"
+                    : selectedOrder.payment_method
+                }
+                disabled
+              />
             </FormSection>
 
             {/* Verification Status - Show for verified/rejected transfers */}

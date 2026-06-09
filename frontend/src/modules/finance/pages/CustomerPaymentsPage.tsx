@@ -278,7 +278,7 @@ export default function CustomerPaymentsPage() {
     try {
       setLoading(true);
       setError(null);
-      const data = await customersApi.getAll();
+      const data = await customersApi.getAll(0, 1000);
       const activeCustomers = data.filter((c: Customer) => c.active);
       setCustomers(activeCustomers);
     } catch (err: unknown) {
@@ -347,7 +347,7 @@ export default function CustomerPaymentsPage() {
     const docs: OutstandingInvoice[] = [];
 
     customerInvoices.forEach((inv) => {
-      if (inv.credit_amount > 0 && inv.balance_due > 0 && inv.approval_status === "completed") {
+      if (inv.credit_amount > 0 && inv.balance_due > 0 && (inv.approval_status === "completed" || inv.approval_status === "approved")) {
         const creditDays = selectedCustomer?.credit_days || 30;
         const invoiceDate = new Date(inv.created_date);
         const dueDate = new Date(invoiceDate);
@@ -652,6 +652,37 @@ export default function CustomerPaymentsPage() {
       return;
     }
 
+    // Validate split payment rows
+    for (let i = 0; i < splitPayments.length; i++) {
+      const row = splitPayments[i];
+      
+      if (row.amount <= 0) {
+        showErrorToast(`Payment row #${i + 1}: Amount must be greater than 0`);
+        return;
+      }
+
+      if (row.method === "bank_transfer" && !row.bank_transfer_ref) {
+        showErrorToast(`Payment row #${i + 1}: Please enter bank transfer reference number`);
+        return;
+      }
+      
+      if (row.method === "cheque" && (!row.cheque_number || !row.cheque_bank)) {
+        showErrorToast(`Payment row #${i + 1}: Please enter cheque number and bank name`);
+        return;
+      }
+      
+      if (row.method === "card" && !row.card_ref_number) {
+        showErrorToast(`Payment row #${i + 1}: Please enter card reference number`);
+        return;
+      }
+      
+      if (row.method === "card" && !row.card_id) {
+        showErrorToast(`Payment row #${i + 1}: Please select a card type`);
+        return;
+      }
+    }
+
+    // Legacy validation (keeping for backward compatibility)
     if (paymentMethod === "Bank Transfer" && !referenceNumber) {
       showErrorToast("Please enter bank transfer reference number");
       return;
@@ -671,7 +702,7 @@ export default function CustomerPaymentsPage() {
 
     setViewMode("review");
     setActiveStep(2);
-  }, [totalPaymentAmount, paymentMethod, referenceNumber, bankName, cardRefNumber]);
+  }, [totalPaymentAmount, paymentMethod, referenceNumber, bankName, cardRefNumber, splitPayments]);
 
   const handlePostPayment = useCallback(async () => {
     if (!selectedCustomer || paymentLines.length === 0) return;
@@ -694,6 +725,7 @@ export default function CustomerPaymentsPage() {
       setError(null);
 
       // Process each payment line (invoice)
+      let hasPendingBankTransfer = false;
       for (const line of paymentLines) {
         if (line.allocated_amount <= 0) continue;
 
@@ -759,11 +791,21 @@ export default function CustomerPaymentsPage() {
             remarks: remarks || undefined,
           };
 
-          await apiClient.post(`/sales/${line.invoice.id}/settle-payment`, payload);
+          const response = await apiClient.post(`/sales/${line.invoice.id}/settle-payment`, payload);
+          // Track if any bank transfer is pending verification
+          if (response.data?.payment_status === "pending_bank_verification") {
+            hasPendingBankTransfer = true;
+          }
         }
       }
 
-      showSuccessToast(`Payment of Rs. ${fmtLKR(totalFromSplit)} received successfully!`);
+      if (hasPendingBankTransfer) {
+        showSuccessToast(
+          `Bank transfer payment submitted for verification. Amount will be applied after finance manager approval.`
+        );
+      } else {
+        showSuccessToast(`Payment of Rs. ${fmtLKR(totalFromSplit)} received successfully!`);
+      }
 
       // Refresh data and reset
       await loadCreditStatus(selectedCustomer.id);
@@ -1612,6 +1654,8 @@ export default function CustomerPaymentsPage() {
                     onChange={(e) => updateSplitRow(row.id, { card_id: Number(e.target.value) })}
                     sx={{ minWidth: 200 }}
                     required
+                    error={!row.card_id}
+                    helperText={!row.card_id ? "Card type is required" : undefined}
                   >
                     <MenuItem value="" disabled>
                       Select card

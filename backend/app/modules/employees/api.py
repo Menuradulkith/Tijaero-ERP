@@ -16,7 +16,7 @@ router = APIRouter()
 )
 def list_employees(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.USER_VIEW))
 ):

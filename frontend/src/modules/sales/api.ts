@@ -14,14 +14,14 @@ import {
 } from "./types";
 
 export const salesApi = {
-  getAll: async (skip = 0, limit = 100) => {
+  getAll: async (skip = 0, limit = 100000) => {
     const response = await apiClient.get<Invoice[]>("/sales/", {
       params: { skip, limit },
     });
     return response.data;
   },
 
-  search: async (query: string, skip = 0, limit = 100) => {
+  search: async (query: string, skip = 0, limit = 100000) => {
     const response = await apiClient.get<Invoice[]>("/sales/search", {
       params: { q: query, skip, limit },
     });
@@ -101,7 +101,7 @@ export const salesApi = {
   },
 
   // OPTIMIZED: Get invoices by customer - now uses server-side filtering
-  getByCustomer: async (customerId: number, skip = 0, limit = 100) => {
+  getByCustomer: async (customerId: number, skip = 0, limit = 100000) => {
     const response = await apiClient.get<Invoice[]>(`/sales/by-customer/${customerId}`, {
       params: { skip, limit },
     });
@@ -109,7 +109,7 @@ export const salesApi = {
   },
 
   // Get recent sales for a customer (last 5 from any branch)
-  getRecentByCustomer: async (customerId: number, limit = 5) => {
+  getRecentByCustomer: async (customerId: number, limit = 100000) => {
     const response = await apiClient.get<InvoiceWithItems[]>(`/sales/customer/${customerId}/recent`, {
       params: { limit },
     });
@@ -117,7 +117,7 @@ export const salesApi = {
   },
 
   // OPTIMIZED: Get pending approval invoices - now uses server-side filtering
-  getPendingApproval: async (skip = 0, limit = 100) => {
+  getPendingApproval: async (skip = 0, limit = 100000) => {
     const response = await apiClient.get<Invoice[]>("/sales/pending-approval", {
       params: { skip, limit },
     });
@@ -138,7 +138,7 @@ export const salesApi = {
 };
 
 export const saleReturnsApi = {
-  getAll: async (skip = 0, limit = 100) => {
+  getAll: async (skip = 0, limit = 100000) => {
     const response = await apiClient.get<SaleReturn[]>("/sales/returns/", {
       params: { skip, limit },
     });
@@ -230,7 +230,7 @@ export const saleReturnsApi = {
   },
 
   // OPTIMIZED: Get returns by invoice - now uses server-side filtering
-  getByInvoice: async (invoiceId: number, skip = 0, limit = 100) => {
+  getByInvoice: async (invoiceId: number, skip = 0, limit = 100000) => {
     const response = await apiClient.get<SaleReturn[]>(`/sales/returns/by-invoice/${invoiceId}`, {
       params: { skip, limit },
     });

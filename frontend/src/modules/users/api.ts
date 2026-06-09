@@ -108,7 +108,7 @@ export interface UserUpdate {
 
 export const usersApi = {
   // Get all users
-  getUsers: async (page = 1, size = 100): Promise<UserList[]> => {
+  getUsers: async (page = 1, size = 100000): Promise<UserList[]> => {
     const response = await apiClient.get(
       `/users?skip=${(page - 1) * size}&limit=${size}`
     );

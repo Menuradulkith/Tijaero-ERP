@@ -40,7 +40,7 @@ def list_support_tickets(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db)
 ):
     """List all support tickets with optional filters"""
@@ -170,7 +170,7 @@ def list_warranty_claims(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db)
 ):
     """List all warranty claims with optional filters"""

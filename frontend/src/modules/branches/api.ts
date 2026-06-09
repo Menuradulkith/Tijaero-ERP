@@ -7,7 +7,7 @@ import type {
 } from "@/api/types";
 
 export const branchApi = {
-  getAll: async (page = 1, size = 10): Promise<PaginatedResponse<Branch>> => {
+  getAll: async (page = 1, size = 100000): Promise<PaginatedResponse<Branch>> => {
     const response = await apiClient.get<PaginatedResponse<Branch>>(
       "/branches",
       {

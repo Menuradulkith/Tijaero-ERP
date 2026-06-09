@@ -44,7 +44,7 @@ def list_transfer_notes(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter)
@@ -206,7 +206,7 @@ def list_receive_notes(
     approved_status: Optional[int] = None,
     to_location_branch: Optional[str] = Query(None, description="Filter by receiving branch"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter)

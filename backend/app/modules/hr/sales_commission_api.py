@@ -39,10 +39,10 @@ def generate_monthly_summary(
 def list_summaries(
     branch_code: Optional[str] = Query(None),
     fiscal_year: Optional[int] = Query(None),
-    fiscal_month: Optional[int] = Query(None, ge=1, le=12),
+    fiscal_month: Optional[int] = Query(None, ge=1, le=100000),
     status: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -88,7 +88,7 @@ def finalize_summary(
 @router.post("/summaries/{summary_id}/calculate-commissions", response_model=List[schemas.SalesOfficerCommissionResponse], dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_CREATE))])
 def calculate_commissions(
     summary_id: int,
-    commission_percentage: Optional[float] = Query(None, ge=0, le=100),
+    commission_percentage: Optional[float] = Query(None, ge=0, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -113,11 +113,11 @@ def list_commissions(
     employee_id: Optional[int] = Query(None),
     branch_code: Optional[str] = Query(None),
     fiscal_year: Optional[int] = Query(None),
-    fiscal_month: Optional[int] = Query(None, ge=1, le=12),
+    fiscal_month: Optional[int] = Query(None, ge=1, le=100000),
     status: Optional[str] = Query(None),
     monthly_sales_summary_id: Optional[int] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -192,7 +192,7 @@ def reject_commission(
 @router.get("/payroll-ready", response_model=List[schemas.SalesOfficerCommissionResponse], dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_VIEW))])
 def get_commissions_for_payroll(
     fiscal_year: int = Query(...),
-    fiscal_month: int = Query(..., ge=1, le=12),
+    fiscal_month: int = Query(..., ge=1, le=100000),
     employee_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

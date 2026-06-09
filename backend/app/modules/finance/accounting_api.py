@@ -144,7 +144,7 @@ def list_journal_entries(
     date_to: Optional[str] = None,
     search: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """List journal entries with optional filters."""
@@ -321,7 +321,7 @@ def list_gl_entries(
     reference_no: Optional[str] = None,
     search: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(500, ge=1, le=5000),
+    limit: int = Query(500, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """List general ledger entries with filters."""
@@ -452,7 +452,7 @@ def get_audit_trail(
     include_reversed: bool = True,
     search: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(200, ge=1, le=2000),
+    limit: int = Query(200, ge=1, le=100000),
     db: Session = Depends(get_db),
 ):
     """

@@ -1622,7 +1622,11 @@ class SalesService:
         
         # Update invoice approval status
         invoice.approval = True
-        invoice.approval_status = DocumentStatus.COMPLETED  # Credit orders go directly to completed after approval
+        is_credit = (invoice.payment_method or '').lower() == 'credit' or (invoice.credit_amount or 0) > 0
+        if is_credit and invoice.balance_due > 0:
+            invoice.approval_status = DocumentStatus.APPROVED
+        else:
+            invoice.approval_status = DocumentStatus.COMPLETED
         
         # Update sales stock status to 'sold' for all items with barcodes
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
@@ -1647,9 +1651,11 @@ class SalesService:
         if invoice.credit_amount and invoice.credit_amount > 0:
             customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
         
-        # For credit orders that are approved, automatically mark as completed
-        # since stock is already marked as sold
-        invoice.approval_status = DocumentStatus.COMPLETED
+        # For credit orders that are approved, automatically mark as completed only if fully settled
+        if is_credit and invoice.balance_due > 0:
+            invoice.approval_status = DocumentStatus.APPROVED
+        else:
+            invoice.approval_status = DocumentStatus.COMPLETED
         
         # =================================================================
         # Scenario 30: Auto-post to General Ledger on credit sale approval
@@ -2178,6 +2184,8 @@ class SalesService:
 
         if grand > 0 and balance <= 0 and paid >= grand:
             invoice.payment_status = PaymentStatus.PAID
+            if (invoice.payment_method or '').lower() == 'credit' or (invoice.credit_amount or 0) > 0:
+                invoice.approval_status = DocumentStatus.COMPLETED
         elif paid > 0:
             invoice.payment_status = PaymentStatus.PARTIAL
         else:
@@ -2289,11 +2297,19 @@ class SalesService:
                 detail=f"Cannot settle payment for invoice with status: {invoice.approval_status}"
             )
         
-        # Validate payment amount
-        if payment_data.payment_amount > invoice.balance_due:
+        # Validate payment amount (accounting for pending bank transfer amounts)
+        pending_bt_amount = db.query(func.coalesce(func.sum(CustomerCreditsSettleTransaction.payment_amount), 0)).filter(
+            CustomerCreditsSettleTransaction.invoice_id == invoice.id,
+            CustomerCreditsSettleTransaction.status == "pending_verification"
+        ).scalar() or 0
+        effective_balance = float(Decimal(str(invoice.balance_due)) - Decimal(str(pending_bt_amount)))
+        if payment_data.payment_amount > effective_balance:
+            detail_msg = f"Payment amount (Rs. {payment_data.payment_amount:,.2f}) exceeds available balance (Rs. {effective_balance:,.2f})"
+            if float(pending_bt_amount) > 0:
+                detail_msg += f". Note: Rs. {float(pending_bt_amount):,.2f} is pending bank transfer verification."
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Payment amount (Rs. {payment_data.payment_amount:,.2f}) exceeds balance due (Rs. {invoice.balance_due:,.2f})"
+                detail=detail_msg
             )
         
         # Generate settlement number with advisory lock for concurrency safety
@@ -2328,6 +2344,7 @@ class SalesService:
         
         # Create payment record based on method
         payment_method = payment_data.payment_method.lower()
+        bank_deposit = None  # Will be set if payment_method is bank_transfer
         
         # Handle cheque payment
         if payment_method == "cheque":
@@ -2396,6 +2413,11 @@ class SalesService:
             else:
                 txn_remarks = sc_text
 
+        # Determine bank_deposit_id if bank transfer
+        linked_bank_deposit_id = None
+        if payment_method == "bank_transfer" and bank_deposit:
+            linked_bank_deposit_id = bank_deposit.id
+
         settle_transaction = CustomerCreditsSettleTransaction(
             payment_method=payment_data.payment_method,
             cheque_date=payment_data.cheque_date or payment_data.payment_date,
@@ -2404,12 +2426,29 @@ class SalesService:
             remarks=txn_remarks,
             created_date=payment_data.payment_date,
             customer_credit_settle_id=credit_settle.id,
-            invoice_id=invoice.id
+            invoice_id=invoice.id,
+            status="pending_verification" if payment_method == "bank_transfer" else "completed",
+            bank_deposit_id=linked_bank_deposit_id
         )
         settle_transaction.service_charge_amount = Decimal(str(payment_data.service_charge_amount or 0))
         db.add(settle_transaction)
         
-        # Update invoice payment tracking
+        # For bank transfers: defer balance update and GL posting until verification
+        if payment_method == "bank_transfer":
+            previous_balance = invoice.balance_due
+            db.commit()
+            db.refresh(invoice)
+            return {
+                "invoice_id": invoice.id,
+                "payment_amount": payment_data.payment_amount,
+                "previous_balance": previous_balance,
+                "new_balance": invoice.balance_due,  # Unchanged — pending verification
+                "payment_status": "pending_bank_verification",
+                "settlement_record_id": credit_settle.id,
+                "message": f"Bank transfer payment of Rs. {payment_data.payment_amount:,.2f} submitted for verification. Balance will be updated after verification."
+            }
+        
+        # Update invoice payment tracking (non-bank-transfer methods)
         previous_balance = invoice.balance_due
         invoice.paid_amount = float(Decimal(str(invoice.paid_amount)) + Decimal(str(payment_data.payment_amount)))
         invoice.balance_due = float(Decimal(str(invoice.balance_due)) - Decimal(str(payment_data.payment_amount)))
@@ -2418,6 +2457,7 @@ class SalesService:
         if invoice.balance_due <= 0:
             invoice.payment_status = PaymentStatus.PAID
             invoice.balance_due = 0  # Ensure no negative balance
+            invoice.approval_status = DocumentStatus.COMPLETED
         elif invoice.paid_amount > 0:
             invoice.payment_status = PaymentStatus.PARTIAL
         
@@ -2484,11 +2524,22 @@ class SalesService:
         }
         
         for trans in sorted_transactions:
-            current_balance -= trans.payment_amount
+            # Only deduct from balance for completed transactions
+            if not hasattr(trans, 'status') or trans.status == "completed":
+                current_balance -= trans.payment_amount
+            
+            # Add status indicator for pending/rejected bank transfers
+            payment_method_display = pm_map.get(trans.payment_method.lower(), trans.payment_method) if trans.payment_method else ""
+            txn_status = getattr(trans, 'status', 'completed')
+            if txn_status == "pending_verification":
+                payment_method_display += " (Pending Verification)"
+            elif txn_status == "rejected":
+                payment_method_display += " (Rejected)"
+            
             history.append({
                 "id": trans.id,
                 "payment_date": trans.created_date,
-                "payment_method": pm_map.get(trans.payment_method.lower(), trans.payment_method) if trans.payment_method else "",
+                "payment_method": payment_method_display,
                 "payment_amount": float(trans.payment_amount),
                 "balance_after_payment": float(current_balance),
                 "remarks": trans.remarks,
@@ -2572,9 +2623,79 @@ class SalesService:
                 "bank_transfer_verified_by_name": verified_by_name,
                 "bank_transfer_verified_at": inv.bank_transfer_verified_date,
                 "bank_transfer_rejection_reason": inv.bank_transfer_rejection_reason,
-                "items": items
+                "items": items,
+                "source": "sales_order",
+                "settlement_transaction_id": None
             })
         
+        # --- Also include credit settlement bank transfers ---
+        from app.modules.customers.models import CustomerCreditsSettleTransaction
+        from app.modules.finance.models import BankDeposits as BankDepositsModel
+
+        cs_query = db.query(CustomerCreditsSettleTransaction).filter(
+            CustomerCreditsSettleTransaction.payment_method.ilike("%bank%"),
+            CustomerCreditsSettleTransaction.status.in_(["pending_verification", "completed", "rejected"])
+        )
+
+        cs_txns = cs_query.order_by(CustomerCreditsSettleTransaction.created_date.desc()).all()
+
+        for txn in cs_txns:
+            cs_invoice = txn.invoice
+            if not cs_invoice:
+                continue
+
+            # Apply branch filter
+            if user_branches and cs_invoice.branch_code not in user_branches:
+                continue
+            elif branch_code and cs_invoice.branch_code != branch_code:
+                continue
+
+            customer_name = cs_invoice.customer.customer_name if cs_invoice.customer else "Unknown"
+
+            # Get bank deposit details
+            bt_ref = None
+            bt_bank = None
+            if txn.bank_deposit_id:
+                bd = db.query(BankDepositsModel).filter(BankDepositsModel.id == txn.bank_deposit_id).first()
+                if bd:
+                    bt_ref = bd.remarks
+                    bt_bank = bd.bank_name
+
+            # Map status
+            status_map = {
+                "pending_verification": "pending_verification",
+                "completed": "verified",
+                "rejected": "rejected"
+            }
+
+            # Get created by user name
+            created_by_name = None
+            if cs_invoice.sale_rep_id:
+                user = db.query(User).filter(User.id == cs_invoice.sale_rep_id).first()
+                if user:
+                    created_by_name = f"{user.first_name} {user.last_name}".strip() or user.username
+
+            result.append({
+                "id": cs_invoice.id,
+                "invoice_no": cs_invoice.invoice_no,
+                "customer_id": cs_invoice.customer_id,
+                "customer_name": customer_name,
+                "branch_code": cs_invoice.branch_code,
+                "bank_transfer_amount": float(txn.payment_amount),
+                "bank_transfer_ref": bt_ref,
+                "bank_name": bt_bank,
+                "grand_total": float(cs_invoice.grand_total),
+                "created_date": txn.credit_settle.created_date if txn.credit_settle else txn.created_date,
+                "created_by_name": created_by_name,
+                "bank_transfer_status": status_map.get(txn.status, txn.status),
+                "bank_transfer_verified_by_name": None,
+                "bank_transfer_verified_at": None,
+                "bank_transfer_rejection_reason": txn.remarks if txn.status == "rejected" else None,
+                "items": [],
+                "source": "credit_settlement",
+                "settlement_transaction_id": txn.id
+            })
+
         return result
 
     def confirm_bank_transfer(
@@ -2690,6 +2811,148 @@ class SalesService:
                 "status": "cancelled"
             }
         
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid action. Use 'verify' or 'reject'."
+            )
+
+    def confirm_credit_settlement_bank_transfer(
+        self,
+        db: Session,
+        transaction_id: int,
+        action: str,
+        user_id: int,
+        rejection_reason: Optional[str] = None
+    ):
+        """
+        Verify or reject a credit settlement bank transfer payment.
+        Mirrors the sales order bank transfer verification flow.
+        - verify: Apply the deferred balance update, mark BankDeposit verified, post GL
+        - reject: Void the settlement transaction, mark BankDeposit rejected
+        """
+        from app.modules.customers.models import CustomerCreditsSettle, CustomerCreditsSettleTransaction
+        from app.modules.finance.models import BankDeposits
+
+        # Lock the transaction row
+        txn = db.query(CustomerCreditsSettleTransaction).filter(
+            CustomerCreditsSettleTransaction.id == transaction_id
+        ).with_for_update().first()
+
+        if not txn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Settlement transaction not found"
+            )
+
+        if txn.status != "pending_verification":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Transaction is not pending verification. Current status: {txn.status}"
+            )
+
+        # Lock the related invoice
+        invoice = db.query(Invoice).filter(
+            Invoice.id == txn.invoice_id
+        ).with_for_update().first()
+
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Related invoice not found"
+            )
+
+        credit_settle = db.query(CustomerCreditsSettle).filter(
+            CustomerCreditsSettle.id == txn.customer_credit_settle_id
+        ).first()
+
+        if action == "verify":
+            # Mark transaction as completed
+            txn.status = "completed"
+
+            # Apply the deferred balance update
+            invoice.paid_amount = float(Decimal(str(invoice.paid_amount)) + Decimal(str(txn.payment_amount)))
+            invoice.balance_due = float(Decimal(str(invoice.balance_due)) - Decimal(str(txn.payment_amount)))
+
+            # Update payment status
+            if invoice.balance_due <= 0:
+                invoice.payment_status = PaymentStatus.PAID
+                invoice.balance_due = 0
+                invoice.approval_status = DocumentStatus.COMPLETED
+            elif invoice.paid_amount > 0:
+                invoice.payment_status = PaymentStatus.PARTIAL
+
+            # Mark linked BankDeposit as verified
+            if txn.bank_deposit_id:
+                bank_deposit = db.query(BankDeposits).filter(
+                    BankDeposits.id == txn.bank_deposit_id
+                ).first()
+                if bank_deposit:
+                    bank_deposit.verified = True
+                    bank_deposit.confirmed_by = user_id
+                    bank_deposit.confirmed_date = tz.now()
+                    bank_deposit.status = "confirmed"
+
+            db.commit()
+
+            # Update customer credit balance
+            customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
+
+            # Post credit settlement to GL
+            try:
+                from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                gl_service = PurchaseExpensePayrollGL(db)
+                gl_service.post_customer_credit_settlement_to_gl(
+                    credit_settle, [txn], user_id=user_id
+                )
+                db.commit()
+            except Exception as gl_err:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"GL posting for verified credit settlement bank transfer "
+                    f"{credit_settle.customer_credits_settle_no} failed (non-blocking): {gl_err}"
+                )
+
+            db.refresh(invoice)
+
+            return {
+                "success": True,
+                "message": f"Bank transfer verified. Payment of Rs. {float(txn.payment_amount):,.2f} applied to invoice {invoice.invoice_no}.",
+                "invoice_no": invoice.invoice_no,
+                "status": "completed"
+            }
+
+        elif action == "reject":
+            if not rejection_reason:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Rejection reason is required"
+                )
+
+            # Mark transaction as rejected
+            txn.status = "rejected"
+            txn.remarks = f"{txn.remarks or ''} | REJECTED: {rejection_reason}".strip(" |")
+
+            # Mark linked BankDeposit as rejected
+            if txn.bank_deposit_id:
+                bank_deposit = db.query(BankDeposits).filter(
+                    BankDeposits.id == txn.bank_deposit_id
+                ).first()
+                if bank_deposit:
+                    bank_deposit.returned = True
+                    bank_deposit.status = "rejected"
+                    bank_deposit.confirmed_by = user_id
+                    bank_deposit.confirmed_date = tz.now()
+
+            db.commit()
+
+            return {
+                "success": True,
+                "message": f"Bank transfer rejected for invoice {invoice.invoice_no}. Reason: {rejection_reason}",
+                "invoice_no": invoice.invoice_no,
+                "status": "rejected"
+            }
+
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

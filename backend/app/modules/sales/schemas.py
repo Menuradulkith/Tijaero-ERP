@@ -309,6 +309,10 @@ class PendingBankTransfer(BaseModel):
     bank_transfer_verified_at: Optional[datetime] = None
     bank_transfer_rejection_reason: Optional[str] = None
     items: Optional[List[InvoiceItem]] = []
+    # Source indicator: "sales_order" or "credit_settlement"
+    source: str = "sales_order"
+    # Settlement transaction ID (only for credit_settlement source)
+    settlement_transaction_id: Optional[int] = None
     
     model_config = ConfigDict(from_attributes=True)
 

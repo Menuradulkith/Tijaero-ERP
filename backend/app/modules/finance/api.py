@@ -78,7 +78,7 @@ def list_bank_deposits(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
@@ -134,7 +134,7 @@ def list_card_payments(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
@@ -180,7 +180,7 @@ def list_cheque_payments(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
@@ -215,7 +215,7 @@ def list_credit_payments(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
@@ -251,7 +251,7 @@ def list_cash_payments(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
@@ -309,7 +309,7 @@ def list_expenses(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
@@ -567,7 +567,7 @@ def list_petty_cash_funds(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
@@ -650,7 +650,7 @@ def reconcile_petty_cash(
 def list_petty_cash_transactions(
     fund_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
