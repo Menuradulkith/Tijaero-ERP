@@ -1,7 +1,7 @@
 """fix credit settlement transaction created_date to timestamp
 
 Revision ID: 20260608_ccs_timestamp
-Revises: 20260608_credit_settle_bank_transfer_verification
+Revises: 20260608_cs_bt
 Create Date: 2026-06-08 00:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260608_ccs_timestamp'
-down_revision = '20260608_credit_settle_bank_transfer_verification'
+down_revision = '20260608_cs_bt'
 branch_labels = None
 depends_on = None
 
