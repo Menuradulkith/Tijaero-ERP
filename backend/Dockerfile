@@ -25,8 +25,9 @@ RUN poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi
 
 # Install Chromium for Playwright PDF rendering
-# Disable signature verification to work around time sync issues with Debian repos
-RUN apt-get update -o Acquire::AllowInsecureRepositories=true -o Acquire::AllowUnauthenticatedPackages=true && \
+# Disable date validation for repositories due to time sync issues
+RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99-ignore-date && \
+    apt-get update && \
     playwright install --with-deps chromium && \
     rm -rf /var/lib/apt/lists/*
 
