@@ -1,9 +1,9 @@
-FROM python:3.11-bookworm
+FROM python:3.11-slim
 
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y \
     gcc \
     libcairo2 \
     libgdk-pixbuf-xlib-2.0-0 \
@@ -25,12 +25,10 @@ RUN poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi
 
 # Install Chromium for Playwright PDF rendering
-# Bypass signature verification in case of time sync issues
+# Disable signature verification to work around time sync issues with Debian repos
 RUN apt-get update -o Acquire::AllowInsecureRepositories=true -o Acquire::AllowUnauthenticatedPackages=true && \
-    apt-get install -y --no-install-recommends -o Acquire::AllowInsecureRepositories=true -o Acquire::AllowUnauthenticatedPackages=true \
-    libnss3 libatk1.0 libatk-bridge2.0 libcups2 libdbus-1-3 libdrm2 libgbm1 libxkbcommon0 libxshmfence1 && \
-    rm -rf /var/lib/apt/lists/* && \
-    playwright install --with-deps chromium
+    playwright install --with-deps chromium && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy application code
 COPY . .
