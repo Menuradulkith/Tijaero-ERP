@@ -303,3 +303,57 @@ class CashFlowStatementLine(Base, AuditMixin):
         UniqueConstraint("cash_flow_statement_id", "line_number", name="cash_flow_lines_unique"),
         Index("idx_cf_line_statement", "cash_flow_statement_id"),
     )
+
+
+# =============================================================================
+# GL POSTING FAILURES (Transactional Outbox / Dead-letter)
+# =============================================================================
+
+class GLPostingFailure(Base, AuditMixin):
+    """
+    Durable record of automatic GL postings that could NOT be completed.
+
+    Auto-integrations (sales, purchasing, expenses, payroll, commissions) post
+    journal entries in the same transaction as the source document. Previously,
+    if posting failed — a required COA account was missing, the period was
+    closed, or debits != credits — the error was logged and silently swallowed,
+    letting the source document commit with NO matching GL entries. Over a day
+    this silently desynchronises the subledgers from the General Ledger.
+
+    Instead, every failure is now written here (via an independent session so it
+    survives a rollback of the source transaction). A retry endpoint/worker can
+    re-attempt the posting once the underlying issue is fixed, guaranteeing
+    eventual 100% posting with zero silent loss.
+
+    status: pending → resolved | ignored
+    """
+    __tablename__ = "gl_posting_failures"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # What should have been posted
+    reference_type = Column(String(50), nullable=False)   # Invoice, SaleReturn, GRN, Expense, Payroll, ...
+    reference_id = Column(Integer, nullable=False)
+    reference_no = Column(String(200), nullable=True)
+    source_module = Column(String(50), nullable=False)    # sales, purchasing, finance, payroll
+    transaction_type = Column(String(50), nullable=True)  # Sale, Purchase, Expense, Payroll, ...
+    posting_marker = Column(String(50), nullable=True)    # Revenue, COGS, Discount, etc. (sub-type)
+    entry_date = Column(Date, nullable=True)
+    branch_code = Column(String(200), nullable=True)
+    description = Column(Text, nullable=True)
+    # JSON snapshot of the balanced lines that should have been posted
+    payload = Column(Text, nullable=True)
+    # Why it failed
+    error_code = Column(String(50), nullable=False)       # missing_account, imbalance, period_closed, exception
+    error_message = Column(Text, nullable=False)
+    # Lifecycle
+    status = Column(String(20), nullable=False, default="pending")  # pending, resolved, ignored
+    attempts = Column(Integer, nullable=False, default=1)
+    last_attempt_at = Column(TIMESTAMP, server_default=func.now())
+    resolved_at = Column(TIMESTAMP, nullable=True)
+    resolved_by = Column(Integer, nullable=True)
+    resolved_je_id = Column(Integer, ForeignKey("journal_entries.id"), nullable=True)
+
+    __table_args__ = (
+        Index("idx_gl_failure_ref", "reference_type", "reference_id"),
+        Index("idx_gl_failure_status", "status"),
+    )

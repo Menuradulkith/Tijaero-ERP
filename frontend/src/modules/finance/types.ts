@@ -441,12 +441,17 @@ export interface GeneralLedgerEntry {
   id: number;
   transaction_date: string;
   posting_date?: string;
-  account_id: number;
+  account_id?: number;
   account_code?: string;
   account_name?: string;
-  debit: number;
-  credit: number;
-  balance: number;
+  account_type?: string;
+  /** Backend sends debit_amount / credit_amount (NOT debit / credit). */
+  debit_amount: number;
+  credit_amount: number;
+  /** Stored per-row balance — null for auto postings; do not display directly. */
+  balance?: number | null;
+  /** Running balance — only returned by the per-account ledger endpoint. */
+  running_balance?: number;
   description?: string;
   transaction_type: string;
   reference_type?: string;
@@ -464,17 +469,20 @@ export interface GLAccountSummary {
   account_code: string;
   account_name: string;
   account_type: AccountType;
+  normal_balance?: string;
   total_debit: number;
   total_credit: number;
-  balance: number;
+  /** Backend sends net_balance (NOT balance). */
+  net_balance: number;
 }
 
 export interface TrialBalance {
   accounts: GLAccountSummary[];
   total_debit: number;
   total_credit: number;
-  is_balanced: boolean;
   as_of_date: string;
+  fiscal_year?: number;
+  fiscal_period?: number | null;
 }
 
 // ─── Accounting Period Types ──────────────────────────────────────────────────
@@ -647,4 +655,69 @@ export interface BalanceSheetResponse {
   total_liabilities_and_equity: number;
   is_balanced: boolean;
   generated_at?: string | null;
+}
+
+// ─── GL Posting Failures (Transactional Outbox) ─────────────────────────────
+
+export type GLPostingFailureStatus = "pending" | "resolved" | "ignored";
+
+export interface GLPostingFailure {
+  id: number;
+  reference_type: string;
+  reference_id: number;
+  reference_no?: string | null;
+  source_module: string;
+  transaction_type?: string | null;
+  posting_marker?: string | null;
+  entry_date?: string | null;
+  branch_code?: string | null;
+  description?: string | null;
+  error_code: string;
+  error_message: string;
+  status: GLPostingFailureStatus;
+  attempts: number;
+  last_attempt_at?: string | null;
+  resolved_at?: string | null;
+  resolved_by?: number | null;
+  resolved_je_id?: number | null;
+  created_at?: string | null;
+}
+
+export interface GLPostingFailureListResponse {
+  items: GLPostingFailure[];
+  total: number;
+  pending_count: number;
+}
+
+export interface RetryPostingFailureResponse {
+  failure_id: number;
+  status: "resolved" | "failed";
+  journal_entry_no?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+}
+
+// ─── Day-End Reconciliation ("Books Balanced") ────────────────────────────
+
+export interface DayEndReconciliation {
+  reconciliation_date: string;
+  branch_code?: string | null;
+  gl_total_debit: number;
+  gl_total_credit: number;
+  trial_balanced: boolean;
+  gl_cash_movement: number;
+  gl_bank_movement: number;
+  gl_cash_bank_net: number;
+  cashbook_money_in: number;
+  cashbook_money_out: number;
+  cashbook_net: number;
+  cashbook_bank_deposits: number;
+  cash_reconciled: boolean;
+  cash_difference: number;
+  posting_failures_pending: number;
+  unposted_je_count: number;
+  submitted_je_count: number;
+  is_balanced: boolean;
+  discrepancies: string[];
+  warnings: string[];
 }

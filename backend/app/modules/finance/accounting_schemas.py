@@ -707,3 +707,93 @@ class AccountingDashboardStats(BaseModel):
     current_fiscal_period: int = 0
     total_debit: Decimal = Decimal("0")
     total_credit: Decimal = Decimal("0")
+
+
+# =============================================================================
+# GL POSTING FAILURES (Transactional Outbox)
+# =============================================================================
+
+class GLPostingFailureResponse(TijaeroBaseSchema):
+    id: int
+    reference_type: str
+    reference_id: int
+    reference_no: Optional[str] = None
+    source_module: str
+    transaction_type: Optional[str] = None
+    posting_marker: Optional[str] = None
+    entry_date: Optional[date] = None
+    branch_code: Optional[str] = None
+    description: Optional[str] = None
+    error_code: str
+    error_message: str
+    status: str
+    attempts: int = 1
+    last_attempt_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[int] = None
+    resolved_je_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+
+class GLPostingFailureListResponse(BaseModel):
+    items: List[GLPostingFailureResponse] = []
+    total: int = 0
+    pending_count: int = 0
+
+
+class RetryPostingFailureResponse(BaseModel):
+    failure_id: int
+    status: str  # resolved | failed
+    journal_entry_no: Optional[str] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+# =============================================================================
+# DAY-END RECONCILIATION ("Books Balanced")
+# =============================================================================
+
+class DayEndReconciliationResponse(BaseModel):
+    """
+    A single end-of-day assertion that the books balance for a date/branch.
+
+    Combines three independent checks:
+      1. Trial balance — total GL debits == total GL credits for the day.
+      2. Cash reconciliation — GL movement on cash (1010) + bank (1020)
+         reconciles with the cashbook's net movement. The identity used,
+         which holds whether or not bank deposits are posted as internal
+         1010↔1020 transfers, is::
+
+             gl_cash_bank_net == cashbook_net + cashbook_bank_deposits
+
+      3. Posting health — there are no pending GL posting failures and no
+         unposted journal entries dated on the day.
+    """
+    reconciliation_date: date
+    branch_code: Optional[str] = None
+
+    # 1. Trial balance
+    gl_total_debit: Decimal = Decimal("0")
+    gl_total_credit: Decimal = Decimal("0")
+    trial_balanced: bool = True
+
+    # 2. Cash / bank reconciliation
+    gl_cash_movement: Decimal = Decimal("0")
+    gl_bank_movement: Decimal = Decimal("0")
+    gl_cash_bank_net: Decimal = Decimal("0")
+    cashbook_money_in: Decimal = Decimal("0")
+    cashbook_money_out: Decimal = Decimal("0")
+    cashbook_net: Decimal = Decimal("0")
+    cashbook_bank_deposits: Decimal = Decimal("0")
+    cash_reconciled: bool = True
+    cash_difference: Decimal = Decimal("0")
+
+    # 3. Posting health
+    posting_failures_pending: int = 0
+    unposted_je_count: int = 0
+    submitted_je_count: int = 0
+
+    # Overall
+    is_balanced: bool = True
+    discrepancies: List[str] = []
+    warnings: List[str] = []

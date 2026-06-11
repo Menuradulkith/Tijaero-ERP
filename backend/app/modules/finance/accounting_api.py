@@ -30,6 +30,7 @@ from .accounting_service import (
     CashFlowService,
     AccountingDashboardService,
 )
+from .reconciliation_service import ReconciliationService, GLPostingFailureService
 
 # All accounting endpoints require authentication
 router = APIRouter(
@@ -120,9 +121,13 @@ def seed_chart_of_accounts(force: bool = Query(False), db: Session = Depends(get
 # =============================================================================
 
 @router.post("/journal-entries", response_model=schemas.JournalEntryResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))])
-def create_journal_entry(data: schemas.JournalEntryCreate, db: Session = Depends(get_db)):
+def create_journal_entry(
+    data: schemas.JournalEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Create a new journal entry (draft)."""
-    je = JournalEntryService(db).create_journal_entry(data, created_by=0)
+    je = JournalEntryService(db).create_journal_entry(data, created_by=current_user.id)
     return _serialize_je(je)
 
 
@@ -171,18 +176,28 @@ def get_journal_entry(je_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/journal-entries/{je_id}/post", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
-def post_journal_entry(je_id: int, data: schemas.PostJournalEntryRequest = None, db: Session = Depends(get_db)):
+def post_journal_entry(
+    je_id: int,
+    data: schemas.PostJournalEntryRequest = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Post a journal entry (creates GL entries)."""
     posting_date = data.posting_date if data else None
-    je = JournalEntryService(db).post_journal_entry(je_id, posted_by=0, posting_date=posting_date)
+    je = JournalEntryService(db).post_journal_entry(je_id, posted_by=current_user.id, posting_date=posting_date)
     return _serialize_je(je)
 
 
 @router.post("/journal-entries/{je_id}/reverse", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
-def reverse_journal_entry(je_id: int, data: schemas.ReverseJournalEntryRequest, db: Session = Depends(get_db)):
+def reverse_journal_entry(
+    je_id: int,
+    data: schemas.ReverseJournalEntryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Reverse a posted journal entry."""
     je = JournalEntryService(db).reverse_journal_entry(
-        je_id, reversed_by=0, reason=data.reason, reversal_date=data.reversal_date
+        je_id, reversed_by=current_user.id, reason=data.reason, reversal_date=data.reversal_date
     )
     return _serialize_je(je)
 
@@ -213,13 +228,14 @@ def submit_journal_entry(
     je_id: int,
     data: schemas.SubmitJournalEntryRequest = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Submit a draft manual JE for approval (Step 3→4).
     Runs validation first. Moves status: draft → submitted.
     """
     remarks = data.remarks if data else None
-    je = JournalEntryService(db).submit_journal_entry(je_id, submitted_by=0, remarks=remarks)
+    je = JournalEntryService(db).submit_journal_entry(je_id, submitted_by=current_user.id, remarks=remarks)
     return _serialize_je(je)
 
 
@@ -228,6 +244,7 @@ def approve_journal_entry(
     je_id: int,
     data: schemas.ApproveJournalEntryRequest = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Approve a submitted manual JE (Step 4).
@@ -235,7 +252,7 @@ def approve_journal_entry(
     After approval, the JE can be posted.
     """
     remarks = data.remarks if data else None
-    je = JournalEntryService(db).approve_journal_entry(je_id, approved_by=0, remarks=remarks)
+    je = JournalEntryService(db).approve_journal_entry(je_id, approved_by=current_user.id, remarks=remarks)
     return _serialize_je(je)
 
 
@@ -244,13 +261,14 @@ def reject_journal_entry(
     je_id: int,
     data: schemas.RejectJournalEntryRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Reject a submitted manual JE back to draft.
     Allows the accountant to fix errors and resubmit.
     Moves status: submitted → draft.
     """
-    je = JournalEntryService(db).reject_journal_entry(je_id, rejected_by=0, reason=data.reason)
+    je = JournalEntryService(db).reject_journal_entry(je_id, rejected_by=current_user.id, reason=data.reason)
     return _serialize_je(je)
 
 
@@ -421,10 +439,70 @@ def reconciliation_check(
     )
 
 
+@router.get("/reports/day-end-reconciliation", response_model=schemas.DayEndReconciliationResponse, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
+def day_end_reconciliation(
+    reconciliation_date: Optional[str] = Query(None, alias="date"),
+    branch_code: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    End-of-day "do the books balance?" check for a date/branch.
+
+    Combines the trial balance, a cashbook ↔ GL cash/bank reconciliation, and a
+    posting-health check (no pending GL posting failures, no unposted JEs).
+    """
+    recon_date = date.fromisoformat(reconciliation_date) if reconciliation_date else date.today()
+    return ReconciliationService(db).day_end(recon_date, branch_code=branch_code)
+
+
+# =============================================================================
+# GL POSTING FAILURES (Transactional Outbox)
+# =============================================================================
+
+@router.get("/posting-failures", response_model=schemas.GLPostingFailureListResponse, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
+def list_posting_failures(
+    status_filter: Optional[str] = Query("pending", alias="status"),
+    source_module: Optional[str] = None,
+    branch_code: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    """List automatic GL postings that failed and are awaiting retry."""
+    return GLPostingFailureService(db).list_failures(
+        status=status_filter,
+        source_module=source_module,
+        branch_code=branch_code,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.post("/posting-failures/{failure_id}/retry", response_model=schemas.RetryPostingFailureResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
+def retry_posting_failure(
+    failure_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Re-attempt a failed GL posting using its stored payload."""
+    return GLPostingFailureService(db).retry(failure_id, user_id=current_user.id)
+
+
+@router.post("/posting-failures/{failure_id}/ignore", response_model=schemas.GLPostingFailureResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
+def ignore_posting_failure(
+    failure_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Mark a failed GL posting as ignored (it will no longer be retried)."""
+    return GLPostingFailureService(db).ignore(failure_id, user_id=current_user.id)
+
+
 @router.post("/reports/year-end-close", response_model=schemas.YearEndCloseResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def year_end_close(
     data: schemas.YearEndCloseRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Create year-end closing entries for a fiscal year.
@@ -432,7 +510,7 @@ def year_end_close(
     then transfers to Retained Earnings.
     """
     return AccountingPeriodService(db).create_year_end_closing_entries(
-        data=data, closed_by=0,
+        data=data, closed_by=current_user.id,
     )
 
 
@@ -479,13 +557,14 @@ def correct_journal_entry(
     je_id: int,
     data: schemas.CorrectionRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Correct a posted journal entry.
     Atomic operation: reverses the original and creates a new corrected entry.
     """
     return GeneralLedgerService(db).correct_journal_entry(
-        je_id=je_id, data=data, corrected_by=0,
+        je_id=je_id, data=data, corrected_by=current_user.id,
     )
 
 
@@ -519,9 +598,13 @@ def get_period(period_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/periods/{period_id}/close", response_model=schemas.AccountingPeriodResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
-def close_period(period_id: int, db: Session = Depends(get_db)):
+def close_period(
+    period_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Close an accounting period."""
-    return AccountingPeriodService(db).close_period(period_id, closed_by=0)
+    return AccountingPeriodService(db).close_period(period_id, closed_by=current_user.id)
 
 
 @router.post("/periods/{period_id}/reopen", response_model=schemas.AccountingPeriodResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
@@ -582,9 +665,13 @@ def delete_cash_flow_category(category_id: int, db: Session = Depends(get_db)):
 # =============================================================================
 
 @router.post("/cash-flow/statements/generate", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
-def generate_cash_flow_statement(data: schemas.CashFlowStatementCreate, db: Session = Depends(get_db)):
+def generate_cash_flow_statement(
+    data: schemas.CashFlowStatementCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Generate a cash flow statement for a fiscal period."""
-    statement = CashFlowService(db).generate_statement(data, prepared_by=0)
+    statement = CashFlowService(db).generate_statement(data, prepared_by=current_user.id)
     return _serialize_cfs(statement)
 
 
@@ -617,9 +704,13 @@ def finalize_cash_flow_statement(statement_id: int, db: Session = Depends(get_db
 
 
 @router.post("/cash-flow/statements/{statement_id}/approve", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
-def approve_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
+def approve_cash_flow_statement(
+    statement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Approve a finalized cash flow statement."""
-    return CashFlowService(db).approve_statement(statement_id, approved_by=0)
+    return CashFlowService(db).approve_statement(statement_id, approved_by=current_user.id)
 
 
 @router.delete("/cash-flow/statements/{statement_id}", dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
@@ -630,9 +721,13 @@ def delete_cash_flow_statement(statement_id: int, db: Session = Depends(get_db))
 
 
 @router.post("/cash-flow/statements/{statement_id}/regenerate", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
-def regenerate_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
+def regenerate_cash_flow_statement(
+    statement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Regenerate a draft cash flow statement with fresh GL data."""
-    statement = CashFlowService(db).regenerate_statement(statement_id, prepared_by=0)
+    statement = CashFlowService(db).regenerate_statement(statement_id, prepared_by=current_user.id)
     return _serialize_cfs(statement)
 
 
@@ -827,15 +922,14 @@ def export_general_ledger_csv(
     current_user: User = Depends(get_current_active_user),
 ):
     """Export general ledger entries to CSV."""
-    entries = GeneralLedgerService(db).list_entries(schemas.GLListFilter(
+    items, _total = GeneralLedgerService(db).list_gl_entries(schemas.GLListFilter(
         fiscal_year=fiscal_year, account_id=account_id, skip=0, limit=100000,
     ))
-    items = entries.items if hasattr(entries, 'items') else entries
     return build_csv_response(
         filename="general_ledger",
-        headers=["GL No", "Date", "Account Code", "Account Name", "Description", "Debit", "Credit", "JE No", "Fiscal Year", "Period"],
+        headers=["ID", "Transaction Date", "Posting Date", "Account Code", "Account Name", "Description", "Debit", "Credit", "Reference No", "Fiscal Year", "Period"],
         rows=[
-            [e.gl_entry_no, e.entry_date, e.account_code, e.account_name, e.description, e.debit_amount, e.credit_amount, e.journal_entry_no, e.fiscal_year, e.fiscal_period]
+            [e["id"], e["transaction_date"], e["posting_date"], e["account_code"], e["account_name"], e["description"], e["debit_amount"], e["credit_amount"], e["reference_no"], e["fiscal_year"], e["fiscal_period"]]
             for e in items
         ],
     )
@@ -855,9 +949,9 @@ def export_trial_balance_csv(
     )
     return build_csv_response(
         filename="trial_balance",
-        headers=["Account Code", "Account Name", "Account Type", "Debit Balance", "Credit Balance"],
+        headers=["Account Code", "Account Name", "Account Type", "Total Debit", "Total Credit", "Net Balance"],
         rows=[
-            [a.account_code, a.account_name, a.account_type, a.debit_balance, a.credit_balance]
+            [a.account_code, a.account_name, a.account_type, a.total_debit, a.total_credit, a.net_balance]
             for a in tb.accounts
         ],
     )

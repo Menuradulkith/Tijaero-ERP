@@ -71,6 +71,7 @@ from app.modules.finance.accounting_models import (
 from app.modules.sales.models import Invoice, InvoiceItems, SaleReturn, SaleReturnItems
 from app.modules.inventory.models import SalesStock
 from app.modules.products.models import Product
+from app.modules.finance.gl_posting_service import GLPostingService
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ class SalesAccountingIntegration:
     def __init__(self, db: Session):
         self.db = db
         self._account_cache: Dict[str, int] = {}
+        self._gl = GLPostingService(db)
 
     # ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -154,14 +156,19 @@ class SalesAccountingIntegration:
             seq = 1
         return f"{full_prefix}{seq:04d}"
 
-    def _check_already_posted(self, invoice_id: int, posting_type: str = "Sale") -> bool:
-        """Check if this invoice has already been posted to GL."""
-        existing = self.db.query(JournalEntry).filter(
-            JournalEntry.description.like(f"%Invoice ID: {invoice_id}%"),
-            JournalEntry.description.like(f"%{posting_type}%"),
-            JournalEntry.entry_type == "Auto",
-        ).first()
-        return existing is not None
+    def _check_already_posted(
+        self,
+        reference_id: int,
+        marker: Optional[str] = None,
+        reference_type: str = "Invoice",
+    ) -> bool:
+        """Has this exact source document already been posted to GL?
+
+        Keyed on the integer ``reference_id`` (no more ``Invoice ID: 12`` also
+        matching 120/125/1234) plus a ``marker`` to tell apart the Revenue,
+        COGS and Discount postings that share one invoice.
+        """
+        return self._gl.already_posted(reference_type, reference_id, marker) is not None
 
     def _create_je_and_post(
         self,
@@ -173,131 +180,43 @@ class SalesAccountingIntegration:
         reference_type: str = "Invoice",
         reference_id: Optional[int] = None,
         reference_no: Optional[str] = None,
+        marker: Optional[str] = None,
+        transaction_type: str = "Sale",
     ) -> Optional[JournalEntry]:
         """
-        Create a journal entry with lines and immediately post to GL.
-        Returns the created JournalEntry or None if no valid lines.
+        Build + post a balanced JE through the central :class:`GLPostingService`.
+
+        Kept as a thin wrapper so the many call sites in this module stay
+        unchanged. All correctness rules now live in one place:
+        idempotency on the integer reference, *missing account = recorded
+        failure* (never a silent skip), sub-cent rounding posted to the
+        dedicated ``5900 Rounding Difference`` account, closed-period blocking,
+        and durable failure recording for later retry.
         """
-        # Filter out lines with zero amounts and resolve account IDs
-        valid_lines = []
-        for line in lines:
-            account_id = self._get_account_id(line["account_code"])
-            if not account_id:
-                logger.warning(
-                    f"Skipping GL line - account {line['account_code']} not found"
-                )
-                continue
-
-            debit = Decimal(str(line.get("debit", 0)))
-            credit = Decimal(str(line.get("credit", 0)))
-
-            if debit == 0 and credit == 0:
-                continue
-
-            valid_lines.append({
-                "account_id": account_id,
-                "debit": debit,
-                "credit": credit,
-                "description": line.get("description", ""),
-                "account_code": line["account_code"],
-            })
-
-        if len(valid_lines) < 2:
-            logger.info("Skipping JE - fewer than 2 valid lines")
-            return None
-
-        # Validate debits == credits
-        total_debit = sum(l["debit"] for l in valid_lines)
-        total_credit = sum(l["credit"] for l in valid_lines)
-
-        if abs(total_debit - total_credit) > Decimal("0.01"):
-            logger.error(
-                f"JE imbalance: debit={total_debit}, credit={total_credit}. "
-                f"Adjusting rounding difference."
-            )
-            # Auto-correct small rounding differences
-            diff = total_debit - total_credit
-            if abs(diff) <= Decimal("0.05"):
-                if diff > 0:
-                    valid_lines[-1]["credit"] += diff
-                    total_credit += diff
-                else:
-                    valid_lines[-1]["debit"] += abs(diff)
-                    total_debit += abs(diff)
-            else:
-                logger.error("JE imbalance too large - skipping posting")
-                return None
-
-        posting_date = entry_date
-        fiscal_year, fiscal_period = self._get_fiscal_period(posting_date)
-
-        # Block writes into closed/locked accounting periods
-        from app.modules.finance.accounting_models import AccountingPeriod
-        period = self.db.query(AccountingPeriod).filter(
-            AccountingPeriod.fiscal_year == fiscal_year,
-            AccountingPeriod.period_number == fiscal_period,
-        ).first()
-        if period and period.status != "open":
-            logger.warning(
-                f"Skipping auto GL post - period {fiscal_year}-{fiscal_period} is {period.status}"
-            )
-            return None
-
-        # Create Journal Entry
-        je = JournalEntry(
-            journal_entry_no=self._generate_je_number(),
+        result = self._gl.post(
+            reference_type=reference_type,
+            reference_id=reference_id,
+            reference_no=reference_no,
+            lines=lines,
             entry_date=entry_date,
-            posting_date=posting_date,
-            entry_type="Auto",
             description=description,
-            total_debit=total_debit,
-            total_credit=total_credit,
-            status="posted",
-            fiscal_year=fiscal_year,
-            fiscal_period=fiscal_period,
             branch_code=branch_code,
-            created_by=user_id,
-            posted_by=user_id,
-            posted_at=tz.now(),
+            user_id=user_id,
+            transaction_type=transaction_type,
+            je_prefix="JE-SALE",
+            source_module="sales",
+            marker=marker,
+            # The public post_* methods already guard with _check_already_posted,
+            # so we avoid a redundant duplicate query here.
+            idempotent=False,
+            record_failure=True,
         )
-        self.db.add(je)
-        self.db.flush()
-
-        # Create JE Lines and GL Entries
-        for i, line in enumerate(valid_lines, 1):
-            je_line = JournalEntryLine(
-                journal_entry_id=je.id,
-                line_number=i,
-                account_id=line["account_id"],
-                debit_amount=line["debit"],
-                credit_amount=line["credit"],
-                description=line["description"],
-                reference_type=reference_type,
-                reference_id=reference_id,
-                reference_no=reference_no,
+        if result.failed:
+            logger.error(
+                "GL posting failed for %s#%s (%s): %s",
+                reference_type, reference_id, result.error_code, result.error_message,
             )
-            self.db.add(je_line)
-
-            gl_entry = GeneralLedger(
-                transaction_date=entry_date,
-                posting_date=posting_date,
-                account_id=line["account_id"],
-                debit_amount=line["debit"],
-                credit_amount=line["credit"],
-                transaction_type="Sale",
-                reference_type=reference_type,
-                reference_id=reference_id,
-                reference_no=reference_no,
-                journal_entry_id=je.id,
-                description=line["description"],
-                branch_code=branch_code,
-                fiscal_year=fiscal_year,
-                fiscal_period=fiscal_period,
-                created_by=user_id,
-            )
-            self.db.add(gl_entry)
-
-        return je
+        return result.journal_entry
 
     # ─── Main Public Methods ──────────────────────────────────────────────
 
@@ -472,6 +391,7 @@ class SalesAccountingIntegration:
             reference_type="Invoice",
             reference_id=invoice.id,
             reference_no=invoice.invoice_no,
+            marker="Revenue",
         )
 
         if je:
@@ -540,6 +460,7 @@ class SalesAccountingIntegration:
             reference_type="Invoice",
             reference_id=invoice.id,
             reference_no=invoice.invoice_no,
+            marker="COGS",
         )
 
         if je:
@@ -599,6 +520,7 @@ class SalesAccountingIntegration:
             reference_type="Invoice",
             reference_id=invoice.id,
             reference_no=invoice.invoice_no,
+            marker="Discount",
         )
 
         if je:
@@ -615,7 +537,7 @@ class SalesAccountingIntegration:
         Post sale return reversal to GL.
         Dr 4030 Sales Returns / Cr Asset or Receivable.
         """
-        if self._check_already_posted(sale_return.id, "SaleReturn"):
+        if self._check_already_posted(sale_return.id, reference_type="SaleReturn"):
             return None
 
         invoice = self.db.query(Invoice).filter(
@@ -685,6 +607,7 @@ class SalesAccountingIntegration:
             reference_type="SaleReturn",
             reference_id=sale_return.id,
             reference_no=sale_return.sale_return_no,
+            marker="SaleReturn",
         )
 
         if je:

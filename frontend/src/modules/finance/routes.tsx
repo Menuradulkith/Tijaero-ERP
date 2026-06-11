@@ -26,6 +26,8 @@ import AccountingPeriodsPage from "./pages/AccountingPeriodsPage";
 import CashFlowStatementsPage from "./pages/CashFlowStatementsPage";
 import IncomeStatementPage from "./pages/IncomeStatementPage";
 import BalanceSheetPage from "./pages/BalanceSheetPage";
+import DayEndReconciliationPage from "./pages/DayEndReconciliationPage";
+import PostingFailuresPage from "./pages/PostingFailuresPage";
 import CommissionPaymentsPage from "./pages/CommissionPaymentsPage";
 import CommissionPaymentApprovalsPage from "./pages/CommissionPaymentApprovalsPage";
 import SupplierPaymentReportPage from "./pages/SupplierPaymentReportPage";
@@ -82,6 +84,8 @@ export default function FinanceRoutes() {
       <Route path="cash-flow" element={<ProtectedRoute resource="cash_flow" action="view"><CashFlowStatementsPage /></ProtectedRoute>} />
       <Route path="income-statement" element={<ProtectedRoute resource="general_ledger" action="view"><IncomeStatementPage /></ProtectedRoute>} />
       <Route path="balance-sheet" element={<ProtectedRoute resource="general_ledger" action="view"><BalanceSheetPage /></ProtectedRoute>} />
+      <Route path="day-end-reconciliation" element={<ProtectedRoute resource="general_ledger" action="view"><DayEndReconciliationPage /></ProtectedRoute>} />
+      <Route path="posting-failures" element={<ProtectedRoute resource="journal_entries" action="view"><PostingFailuresPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );

@@ -39,6 +39,10 @@ import {
   CashFlowStatement,
   AccountingDashboardStats,
   IncomeStatementResponse,
+  DayEndReconciliation,
+  GLPostingFailure,
+  GLPostingFailureListResponse,
+  RetryPostingFailureResponse,
 } from "./types";
 
 // Bank Deposits API
@@ -499,10 +503,10 @@ export const generalLedgerApi = {
     return response.data;
   },
 
-  getTrialBalance: async (params?: {
-    as_of_date?: string;
-    fiscal_year?: number;
+  getTrialBalance: async (params: {
+    fiscal_year: number; // REQUIRED by backend — omitting it causes a 422
     fiscal_period?: number;
+    as_of_date?: string;
   }) => {
     const response = await apiClient.get<TrialBalance>(
       `${ACCT_BASE}/general-ledger/trial-balance`,
@@ -698,6 +702,48 @@ export const cashFlowStatementsApi = {
   delete: async (id: number) => {
     const response = await apiClient.delete(
       `${ACCT_BASE}/cash-flow/statements/${id}`
+    );
+    return response.data;
+  },
+};
+
+// Day-End Reconciliation API
+export const reconciliationApi = {
+  dayEnd: async (params?: { date?: string; branch_code?: string }) => {
+    const response = await apiClient.get<DayEndReconciliation>(
+      `${ACCT_BASE}/reports/day-end-reconciliation`,
+      { params }
+    );
+    return response.data;
+  },
+};
+
+// GL Posting Failures API (transactional outbox)
+export const postingFailuresApi = {
+  getAll: async (params?: {
+    status?: string;
+    source_module?: string;
+    branch_code?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<GLPostingFailureListResponse>(
+      `${ACCT_BASE}/posting-failures`,
+      { params }
+    );
+    return response.data;
+  },
+
+  retry: async (id: number) => {
+    const response = await apiClient.post<RetryPostingFailureResponse>(
+      `${ACCT_BASE}/posting-failures/${id}/retry`
+    );
+    return response.data;
+  },
+
+  ignore: async (id: number) => {
+    const response = await apiClient.post<GLPostingFailure>(
+      `${ACCT_BASE}/posting-failures/${id}/ignore`
     );
     return response.data;
   },

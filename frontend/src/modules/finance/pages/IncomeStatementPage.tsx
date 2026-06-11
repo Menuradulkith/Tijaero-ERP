@@ -15,7 +15,7 @@
  *   Net Income (Loss)
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
@@ -139,6 +139,12 @@ export default function IncomeStatementPage() {
       setLoading(false);
     }
   }, [fiscalYear, fiscalPeriod, dateFrom, dateTo]);
+
+  // Auto-generate on first open so the page is never empty
+  useEffect(() => {
+    fetchReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const netIncomeColor = useMemo(() => {
     if (!report) return "text.primary";

@@ -80,6 +80,7 @@ from app.modules.finance.accounting_models import (
     GeneralLedger,
     AccountingPeriod,
 )
+from app.modules.finance.gl_posting_service import GLPostingService
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,7 @@ class PurchaseExpensePayrollGL:
     def __init__(self, db: Session):
         self.db = db
         self._account_cache: Dict[str, int] = {}
+        self._gl = GLPostingService(db)
 
     # ─── Helpers (shared with SalesAccountingIntegration) ─────────────────
 
@@ -183,12 +185,22 @@ class PurchaseExpensePayrollGL:
         return f"{full_prefix}{seq:04d}"
 
     def _check_already_posted(self, reference_id: int, description_marker: str) -> bool:
-        """Check if this transaction has already been posted to GL."""
-        existing = self.db.query(JournalEntry).filter(
-            JournalEntry.description.like(f"%{description_marker}%"),
-            JournalEntry.entry_type == "Auto",
-        ).first()
-        return existing is not None
+        """Has this exact transaction already been posted to GL?
+
+        Matches on the integer ``reference_id`` recorded on the JE lines (so
+        ``GRN ID: 5`` no longer also matches 50/500) further constrained by the
+        description marker to tell apart different posting types sharing an id.
+        """
+        q = (
+            self.db.query(JournalEntry.id)
+            .join(JournalEntryLine, JournalEntryLine.journal_entry_id == JournalEntry.id)
+            .filter(
+                JournalEntryLine.reference_id == reference_id,
+                JournalEntry.entry_type == "Auto",
+                JournalEntry.description.ilike(f"%{description_marker}%"),
+            )
+        )
+        return self.db.query(q.exists()).scalar()
 
     def _create_je_and_post(
         self,
@@ -204,113 +216,36 @@ class PurchaseExpensePayrollGL:
         reference_no: Optional[str] = None,
     ) -> Optional[JournalEntry]:
         """
-        Create a journal entry with lines and immediately post to GL.
-        Returns the created JournalEntry or None if no valid lines.
+        Build + post a balanced JE through the central :class:`GLPostingService`.
+
+        Thin wrapper kept so the many call sites in this module stay unchanged.
+        All correctness rules now live in one place: *missing account = recorded
+        failure* (never a silent skip), sub-cent rounding posted to the dedicated
+        ``5900 Rounding Difference`` account, closed-period blocking, and durable
+        failure recording for later retry.
         """
-        # Filter out lines with zero amounts and resolve account IDs
-        valid_lines = []
-        for line in lines:
-            account_id = self._get_account_id(line["account_code"])
-            if not account_id:
-                logger.warning(f"Skipping GL line - account {line['account_code']} not found")
-                continue
-
-            debit = Decimal(str(line.get("debit", 0)))
-            credit = Decimal(str(line.get("credit", 0)))
-
-            if debit == 0 and credit == 0:
-                continue
-
-            valid_lines.append({
-                "account_id": account_id,
-                "debit": debit,
-                "credit": credit,
-                "description": line.get("description", ""),
-                "account_code": line["account_code"],
-            })
-
-        if len(valid_lines) < 2:
-            logger.info("Skipping JE - fewer than 2 valid lines")
-            return None
-
-        # Validate debits == credits
-        total_debit = sum(l["debit"] for l in valid_lines)
-        total_credit = sum(l["credit"] for l in valid_lines)
-
-        if abs(total_debit - total_credit) > Decimal("0.01"):
-            # Auto-correct small rounding differences
-            diff = total_debit - total_credit
-            if abs(diff) <= Decimal("0.05"):
-                if diff > 0:
-                    valid_lines[-1]["credit"] += diff
-                    total_credit += diff
-                else:
-                    valid_lines[-1]["debit"] += abs(diff)
-                    total_debit += abs(diff)
-            else:
-                logger.error(
-                    f"JE imbalance too large: debit={total_debit}, credit={total_credit} - skipping"
-                )
-                return None
-
-        posting_date = entry_date
-        fiscal_year, fiscal_period = self._get_fiscal_period(posting_date)
-
-        # Create Journal Entry
-        je = JournalEntry(
-            journal_entry_no=self._generate_je_number(je_prefix),
+        result = self._gl.post(
+            reference_type=reference_type,
+            reference_id=reference_id,
+            reference_no=reference_no,
+            lines=lines,
             entry_date=entry_date,
-            posting_date=posting_date,
-            entry_type="Auto",
             description=description,
-            total_debit=total_debit,
-            total_credit=total_credit,
-            status="posted",
-            fiscal_year=fiscal_year,
-            fiscal_period=fiscal_period,
             branch_code=branch_code,
-            created_by=user_id,
-            posted_by=user_id,
-            posted_at=tz.now(),
+            user_id=user_id,
+            transaction_type=transaction_type,
+            je_prefix=je_prefix,
+            source_module="purchasing",
+            # Public post_* methods already guard with _check_already_posted.
+            idempotent=False,
+            record_failure=True,
         )
-        self.db.add(je)
-        self.db.flush()
-
-        # Create JE Lines and GL Entries
-        for i, line in enumerate(valid_lines, 1):
-            je_line = JournalEntryLine(
-                journal_entry_id=je.id,
-                line_number=i,
-                account_id=line["account_id"],
-                debit_amount=line["debit"],
-                credit_amount=line["credit"],
-                description=line["description"],
-                reference_type=reference_type,
-                reference_id=reference_id,
-                reference_no=reference_no,
+        if result.failed:
+            logger.error(
+                "GL posting failed for %s#%s (%s): %s",
+                reference_type, reference_id, result.error_code, result.error_message,
             )
-            self.db.add(je_line)
-
-            gl_entry = GeneralLedger(
-                transaction_date=entry_date,
-                posting_date=posting_date,
-                account_id=line["account_id"],
-                debit_amount=line["debit"],
-                credit_amount=line["credit"],
-                transaction_type=transaction_type,
-                reference_type=reference_type,
-                reference_id=reference_id,
-                reference_no=reference_no,
-                journal_entry_id=je.id,
-                description=line["description"],
-                branch_code=branch_code,
-                fiscal_year=fiscal_year,
-                fiscal_period=fiscal_period,
-                created_by=user_id,
-            )
-            self.db.add(gl_entry)
-
-        return je
+        return result.journal_entry
 
     # ═══════════════════════════════════════════════════════════════════════
     # SCENARIO 31: PURCHASE TRANSACTIONS
@@ -1243,10 +1178,15 @@ class PurchaseExpensePayrollGL:
     ) -> Optional[JournalEntry]:
         """
         Post customer advance payment receipt to GL.
-        Dr  1010 Cash / 1020 Bank / 1030 Cheque .. payment_amount
-        Cr  2160 Customer Advances (Liability) ... payment_amount
+        Dr  1010 Cash / 1020 Bank (cheque/card/transfer) .. payment_amount
+        Cr  2520 Customer Deposits (Liability) ........... payment_amount
 
         Called when a customer advance payment is received.
+
+        Cheque/card/bank-transfer receipts post to Bank (1020) — the same
+        convention as sales — so GL cash/bank (1010+1020) stays in lock-step
+        with the cashbook (which records every receipt as a single money_in)
+        and day-end reconciliation balances.
         """
         marker = f"CustomerAdvanceReceipt ID: {advance.id}"
         if self._check_already_posted(advance.id, marker):
@@ -1256,13 +1196,14 @@ class PurchaseExpensePayrollGL:
         if amount <= 0:
             return None
 
-        # Determine debit account based on payment method
+        # Determine debit account based on payment method.
+        # Cash -> 1010; everything else (cheque/card/bank transfer) -> 1020 Bank,
+        # matching the sales flow and the cashbook so day-end reconciliation
+        # (which sums only 1010+1020) balances.
         payment_method = getattr(advance, "payment_method", "cash") or "cash"
         payment_method_lower = payment_method.lower()
         if payment_method_lower in ("cash", "petty_cash"):
             debit_account = ACCT_CASH_ON_HAND
-        elif payment_method_lower in ("cheque", "check"):
-            debit_account = "1030"  # Cheques account
         else:
             debit_account = ACCT_BANK_ACCOUNT
 
@@ -1319,10 +1260,15 @@ class PurchaseExpensePayrollGL:
     ) -> Optional[JournalEntry]:
         """
         Post customer credit settlement to GL.
-        Dr  1010 Cash / 1020 Bank / 1030 Cheque .. total_payment
-        Cr  1110 Trade Debtors (A/R) ............. total_payment
+        Dr  1010 Cash / 1020 Bank (cheque/card/transfer) .. total_payment
+        Cr  1110 Trade Debtors (A/R) ..................... total_payment
+        Cr  4110 Other Income ........................... card surcharge (if any)
 
         Called when a customer pays for credit invoices.
+
+        Cheque/card/bank-transfer payments post to Bank (1020) — the same
+        convention as sales — so GL cash/bank (1010+1020) stays in lock-step
+        with the cashbook and day-end reconciliation balances.
         """
         marker = f"CustomerCreditSettlement ID: {settlement.id}"
         if self._check_already_posted(settlement.id, marker):
@@ -1353,11 +1299,11 @@ class PurchaseExpensePayrollGL:
             pm_lower = pm.lower()
             if pm_lower in ("cash", "petty_cash"):
                 debit_account = ACCT_CASH_ON_HAND
-            elif pm_lower in ("cheque", "check"):
-                debit_account = "1030"
-            elif pm_lower in ("card", "credit_card", "debit_card") or "card" in pm_lower or pm_lower in ("visa", "mastercard", "amex"):
-                debit_account = "1040"  # Card receivables
             else:
+                # cheque / card / bank transfer -> Bank (1020), matching sales and
+                # the cashbook so day-end cash reconciliation balances. Routing
+                # cheques to 1030 (Petty Cash) or cards to 1040 (Cheques in Hand)
+                # would leave them out of the 1010+1020 reconciliation sum.
                 debit_account = ACCT_BANK_ACCOUNT
 
             lines.append({
@@ -1419,7 +1365,7 @@ class PurchaseExpensePayrollGL:
     ) -> Optional[JournalEntry]:
         """
         Post customer advance application to invoice to GL.
-        Dr  2160 Customer Advances (Liability) ... applied_amount
+        Dr  2520 Customer Deposits (Liability) ... applied_amount
         Cr  1110 Trade Debtors (A/R) ............. applied_amount
 
         Called when a customer advance is applied to an invoice.
