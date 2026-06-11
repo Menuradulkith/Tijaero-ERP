@@ -44,6 +44,7 @@ from app.modules.finance.accounting_models import (
     CashFlowCategory,
     CashFlowStatement,
     CashFlowStatementLine,
+    GLPostingFailure,
 )
 from app.modules.hr.models import Reimbursements, ReimbursementItem, SalaryDeductions, PayrollBatch
 from app.modules.hr.sales_commission_models import MonthlyBranchSalesSummary, SalesOfficerMonthlyCommission
@@ -129,4 +130,5 @@ __all__ = [
     "UserPreferences",
     "Report",
     "ReportExecution",
+    "GLPostingFailure",
 ]

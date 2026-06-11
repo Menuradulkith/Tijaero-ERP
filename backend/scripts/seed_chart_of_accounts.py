@@ -189,6 +189,9 @@ COA_DATA = [
      "Employer contribution to EPF (12%)", "5200"),
     ("5220", "ETF Employer Expense", "Expense", "Payroll", "Debit", True,
      "Employer contribution to ETF (3%)", "5200"),
+
+    ("5900", "Rounding Difference", "Expense", "Other", "Debit", True,
+     "Sub-cent rounding adjustments from automatic GL postings", None),
 ]
 
 

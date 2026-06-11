@@ -34,6 +34,7 @@ import PersonIcon from "@mui/icons-material/Person";
 import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import SecurityIcon from "@mui/icons-material/Security";
 import SellIcon from "@mui/icons-material/Sell";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -362,6 +363,18 @@ const menuItems: MenuItem[] = [
             icon: <BalanceIcon />,
             path: "/finance/balance-sheet",
             permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
+          },
+          {
+            text: "Day-End Reconciliation",
+            icon: <FactCheckIcon />,
+            path: "/finance/day-end-reconciliation",
+            permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
+          },
+          {
+            text: "Posting Failures",
+            icon: <ReportProblemIcon />,
+            path: "/finance/posting-failures",
+            permission: PERMISSIONS.JOURNAL_ENTRIES_VIEW,
           },
         ],
       },

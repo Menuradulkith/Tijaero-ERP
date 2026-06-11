@@ -21,7 +21,7 @@
  *   Assets = Liabilities + Equity ✓
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Box,
   Button,
@@ -137,6 +137,12 @@ export default function BalanceSheetPage() {
       setLoading(false);
     }
   }, [fiscalYear, asOfDate]);
+
+  // Auto-generate on first open so the page is never empty
+  useEffect(() => {
+    fetchReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const isBalanced = report ? Math.abs(Number(report.total_assets) - Number(report.total_liabilities) - Number(report.total_equity)) < 0.01 : true;
 
