@@ -17,6 +17,7 @@ import {
   SortOption,
   TConfirmDialog,
   TDetailSkeleton,
+  TExportButton,
   fmtLKR,
   handleApiError,
   showErrorToast,
@@ -253,7 +254,40 @@ export default function SalaryProfilesPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Salary Profiles" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel} />
+      <MasterDetailLayout title="Salary Profiles" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="salary_profiles"
+            headers={[
+              "Employee ID",
+              "Designation",
+              "Department",
+              "Basic Salary",
+              "Addition 1",
+              "Add 1 Value",
+              "Addition 2",
+              "Add 2 Value",
+              "Effective From",
+              "Benefits",
+            ]}
+            rows={() =>
+              filtered.map((p) => [
+                p.employee_id || "",
+                p.designation || "",
+                p.department || "",
+                p.basic_salary ?? 0,
+                p.add_1_name || "",
+                p.add_1_value ?? 0,
+                p.add_2_name || "",
+                p.add_2_value ?? 0,
+                p.effective_from_date || "",
+                p.benefits || "",
+              ])
+            }
+            disabled={filtered.length === 0}
+          />
+        }
+      />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

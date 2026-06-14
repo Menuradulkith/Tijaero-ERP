@@ -38,6 +38,7 @@ import {
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DownloadIcon from "@mui/icons-material/Download";
+import { exportToCSV } from "@/utils/csvExport";
 import PrintIcon from "@mui/icons-material/Print";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
@@ -169,14 +170,11 @@ export default function IncomeStatementPage() {
     if (report.other_expenses.items.length) addSection(report.other_expenses);
     lines.push(["", "Net Income", Number(report.net_income).toFixed(2)]);
 
-    const csv = lines.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `income_statement_${fiscalYear}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportToCSV({
+      filename: `income_statement_${fiscalYear}`,
+      headers: lines[0],
+      rows: lines.slice(1),
+    });
   };
 
   // ── Print ───────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ from app.modules.finance.models import (
 )
 from app.modules.hr.models import Reimbursements, SalaryDeductions
 from app.modules.products.models import Product
+from app.modules.inventory.models import SalesStock
 from app.modules.sales.models import Invoice, InvoiceItems
 from app.modules.support.models import CustomerSupport, WarrantyClaims
 from app.modules.warehouse.models import ItemReceiveNote, ItemTransferNote
@@ -22,6 +23,11 @@ from sqlalchemy import and_, desc, extract, func, or_
 from sqlalchemy.orm import Session
 
 from . import schemas
+
+# Products with this many or fewer available (unsold) stock units are
+# considered "low stock" for dashboard/report purposes. There is no per-product
+# reorder level in the schema, so a single sensible default threshold is used.
+LOW_STOCK_THRESHOLD = 5
 
 
 class ReportingService:
@@ -299,14 +305,29 @@ class ReportingService:
         total_products = len(products)
         total_stock_value = sum([float(p.cost_price) for p in products])
 
-        # Low stock items (simplified - would need stock tracking table)
+        # Low stock items: products whose count of AVAILABLE (unsold) stock units
+        # is at or below the low-stock threshold. Driven by real SalesStock data.
+        available_counts = dict(
+            self.db.query(
+                SalesStock.product_id,
+                func.count(SalesStock.id),
+            )
+            .filter(
+                SalesStock.status == "available",
+                SalesStock.is_active == True,
+            )
+            .group_by(SalesStock.product_id)
+            .all()
+        )
         low_stock_items = [
             {
                 "product_name": p.name,
                 "item_code": p.item_code,
                 "cost_price": float(p.cost_price),
+                "available_quantity": int(available_counts.get(p.id, 0)),
             }
-            for p in products[:10]  # Placeholder
+            for p in products
+            if available_counts.get(p.id, 0) <= LOW_STOCK_THRESHOLD
         ]
 
         # Stock by category
@@ -556,6 +577,38 @@ class ReportingService:
             or 0
         )
 
+        # Low-stock products: active products whose available (unsold) unit count
+        # is at or below the threshold. Products with zero stock rows count as 0.
+        try:
+            available_subq = (
+                self.db.query(
+                    SalesStock.product_id.label("product_id"),
+                    func.count(SalesStock.id).label("available_qty"),
+                )
+                .filter(
+                    SalesStock.status == "available",
+                    SalesStock.is_active == True,
+                )
+                .group_by(SalesStock.product_id)
+                .subquery()
+            )
+            low_stock_count = (
+                self.db.query(func.count(Product.id))
+                .outerjoin(
+                    available_subq, available_subq.c.product_id == Product.id
+                )
+                .filter(
+                    Product.active == True,
+                    func.coalesce(available_subq.c.available_qty, 0)
+                    <= LOW_STOCK_THRESHOLD,
+                )
+                .scalar()
+                or 0
+            )
+        except Exception:
+            logger.warning("reporting metric failed", exc_info=True)
+            low_stock_count = 0
+
         # ── Purchasing ───────────────────────────────────────────────────
         # Count only goods actually received via GRN this month, not PO approval date
         try:
@@ -604,8 +657,11 @@ class ReportingService:
             pending_po_count = 0
 
         # ── Receivables / Payables ───────────────────────────────────────
+        # Net receivables = outstanding balance still owed on credit invoices.
+        # balance_due is maintained by credit settlements, so this is net of
+        # customer payments (symmetric with the net payables figure below).
         total_credit_outstanding = (
-            self.db.query(func.coalesce(func.sum(Invoice.credit_amount), 0))
+            self.db.query(func.coalesce(func.sum(Invoice.balance_due), 0))
             .filter(and_(Invoice.credit_amount > 0, Invoice.payment_status != "paid"))
             .scalar()
         )
@@ -704,9 +760,13 @@ class ReportingService:
 
         # ── Pending Approvals ────────────────────────────────────────────
         try:
+            # Use the same predicate as the Sales dashboard statistics and the
+            # pending-approval list (Invoice.approval == False) so all dashboards
+            # agree. This counts both credit (pending_approval) and bank-transfer
+            # (pending_bank_verification) invoices awaiting approval/verification.
             pending_sales = (
                 self.db.query(func.count(Invoice.id))
-                .filter(Invoice.approval_status == "pending_approval")
+                .filter(Invoice.approval == False)  # noqa: E712
                 .scalar()
                 or 0
             )
@@ -914,7 +974,7 @@ class ReportingService:
             total_customers=total_customers,
             new_customers_month=new_customers_month,
             total_products=total_products,
-            low_stock_items=0,
+            low_stock_items=low_stock_count,
             total_purchases_month=float(total_purchases_month),
             pending_po_count=pending_po_count,
             total_credit_outstanding=float(total_credit_outstanding),

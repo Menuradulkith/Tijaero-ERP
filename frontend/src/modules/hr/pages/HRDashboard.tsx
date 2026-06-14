@@ -83,7 +83,7 @@ export default function HRDashboard() {
   // Data queries
   const { data: batches, isLoading: batchesLoading } = useQuery({
     queryKey: ["payroll-batches"],
-    queryFn: () => payrollBatchApi.getAll(),
+    queryFn: () => payrollBatchApi.getAll({ limit: 1000 }),
   });
 
   const { data: profiles, isLoading: profilesLoading } = useQuery({
@@ -94,7 +94,7 @@ export default function HRDashboard() {
 
   const { data: promotions, isLoading: promotionsLoading } = useQuery({
     queryKey: ["promotions-count"],
-    queryFn: () => promotionsApi.getAll(),
+    queryFn: () => promotionsApi.getAll({ limit: 1000 }),
     refetchOnMount: "always",
   });
 
@@ -106,13 +106,13 @@ export default function HRDashboard() {
 
   const { data: deductions, isLoading: deductionsLoading } = useQuery({
     queryKey: ["deductions-count"],
-    queryFn: () => salaryDeductionsApi.getAll(),
+    queryFn: () => salaryDeductionsApi.getAll({ limit: 1000 }),
     refetchOnMount: "always",
   });
 
   const { data: assets, isLoading: assetsLoading } = useQuery({
     queryKey: ["assets-count"],
-    queryFn: () => employeeAssetsApi.getAll(),
+    queryFn: () => employeeAssetsApi.getAll({ limit: 1000 }),
     refetchOnMount: "always",
   });
 

@@ -29,6 +29,7 @@ import {
   TBranchFilter,
   TFilterPanel,
   TDatePicker,
+  TExportButton,
   fmtLKR,
 } from "@/components/tijaero";
 
@@ -348,6 +349,28 @@ export default function ChequePaymentsPage() {
       title="Cheque Payments"
       onRefresh={refetch}
       isLoading={isLoading}
+      headerActions={
+        <TExportButton
+          filename={`cheque_payments_${new Date().toISOString().split("T")[0]}`}
+          headers={["ID", "Cheque No", "From Party", "Bank", "Amount", "Cheque Date", "Deposit Date", "Invoice No", "Payment For", "Branch", "Remark"]}
+          rows={() =>
+            filteredCheques.map((c) => [
+              c.id,
+              c.cheque_number ?? "",
+              c.from_party || "",
+              c.bank || "",
+              Number(c.amount || 0),
+              c.cheque_date || "",
+              c.deposit_date || "",
+              c.invoice_no || "",
+              c.payment_for || "",
+              c.branch_code ?? "",
+              c.remark || "",
+            ])
+          }
+          disabled={filteredCheques.length === 0}
+        />
+      }
       masterPanel={masterPanel}
       detailPanel={detailPanel}
     />

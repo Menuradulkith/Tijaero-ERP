@@ -6,6 +6,7 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SendIcon from "@mui/icons-material/Send";
 import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import ReceiptIcon from "@mui/icons-material/Receipt";
+import { exportToCSV } from "@/utils/csvExport";
 import {
   Alert,
   Autocomplete,
@@ -238,14 +239,11 @@ export default function ExpensesPage() {
     const rows = filteredExpenses.map(e => [
       e.expenses_no, e.expense_category || "", e.expense_amount, e.expenses_method, e.status, e.expense_date || e.created_date, e.vendor_name || "", e.remarks || "", e.branch_code || "",
     ]);
-    const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `expenses_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportToCSV({
+      filename: `expenses_${new Date().toISOString().split("T")[0]}`,
+      headers,
+      rows,
+    });
   };
 
   const filteredExpenses = useMemo(() => {

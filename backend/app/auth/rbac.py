@@ -200,14 +200,11 @@ class Permissions:
     SUPPLIER_PAYMENT_CREATE = ("supplier_payments", "create")
     SUPPLIER_PAYMENT_UPDATE = ("supplier_payments", "update")
     SUPPLIER_PAYMENT_DELETE = ("supplier_payments", "delete")
-    SUPPLIER_DEBIT_NOTE_VIEW = ("supplier_debit_notes", "view")
-    SUPPLIER_DEBIT_NOTE_CREATE = ("supplier_debit_notes", "create")
-    SUPPLIER_DEBIT_NOTE_UPDATE = ("supplier_debit_notes", "update")
-    SUPPLIER_DEBIT_NOTE_DELETE = ("supplier_debit_notes", "delete")
-    PETTY_CASH_VIEW = ("petty_cash", "view")
-    PETTY_CASH_CREATE = ("petty_cash", "create")
-    PETTY_CASH_UPDATE = ("petty_cash", "update")
-    PETTY_CASH_DELETE = ("petty_cash", "delete")
+    # NOTE: Petty cash endpoints are intentionally guarded by CASHBOOK_* permissions
+    # (see finance/api.py "/petty-cash/*" routes). No separate petty_cash or
+    # supplier_debit_notes permissions exist because those features either reuse the
+    # cashbook scope or have no endpoints; keeping the registry aligned with the
+    # seeded DB + frontend permission lists (263 entries).
     CUSTOMER_PAYMENT_VIEW = ("customer_payments", "view")
     CUSTOMER_PAYMENT_CREATE = ("customer_payments", "create")
     CUSTOMER_PAYMENT_UPDATE = ("customer_payments", "update")

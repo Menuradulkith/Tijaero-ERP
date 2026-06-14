@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { exportToCSV } from "@/utils/csvExport";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -231,14 +232,7 @@ export default function CustomerPaymentReportPage() {
         item.credit_amount.toFixed(2), item.paid_amount.toFixed(2), item.balance_due.toFixed(2),
         item.due_date, item.days_overdue.toString(), item.is_overdue ? "Yes" : "No", item.branch_code,
       ]);
-      const csv = [headers.join(","), ...rows.map((r) => r.map((c) => `"${c}"`).join(","))].join("\n");
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `customer_outstanding_documents.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      exportToCSV({ filename: "customer_outstanding_documents", headers, rows });
       return;
     }
     const headers = ["Date", "Customer", "Document No.", "Invoice(s)", "Payment Method", "Amount", "Branch", "Remarks"];
@@ -252,14 +246,11 @@ export default function CustomerPaymentReportPage() {
       item.branch_code,
       item.remarks,
     ]);
-    const csv = [headers.join(","), ...rows.map((r) => r.map((c) => `"${c}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `customer_payment_report_${dateFrom}_to_${dateTo}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportToCSV({
+      filename: `customer_payment_report_${dateFrom}_to_${dateTo}`,
+      headers,
+      rows,
+    });
   };
 
   // Per-row print

@@ -11,6 +11,7 @@ import { useForm } from "react-hook-form";
 import {
   TPageHeader,
   TButton,
+  TExportButton,
   TIconButton,
   TFormDialog,
   TFormField,
@@ -186,9 +187,33 @@ export default function WarrantyClaimsPage() {
       <TPageHeader
         title="Warranty Claims"
         actions={
-          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
-            New Claim
-          </TButton>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <TExportButton
+              filename="warranty_claims"
+              headers={[
+                "ID",
+                "Type",
+                "Status",
+                "Old Barcode",
+                "New Barcode",
+                "Order ID",
+              ]}
+              rows={() =>
+                (claims || []).map((c: any) => [
+                  c.id ?? "",
+                  c.warranty_type || "",
+                  c.warranty_status || "",
+                  c.product_barcode_old_code || "",
+                  c.product_barcode_new_code || "",
+                  c.order_id ?? "",
+                ])
+              }
+              disabled={(claims || []).length === 0}
+            />
+            <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+              New Claim
+            </TButton>
+          </Box>
         }
       />
 

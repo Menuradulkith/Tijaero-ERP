@@ -26,6 +26,7 @@ import {
   TDetailSkeleton,
   TBranchFilter,
   TFilterPanel,
+  TExportButton,
   fmtLKR,
 } from "@/components/tijaero";
 
@@ -311,6 +312,24 @@ export default function CashPaymentsPage() {
       title="Cash Payments"
       onRefresh={refetch}
       isLoading={isLoading}
+      headerActions={
+        <TExportButton
+          filename={`cash_payments_${new Date().toISOString().split("T")[0]}`}
+          headers={["ID", "Invoice No", "Customer", "Amount", "Branch", "Date", "Remarks"]}
+          rows={() =>
+            filteredPayments.map((p) => [
+              p.id,
+              p.invoice_no || "",
+              p.customer_name || `Customer #${p.customer_id}`,
+              Number(p.amount || 0),
+              p.branch_code || "",
+              p.created_date_time ? new Date(p.created_date_time).toLocaleString() : (p.created_date || ""),
+              p.remarks || "",
+            ])
+          }
+          disabled={filteredPayments.length === 0}
+        />
+      }
       masterPanel={masterPanel}
       detailPanel={detailPanel}
     />

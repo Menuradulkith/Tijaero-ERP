@@ -12,6 +12,7 @@ import { useForm } from "react-hook-form";
 import {
   TPageHeader,
   TButton,
+  TExportButton,
   TIconButton,
   TFormDialog,
   TFormField,
@@ -194,9 +195,37 @@ export default function SupportTicketsPage() {
       <TPageHeader
         title="Support Tickets"
         actions={
-          <TButton startIcon={<AddIcon />} onClick={handleAdd}>
-            New Ticket
-          </TButton>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <TExportButton
+              filename="support_tickets"
+              headers={[
+                "ID",
+                "Job #",
+                "Type",
+                "Contact",
+                "Branch",
+                "Assigned To",
+                "Date",
+                "Description",
+              ]}
+              rows={() =>
+                (tickets || []).map((t: any) => [
+                  t.id ?? "",
+                  t.job_number || "",
+                  t.job_type || "",
+                  t.contact_person || "",
+                  t.branch_code || "",
+                  t.assigned_user_id ?? "",
+                  t.date || "",
+                  t.job_description || "",
+                ])
+              }
+              disabled={(tickets || []).length === 0}
+            />
+            <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+              New Ticket
+            </TButton>
+          </Box>
         }
       />
 

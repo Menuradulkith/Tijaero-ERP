@@ -24,6 +24,7 @@ class ItemsBrand(Base, AuditMixin):
     brand_name = Column(String(255), nullable=False)
     brand_code = Column(String(4), nullable=False)
     description = Column(Text)
+    active = Column(Boolean, nullable=False, default=True, index=True)
     
     products = relationship("Product", back_populates="brand")
 

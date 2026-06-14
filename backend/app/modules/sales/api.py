@@ -231,7 +231,15 @@ def create_invoice(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access denied to branch: {invoice.branch_code}",
         )
-    return service.sales_service.create_invoice(db, invoice, current_user.id)
+    created = service.sales_service.create_invoice(db, invoice, current_user.id)
+
+    # Important-only policy: a routine sale is not itself a notification, but a
+    # sale that drives a product below the reorder threshold raises a real-time
+    # low-stock alert for the branch.
+    from app.modules.notifications import alerts
+
+    alerts.check_low_stock_after_invoice(created.id)
+    return created
 
 
 @router.put(
@@ -364,7 +372,21 @@ def create_sale_return(
     current_user: User = Depends(require_permission(*Permissions.SALES_RETURN_CREATE)),
 ):
     """Create a new sale return."""
-    return service.sales_service.create_sale_return(db, sale_return, current_user.id)
+    created = service.sales_service.create_sale_return(db, sale_return, current_user.id)
+
+    # Notify the branch (everyone but the creator) about the sale return.
+    from app.modules.notifications import dispatcher as notify
+
+    notify.branch(
+        created.branch_code,
+        title="Sale Return Created",
+        message=f"Return {created.sale_return_no} was created.",
+        notification_type=notify.WARNING,
+        category=notify.SALES,
+        action_url="/sales/returns",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 
 @router.delete(
@@ -476,6 +498,38 @@ def cancel_invoice(
     Cannot cancel completed invoices - use sale return instead.
     """
     return service.sales_service.cancel_invoice(db, invoice_id, current_user.id)
+
+
+@router.post(
+    "/{invoice_id}/return-full",
+    response_model=schemas.SaleReturn,
+    status_code=status.HTTP_201_CREATED,
+    summary="Return Entire Invoice",
+    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_CREATE))],
+)
+def return_full_invoice(
+    invoice_id: int,
+    payload: schemas.FullInvoiceReturnRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_RETURN_CREATE)),
+):
+    """
+    Return an entire completed/approved invoice in one click ("Return Invoice").
+
+    Builds a sale return for every not-yet-returned unit and runs it through the
+    standard create → approve → process pipeline, so the same over-return guards,
+    maker-checker approval and reversing GL/cashbook postings apply. Returns the
+    newly created pending sale return.
+    """
+    return service.sales_service.create_full_invoice_return(
+        db,
+        invoice_id=invoice_id,
+        payment_method=payload.payment_method,
+        return_reason=payload.return_reason,
+        remark=payload.remark,
+        good_received_locations_id=payload.good_received_locations_id,
+        user_id=current_user.id,
+    )
 
 
 # Credit Payment Settlement Endpoints

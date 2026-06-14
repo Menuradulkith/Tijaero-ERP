@@ -39,8 +39,8 @@
 // BASE COMPONENTS - Core UI building blocks
 // =============================================================================
 export {
-  STATUS_MAPS, TAutocomplete, TButton, TCheckbox, TChip, TDatePicker, TIconButton, TPrintButton, TSearchableSelect, TSelect, TStatusChip, TSwitch, TTextField, canPrintDocument,
-  getPrintDisabledReason, getReportUrl, getStatusProps, type TAutocompleteProps, type TButtonProps, type TCheckboxProps, type TChipProps, type TDatePickerProps, type TIconButtonProps, type TPrintButtonProps,
+  STATUS_MAPS, TAutocomplete, TButton, TCheckbox, TChip, TDatePicker, TExportButton, TIconButton, TPrintButton, TSearchableSelect, TSelect, TStatusChip, TSwitch, TTextField, canPrintDocument,
+  getPrintDisabledReason, getReportUrl, getStatusProps, type TAutocompleteProps, type TButtonProps, type TCheckboxProps, type TChipProps, type TDatePickerProps, type TExportButtonProps, type TIconButtonProps, type TPrintButtonProps,
   type TPrintDocumentType, type TSearchableSelectOption, type TSearchableSelectProps, type TSelectProps, type TStatusChipProps, type TSwitchProps, type TTextFieldProps
 } from './base';
 

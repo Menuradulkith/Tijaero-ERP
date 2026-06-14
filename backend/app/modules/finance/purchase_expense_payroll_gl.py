@@ -1421,3 +1421,68 @@ class PurchaseExpensePayrollGL:
                 f"→ Invoice: {invoice.invoice_no} | JE: {je.journal_entry_no} | Amount: {amount}"
             )
         return je
+
+    def post_customer_advance_application_reversal_to_gl(
+        self, invoice, advance, applied_amount: Decimal, user_id: int
+    ) -> Optional[JournalEntry]:
+        """
+        Reverse a previously posted customer-advance application when the
+        invoice it was applied to is cancelled or deleted.
+
+        Dr  1110 Trade Debtors (A/R) ............. applied_amount
+        Cr  2520 Customer Deposits (Liability) ... applied_amount
+
+        Mirror image of ``post_customer_advance_application_to_gl`` so the
+        customer's deposit liability is reinstated and the receivable that the
+        application had reduced is put back before the invoice goes away.
+        """
+        marker = f"CustomerAdvanceApplicationReversal InvID: {invoice.id} AdvID: {advance.id}"
+        if self._check_already_posted(invoice.id, marker):
+            return None
+
+        amount = Decimal(str(applied_amount))
+        if amount <= 0:
+            return None
+
+        customer_advances_account = "2520"
+
+        lines = [
+            {
+                "account_code": ACCT_TRADE_DEBTORS,
+                "debit": amount,
+                "credit": Decimal("0"),
+                "description": f"Advance application reversed - {invoice.invoice_no} cancelled",
+            },
+            {
+                "account_code": customer_advances_account,
+                "debit": Decimal("0"),
+                "credit": amount,
+                "description": f"Advance {advance.advance_payments_no} restored - {invoice.invoice_no} cancelled",
+            },
+        ]
+
+        description = (
+            f"Auto GL - Customer Advance Application Reversal | Advance: {advance.advance_payments_no} | "
+            f"Invoice: {invoice.invoice_no} | Restored: {amount} | "
+            f"CustomerAdvanceApplicationReversal InvID: {invoice.id} AdvID: {advance.id}"
+        )
+
+        je = self._create_je_and_post(
+            entry_date=tz.today(),
+            description=description,
+            lines=lines,
+            branch_code=getattr(invoice, "branch_code", None),
+            user_id=user_id,
+            je_prefix="JE-CAA-REV",
+            transaction_type="Sales",
+            reference_type="CustomerAdvanceApplicationReversal",
+            reference_id=invoice.id,
+            reference_no=invoice.invoice_no,
+        )
+
+        if je:
+            logger.info(
+                f"✅ GL Posted: Customer Advance Application Reversal | Advance: {advance.advance_payments_no} "
+                f"← Invoice: {invoice.invoice_no} | JE: {je.journal_entry_no} | Amount: {amount}"
+            )
+        return je

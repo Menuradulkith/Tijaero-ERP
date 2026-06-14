@@ -10,6 +10,7 @@
 
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import { exportToCSV } from "@/utils/csvExport";
 import {
   Alert,
   Box,
@@ -73,16 +74,14 @@ const isoDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const downloadCSV = (filename: string, rows: (string | number)[][]) => {
-  const csv = rows
-    .map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  if (!rows.length) return;
+  // First row is the header; the standard util handles RFC-4180 escaping,
+  // CRLF line endings and a UTF-8 BOM (Excel-safe Unicode).
+  exportToCSV({
+    filename: filename.replace(/\.csv$/i, ""),
+    headers: rows[0].map((c) => String(c ?? "")),
+    rows: rows.slice(1),
+  });
 };
 
 interface AccountListItem {

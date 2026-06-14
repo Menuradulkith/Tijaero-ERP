@@ -25,6 +25,7 @@ import {
     SelectableListItem,
     SortOption,
     TDetailSkeleton,
+    TExportButton,
     TPageSkeleton,
     useMasterDetailState,
     handleApiError,
@@ -376,6 +377,16 @@ export default function GroupsPage() {
         isLoading={loading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="roles"
+            headers={["Role Name", "Permissions Count"]}
+            rows={() =>
+              filteredGroups.map((g) => [g.name || "", g.permissions?.length ?? 0])
+            }
+            disabled={filteredGroups.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

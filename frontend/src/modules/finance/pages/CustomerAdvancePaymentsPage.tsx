@@ -34,6 +34,7 @@ import {
   showSuccessToast,
   SortOption,
   TDetailSkeleton,
+  TExportButton,
   TBranchFilter,
   TFilterPanel,
   GENERIC_PAYMENT_METHOD,
@@ -581,6 +582,34 @@ export default function CustomerAdvancePaymentsPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="customer_advance_payments"
+            headers={[
+              "Payment No",
+              "Customer",
+              "Amount",
+              "Method",
+              "Created Date",
+              "Cheque Date",
+              "Proforma Invoice ID",
+              "Remarks",
+            ]}
+            rows={() =>
+              filteredAdvances.map((adv) => [
+                adv.advance_payments_no || "",
+                getCustomerName(adv.customer_id),
+                adv.payment_amount ?? 0,
+                adv.payment_method || "",
+                adv.created_date || "",
+                adv.cheque_date || "",
+                adv.proforma_invoice_id ?? "",
+                adv.remarks || "",
+              ])
+            }
+            disabled={filteredAdvances.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

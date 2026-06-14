@@ -25,9 +25,40 @@ def create_transfer_note(
             detail=f"Access denied to branch: {transfer_note.branch_code}"
         )
     transfer_note_service = service.ItemTransferNoteService(db)
-    return transfer_note_service.create_transfer_note(
+    created = transfer_note_service.create_transfer_note(
         transfer_note, user_id=current_user.id
     )
+
+    # Notify the originating branch, and the receiving branch about incoming stock.
+    from app.modules.notifications import dispatcher as notify
+    from app.modules.common.models import Locations
+
+    notify.branch(
+        created.branch_code,
+        title="Stock Transfer Created",
+        message=f"Transfer note {created.item_transfer_note} was created.",
+        notification_type=notify.INFO,
+        category=notify.WAREHOUSE,
+        action_url="/warehouse/item-transfer-notes",
+        exclude_user_id=current_user.id,
+    )
+
+    dest_branch = (
+        db.query(Locations.branch_code)
+        .filter(Locations.id == created.to_location_id)
+        .scalar()
+    )
+    if dest_branch and dest_branch != created.branch_code:
+        notify.branch(
+            dest_branch,
+            title="Incoming Stock Transfer",
+            message=f"Transfer note {created.item_transfer_note} is incoming to your branch.",
+            notification_type=notify.INFO,
+            category=notify.WAREHOUSE,
+            action_url="/warehouse/item-transfer-notes",
+            exclude_user_id=current_user.id,
+        )
+    return created
 
 @router.get("/transfer-notes/{transfer_note_id}", response_model=schemas.ItemTransferNote, dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
 def get_transfer_note(transfer_note_id: int, db: Session = Depends(get_db)):

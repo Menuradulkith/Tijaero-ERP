@@ -786,13 +786,32 @@ class PurchasingReturnService:
         return return_record
     
     def _ensure_cashbook_entry_for_purchase_return(self, purchase_return: models.PurchasingReturn) -> None:
-        """Create a cashbook money-in entry for an approved purchase return."""
+        """Create a cashbook money-in entry for an approved purchase return.
+
+        Only cash/bank/cheque purchases produce an actual refund (money-in).
+        Credit purchases reduce Trade Creditors (GL Dr 2010) and advance
+        purchases restore the supplier advance (GL Dr 2020) — no money moves,
+        so recording cashbook money-in for those would break the day-end
+        cashbook ↔ GL (1010+1020) reconciliation identity.
+        """
         if purchase_return.status != "approved":
             return
 
         try:
             from app.modules.finance.models import CashbookEntryRecord
             from sqlalchemy import text
+
+            # Mirror the GL branching in post_purchase_return_to_gl: only
+            # cash/bank/cheque POs put money back into cash/bank.
+            grn = purchase_return.good_received_note
+            po_payment_method = ""
+            if grn:
+                po = self.db.query(models.PurchasingOrder).filter(
+                    models.PurchasingOrder.id == grn.purchasingorders_id
+                ).first()
+                po_payment_method = (getattr(po, "payment_method", "") or "").lower()
+            if po_payment_method not in ("cash", "bank", "cheque"):
+                return  # credit / advance return → no cash movement
 
             existing = self.db.query(CashbookEntryRecord.id).filter(
                 CashbookEntryRecord.source_table == "purchasing_returns",
@@ -836,7 +855,7 @@ class PurchasingReturnService:
                     "reference_no": return_no,
                     "description": f"Purchase Return {return_no} - refund from supplier",
                     "party_name": supplier_name,
-                    "payment_method": "CASH",
+                    "payment_method": po_payment_method.upper() or "CASH",
                     "money_in": total_amount,
                     "money_out": Decimal("0"),
                     "branch_code": purchase_return.branch_code,
@@ -1308,6 +1327,16 @@ class GoodReceivedNoteService:
         ).all()
     
     def create_item(self, item: schemas.GoodReceivedItemCreate) -> models.GoodReceivedItems:
+        # Serialise concurrent inserts of the SAME barcode: the existence
+        # check below is check-then-insert, and good_received_items.barcode
+        # has no unique constraint, so two simultaneous requests could both
+        # pass the check and create a duplicate physical unit. The advisory
+        # lock is transaction-scoped (auto-released on commit/rollback).
+        from sqlalchemy import text as sa_text
+        self.db.execute(
+            sa_text("SELECT pg_advisory_xact_lock(hashtext(:bc))"),
+            {"bc": f"grn_item_barcode:{item.barcode}"},
+        )
         if self.barcode_exists(item.barcode):
             raise ValueError(f"Barcode '{item.barcode}' already exists in Good Received Items")
         
@@ -2128,6 +2157,14 @@ class SupplierAdvancePaymentService:
                 return_method=data.return_method,
                 user_id=user_id or 0,
             )
+            # Keep the materialized cashbook in sync with the GL cash/bank debit so
+            # the day-end cashbook ↔ GL (1010+1020) reconciliation stays balanced.
+            self._ensure_cashbook_entry_for_advance_return(
+                advance,
+                return_amount=D(str(return_amount)),
+                return_date=data.return_date,
+                return_method=data.return_method,
+            )
             self.db.commit()
         except Exception as gl_err:
             import logging
@@ -2145,6 +2182,61 @@ class SupplierAdvancePaymentService:
 
         self.db.refresh(advance)
         return advance
+
+    def _ensure_cashbook_entry_for_advance_return(
+        self,
+        advance: models.SupplierAdvancePayment,
+        return_amount: Decimal,
+        return_date,
+        return_method: Optional[str],
+    ) -> None:
+        """Record a cashbook money-in entry for a supplier advance return.
+
+        When a supplier refunds an unused advance, cash/bank increases
+        (GL Dr 1010/1020). The advance-payment INSERT trigger only records the
+        original money-out on creation; returns are UPDATEs and therefore fire no
+        trigger, so the money-in must be inserted explicitly. Without this, the
+        day-end cashbook ↔ GL reconciliation would understate the inflow.
+
+        Does NOT commit — runs inside the return_advance transaction so the
+        cashbook entry is atomic with the GL posting.
+        """
+        amount = Decimal(str(return_amount or 0))
+        if amount <= 0:
+            return
+
+        supplier_name = None
+        if advance.supplier:
+            supplier_name = advance.supplier.full_name or advance.supplier.company_name
+        if not supplier_name:
+            supplier_name = f"Supplier #{advance.supplier_id}"
+
+        self.db.execute(
+            text(
+                """
+                SELECT fn_insert_cashbook_entry(
+                    :entry_type, :transaction_date, :source_table, :source_id,
+                    :reference_no, :description, :party_name, :payment_method,
+                    :money_in, :money_out, :branch_code
+                )
+                """
+            ),
+            {
+                "entry_type": "supplier_advance_return",
+                "transaction_date": datetime.combine(
+                    return_date or tz.today(), datetime.min.time()
+                ),
+                "source_table": "supplier_advance_payment",
+                "source_id": advance.id,
+                "reference_no": advance.advance_no,
+                "description": f"Supplier Advance Return {advance.advance_no} - refund from supplier",
+                "party_name": supplier_name,
+                "payment_method": return_method or advance.payment_method,
+                "money_in": amount,
+                "money_out": Decimal("0"),
+                "branch_code": advance.branch_code,
+            },
+        )
 
     def delete_advance(self, advance_id: int) -> bool:
         """Delete an advance payment (only if no applications)"""

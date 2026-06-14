@@ -44,6 +44,7 @@ import {
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DownloadIcon from "@mui/icons-material/Download";
+import { exportToCSV } from "@/utils/csvExport";
 import PrintIcon from "@mui/icons-material/Print";
 import BalanceIcon from "@mui/icons-material/Balance";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -167,14 +168,11 @@ export default function BalanceSheetPage() {
     lines.push(["", "Total Equity", Number(report.total_equity).toFixed(2)]);
     lines.push(["", "Total Liabilities & Equity", (Number(report.total_liabilities) + Number(report.total_equity)).toFixed(2)]);
 
-    const csv = lines.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `balance_sheet_${fiscalYear}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportToCSV({
+      filename: `balance_sheet_${fiscalYear}`,
+      headers: lines[0],
+      rows: lines.slice(1),
+    });
   };
 
   const handlePrint = () => {

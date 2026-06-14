@@ -29,6 +29,11 @@ class InvoiceBase(BaseModel):
     customer_id: int
     sale_rep_id: int
     customer_agent_id: Optional[int] = None
+    # Agent commission assigned on the sales order. When provided these take
+    # precedence over the agent's default profile rate so the commission entry
+    # reflects exactly what was assigned on the order.
+    agent_commission_rate: Optional[float] = Field(default=None, ge=0, le=100)
+    agent_commission_amount: Optional[float] = Field(default=None, ge=0)
     payment_method: str = Field(..., max_length=30)
     cash_amount: float = Field(default=0, ge=0)
     card_visa_amount: float = Field(default=0, ge=0)
@@ -249,6 +254,20 @@ class SaleReturnProcessResponse(BaseModel):
     refund_reference: Optional[str] = None
     items_restocked: int = 0
     message: str
+
+
+class FullInvoiceReturnRequest(BaseModel):
+    """Request body for the one-click "Return Invoice" action.
+
+    Creates a sale return covering every not-yet-returned unit on the invoice.
+    The return still flows through the normal approve → process pipeline, so the
+    reversing financial records are posted on processing (maker-checker intact).
+    """
+    payment_method: str = Field(..., max_length=30)  # cash, bank_transfer, credit_note, cheque
+    return_reason: Optional[str] = None
+    remark: Optional[str] = None
+    good_received_locations_id: Optional[int] = None
+
 
 # Credit Payment Settlement Schemas
 class CreditPaymentCreate(BaseModel):

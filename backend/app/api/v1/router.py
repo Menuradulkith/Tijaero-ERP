@@ -12,6 +12,7 @@ from app.modules.hr.api import router as hr_router
 from app.modules.hr.sales_commission_api import router as sales_commissions_router
 from app.modules.attendance.api import router as attendance_router
 from app.modules.inventory.api import router as inventory_router
+from app.modules.notifications.api import router as notifications_router
 from app.modules.permissions.api import router as permissions_router
 from app.modules.products.api import router as products_router
 from app.modules.purchasing.api import router as purchasing_router
@@ -57,6 +58,7 @@ api_router.include_router(warehouse_router)
 api_router.include_router(support_router)
 api_router.include_router(reporting_router)
 api_router.include_router(settings_router)
+api_router.include_router(notifications_router)
 api_router.include_router(common_router)
 api_router.include_router(employees_router, prefix="/employees", tags=["employees"])
 api_router.include_router(branches_router)

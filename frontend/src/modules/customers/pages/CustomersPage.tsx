@@ -28,6 +28,7 @@ import {
     showSuccessToast,
     SortOption,
     TDetailSkeleton,
+    TExportButton,
     TConfirmDialog,
     useMasterDetailState,
     useTConfirmDialog,
@@ -610,6 +611,40 @@ export default function CustomersPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="customers"
+            headers={[
+              "Customer Name",
+              "Company",
+              "Email",
+              "Mobile",
+              "Home Contact",
+              "ID Card No",
+              "Credit Days",
+              "Max Credit Limit",
+              "Credit Balance",
+              "Is Agent",
+              "Active",
+            ]}
+            rows={() =>
+              filteredCustomers.map((c) => [
+                c.customer_name || "",
+                c.company_name || "",
+                c.email || "",
+                c.mobile_contact_number || "",
+                c.home_contact_number || "",
+                c.id_card_number || "",
+                c.credit_days ?? 0,
+                c.max_credit_limit ?? 0,
+                c.left_credit_amount ?? "",
+                c.is_customer_agent ? "Yes" : "No",
+                c.active ? "Yes" : "No",
+              ])
+            }
+            disabled={filteredCustomers.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

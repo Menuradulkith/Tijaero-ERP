@@ -1,6 +1,8 @@
 import { useAuthStore } from "@/state/authStore";
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { toast } from "react-hot-toast";
+import { handleApiError } from "@/utils/errorHandling";
+import { showErrorToast } from "@/components/tijaero/feedback-extended/toast";
 
 // Create axios instance with performance-optimized configuration
 const apiClient = axios.create({
@@ -132,14 +134,14 @@ apiClient.interceptors.response.use(
     if (error.code === "ECONNABORTED") {
       console.error("Request timeout - the server took too long to respond");
       if (!hideErrorToast)
-        toast.error("Request timeout - the server took too long to respond");
+        showErrorToast("Request timeout - the server took too long to respond");
     }
 
     // Handle network errors
     if (!error.response && error.code !== "ECONNABORTED") {
       console.error("Network error - please check your internet connection");
       if (!hideErrorToast)
-        toast.error("Network error - please check your internet connection");
+        showErrorToast("Network error - please check your internet connection");
     }
 
     // Capture standard API error responses to display
@@ -151,15 +153,16 @@ apiClient.interceptors.response.use(
       error.response.status !== 403
     ) {
       const data: any = error.response.data;
-      if (data?.detail) {
-        // FastAPI default throws 'detail' string or array
-        const message =
-          typeof data.detail === "string" ? data.detail : "API Error Occurred";
-        toast.error(message);
-      } else if (data?.message) {
-        toast.error(data.message);
+      if (data?.detail || data?.message) {
+        // Surface the REAL reason to the user — including FastAPI/Pydantic
+        // validation errors (HTTP 422) where `detail` is an array of field
+        // errors. handleApiError formats every shape (string / array / object)
+        // into readable text instead of a generic "API Error Occurred".
+        showErrorToast(handleApiError(error, "API Error Occurred"));
       } else if (error.response.status >= 500) {
-        toast.error("Internal Server Error occurred. Please try again later.");
+        showErrorToast(
+          "Internal Server Error occurred. Please try again later.",
+        );
       }
     }
 

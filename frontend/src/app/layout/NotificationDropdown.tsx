@@ -1,5 +1,5 @@
 import { useNotifications } from "@/hooks/useNotifications";
-import { Notification } from "@/modules/settings/types";
+import { AppNotification } from "@/modules/notifications/types";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
@@ -11,6 +11,7 @@ import {
     Badge,
     Box,
     Button,
+    Chip,
     CircularProgress,
     Divider,
     IconButton,
@@ -24,8 +25,9 @@ import {
 } from "@mui/material";
 import { formatDistanceToNow } from "date-fns";
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-const getNotificationIcon = (type: Notification["notification_type"]) => {
+const getNotificationIcon = (type: AppNotification["notification_type"]) => {
   switch (type) {
     case "success":
       return <CheckCircleIcon color="success" fontSize="small" />;
@@ -41,6 +43,7 @@ const getNotificationIcon = (type: Notification["notification_type"]) => {
 
 export default function NotificationDropdown() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const navigate = useNavigate();
   const {
     notifications,
     stats,
@@ -61,8 +64,14 @@ export default function NotificationDropdown() {
     setAnchorEl(null);
   };
 
-  const handleMarkAsRead = (id: number) => {
-    markAsRead(id);
+  const handleNotificationClick = (notification: AppNotification) => {
+    if (!notification.is_read) {
+      markAsRead(notification.id);
+    }
+    if (notification.action_url) {
+      handleMenuClose();
+      navigate(notification.action_url);
+    }
   };
 
   const handleDelete = (id: number, e: React.MouseEvent) => {
@@ -172,7 +181,7 @@ export default function NotificationDropdown() {
                 }
               >
                 <ListItemButton
-                  onClick={() => handleMarkAsRead(notification.id)}
+                  onClick={() => handleNotificationClick(notification)}
                   sx={{
                     opacity: notification.is_read ? 0.7 : 1,
                     bgcolor: notification.is_read
@@ -196,18 +205,50 @@ export default function NotificationDropdown() {
                         >
                           {notification.message}
                         </Typography>
-                        <Typography
+                        <Box
                           component="span"
-                          variant="caption"
-                          color="text.secondary"
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 0.5,
+                            flexWrap: "wrap",
+                          }}
                         >
-                          {formatDistanceToNow(
-                            new Date(notification.created_date),
-                            {
-                              addSuffix: true,
-                            },
-                          )}
-                        </Typography>
+                          <Typography
+                            component="span"
+                            variant="caption"
+                            color="text.secondary"
+                          >
+                            {formatDistanceToNow(
+                              new Date(notification.created_date),
+                              {
+                                addSuffix: true,
+                              },
+                            )}
+                          </Typography>
+                          {notification.branch_code ? (
+                            <Chip
+                              component="span"
+                              size="small"
+                              variant="outlined"
+                              label={notification.branch_code}
+                              sx={{ height: 18, fontSize: 10 }}
+                            />
+                          ) : null}
+                          {notification.category &&
+                          notification.category !== "system" ? (
+                            <Chip
+                              component="span"
+                              size="small"
+                              label={notification.category}
+                              sx={{
+                                height: 18,
+                                fontSize: 10,
+                                textTransform: "capitalize",
+                              }}
+                            />
+                          ) : null}
+                        </Box>
                       </React.Fragment>
                     }
                     primaryTypographyProps={{

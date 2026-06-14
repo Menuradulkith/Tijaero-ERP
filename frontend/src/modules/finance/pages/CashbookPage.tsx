@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { exportToCSV } from "@/utils/csvExport";
 import { useQuery } from "@tanstack/react-query";
 import {
   Box,
@@ -188,14 +189,7 @@ export default function CashbookPage() {
       e.branch_code || "",
     ]);
 
-    const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `cashbook_${dateFrom}_to_${dateTo}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportToCSV({ filename: `cashbook_${dateFrom}_to_${dateTo}`, headers, rows });
     showSuccessToast("Cashbook exported successfully");
   };
 

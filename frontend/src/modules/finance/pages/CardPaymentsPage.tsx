@@ -29,6 +29,7 @@ import {
   TDetailSkeleton,
   TBranchFilter,
   TFilterPanel,
+  TExportButton,
   CARD_TYPE,
   fmtLKR,
 } from "@/components/tijaero";
@@ -327,6 +328,25 @@ export default function CardPaymentsPage() {
       title="Card Payments"
       onRefresh={refetch}
       isLoading={isLoading}
+      headerActions={
+        <TExportButton
+          filename={`card_payments_${new Date().toISOString().split("T")[0]}`}
+          headers={["ID", "Ref Number", "Card Type", "Amount", "Invoice No", "Deposited", "Date", "Remark"]}
+          rows={() =>
+            filteredPayments.map((p) => [
+              p.id,
+              p.ref_number || "",
+              p.card_type || "",
+              Number(p.amount || 0),
+              p.invoice_no || "",
+              p.deposited ? "Yes" : "No",
+              p.date_time ? new Date(p.date_time).toLocaleString() : "",
+              p.remark || "",
+            ])
+          }
+          disabled={filteredPayments.length === 0}
+        />
+      }
       masterPanel={masterPanel}
       detailPanel={detailPanel}
     />

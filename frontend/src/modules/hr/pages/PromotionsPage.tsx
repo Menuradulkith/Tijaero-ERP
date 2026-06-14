@@ -18,6 +18,7 @@ import {
   SortOption,
   TConfirmDialog,
   TDetailSkeleton,
+  TExportButton,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -211,7 +212,23 @@ export default function PromotionsPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Promotions" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel} />
+      <MasterDetailLayout title="Promotions" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="promotions"
+            headers={["Employee ID", "Designation", "Appointed Date", "Remark"]}
+            rows={() =>
+              filtered.map((p) => [
+                p.employee_id || "",
+                p.designation || "",
+                p.appointed_date || "",
+                p.remark || "",
+              ])
+            }
+            disabled={filtered.length === 0}
+          />
+        }
+      />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

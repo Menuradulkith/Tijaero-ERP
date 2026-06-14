@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useMemo } from "react";
+import { exportToCSV as exportRowsToCSV } from "@/utils/csvExport";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
@@ -419,18 +420,11 @@ export default function CompanyAssetsDashboard() {
       ];
     });
 
-    const escapeCsv = (value: string) => `"${String(value).replace(/"/g, '""')}"`;
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((cell) => escapeCsv(cell)).join(","))
-      .join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `company-assets-${format(new Date(), "yyyy-MM-dd")}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    exportRowsToCSV({
+      filename: `company-assets-${format(new Date(), "yyyy-MM-dd")}`,
+      headers,
+      rows,
+    });
   };
 
   // Get paginated data

@@ -544,6 +544,14 @@ class TestConcurrencyAndRaceConditions:
         results = []
         errors = []
 
+        # This test exercises the credit-LIMIT race, not business hours —
+        # widen the allowed window so it can run at any time of day.
+        from app.modules.customers.credit_service import CustomerCreditService
+        orig_start = CustomerCreditService.CREDIT_SALE_START_HOUR
+        orig_end = CustomerCreditService.CREDIT_SALE_END_HOUR
+        CustomerCreditService.CREDIT_SALE_START_HOUR = 0
+        CustomerCreditService.CREDIT_SALE_END_HOUR = 24
+
         # Let's add more stock first so stock availability doesn't block the invoice
         db = SessionLocal()
         try:
@@ -626,10 +634,14 @@ class TestConcurrencyAndRaceConditions:
 
         t1 = threading.Thread(target=create_credit_invoice_worker, args=(1,))
         t2 = threading.Thread(target=create_credit_invoice_worker, args=(2,))
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
+        try:
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
+        finally:
+            CustomerCreditService.CREDIT_SALE_START_HOUR = orig_start
+            CustomerCreditService.CREDIT_SALE_END_HOUR = orig_end
 
         # Without credit limit serialization, both will succeed, outstanding will be 60k > 50k.
         # With serialization, only 1 should succeed, and the second should block/fail.

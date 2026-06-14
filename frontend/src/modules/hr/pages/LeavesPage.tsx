@@ -21,6 +21,7 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TFilterPanel,
+  TExportButton,
   TStatusFilter,
   type TFilterStatusOption,
   handleApiError,
@@ -467,6 +468,36 @@ export default function LeavesPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="leaves"
+            headers={[
+              "Employee ID",
+              "Employee",
+              "Leave Type",
+              "From Date",
+              "To Date",
+              "Duration",
+              "Time",
+              "Status",
+              "Reason",
+            ]}
+            rows={() =>
+              filtered.map((l) => [
+                l.employee_id || "",
+                l.employee_name || "",
+                l.leave_type || "",
+                l.from_date || "",
+                l.to_date || "",
+                l.leave_duration ?? "",
+                l.leave_time || "",
+                l.status || "",
+                l.leave_reason || "",
+              ])
+            }
+            disabled={filtered.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

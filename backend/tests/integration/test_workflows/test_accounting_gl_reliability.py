@@ -959,3 +959,248 @@ class TestCustomerReceiptAccountRouting:
         je = gl.post_customer_credit_settlement_to_gl(settlement, txns, user_id=1)
         assert je is not None
         assert "1010" in self._debit_codes(db, je)
+
+
+# --------------------------------------------------------------------------- #
+# Sale-return GL composition — refund-method routing & tax handling
+# --------------------------------------------------------------------------- #
+class TestSaleReturnGLComposition:
+    """``total_refund`` INCLUDES ``tax_refund``; the entry must therefore be
+    Dr 4030 (net) + Dr 2210 (tax) / Cr <refund account> (total) — crediting the
+    asset ``total_refund + tax_refund`` would overstate the refund. The credit
+    account follows the REFUND method on the return (cash → 1010,
+    bank/cheque → 1020, credit_note → 2530 liability or 1110 for credit sales),
+    not the original invoice tender.
+    """
+
+    REFUND_ACCOUNTS = ("1010", "1020", "1110", "2210", "2530", "4030")
+
+    def _mk_invoice(self, db, make_customer, *, payment_method="cash", credit_amount="0"):
+        from app.modules.sales.models import Invoice
+
+        customer = make_customer()
+        inv = Invoice(
+            is_tax_invoice=False,
+            invoice_no=f"INV-QA-{_uid()}",
+            branch_code=_branch(),
+            payment_method=payment_method,
+            created_date=OPEN_DATE,
+            customer_id=customer.id,
+            approval=True,
+            approval_status="completed",
+            bank_transfer_amount=Decimal("0"),
+            card_amex_amount=Decimal("0"),
+            card_mastercard_amount=Decimal("0"),
+            card_visa_amount=Decimal("0"),
+            cash_amount=Decimal("1000"),
+            cheque_date=OPEN_DATE,
+            cheque_amount=Decimal("0"),
+            payment_adjustments=Decimal("0"),
+            credit_amount=Decimal(credit_amount),
+            cupon_amount=Decimal("0"),
+            special=False,
+            created_date_time=datetime.combine(OPEN_DATE, time(12, 0)),
+            status=True,
+            tax_rate=Decimal("0"),
+            tax_amount=Decimal("0"),
+            discount_percent=Decimal("0"),
+            discount_amount=Decimal("0"),
+            subtotal=Decimal("1000"),
+            grand_total=Decimal("1000"),
+            paid_amount=Decimal("1000"),
+            balance_due=Decimal("0"),
+            payment_status="paid",
+            service_charge_rate=Decimal("0"),
+            service_charge_amount=Decimal("0"),
+        )
+        db.add(inv)
+        db.flush()
+        return inv
+
+    def _mk_return(self, invoice, *, refund_method, total="220.00", tax="20.00"):
+        return SimpleNamespace(
+            id=int(_uid(), 16) % 1_000_000 + 7_400_000,
+            sale_return_no=f"SR-{_uid()}",
+            invoice_id=invoice.id,
+            total_refund=Decimal(total),
+            tax_refund=Decimal(tax),
+            payment_method=refund_method,
+            added_date=OPEN_DATE,
+            branch_code=invoice.branch_code,
+        )
+
+    def _lines_by_code(self, db, je):
+        rows = (
+            db.query(ChartOfAccounts.account_code, GeneralLedger.debit_amount, GeneralLedger.credit_amount)
+            .join(GeneralLedger, GeneralLedger.account_id == ChartOfAccounts.id)
+            .filter(GeneralLedger.journal_entry_id == je.id)
+            .all()
+        )
+        debits = {r[0]: Decimal(str(r[1])) for r in rows if Decimal(str(r[1])) > 0}
+        credits = {r[0]: Decimal(str(r[2])) for r in rows if Decimal(str(r[2])) > 0}
+        return debits, credits
+
+    def test_cash_refund_credits_cash_without_tax_double_count(self, db, make_customer):
+        for code in self.REFUND_ACCOUNTS:
+            _ensure_account(db, code)
+        invoice = self._mk_invoice(db, make_customer, payment_method="cash")
+        ret = self._mk_return(invoice, refund_method="cash", total="220.00", tax="20.00")
+
+        je = SalesAccountingIntegration(db).post_sale_return_to_gl(ret, user_id=1)
+
+        assert je is not None
+        # The cash that leaves equals total_refund EXACTLY (tax inside, not on top).
+        assert je.total_debit == je.total_credit == Decimal("220.00")
+        debits, credits = self._lines_by_code(db, je)
+        assert credits == {"1010": Decimal("220.00")}
+        assert debits == {"4030": Decimal("200.00"), "2210": Decimal("20.00")}
+
+    def test_bank_refund_credits_bank(self, db, make_customer):
+        for code in self.REFUND_ACCOUNTS:
+            _ensure_account(db, code)
+        invoice = self._mk_invoice(db, make_customer, payment_method="cash")
+        ret = self._mk_return(invoice, refund_method="bank_transfer", total="100.00", tax="0")
+
+        je = SalesAccountingIntegration(db).post_sale_return_to_gl(ret, user_id=1)
+
+        assert je is not None
+        _, credits = self._lines_by_code(db, je)
+        assert credits == {"1020": Decimal("100.00")}
+
+    def test_credit_note_on_cash_sale_credits_liability_not_cash(self, db, make_customer):
+        for code in self.REFUND_ACCOUNTS:
+            _ensure_account(db, code)
+        invoice = self._mk_invoice(db, make_customer, payment_method="cash")
+        ret = self._mk_return(invoice, refund_method="credit_note", total="150.00", tax="0")
+
+        je = SalesAccountingIntegration(db).post_sale_return_to_gl(ret, user_id=1)
+
+        assert je is not None
+        _, credits = self._lines_by_code(db, je)
+        # Store credit owed to the customer — NO cash/bank movement.
+        assert credits == {"2530": Decimal("150.00")}
+
+    def test_credit_note_on_credit_sale_reduces_receivable(self, db, make_customer):
+        for code in self.REFUND_ACCOUNTS:
+            _ensure_account(db, code)
+        invoice = self._mk_invoice(db, make_customer, payment_method="credit", credit_amount="1000")
+        ret = self._mk_return(invoice, refund_method="credit_note", total="300.00", tax="0")
+
+        je = SalesAccountingIntegration(db).post_sale_return_to_gl(ret, user_id=1)
+
+        assert je is not None
+        _, credits = self._lines_by_code(db, je)
+        assert credits == {"1110": Decimal("300.00")}
+
+    def test_same_return_never_posts_twice(self, db, make_customer):
+        for code in self.REFUND_ACCOUNTS:
+            _ensure_account(db, code)
+        invoice = self._mk_invoice(db, make_customer, payment_method="cash")
+        ret = self._mk_return(invoice, refund_method="cash", total="50.00", tax="0")
+
+        integ = SalesAccountingIntegration(db)
+        first = integ.post_sale_return_to_gl(ret, user_id=1)
+        second = integ.post_sale_return_to_gl(ret, user_id=1)
+
+        assert first is not None
+        assert second is None  # idempotency guard
+
+
+class TestSupplierAdvanceReturnCashbook:
+    """A supplier advance *return* (the supplier refunds an unused advance) puts
+    real money back into cash/bank — GL Dr 1010/1020.  The advance-payment table
+    only has an INSERT trigger, so a return (an UPDATE) fires no trigger and the
+    cashbook would miss the inflow, breaking the day-end cashbook ↔ GL identity.
+    ``return_advance`` must therefore write an explicit money-in cashbook entry.
+    """
+
+    def test_return_advance_writes_cashbook_money_in(self, db, make_branch, make_supplier):
+        from app.modules.purchasing import schemas as pur_schemas
+        from app.modules.purchasing.models import SupplierAdvancePayment
+        from app.modules.purchasing.service import SupplierAdvancePaymentService
+
+        # Seed the cash/bank/supplier-advance accounts the GL posting touches.
+        for code in ("1010", "1020", "2020"):
+            _ensure_account(db, code)
+
+        branch = make_branch()
+        supplier = make_supplier()
+
+        advance = SupplierAdvancePayment(
+            advance_no=f"ADV-{_uid()}",
+            supplier_id=supplier.id,
+            payment_date=OPEN_DATE,
+            branch_code=branch.branch_code,
+            payment_method="cash",
+            original_amount=Decimal("1000.00"),
+            applied_amount=Decimal("0"),
+            remaining_amount=Decimal("1000.00"),
+            is_fully_applied=False,
+            returned_amount=Decimal("0"),
+        )
+        db.add(advance)
+        db.flush()
+
+        SupplierAdvancePaymentService(db).return_advance(
+            advance.id,
+            pur_schemas.SupplierAdvanceReturnCreate(
+                return_amount=Decimal("400.00"),
+                return_date=OPEN_DATE,
+                return_method="cash",
+            ),
+            user_id=1,
+        )
+
+        entry = (
+            db.query(CashbookEntryRecord)
+            .filter(
+                CashbookEntryRecord.source_table == "supplier_advance_payment",
+                CashbookEntryRecord.source_id == advance.id,
+                CashbookEntryRecord.entry_type == "supplier_advance_return",
+            )
+            .first()
+        )
+        assert entry is not None, "advance return must write a cashbook entry"
+        assert entry.money_in == Decimal("400.00")
+        assert entry.money_out == Decimal("0")
+        assert entry.branch_code == branch.branch_code
+
+    def test_return_advance_updates_returned_and_remaining(self, db, make_branch, make_supplier):
+        from app.modules.purchasing import schemas as pur_schemas
+        from app.modules.purchasing.models import SupplierAdvancePayment
+        from app.modules.purchasing.service import SupplierAdvancePaymentService
+
+        for code in ("1010", "1020", "2020"):
+            _ensure_account(db, code)
+
+        branch = make_branch()
+        supplier = make_supplier()
+        advance = SupplierAdvancePayment(
+            advance_no=f"ADV-{_uid()}",
+            supplier_id=supplier.id,
+            payment_date=OPEN_DATE,
+            branch_code=branch.branch_code,
+            payment_method="cash",
+            original_amount=Decimal("1000.00"),
+            applied_amount=Decimal("0"),
+            remaining_amount=Decimal("1000.00"),
+            is_fully_applied=False,
+            returned_amount=Decimal("0"),
+        )
+        db.add(advance)
+        db.flush()
+
+        updated = SupplierAdvancePaymentService(db).return_advance(
+            advance.id,
+            pur_schemas.SupplierAdvanceReturnCreate(
+                return_amount=Decimal("1000.00"),
+                return_date=OPEN_DATE,
+                return_method="cash",
+            ),
+            user_id=1,
+        )
+
+        assert updated.returned_amount == Decimal("1000.00")
+        assert updated.remaining_amount == Decimal("0")
+        assert updated.is_fully_applied is True
+

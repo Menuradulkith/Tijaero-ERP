@@ -110,9 +110,14 @@ def get_current_user_flexible(
         )
     from app.core.audit_context import current_user_id
     current_user_id.set(user_id)
+    # Eager load groups + permissions so RBAC checks work for flexible/iframe auth
     user = (
         db.query(User)
-        .options(joinedload(User.branches))
+        .options(
+            joinedload(User.branches),
+            selectinload(User.groups).selectinload(Group.permissions),
+            selectinload(User.permissions),
+        )
         .filter(User.id == user_id)
         .first()
     )
@@ -201,3 +206,29 @@ def require_permission(resource: str, action: str):
     from app.auth.rbac import require_permission as _rbac_require_permission
 
     return _rbac_require_permission(resource, action)
+
+
+def require_permission_flexible(resource: str, action: str):
+    """Like ``require_permission`` but also accepts a ``?token=`` query parameter
+    in addition to the Authorization header.
+
+    Used by document / print-preview endpoints that are loaded inside iframes
+    (which cannot set custom HTTP headers).  Enforces the same RBAC check so
+    sensitive documents (payroll, journal entries, invoices, …) are not
+    viewable by any authenticated user — only by users with the relevant
+    view permission.
+    """
+
+    def permission_checker(
+        current_user: User = Depends(get_current_user_flexible),
+    ) -> User:
+        from app.auth.rbac import user_has_permission
+
+        if not user_has_permission(current_user, resource, action):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied. Required: {resource}:{action}",
+            )
+        return current_user
+
+    return permission_checker

@@ -40,6 +40,7 @@ import {
   SortOption,
   TBranchFilter,
   TConfirmDialog,
+  TExportButton,
   TFilterPanel,
   TStatusChip,
   TSupplierFilter,
@@ -816,6 +817,46 @@ export default function PurchaseInvoicesPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="purchase_invoices"
+            headers={[
+              "Invoice No",
+              "Supplier Invoice No",
+              "Supplier",
+              "Invoice Date",
+              "Due Date",
+              "Payment Type",
+              "Subtotal",
+              "Tax",
+              "Discount",
+              "Total",
+              "Paid",
+              "Balance Due",
+              "Status",
+              "Payment Status",
+            ]}
+            rows={() =>
+              filteredInvoices.map((inv) => [
+                inv.invoice_no || "",
+                inv.supplier_invoice_no || "",
+                inv.supplier_name || "",
+                inv.supplier_invoice_date || "",
+                inv.due_date || "",
+                inv.payment_type || "",
+                inv.subtotal ?? 0,
+                inv.tax_amount ?? 0,
+                inv.discount_amount ?? 0,
+                inv.total_amount ?? 0,
+                inv.paid_amount ?? 0,
+                inv.balance_due ?? 0,
+                inv.status || "",
+                inv.payment_status || "",
+              ])
+            }
+            disabled={filteredInvoices.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

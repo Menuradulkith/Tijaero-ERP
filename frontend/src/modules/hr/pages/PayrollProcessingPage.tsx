@@ -40,6 +40,7 @@ import {
   Add as AddIcon,
 } from "@mui/icons-material";
 import {
+  handleApiError,
   showErrorToast,
   showSuccessToast,
   TButton,
@@ -146,7 +147,7 @@ export default function PayrollProcessingPage() {
       setRunDialogOpen(false);
     },
     onError: (err: any) => {
-      showErrorToast(err?.response?.data?.detail || "Failed to run payroll");
+      showErrorToast(handleApiError(err, "Failed to run payroll"));
     },
   });
 
@@ -158,7 +159,7 @@ export default function PayrollProcessingPage() {
       showSuccessToast("Payroll submitted for approval");
     },
     onError: (err: any) => {
-      showErrorToast(err?.response?.data?.detail || "Failed to submit");
+      showErrorToast(handleApiError(err, "Failed to submit"));
     },
   });
 
@@ -170,7 +171,7 @@ export default function PayrollProcessingPage() {
       showSuccessToast("Payroll batch approved");
     },
     onError: (err: any) => {
-      showErrorToast(err?.response?.data?.detail || "Failed to approve");
+      showErrorToast(handleApiError(err, "Failed to approve"));
     },
   });
 
@@ -183,7 +184,7 @@ export default function PayrollProcessingPage() {
       showSuccessToast("Payroll batch rejected and returned to draft");
     },
     onError: (err: any) => {
-      showErrorToast(err?.response?.data?.detail || "Failed to reject");
+      showErrorToast(handleApiError(err, "Failed to reject"));
     },
   });
 
@@ -197,7 +198,7 @@ export default function PayrollProcessingPage() {
       setPaymentDialogOpen(false);
     },
     onError: (err: any) => {
-      showErrorToast(err?.response?.data?.detail || "Failed to process payment");
+      showErrorToast(handleApiError(err, "Failed to process payment"));
     },
   });
 
@@ -211,7 +212,7 @@ export default function PayrollProcessingPage() {
       setStatutoryDialogOpen(false);
     },
     onError: (err: any) => {
-      showErrorToast(err?.response?.data?.detail || "Failed to process statutory");
+      showErrorToast(handleApiError(err, "Failed to process statutory"));
     },
   });
 
@@ -223,7 +224,7 @@ export default function PayrollProcessingPage() {
       showSuccessToast("Payroll cycle completed!");
     },
     onError: (err: any) => {
-      showErrorToast(err?.response?.data?.detail || "Failed to complete");
+      showErrorToast(handleApiError(err, "Failed to complete"));
     },
   });
 
@@ -235,7 +236,7 @@ export default function PayrollProcessingPage() {
       showSuccessToast("Payroll batch cancelled");
     },
     onError: (err: any) => {
-      showErrorToast(err?.response?.data?.detail || "Failed to cancel");
+      showErrorToast(handleApiError(err, "Failed to cancel"));
     },
   });
 

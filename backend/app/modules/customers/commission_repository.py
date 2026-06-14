@@ -112,10 +112,14 @@ class CommissionRepository:
         ).all()
 
     def get_pending_commissions_by_agent(self, db: Session, agent_id: int) -> List[CustomerAgentCommission]:
-        """Get approved but unpaid commissions for an agent"""
+        """Get approved but unpaid commissions for an agent (payable via a payment).
+
+        Only approved commissions are payable in the standard maker-checker flow,
+        so this intentionally excludes 'pending' (not yet approved) commissions.
+        """
         return db.query(CustomerAgentCommission).filter(
             CustomerAgentCommission.customer_agent_id == agent_id,
-            CustomerAgentCommission.status.in_(["pending", "approved"]),
+            CustomerAgentCommission.status == "approved",
         ).order_by(CustomerAgentCommission.created_at.asc()).all()
 
     def create_commission(self, db: Session, commission_data: dict) -> CustomerAgentCommission:

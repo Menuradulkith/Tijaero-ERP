@@ -31,6 +31,7 @@ class BrandBase(BaseModel):
     brand_name: str = Field(..., max_length=255)
     brand_code: str = Field(..., max_length=4)
     description: Optional[str] = None
+    active: bool = True
 
 class BrandCreate(BrandBase):
     pass
@@ -39,6 +40,7 @@ class BrandUpdate(BaseModel):
     brand_name: Optional[str] = Field(None, max_length=255)
     brand_code: Optional[str] = Field(None, max_length=4)
     description: Optional[str] = None
+    active: Optional[bool] = None
 
 class Brand(BrandBase, TijaeroBaseSchema):
     id: int

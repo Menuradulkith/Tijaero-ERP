@@ -386,7 +386,21 @@ def approve_payroll_batch(
 ):
     """Step 6: Approve payroll batch."""
     payroll_service = service.PayrollService(db)
-    return payroll_service.approve_batch(batch_id, data, current_user.id)
+    result = payroll_service.approve_batch(batch_id, data, current_user.id)
+
+    # Notify the batch creator that their submission was approved.
+    from app.modules.notifications import dispatcher as notify
+
+    if result.created_by and result.created_by != current_user.id:
+        notify.user(
+            result.created_by,
+            title="Payroll Approved",
+            message=f"Payroll batch {result.batch_no} was approved.",
+            notification_type=notify.SUCCESS,
+            category=notify.HR,
+            action_url="/hr/payroll",
+        )
+    return result
 
 
 @router.post(
@@ -402,7 +416,24 @@ def reject_payroll_batch(
 ):
     """Reject payroll batch back to draft."""
     payroll_service = service.PayrollService(db)
-    return payroll_service.reject_batch(batch_id, data, current_user.id)
+    result = payroll_service.reject_batch(batch_id, data, current_user.id)
+
+    # Notify the batch creator that their submission was returned to draft.
+    from app.modules.notifications import dispatcher as notify
+
+    if result.created_by and result.created_by != current_user.id:
+        notify.user(
+            result.created_by,
+            title="Payroll Rejected",
+            message=(
+                f"Payroll batch {result.batch_no} was rejected: "
+                f"{data.rejection_reason}"
+            ),
+            notification_type=notify.WARNING,
+            category=notify.HR,
+            action_url="/hr/payroll",
+        )
+    return result
 
 
 @router.post(

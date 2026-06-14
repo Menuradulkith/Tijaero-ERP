@@ -29,6 +29,7 @@ import { useState } from "react";
 
 import { PERMISSIONS, usePermission } from "@/auth/permissions";
 import { customersApi } from "@/modules/customers/api";
+import { showSuccessToast, showErrorToast, handleApiError } from "@/components/tijaero";
 import { exportToCSV } from "@/utils/csvExport";
 import DownloadIcon from "@mui/icons-material/FileDownload";
 import { commissionsApi, commissionPaymentsApi } from "@/modules/sales/commission-api";
@@ -54,6 +55,10 @@ export default function AgentCommissionsPage() {
     PERMISSIONS.AGENT_COMMISSIONS_CREATE.resource,
     PERMISSIONS.AGENT_COMMISSIONS_CREATE.action
   );
+  const canApprove = usePermission(
+    PERMISSIONS.COMMISSION_APPROVALS_APPROVE.resource,
+    PERMISSIONS.COMMISSION_APPROVALS_APPROVE.action
+  );
 
   const [filterAgent, setFilterAgent] = useState<number | "">("");
   const [filterStatus, setFilterStatus] = useState<string>("");
@@ -65,6 +70,7 @@ export default function AgentCommissionsPage() {
   const [payAmountOverride, setPayAmountOverride] = useState<number | null>(null);
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState("");
+  const [approvingId, setApprovingId] = useState<number | null>(null);
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
@@ -100,28 +106,51 @@ export default function AgentCommissionsPage() {
     setPayDialogOpen(true);
   };
 
+  const handleApprove = async (commission: CustomerAgentCommissionWithDetails) => {
+    setApprovingId(commission.id);
+    try {
+      await commissionsApi.approve(commission.id);
+      showSuccessToast("Commission approved. It can now be paid.");
+      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
+    } catch (err: any) {
+      showErrorToast(handleApiError(err, "Approval failed"));
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
   const handlePay = async () => {
     if (!payingCommission) return;
+    const maxAmount = payingCommission.commission_amount ?? 0;
+    const requested = payAmountOverride !== null ? payAmountOverride : maxAmount;
+    if (requested <= 0) {
+      setPayError("Payment amount must be greater than zero.");
+      return;
+    }
+    if (requested - maxAmount > 0.01) {
+      setPayError(`Amount cannot exceed the commission of Rs. ${fmtAmount(maxAmount)}.`);
+      return;
+    }
     setPaying(true);
     setPayError("");
-    const finalAmount = payAmountOverride !== null ? payAmountOverride : (payingCommission.commission_amount ?? 0);
     try {
       await commissionPaymentsApi.create({
         customer_agent_id: payingCommission.customer_agent_id,
         payment_date: new Date().toISOString().split("T")[0],
         payment_method: payMethod,
-        payment_amount: finalAmount,
+        payment_amount: requested,
         reference_number: payReference || undefined,
         branch_code: "MAIN",
         remarks: `Commission for Invoice ${payingCommission.invoice_no ?? payingCommission.invoice_id}`,
         items: [
-          { commission_id: payingCommission.id, paid_amount: finalAmount },
+          { commission_id: payingCommission.id, paid_amount: requested },
         ],
       });
       setPayDialogOpen(false);
+      showSuccessToast("Payment recorded \u2014 pending finance verification.");
       queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
     } catch (err: any) {
-      setPayError(err?.response?.data?.detail ?? err?.message ?? "Payment failed");
+      setPayError(handleApiError(err, "Payment failed"));
     } finally {
       setPaying(false);
     }
@@ -248,7 +277,7 @@ export default function AgentCommissionsPage() {
               <TableCell align="right">Commission</TableCell>
               <TableCell>Date</TableCell>
               <TableCell align="center">Status</TableCell>
-              {canPay && <TableCell align="center">Action</TableCell>}
+              {(canPay || canApprove) && <TableCell align="center">Action</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -306,21 +335,39 @@ export default function AgentCommissionsPage() {
                       variant={c.status === "paid" ? "filled" : "outlined"}
                     />
                   </TableCell>
-                  {canPay && (
+                  {(canPay || canApprove) && (
                     <TableCell align="center">
-                      {c.status === "pending" || c.status === "approved" ? (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="success"
-                          onClick={() => handleOpenPay(c)}
-                        >
-                          Pay
-                        </Button>
+                      {c.status === "pending" ? (
+                        canApprove ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="primary"
+                            disabled={approvingId === c.id}
+                            onClick={() => handleApprove(c)}
+                          >
+                            {approvingId === c.id ? "Approving\u2026" : "Approve"}
+                          </Button>
+                        ) : (
+                          <Typography variant="caption" color="warning.main">Awaiting approval</Typography>
+                        )
+                      ) : c.status === "approved" ? (
+                        canPay ? (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="success"
+                            onClick={() => handleOpenPay(c)}
+                          >
+                            Pay
+                          </Button>
+                        ) : (
+                          <Typography variant="caption" color="text.disabled">\u2014</Typography>
+                        )
                       ) : c.status === "cancelled" ? (
                         <Typography variant="caption" color="error">Cancelled</Typography>
                       ) : (
-                        <Typography variant="caption" color="text.disabled">—</Typography>
+                        <Typography variant="caption" color="text.disabled">\u2014</Typography>
                       )}
                     </TableCell>
                   )}
@@ -338,7 +385,7 @@ export default function AgentCommissionsPage() {
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle>Pay Commission</DialogTitle>
+        <DialogTitle>Record Commission Payment</DialogTitle>
         <DialogContent>
           {payingCommission && (
             <Box sx={{ pt: 1, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -349,6 +396,11 @@ export default function AgentCommissionsPage() {
                 <strong>{payingCommission.invoice_no ?? `#${payingCommission.invoice_id}`}</strong>
               </Typography>
 
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                This payment is created as <strong>pending</strong> and only posts to the
+                ledger after finance verifies it.
+              </Alert>
+
               {/* Editable amount */}
               <TextField
                 size="small"
@@ -357,13 +409,9 @@ export default function AgentCommissionsPage() {
                 value={payAmountOverride !== null ? payAmountOverride : (payingCommission.commission_amount ?? 0)}
                 onChange={(e) => setPayAmountOverride(parseFloat(e.target.value) || 0)}
                 fullWidth
-                inputProps={{ min: 0, step: 0.01 }}
+                inputProps={{ min: 0, max: payingCommission.commission_amount ?? 0, step: 0.01 }}
                 InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-                helperText={
-                  payAmountOverride !== null && payAmountOverride !== payingCommission.commission_amount
-                    ? `Recorded amount: Rs. ${fmtAmount(payingCommission.commission_amount ?? 0)}`
-                    : "Edit to override the recorded commission amount"
-                }
+                helperText={`Commission amount: Rs. ${fmtAmount(payingCommission.commission_amount ?? 0)} \u2014 partial payments allowed, cannot exceed this.`}
               />
 
               <TextField
@@ -400,7 +448,7 @@ export default function AgentCommissionsPage() {
             Cancel
           </Button>
           <Button variant="contained" color="success" onClick={handlePay} disabled={paying}>
-            {paying ? "Recording�" : "Confirm Payment"}
+            {paying ? "Recording\u2026" : "Confirm Payment"}
           </Button>
         </DialogActions>
       </Dialog>

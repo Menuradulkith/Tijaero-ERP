@@ -31,6 +31,7 @@ export default function BrandDialog({ open, onClose }: BrandDialogProps) {
       brand_name: "",
       brand_code: "",
       description: "",
+      active: true,
     },
   });
 
@@ -71,7 +72,12 @@ export default function BrandDialog({ open, onClose }: BrandDialogProps) {
                 rules={{ 
                   required: "Brand name is required",
                   minLength: { value: 2, message: "Name must be at least 2 characters" },
-                  maxLength: { value: 50, message: "Name cannot exceed 50 characters" }
+                  maxLength: { value: 50, message: "Name cannot exceed 50 characters" },
+                  validate: (value) => {
+                    const brands = queryClient.getQueryData<Brand[]>(["brands"]) || [];
+                    const exists = brands.some(b => b.brand_name.toLowerCase() === value.toLowerCase());
+                    return !exists || "Brand name already exists";
+                  },
                 }}
                 render={({ field, fieldState }) => (
                   <TextField

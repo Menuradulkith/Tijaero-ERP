@@ -187,10 +187,11 @@ def delete_category(
 def list_brands(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
+    active_only: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.BRAND_VIEW)),
 ):
-    return service.brand_service.get_all_brands(db, skip, limit)
+    return service.brand_service.get_all_brands(db, skip, limit, active_only)
 
 
 @router.get(

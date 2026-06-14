@@ -27,6 +27,7 @@ import {
   TDetailSkeleton,
   TBranchFilter,
   TFilterPanel,
+  TExportButton,
   fmtLKR,
 } from "@/components/tijaero";
 
@@ -335,6 +336,25 @@ export default function CreditPaymentsPage() {
       title="Credit Payments"
       onRefresh={refetch}
       isLoading={isLoading}
+      headerActions={
+        <TExportButton
+          filename={`credit_payments_${new Date().toISOString().split("T")[0]}`}
+          headers={["ID", "Customer", "Invoice No", "Amount", "Credit Terms", "Due Date", "Status", "Created Date"]}
+          rows={() =>
+            filteredPayments.map((p) => [
+              p.id,
+              p.customer_name || `Customer #${p.customer_id ?? ""}`,
+              p.invoice_no || "",
+              Number(p.amount || 0),
+              p.credit_terms || "",
+              p.due_date || "",
+              p.status || "",
+              p.created_date || "",
+            ])
+          }
+          disabled={filteredPayments.length === 0}
+        />
+      }
       masterPanel={masterPanel}
       detailPanel={detailPanel}
     />
