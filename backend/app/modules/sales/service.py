@@ -644,6 +644,57 @@ class SalesService:
         # For inclusive pricing, normalize subtotal to net
         net_subtotal = subtotal / (Decimal('1') + tax_rate / Decimal('100')) if is_tax_invoice and tax_rate > 0 else subtotal
         
+        # ── Server-side coupon validation — never trust the client-sent amount ──
+        coupon_id_input = getattr(invoice_data, 'cupon_id', None)
+        if coupon_amount > 0 and not coupon_id_input:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A coupon discount was sent without a coupon. Please re-apply the coupon.",
+            )
+        if coupon_id_input and coupon_amount > 0:
+            from app.modules.customers.models import CustomerCuponCodes
+            from app.modules.customers.service import coupon_service
+            from app.modules.customers import schemas as customer_schemas
+
+            coupon_row = db.query(CustomerCuponCodes).filter(
+                CustomerCuponCodes.id == coupon_id_input
+            ).first()
+            if not coupon_row:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Coupon not found",
+                )
+            coupon_validation = coupon_service.validate_coupon(
+                db,
+                customer_schemas.CouponValidationRequest(
+                    coupon_code=coupon_row.cupon_code,
+                    customer_id=invoice_data.customer_id,
+                    invoice_subtotal=net_subtotal,
+                    line_items=[
+                        customer_schemas.LineItemForCoupon(
+                            product_id=i.product_id,
+                            quantity=i.quantity,
+                            selling_price=Decimal(str(i.selling_price)),
+                        )
+                        for i in invoice_data.items
+                    ],
+                ),
+            )
+            if not coupon_validation.valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Coupon cannot be applied: {coupon_validation.message}",
+                )
+            max_coupon_discount = Decimal(str(coupon_validation.calculated_discount or 0))
+            if coupon_amount > max_coupon_discount + Decimal("0.01"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Coupon discount (Rs. {coupon_amount:,.2f}) exceeds the allowed "
+                        f"discount for this coupon (Rs. {max_coupon_discount:,.2f})"
+                    ),
+                )
+        
         # Calculate coupon discount percentage (applied first on net subtotal)
         coupon_discount_percent = (coupon_amount / net_subtotal * 100) if net_subtotal > 0 else Decimal("0")
         # Calculate amount after coupon for invoice discount percentage
@@ -854,6 +905,7 @@ class SalesService:
             'cupon_id', 'cupon_amount',  # We'll set these explicitly below
             'gift_voucher_id', 'gift_voucher_amount',  # We'll handle voucher separately
             'voucher_redemptions',  # Array field - not stored in Invoice table
+            'agent_commission_rate', 'agent_commission_amount',  # Drive the commission entry, not Invoice columns
             'credit_terms', 'override_credit_validation'
         })
         
@@ -1109,28 +1161,56 @@ class SalesService:
             
             # Get barcode from item_dict (keep it for reference)
             barcode = item_dict.get('barcode', None)
-            sales_stock_id = None
+            quantity_req = int(item_dict.get('quantity') or 1)
             
-            # Find and link the sales stock item if barcode provided
+            # Resolve the physical stock units this line consumes.
+            allocated_units: list = []
             if barcode:
                 # Lock the stock row to prevent two invoices reserving the same item
                 stock_item = db.query(SalesStock).filter(
                     SalesStock.barcode == barcode,
                     SalesStock.status == StockStatus.AVAILABLE
                 ).with_for_update().first()
-                
                 if stock_item:
-                    sales_stock_id = stock_item.id
-                    item_dict['sales_stock_id'] = sales_stock_id
-                    
-                    # Update stock status based on approval status
-                    if invoice_dict['approval_status'] == DocumentStatus.COMPLETED:
-                        # Cash/Card/Cheque orders - mark as sold immediately
-                        stock_item.status = StockStatus.SOLD
-                        stock_item.is_active = False
-                    elif invoice_dict['approval_status'] in [DocumentStatus.PENDING_APPROVAL, 'pending_bank_verification']:
-                        # Credit orders or bank transfers - reserve stock until approved/verified
-                        stock_item.status = StockStatus.RESERVED
+                    allocated_units = [stock_item]
+            else:
+                # No barcode scanned: auto-allocate real units. Without this,
+                # nothing ever marked stock sold for barcode-less lines, so the
+                # same unit could be sold forever (sequentially AND in races).
+                # SKIP LOCKED makes two concurrent sales of the last unit
+                # serialise: the loser sees fewer rows and gets a clean 409.
+                allocated_units = (
+                    db.query(SalesStock)
+                    .filter(
+                        SalesStock.product_id == item_dict['product_id'],
+                        SalesStock.status == StockStatus.AVAILABLE,
+                        SalesStock.is_active == True,
+                    )
+                    .order_by(SalesStock.id)
+                    .with_for_update(skip_locked=True)
+                    .limit(quantity_req)
+                    .all()
+                )
+                if len(allocated_units) < quantity_req:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=(
+                            f"Only {len(allocated_units)} unit(s) of product ID "
+                            f"{item_dict['product_id']} are available right now "
+                            f"({quantity_req} requested). Another sale may have just "
+                            f"taken the remaining stock."
+                        ),
+                    )
+            
+            # Update each allocated unit's status based on approval status
+            for unit in allocated_units:
+                if invoice_dict['approval_status'] == DocumentStatus.COMPLETED:
+                    # Cash/Card/Cheque orders - mark as sold immediately
+                    unit.status = StockStatus.SOLD
+                    unit.is_active = False
+                elif invoice_dict['approval_status'] in [DocumentStatus.PENDING_APPROVAL, 'pending_bank_verification']:
+                    # Credit orders or bank transfers - reserve stock until approved/verified
+                    unit.status = StockStatus.RESERVED
             
             # Calculate line total with item discount
             gross_line_total = Decimal(str(item_dict['quantity'])) * Decimal(str(item_dict['selling_price']))
@@ -1141,35 +1221,55 @@ class SalesService:
             line_total = gross_line_total - item_discount_amount
             item_dict['line_total'] = float(line_total)
             
-            item = InvoiceItems(**item_dict)
-            db.add(item)
-            db.flush()
+            # Persist rows. Barcode lines keep their single row; barcode-less
+            # lines store one row per allocated unit so every unit is
+            # traceable and restorable on approve/cancel/delete/return.
+            created_rows: list = []  # (InvoiceItems, SalesStock | None)
+            if barcode or not allocated_units:
+                item_dict['sales_stock_id'] = allocated_units[0].id if allocated_units else None
+                item = InvoiceItems(**item_dict)
+                db.add(item)
+                db.flush()
+                created_rows.append((item, allocated_units[0] if allocated_units else None))
+            else:
+                unit_gross = Decimal(str(item_dict['selling_price']))
+                unit_discount = unit_gross * (item_discount_percent / Decimal('100'))
+                for unit in allocated_units:
+                    row = dict(item_dict)
+                    row['quantity'] = 1
+                    row['barcode'] = unit.barcode
+                    row['sales_stock_id'] = unit.id
+                    row['discount_amount'] = float(unit_discount)
+                    row['line_total'] = float(unit_gross - unit_discount)
+                    item = InvoiceItems(**row)
+                    db.add(item)
+                    db.flush()
+                    created_rows.append((item, unit))
             
-            # Create InvoiceItemsBarcode link if we have both barcode and GRN item
-            if barcode and sales_stock_id:
-                # Get the good_received_note from sales_stock
-                stock_item = db.query(SalesStock).filter(SalesStock.id == sales_stock_id).first()
-                if stock_item and stock_item.good_received_note_id:
-                    # Get the GRN note number
-                    from app.modules.purchasing.models import GoodReceivedItems, GoodReceivedNote
-                    grn = db.query(GoodReceivedNote).filter(
-                        GoodReceivedNote.id == stock_item.good_received_note_id
+            # Create InvoiceItemsBarcode links for every row backed by a unit
+            for item, unit in created_rows:
+                if unit is None or not unit.good_received_note_id:
+                    continue
+                # Get the GRN note number
+                from app.modules.purchasing.models import GoodReceivedItems, GoodReceivedNote
+                grn = db.query(GoodReceivedNote).filter(
+                    GoodReceivedNote.id == unit.good_received_note_id
+                ).first()
+                
+                if grn:
+                    # Find the GRN item for this barcode using the note number
+                    grn_item = db.query(GoodReceivedItems).filter(
+                        GoodReceivedItems.good_received_note == grn.good_received_no,
+                        GoodReceivedItems.barcode == unit.barcode
                     ).first()
                     
-                    if grn:
-                        # Find the GRN item for this barcode using the note number
-                        grn_item = db.query(GoodReceivedItems).filter(
-                            GoodReceivedItems.good_received_note == grn.good_received_no,
-                            GoodReceivedItems.barcode == barcode
-                        ).first()
-                        
-                        if grn_item:
-                            barcode_link = InvoiceItemsBarcode(
-                                created_date=tz.now(),
-                                good_received_items_id=grn_item.id,
-                                invoice_items_id=item.id
-                            )
-                            db.add(barcode_link)
+                    if grn_item:
+                        barcode_link = InvoiceItemsBarcode(
+                            created_date=tz.now(),
+                            good_received_items_id=grn_item.id,
+                            invoice_items_id=item.id
+                        )
+                        db.add(barcode_link)
         
         # Create approval record for credit sales orders
         if is_credit_payment:
@@ -1236,13 +1336,41 @@ class SalesService:
                     CustomerGiftVoucher.id == redemption.voucher_id
                 ).with_for_update().first()
                 if not voucher:
-                    continue
+                    # The redeemed amount was already subtracted from the
+                    # invoice total — silently skipping would record a payment
+                    # that never happened.
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Gift voucher {redemption.voucher_id} not found",
+                    )
                     
                 # Verify voucher hasn't been used already
                 if voucher.status != "active":
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Voucher {voucher.barcode_no} has already been used"
+                    )
+                
+                # Verify the voucher has not silently expired (status is only
+                # flipped to 'expired' when somebody validates it)
+                from dateutil.relativedelta import relativedelta
+                voucher_expiry = voucher.date + relativedelta(months=voucher.valid_period_in_months or 12)
+                if tz.today() > voucher_expiry:
+                    voucher.status = "expired"
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Voucher {voucher.barcode_no} expired on {voucher_expiry}",
+                    )
+                
+                # The redeemed amount can never exceed what the voucher holds
+                amount_requested = Decimal(str(redemption.amount_to_redeem))
+                if amount_requested > Decimal(str(voucher.balance)) + Decimal("0.01"):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Voucher {voucher.barcode_no} balance is Rs. {voucher.balance:,.2f}; "
+                            f"cannot redeem Rs. {amount_requested:,.2f}"
+                        ),
                     )
                 
                 # Create voucher usage record
@@ -1278,6 +1406,26 @@ class SalesService:
                         detail=f"Voucher {voucher.barcode_no} has already been used"
                     )
                 
+                # Verify the voucher has not silently expired
+                from dateutil.relativedelta import relativedelta
+                voucher_expiry = voucher.date + relativedelta(months=voucher.valid_period_in_months or 12)
+                if tz.today() > voucher_expiry:
+                    voucher.status = "expired"
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Voucher {voucher.barcode_no} expired on {voucher_expiry}",
+                    )
+                
+                # The redeemed amount can never exceed what the voucher holds
+                if gift_voucher_amount > Decimal(str(voucher.balance)) + Decimal("0.01"):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Voucher {voucher.barcode_no} balance is Rs. {voucher.balance:,.2f}; "
+                            f"cannot redeem Rs. {gift_voucher_amount:,.2f}"
+                        ),
+                    )
+                
                 # Create voucher usage record
                 voucher_usage = VoucherUsage(
                     voucher_id=gift_voucher_id,
@@ -1294,7 +1442,13 @@ class SalesService:
                 voucher.claimed_invoice_no = invoice_data.invoice_no
         
         # =================================================================
-        # Auto-create commission if invoice has a customer agent (Scenario 17)
+        # Auto-create commission from the sales order (Scenario 17)
+        #
+        # The agent commission entry is owned by the sales order: the agent is
+        # assigned here, so the commission is generated here too. The rate/amount
+        # assigned on the order win; otherwise we fall back to the agent's default
+        # profile rate. The entry is created whenever an agent is assigned and a
+        # positive commission results, and always starts 'pending' (approval gate).
         # =================================================================
         customer_agent_id = getattr(invoice_data, 'customer_agent_id', None)
         if customer_agent_id:
@@ -1303,23 +1457,47 @@ class SalesService:
                 CustomerModel.id == customer_agent_id,
                 CustomerModel.is_customer_agent == True
             ).first()
-            
-            if agent and agent.commission_rate:
+
+            if agent:
                 from app.modules.customers.commission_models import CustomerAgentCommission as CommissionModel
-                commission_rate = Decimal(str(agent.commission_rate))
-                commission_amount = Decimal(str(grand_total)) * (commission_rate / Decimal("100"))
-                
-                commission = CommissionModel(
-                    invoice_id=invoice.id,
-                    customer_agent_id=customer_agent_id,
-                    represented_customer_id=invoice_data.customer_id,
-                    invoice_amount=grand_total,
-                    commission_type="PERCENT",
-                    commission_rate=commission_rate,
-                    commission_amount=commission_amount,
-                    status=DocumentStatus.PENDING,
-                )
-                db.add(commission)
+
+                order_rate = getattr(invoice_data, 'agent_commission_rate', None)
+                order_amount = getattr(invoice_data, 'agent_commission_amount', None)
+
+                # Effective rate: order-assigned rate wins, else agent default.
+                effective_rate = None
+                if order_rate is not None:
+                    effective_rate = Decimal(str(order_rate))
+                elif agent.commission_rate:
+                    effective_rate = Decimal(str(agent.commission_rate))
+
+                # Resolve the commission amount + type from the order assignment.
+                if order_amount is not None and Decimal(str(order_amount)) > 0:
+                    commission_type = "AMOUNT"
+                    commission_amount = Decimal(str(order_amount))
+                    commission_rate = effective_rate  # informational, may be None
+                elif effective_rate is not None and effective_rate > 0:
+                    commission_type = "PERCENT"
+                    commission_rate = effective_rate
+                    commission_amount = Decimal(str(grand_total)) * (commission_rate / Decimal("100"))
+                else:
+                    commission_type = None
+                    commission_rate = None
+                    commission_amount = Decimal("0")
+
+                if commission_amount > 0:
+                    commission = CommissionModel(
+                        invoice_id=invoice.id,
+                        customer_agent_id=customer_agent_id,
+                        represented_customer_id=invoice_data.customer_id,
+                        invoice_amount=grand_total,
+                        commission_type=commission_type,
+                        commission_rate=commission_rate,
+                        commission_amount=commission_amount,
+                        status=DocumentStatus.PENDING,
+                    )
+                    db.add(commission)
+
         
         # =================================================================
         # Scenario 30: Auto-post to General Ledger for paid invoices
@@ -1554,15 +1732,155 @@ class SalesService:
         
         return repository.sales_repository.get_by_id(db, invoice.id)
     
+    def _release_invoice_instruments(self, db: Session, invoice, user_id: int = 0, for_delete: bool = False):
+        """Give back every payment instrument an invoice consumed at creation.
+
+        Called when an invoice is cancelled or deleted so the customer does
+        not permanently lose gift-voucher money, coupon allowance or applied
+        advance balance — and so no agent commission stays payable for a sale
+        that never happened. Runs inside the caller's transaction (no commit).
+        """
+        from dateutil.relativedelta import relativedelta
+        from app.modules.customers.models import (
+            CustomerGiftVoucher,
+            VoucherUsage,
+            CustomerCuponCodes,
+            CouponUsage,
+            CustomerAdvancePayments,
+        )
+        from app.modules.customers.commission_models import CustomerAgentCommission
+
+        # ── 1. Gift vouchers: restore balance, re-activate, drop usage rows ──
+        voucher_usages = db.query(VoucherUsage).filter(
+            VoucherUsage.invoice_id == invoice.id
+        ).all()
+        for usage in voucher_usages:
+            voucher = db.query(CustomerGiftVoucher).filter(
+                CustomerGiftVoucher.id == usage.voucher_id
+            ).with_for_update().first()
+            if voucher:
+                restored = Decimal(str(voucher.balance or 0)) + Decimal(str(usage.amount_used or 0))
+                voucher.balance = min(restored, Decimal(str(voucher.amount)))
+                expiry = voucher.date + relativedelta(months=voucher.valid_period_in_months or 12)
+                voucher.status = "active" if tz.today() <= expiry else "expired"
+                voucher.claimed_date = None
+                voucher.claimed_invoice_no = None
+            db.delete(usage)
+
+        # ── 2. Coupons: free the usage slots ──
+        coupon_usages = db.query(CouponUsage).filter(
+            CouponUsage.invoice_id == invoice.id
+        ).all()
+        if coupon_usages:
+            for coupon_id in {u.coupon_id for u in coupon_usages}:
+                coupon = db.query(CustomerCuponCodes).filter(
+                    CustomerCuponCodes.id == coupon_id
+                ).with_for_update().first()
+                if coupon:
+                    rows = sum(1 for u in coupon_usages if u.coupon_id == coupon_id)
+                    was_at_limit = (coupon.usage_count or 0) >= (coupon.limit_by_usage or 0)
+                    coupon.usage_count = max(0, (coupon.usage_count or 0) - rows)
+                    # Re-activate only when the deactivation was certainly the
+                    # automatic usage-limit one and the coupon is still in date.
+                    if (
+                        was_at_limit
+                        and not coupon.active
+                        and coupon.usage_count < (coupon.limit_by_usage or 0)
+                        and coupon.valid_until_date >= tz.today()
+                    ):
+                        coupon.active = True
+            for usage in coupon_usages:
+                db.delete(usage)
+
+        # ── 3. Customer advance: restore balance + reverse the GL application ──
+        if invoice.customer_advance_payments_id:
+            from app.modules.finance.accounting_models import JournalEntry
+
+            appl_je = db.query(JournalEntry).filter(
+                JournalEntry.reference_type == "CustomerAdvanceApplication",
+                JournalEntry.reference_id == invoice.id,
+            ).first()
+            if appl_je:
+                applied = Decimal(str(appl_je.total_debit or 0))
+                if applied > 0:
+                    advance = db.query(CustomerAdvancePayments).filter(
+                        CustomerAdvancePayments.id == invoice.customer_advance_payments_id
+                    ).with_for_update().first()
+                    if advance:
+                        advance.applied_amount = max(
+                            Decimal("0"),
+                            Decimal(str(advance.applied_amount or 0)) - applied,
+                        )
+                        advance.remaining_amount = (
+                            Decimal(str(advance.payment_amount))
+                            - Decimal(str(advance.applied_amount))
+                        )
+                        advance.is_fully_applied = advance.remaining_amount <= 0
+                        try:
+                            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                            PurchaseExpensePayrollGL(db).post_customer_advance_application_reversal_to_gl(
+                                invoice, advance, applied, user_id
+                            )
+                        except Exception as gl_err:
+                            logger.warning(
+                                "Advance application GL reversal failed for invoice %s: %s",
+                                invoice.invoice_no, gl_err,
+                            )
+            else:
+                logger.warning(
+                    "Invoice %s has an advance link but no application JE; "
+                    "cannot determine the applied amount to restore.",
+                    invoice.invoice_no,
+                )
+
+        # ── 4. Agent commissions: never leave one payable for a dead sale ──
+        commissions = db.query(CustomerAgentCommission).filter(
+            CustomerAgentCommission.invoice_id == invoice.id
+        ).all()
+        for commission in commissions:
+            if commission.status == "paid":
+                if for_delete:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            "This invoice has a PAID agent commission and cannot be "
+                            "deleted. Recover the commission first."
+                        ),
+                    )
+                logger.warning(
+                    "Invoice %s cancelled but its agent commission %s is already paid; "
+                    "manual recovery required.",
+                    invoice.invoice_no, commission.id,
+                )
+            elif for_delete:
+                db.delete(commission)
+            else:
+                commission.status = "cancelled"
+
     def delete_invoice(self, db: Session, invoice_id: int):
         invoice = self.get_invoice(db, invoice_id)
+        
+        # Completed/approved invoices have payments, GL postings and possibly
+        # sale returns hanging off them — they must never be hard-deleted.
+        if invoice.approval_status in [DocumentStatus.COMPLETED, DocumentStatus.APPROVED]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Completed or approved invoices cannot be deleted. "
+                    "Cancel the order or create a sale return instead."
+                ),
+            )
+        
+        # Give back everything the order consumed (vouchers, coupon allowance,
+        # advance balance) and drop its pending commissions before deleting.
+        self._release_invoice_instruments(db, invoice, for_delete=True)
         
         # Restore sales stock for items that were sold (lock rows to prevent concurrent modification)
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
         for item in items:
             if item.sales_stock_id:
                 stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
-                if stock_item and stock_item.status == StockStatus.SOLD:
+                if stock_item and stock_item.status in (StockStatus.SOLD, StockStatus.RESERVED):
                     # Restore the stock item to available
                     stock_item.status = StockStatus.AVAILABLE
                     stock_item.is_active = True
@@ -1745,6 +2063,11 @@ class SalesService:
             if credit_payment:
                 credit_payment.status = DocumentStatus.CANCELLED
         
+        # Give back everything the order consumed: gift vouchers, coupon
+        # allowance and applied advance balance — and cancel its pending
+        # agent commissions so nothing stays payable for a dead sale.
+        self._release_invoice_instruments(db, invoice, user_id=user_id)
+        
         invoice.status = False
         invoice.approval_status = DocumentStatus.CANCELLED
         
@@ -1804,9 +2127,50 @@ class SalesService:
                 detail=f"Cannot create return for invoice with status: {invoice.approval_status}"
             )
         
+        # ── Over-return guards: what has already been returned on this invoice? ──
+        active_return_filter = SaleReturn.status.notin_(
+            [DocumentStatus.REJECTED, DocumentStatus.CANCELLED]
+        )
+        prior_refunds = db.query(
+            func.coalesce(func.sum(SaleReturn.total_refund), 0)
+        ).filter(
+            SaleReturn.invoice_id == invoice.id,
+            active_return_filter,
+        ).scalar() or 0
+
+        prior_item_rows = (
+            db.query(
+                SaleReturnItems.invoice_item_id,
+                func.coalesce(func.sum(SaleReturnItems.quantity), 0),
+            )
+            .join(SaleReturn, SaleReturn.id == SaleReturnItems.sale_return_id)
+            .filter(
+                SaleReturn.invoice_id == invoice.id,
+                active_return_filter,
+                SaleReturnItems.invoice_item_id.isnot(None),
+            )
+            .group_by(SaleReturnItems.invoice_item_id)
+            .all()
+        )
+        already_returned_qty = {row[0]: int(row[1]) for row in prior_item_rows}
+
+        prior_barcodes = {
+            bc
+            for (bc,) in db.query(SaleReturnItems.barcode)
+            .join(SaleReturn, SaleReturn.id == SaleReturnItems.sale_return_id)
+            .filter(
+                SaleReturn.invoice_id == invoice.id,
+                active_return_filter,
+                SaleReturnItems.barcode.isnot(None),
+            )
+            .all()
+        }
+
         # Validate each return item
         subtotal = Decimal("0")
         validated_items = []
+        requested_qty_by_item: dict = {}
+        seen_request_barcodes: set = set()
         
         for item_data in sale_return_data.items:
             # Find the original invoice item
@@ -1844,9 +2208,58 @@ class SalesService:
                         SalesStock.id == invoice_item.sales_stock_id
                     ).first()
             
+            # ── The item must actually belong to the invoice being returned ──
+            identifier = item_data.barcode or f"invoice item #{item_data.invoice_item_id}"
+            if invoice_item is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Item '{identifier}' was not sold on invoice "
+                        f"{invoice.invoice_no} and cannot be returned against it."
+                    ),
+                )
+
+            # ── Barcode-tracked units are one-of-a-kind: no duplicates, no re-returns ──
+            if item_data.barcode:
+                if item_data.barcode in seen_request_barcodes:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Barcode '{item_data.barcode}' appears more than once in this return.",
+                    )
+                seen_request_barcodes.add(item_data.barcode)
+                if item_data.barcode in prior_barcodes:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Barcode '{item_data.barcode}' has already been returned for this invoice.",
+                    )
+
             # Calculate return price (use sold price if not specified)
             return_price = Decimal(str(item_data.return_price or item_data.sold_price))
             quantity = item_data.quantity
+
+            # ── Refund price can never exceed what the customer actually paid ──
+            sold_unit_price = Decimal(str(invoice_item.selling_price))
+            if return_price > sold_unit_price + Decimal("0.01"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Return price (Rs. {return_price:,.2f}) for '{identifier}' exceeds "
+                        f"its sold price (Rs. {sold_unit_price:,.2f})."
+                    ),
+                )
+
+            # ── Quantity cap: sold − already returned − already in this request ──
+            prior_qty = already_returned_qty.get(invoice_item.id, 0)
+            pending_qty = requested_qty_by_item.get(invoice_item.id, 0)
+            if prior_qty + pending_qty + quantity > (invoice_item.quantity or 0):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Cannot return {quantity} of '{identifier}': sold {invoice_item.quantity}, "
+                        f"already returned {prior_qty + pending_qty}."
+                    ),
+                )
+            requested_qty_by_item[invoice_item.id] = pending_qty + quantity
             
             validated_items.append({
                 'item_data': item_data,
@@ -1863,6 +2276,20 @@ class SalesService:
         tax_rate = Decimal(str(invoice.tax_rate or 0))
         tax_refund = subtotal * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
         total_refund = subtotal + tax_refund
+        
+        # ── Cumulative refunds may never exceed the invoice's goods value ──
+        # (subtotal + tax — independent of HOW it was paid: cash, voucher,
+        #  credit note or advance)
+        invoice_goods_value = Decimal(str(invoice.subtotal or 0)) + Decimal(str(invoice.tax_amount or 0))
+        if Decimal(str(prior_refunds)) + total_refund > invoice_goods_value + Decimal("0.01"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Total refunds (Rs. {Decimal(str(prior_refunds)) + total_refund:,.2f}) would exceed "
+                    f"the invoice value (Rs. {invoice_goods_value:,.2f}). "
+                    f"Already refunded: Rs. {Decimal(str(prior_refunds)):,.2f}."
+                ),
+            )
         
         # Create sale return record
         return_dict = sale_return_data.model_dump(exclude={'items'})
@@ -1918,6 +2345,113 @@ class SalesService:
         db.commit()
         db.refresh(sale_return)
         return sale_return
+    
+    def create_full_invoice_return(
+        self,
+        db: Session,
+        invoice_id: int,
+        payment_method: str,
+        return_reason: str = None,
+        remark: str = None,
+        good_received_locations_id: int = None,
+        user_id: int = None,
+    ):
+        """Create a sale return covering every not-yet-returned unit on an invoice.
+
+        One-click "Return Invoice" / cancel-entire-invoice convenience. It assembles
+        a full-quantity ``SaleReturnCreate`` for all remaining items and runs it
+        through the standard ``create_sale_return`` path, so the same over-return
+        guards, maker-checker approval and reversing GL/cashbook postings apply on
+        processing. Returns the pending ``SaleReturn``.
+        """
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Invoice not found",
+            )
+
+        if invoice.approval_status not in ['completed', 'approved']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Cannot return an invoice with status '{invoice.approval_status}'. "
+                    f"Pending/unapproved orders should be cancelled instead."
+                ),
+            )
+
+        # How much of each line has already been returned (ignore rejected/cancelled)?
+        active_return_filter = SaleReturn.status.notin_(
+            [DocumentStatus.REJECTED, DocumentStatus.CANCELLED]
+        )
+        prior_rows = (
+            db.query(
+                SaleReturnItems.invoice_item_id,
+                func.coalesce(func.sum(SaleReturnItems.quantity), 0),
+            )
+            .join(SaleReturn, SaleReturn.id == SaleReturnItems.sale_return_id)
+            .filter(
+                SaleReturn.invoice_id == invoice.id,
+                active_return_filter,
+                SaleReturnItems.invoice_item_id.isnot(None),
+            )
+            .group_by(SaleReturnItems.invoice_item_id)
+            .all()
+        )
+        already_returned = {row[0]: int(row[1]) for row in prior_rows}
+
+        items = db.query(InvoiceItems).filter(
+            InvoiceItems.invoice_id == invoice.id
+        ).all()
+
+        return_items = []
+        resolved_location = good_received_locations_id
+        for inv_item in items:
+            remaining = (inv_item.quantity or 0) - already_returned.get(inv_item.id, 0)
+            if remaining <= 0:
+                continue
+
+            barcode = inv_item.barcode
+            if (not barcode or resolved_location is None) and inv_item.sales_stock_id:
+                stock = db.query(SalesStock).filter(
+                    SalesStock.id == inv_item.sales_stock_id
+                ).first()
+                if stock:
+                    if not barcode:
+                        barcode = stock.barcode
+                    if resolved_location is None and getattr(stock, "location_id", None):
+                        resolved_location = stock.location_id
+
+            return_items.append(
+                schemas.SaleReturnItemCreate(
+                    barcode=barcode or "",
+                    return_price=float(inv_item.selling_price or 0),
+                    sold_price=float(inv_item.selling_price or 0),
+                    branch_code=invoice.branch_code,
+                    invoice_item_id=inv_item.id,
+                    product_id=inv_item.product_id,
+                    quantity=remaining,
+                    condition="good",
+                    restockable=True,
+                )
+            )
+
+        if not return_items:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This invoice has already been fully returned.",
+            )
+
+        sale_return_data = schemas.SaleReturnCreate(
+            branch_code=invoice.branch_code,
+            invoice_id=invoice.id,
+            good_received_locations_id=resolved_location or 1,
+            payment_method=payment_method,
+            remark=remark or f"Full invoice return for {invoice.invoice_no}",
+            return_reason=return_reason or "customer_changed_mind",
+            items=return_items,
+        )
+        return self.create_sale_return(db, sale_return_data, user_id=user_id)
     
     def approve_sale_return(self, db: Session, return_id: int, user_id: int):
         """
@@ -2015,10 +2549,13 @@ class SalesService:
         if not sale_return:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sale return not found")
 
-        if sale_return.status not in [DocumentStatus.PENDING, DocumentStatus.APPROVED]:
+        if sale_return.status != DocumentStatus.APPROVED:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot process sale return with status: {sale_return.status}"
+                detail=(
+                    f"Only approved sale returns can be processed (current status: {sale_return.status}). "
+                    f"Approve it via the Approvals dashboard first."
+                ),
             )
 
         # Lock the original invoice to prevent concurrent payment updates
@@ -2040,7 +2577,7 @@ class SalesService:
                     stock = db.query(SalesStock).filter(
                         SalesStock.id == item.sales_stock_id
                     ).with_for_update().first()
-                    if stock:
+                    if stock and stock.status == StockStatus.SOLD:
                         stock.status = StockStatus.AVAILABLE
                         stock.is_active = True
                         stock.returned_date = tz.now()
@@ -2051,7 +2588,7 @@ class SalesService:
                     stock = db.query(SalesStock).filter(
                         SalesStock.barcode == item.barcode
                     ).with_for_update().first()
-                    if stock:
+                    if stock and stock.status == StockStatus.SOLD:
                         stock.status = StockStatus.AVAILABLE
                         stock.is_active = True
                         stock.returned_date = tz.now()
@@ -2201,6 +2738,12 @@ class SalesService:
             logging.getLogger(__name__).error(
                 f"GL posting failed for sale return {sale_return.sale_return_no}: {e}"
             )
+
+        # Cashbook hook: cash/bank/cheque refunds move real money out of the
+        # till — mirror the GL credit (1010/1020) so the day-end cashbook ↔ GL
+        # identity holds. Credit-note refunds move no money → no cashbook entry.
+        if (sale_return.payment_method or "").lower() in ("cash", "bank_transfer", "cheque"):
+            self._ensure_cashbook_entry_for_sale_return(db, sale_return, invoice)
         
         db.commit()
         
@@ -2227,6 +2770,66 @@ class SalesService:
             "message": f"Sale return processed successfully. {items_restocked} items restocked. {items_to_company_assets} items saved to company assets."
         }
     
+    def _ensure_cashbook_entry_for_sale_return(self, db: Session, sale_return, invoice) -> None:
+        """Record cashbook money-out for a cash/bank/cheque sale-return refund.
+
+        Mirrors the GL credit to 1010/1020 so the day-end cashbook ↔ GL
+        reconciliation identity holds. Idempotent per sale_return id; runs in
+        the caller's transaction (no commit here). Credit-note refunds move no
+        money and must NOT reach this helper.
+        """
+        try:
+            from app.modules.finance.models import CashbookEntryRecord
+
+            existing = db.query(CashbookEntryRecord.id).filter(
+                CashbookEntryRecord.source_table == "sale_return",
+                CashbookEntryRecord.source_id == sale_return.id,
+            ).first()
+            if existing:
+                return
+
+            total_refund = Decimal(str(sale_return.total_refund or 0))
+            if total_refund <= 0:
+                return
+
+            customer_name = None
+            if invoice is not None and invoice.customer_id:
+                from app.modules.customers.models import Customer
+                row = db.query(Customer.customer_name).filter(
+                    Customer.id == invoice.customer_id
+                ).first()
+                customer_name = row[0] if row else None
+
+            db.execute(
+                text("""
+                    SELECT fn_insert_cashbook_entry(
+                        :entry_type, :transaction_date, :source_table, :source_id,
+                        :reference_no, :description, :party_name, :payment_method,
+                        :money_in, :money_out, :branch_code
+                    )
+                """),
+                {
+                    "entry_type": "sale_return_refund",
+                    "transaction_date": datetime.combine(
+                        sale_return.refund_date or sale_return.added_date or tz.today(),
+                        datetime.min.time(),
+                    ),
+                    "source_table": "sale_return",
+                    "source_id": sale_return.id,
+                    "reference_no": sale_return.sale_return_no,
+                    "description": f"Sale Return {sale_return.sale_return_no} - refund to customer",
+                    "party_name": customer_name or (f"Customer #{invoice.customer_id}" if invoice else "Customer"),
+                    "payment_method": sale_return.payment_method,
+                    "money_in": Decimal("0"),
+                    "money_out": total_refund,
+                    "branch_code": sale_return.branch_code,
+                },
+            )
+        except Exception as cashbook_err:
+            logging.getLogger(__name__).warning(
+                f"Cashbook posting for sale return {sale_return.sale_return_no} failed (non-blocking): {cashbook_err}"
+            )
+
     def delete_sale_return(self, db: Session, return_id: int):
         """Delete a pending sale return."""
         sale_return = self.get_sale_return(db, return_id)

@@ -28,6 +28,7 @@ import {
     SelectableListItem,
     SortOption,
     TDetailSkeleton,
+    TExportButton,
     TPageSkeleton,
     useMasterDetailState,
     GENDER_CHOICES,
@@ -691,7 +692,7 @@ export default function UsersPage() {
                   helperText={passwordError || "Min 8 chars, uppercase, lowercase, number, special char"}
                 />
               )}
-              {isEditing && (
+              {isEditing && !isCreating && (
                 <TextField
                   label="Reset Password (Optional)"
                   type="password"
@@ -927,6 +928,34 @@ export default function UsersPage() {
         isLoading={loading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="users"
+            headers={[
+              "Username",
+              "First Name",
+              "Last Name",
+              "Email",
+              "Employee ID",
+              "Branches",
+              "Roles",
+              "Active",
+            ]}
+            rows={() =>
+              filteredUsers.map((u) => [
+                u.username || "",
+                u.first_name || "",
+                u.last_name || "",
+                u.email || "",
+                u.employee_id || "",
+                (u.branches || []).map((b) => b.branch_name).join(", "),
+                (u.groups || []).map((g) => g.name).join(", "),
+                u.is_active ? "Yes" : "No",
+              ])
+            }
+            disabled={filteredUsers.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

@@ -41,6 +41,7 @@ import {
   showSuccessToast,
   TFilterPanel,
   TSearchableSelect,
+  TExportButton,
   type SortOption,
   TDetailSkeleton,
   TConfirmDialog,
@@ -516,6 +517,30 @@ export default function AccountingPeriodsPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="accounting_periods"
+            headers={[
+              "Fiscal Year",
+              "Period No",
+              "Period Name",
+              "Start Date",
+              "End Date",
+              "Status",
+            ]}
+            rows={() =>
+              filteredPeriods.map((p) => [
+                p.fiscal_year ?? "",
+                p.period_number ?? "",
+                p.period_name || "",
+                p.start_date || "",
+                p.end_date || "",
+                p.status || "",
+              ])
+            }
+            disabled={filteredPeriods.length === 0}
+          />
+        }
       />
 
       {/* Generate Dialog */}

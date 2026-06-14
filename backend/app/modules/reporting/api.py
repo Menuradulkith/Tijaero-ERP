@@ -5,6 +5,7 @@ from app.auth.dependencies import (
     get_current_active_user,
     get_current_user_flexible,
     get_user_branch_filter,
+    require_permission_flexible,
 )
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
@@ -184,7 +185,7 @@ def get_quick_stats(
 @router.get("/documents/purchase-order/{po_id}", response_class=HTMLResponse)
 def get_purchase_order_report(
     po_id: int,
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.PURCHASE_ORDER_VIEW)),
     db: Session = Depends(get_db),
 ):
 
@@ -197,7 +198,7 @@ def get_purchase_order_report(
 @router.get("/documents/grn/{grn_id}", response_class=HTMLResponse)
 def get_grn_report(
     grn_id: int,
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.GRN_VIEW)),
     db: Session = Depends(get_db),
 ):
 
@@ -210,7 +211,7 @@ def get_grn_report(
 @router.get("/documents/purchase-return/{return_id}", response_class=HTMLResponse)
 def get_purchase_return_report(
     return_id: int,
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.PURCHASE_RETURN_VIEW)),
     db: Session = Depends(get_db),
 ):
 
@@ -227,7 +228,7 @@ def get_quotation_report(
     show_discount: bool = Query(True),
     show_signatures: bool = Query(True),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.QUOTATION_VIEW)),
     db: Session = Depends(get_db),
 ):
 
@@ -249,7 +250,7 @@ def get_credit_note_report(
     show_header: bool = Query(True),
     show_signatures: bool = Query(True),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.SALES_RETURN_VIEW)),
     db: Session = Depends(get_db),
 ):
     """Generate a credit note report for a processed sale return."""
@@ -271,7 +272,7 @@ def get_invoice_report(
     show_discount: bool = Query(True),
     show_signatures: bool = Query(True),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.SALES_ORDER_VIEW)),
     db: Session = Depends(get_db),
 ):
     """Generate a printable invoice report."""
@@ -294,7 +295,7 @@ def get_invoice_report_pdf(
     show_discount: bool = Query(True),
     show_signatures: bool = Query(True),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.SALES_ORDER_VIEW)),
     db: Session = Depends(get_db),
 ):
     """Generate a PDF invoice report."""
@@ -365,7 +366,7 @@ def get_payroll_report(
     show_header: bool = Query(True),
     show_signatures: bool = Query(True),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.PAYROLL_VIEW)),
     db: Session = Depends(get_db),
 ):
     """Generate a payroll summary report."""
@@ -386,7 +387,7 @@ def get_expense_report(
     show_header: bool = Query(True),
     show_signatures: bool = Query(True),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.EXPENSE_VIEW)),
     db: Session = Depends(get_db),
 ):
     """Generate a printable expense report."""
@@ -407,7 +408,7 @@ def get_itn_report(
     show_header: bool = Query(True),
     show_signatures: bool = Query(True),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.ITN_VIEW)),
     db: Session = Depends(get_db),
 ):
     """Generate a printable item transfer note report."""
@@ -428,7 +429,7 @@ def get_voucher_report(
     show_header: bool = Query(True),
     show_signatures: bool = Query(True),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.GIFT_VOUCHER_VIEW)),
     db: Session = Depends(get_db),
 ):
     """Generate a printable gift voucher report."""
@@ -449,7 +450,7 @@ def get_journal_entry_report(
     show_header: bool = Query(True),
     show_signatures: bool = Query(True),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User = Depends(require_permission_flexible(*Permissions.JOURNAL_ENTRY_VIEW)),
     db: Session = Depends(get_db),
 ):
     """Generate a printable journal entry report."""

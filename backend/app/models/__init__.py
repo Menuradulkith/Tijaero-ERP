@@ -50,6 +50,7 @@ from app.modules.hr.models import Reimbursements, ReimbursementItem, SalaryDeduc
 from app.modules.hr.sales_commission_models import MonthlyBranchSalesSummary, SalesOfficerMonthlyCommission
 from app.modules.inventory.models import CompanyAssets, SalesStock
 from app.modules.marketing.models import AdvanceReceipt, WebPosts
+from app.modules.notifications.models import Notification, NotificationRecipient
 from app.modules.products.models import Category, ItemsBrand, MinimumPrice, Product
 from app.modules.purchasing.models import (
     GoodReceivedItems,
@@ -128,6 +129,8 @@ __all__ = [
     "Settings",
     "UserNotification",
     "UserPreferences",
+    "Notification",
+    "NotificationRecipient",
     "Report",
     "ReportExecution",
     "GLPostingFailure",

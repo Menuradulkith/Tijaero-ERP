@@ -38,6 +38,7 @@ import {
   showSuccessToast,
   TFilterPanel,
   TSearchableSelect,
+  TExportButton,
   type SortOption,
   TDetailSkeleton,
   useMasterDetailState,
@@ -665,6 +666,32 @@ export default function ChartOfAccountsPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="chart_of_accounts"
+            headers={[
+              "Account Code",
+              "Account Name",
+              "Type",
+              "Category",
+              "Normal Balance",
+              "System Account",
+              "Active",
+            ]}
+            rows={() =>
+              filteredAccounts.map((a) => [
+                a.account_code || "",
+                a.account_name || "",
+                a.account_type || "",
+                a.account_category || "",
+                a.normal_balance || "",
+                a.is_system_account ? "Yes" : "No",
+                a.is_active ? "Yes" : "No",
+              ])
+            }
+            disabled={filteredAccounts.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

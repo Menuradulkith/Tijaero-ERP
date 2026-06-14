@@ -64,9 +64,9 @@ export const productsApi = {
 };
 
 export const categoriesApi = {
-  getAll: async (skip = 0, limit = 100000) => {
+  getAll: async (skip = 0, limit = 100000, activeOnly = false) => {
     const response = await apiClient.get<Category[]>("/inventory/categories/", {
-      params: { skip, limit },
+      params: { skip, limit, active_only: activeOnly },
     });
     return response.data;
   },
@@ -101,9 +101,9 @@ export const categoriesApi = {
 };
 
 export const brandsApi = {
-  getAll: async (skip = 0, limit = 100000) => {
+  getAll: async (skip = 0, limit = 100000, activeOnly = false) => {
     const response = await apiClient.get<Brand[]>("/inventory/brands/", {
-      params: { skip, limit },
+      params: { skip, limit, active_only: activeOnly },
     });
     return response.data;
   },

@@ -48,6 +48,7 @@ import {
   showSuccessToast,
   SortOption,
   TDetailSkeleton,
+  TExportButton,
   TBranchFilter,
   TFilterPanel,
   TSupplierFilter,
@@ -1091,6 +1092,36 @@ export default function AdvancePaymentsPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename={advanceType === "customer" ? "customer_advance_payments" : "supplier_advance_payments"}
+            headers={
+              advanceType === "customer"
+                ? ["Payment No", "Amount", "Method", "Created", "Remarks"]
+                : ["Advance No", "Supplier", "Original", "Applied", "Remaining", "Method", "Created"]
+            }
+            rows={() =>
+              advanceType === "customer"
+                ? filteredAdvances.map((adv: AdvanceRecord) => [
+                    adv.advance_payments_no || "",
+                    adv.payment_amount ?? 0,
+                    adv.payment_method || "",
+                    adv.created_at || "",
+                    adv.remarks || "",
+                  ])
+                : filteredAdvances.map((adv: AdvanceRecord) => [
+                    adv.advance_no || "",
+                    adv.supplier_name || "",
+                    adv.original_amount ?? 0,
+                    adv.applied_amount ?? 0,
+                    adv.remaining_amount ?? 0,
+                    adv.payment_method || "",
+                    adv.created_at || "",
+                  ])
+            }
+            disabled={filteredAdvances.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

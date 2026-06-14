@@ -51,6 +51,7 @@ import {
   SortOption,
   TCurrency,
   TDetailSkeleton,
+  TExportButton,
   TSearchableSelect,
   TStatCard,
   TStatusChip,
@@ -813,6 +814,36 @@ export default function CommissionPaymentsPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="commission_payments"
+            headers={[
+              "Payment No",
+              "Agent",
+              "Amount",
+              "Payment Date",
+              "Method",
+              "Reference",
+              "Bank",
+              "Status",
+              "Created",
+            ]}
+            rows={() =>
+              filteredPayments.map((p) => [
+                p.payment_no || "",
+                p.agent_name || "",
+                p.payment_amount ?? 0,
+                p.payment_date || "",
+                p.payment_method || "",
+                p.reference_number || "",
+                p.bank_name || "",
+                p.status || "",
+                p.created_at || "",
+              ])
+            }
+            disabled={filteredPayments.length === 0}
+          />
+        }
       />
     </>
   );

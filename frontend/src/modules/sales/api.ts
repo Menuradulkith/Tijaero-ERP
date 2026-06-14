@@ -68,6 +68,20 @@ export const salesApi = {
     return response.data;
   },
 
+  // Return an entire completed/approved invoice (creates a full sale return)
+  returnFull: async (
+    id: number,
+    data: {
+      payment_method: string;
+      return_reason?: string;
+      remark?: string;
+      good_received_locations_id?: number;
+    }
+  ) => {
+    const response = await apiClient.post<SaleReturn>(`/sales/${id}/return-full`, data);
+    return response.data;
+  },
+
   // Get sales statistics
   getStatistics: async (branchCode?: string) => {
     const response = await apiClient.get<SalesStats>("/sales/statistics", {

@@ -47,6 +47,7 @@ import {
   FormSection,
   EmptyState,
   fmtLKR,
+  TExportButton,
   TFilterPanel,
   TBranchFilter,
   TPrintButton,
@@ -1061,6 +1062,32 @@ export default function ItemTransferNotesPage() {
           queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
           queryClient.invalidateQueries({ queryKey: ["locations"] });
         }}
+        headerActions={
+          <TExportButton
+            filename="item_transfer_notes"
+            headers={[
+              "Transfer Note",
+              "From Location",
+              "To Location",
+              "Branch",
+              "Created Date",
+              "Status",
+              "Remark",
+            ]}
+            rows={() =>
+              filteredITNs.map((itn) => [
+                itn.item_transfer_note || "",
+                itn.from_location_name || "",
+                itn.to_location_name || "",
+                itn.branch_code || "",
+                itn.created_date || "",
+                itn.status || "",
+                itn.remark || "",
+              ])
+            }
+            disabled={filteredITNs.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

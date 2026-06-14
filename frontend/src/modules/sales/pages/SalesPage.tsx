@@ -55,6 +55,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import {
     Alert,
     Autocomplete,
@@ -388,6 +389,7 @@ export default function SalesPage() {
   const canDelete = usePermission("sales_orders", "delete");
   const canUpdate = usePermission("sales_orders", "update");
   const canApprove = usePermission("so_approvals", "approve");
+  const canCreateReturn = usePermission("sales_returns", "create");
 
   // Confirm dialogs
   const deleteDialog = useTConfirmDialog();
@@ -973,6 +975,36 @@ export default function SalesPage() {
       state.setSelectedItem(updatedInvoice as Invoice);
     },
   });
+
+  // Return-entire-invoice ("Return Invoice") state + mutation
+  const [returnInvoiceDialogOpen, setReturnInvoiceDialogOpen] = useState(false);
+  const [returnPaymentMethod, setReturnPaymentMethod] = useState("credit_note");
+  const [returnReason, setReturnReason] = useState("customer_changed_mind");
+
+  const returnFullMutation = useCrudMutation({
+    mutationFn: (vars: {
+      id: number;
+      data: { payment_method: string; return_reason?: string };
+    }) => salesApi.returnFull(vars.id, vars.data),
+    invalidateQueryKeys: [["sales"], ["sales-approved"], ["sale-returns"]],
+    successMessage:
+      "Return invoice created. It now needs approval and processing to post the reversing financial records.",
+    errorMessage: "Failed to create return invoice",
+    onSuccess: () => {
+      setReturnInvoiceDialogOpen(false);
+    },
+  });
+
+  const handleReturnInvoice = () => {
+    if (!state.selectedItem) return;
+    returnFullMutation.mutate({
+      id: state.selectedItem.id,
+      data: {
+        payment_method: returnPaymentMethod,
+        return_reason: returnReason,
+      },
+    });
+  };
 
   // Pending invoice for selection after discard confirm
   const [_pendingInvoice, setPendingInvoice] = useState<Invoice | null>(null);
@@ -2042,6 +2074,25 @@ export default function SalesPage() {
             setPrintDialogOpen(true);
           }}
         />
+        {canCreateReturn &&
+          (state.selectedItem.approval_status === "completed" ||
+            state.selectedItem.approval_status === "approved") && (
+            <Tooltip title="Return the entire invoice (creates a full sale return for approval)">
+              <Button
+                size="small"
+                variant="outlined"
+                color="warning"
+                startIcon={<AssignmentReturnIcon />}
+                onClick={() => {
+                  setReturnPaymentMethod("credit_note");
+                  setReturnReason("customer_changed_mind");
+                  setReturnInvoiceDialogOpen(true);
+                }}
+              >
+                Return Invoice
+              </Button>
+            </Tooltip>
+          )}
       </Box>
     ) : undefined;
 
@@ -2648,16 +2699,46 @@ export default function SalesPage() {
                   (c) => c.id === state.formData.customer_agent_id,
                 ) || null
               }
-              onChange={(_, newValue) =>
+              onChange={(_, newValue) => {
                 state.setFormData({
                   ...state.formData,
                   customer_agent_id: newValue?.id || undefined,
-                })
-              }
+                });
+                // Assign the commission from the order: pre-fill with the
+                // agent's default rate (editable below), clear when removed.
+                setManualCommissionRate(
+                  newValue?.commission_rate != null
+                    ? Number(newValue.commission_rate)
+                    : null,
+                );
+                setManualCommissionAmount(null);
+              }}
               renderInput={(params) => (
                 <TextField {...params} label="Customer Agent (Optional)" />
               )}
             />
+            {state.formData.customer_agent_id && (
+              <TextField
+                size="small"
+                type="number"
+                label="Commission Rate"
+                value={manualCommissionRate ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setManualCommissionRate(v === "" ? null : Math.max(0, Math.min(100, parseFloat(v) || 0)));
+                  setManualCommissionAmount(null);
+                }}
+                inputProps={{ min: 0, max: 100, step: 0.1 }}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                helperText={
+                  manualCommissionRate != null && manualCommissionRate > 0
+                    ? `Commission: Rs. ${fmtLKR(calcOrderTotals().grandTotal * (manualCommissionRate / 100))} — created as pending for approval`
+                    : "Assign the agent commission rate for this order"
+                }
+              />
+            )}
           </FormSection>
 
           {/* Customer Credit Information Panel */}
@@ -5280,6 +5361,68 @@ export default function SalesPage() {
         confirmColor="error"
       />
       <TConfirmDialog {...creditWarningDialog.dialogProps} />
+
+      {/* Return Entire Invoice Dialog */}
+      <Dialog
+        open={returnInvoiceDialogOpen}
+        onClose={() => setReturnInvoiceDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Return Entire Invoice</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            This creates a full sale return for{" "}
+            <strong>{state.selectedItem?.invoice_no}</strong> covering every
+            not-yet-returned item. It must be approved and processed before the
+            reversing financial records are posted.
+          </Alert>
+          <TextField
+            select
+            fullWidth
+            size="small"
+            label="Refund Method"
+            value={returnPaymentMethod}
+            onChange={(e) => setReturnPaymentMethod(e.target.value)}
+            sx={{ mb: 2 }}
+          >
+            <MenuItem value="credit_note">Store Credit (Credit Note)</MenuItem>
+            <MenuItem value="cash">Cash Refund</MenuItem>
+            <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
+            <MenuItem value="cheque">Cheque</MenuItem>
+          </TextField>
+          <TextField
+            select
+            fullWidth
+            size="small"
+            label="Return Reason"
+            value={returnReason}
+            onChange={(e) => setReturnReason(e.target.value)}
+          >
+            <MenuItem value="customer_changed_mind">
+              Customer Changed Mind
+            </MenuItem>
+            <MenuItem value="defective">Defective Product</MenuItem>
+            <MenuItem value="wrong_item">Wrong Item Delivered</MenuItem>
+            <MenuItem value="damaged">Damaged in Transit</MenuItem>
+            <MenuItem value="other">Other</MenuItem>
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReturnInvoiceDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleReturnInvoice}
+            disabled={returnFullMutation.isPending}
+            startIcon={<AssignmentReturnIcon />}
+          >
+            Create Return
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Invoice Details Dialog */}
       <InvoiceDetailsDialog

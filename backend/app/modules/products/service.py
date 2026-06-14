@@ -27,6 +27,13 @@ class ProductService:
                 detail=f"Product with item_code {product.item_code} already exists"
             )
             
+        existing_name = repository.product_repository.get_by_name(db, product.name)
+        if existing_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Product with name '{product.name}' already exists"
+            )
+            
         if product.selling_price is not None and product.selling_price < product.cost_price:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -47,6 +54,14 @@ class ProductService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Product with id {product_id} not found"
             )
+            
+        if product.name:
+            existing_name = repository.product_repository.get_by_name(db, product.name)
+            if existing_name and existing_name.id != product_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Product with name '{product.name}' already exists"
+                )
             
         new_cost_price = product.cost_price if product.cost_price is not None else curr_product.cost_price
         new_selling_price = product.selling_price if product.selling_price is not None else curr_product.selling_price
@@ -146,6 +161,12 @@ class CategoryService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Category with code '{category.category_code}' already exists"
             )
+        existing_name = repository.category_repository.get_by_name(db, category.name)
+        if existing_name:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Category with name '{category.name}' already exists"
+            )
         from sqlalchemy.exc import IntegrityError
         try:
             return repository.category_repository.create(db, category, user_id)
@@ -157,6 +178,26 @@ class CategoryService:
             )
     
     def update_category(self, db: Session, category_id: int, category: schemas.CategoryUpdate, user_id: int) -> schemas.Category:
+        curr_category = repository.category_repository.get_by_id(db, category_id)
+        if not curr_category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category with id {category_id} not found"
+            )
+        if category.category_code:
+            existing_code = repository.category_repository.get_by_code(db, category.category_code)
+            if existing_code and existing_code.id != category_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Category with code '{category.category_code}' already exists"
+                )
+        if category.name:
+            existing_name = repository.category_repository.get_by_name(db, category.name)
+            if existing_name and existing_name.id != category_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Category with name '{category.name}' already exists"
+                )
         updated_category = repository.category_repository.update(db, category_id, category, user_id)
         if not updated_category:
             raise HTTPException(
@@ -198,8 +239,8 @@ class BrandService:
             )
         return brand
     
-    def get_all_brands(self, db: Session, skip: int = 0, limit: int = 100) -> List[schemas.Brand]:
-        return repository.brand_repository.get_all(db, skip, limit)
+    def get_all_brands(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[schemas.Brand]:
+        return repository.brand_repository.get_all(db, skip, limit, active_only)
     
     def create_brand(self, db: Session, brand: schemas.BrandCreate) -> schemas.Brand:
         existing = repository.brand_repository.get_by_code(db, brand.brand_code)
@@ -207,6 +248,12 @@ class BrandService:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Brand with code '{brand.brand_code}' already exists"
+            )
+        existing_name = repository.brand_repository.get_by_name(db, brand.brand_name)
+        if existing_name:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Brand with name '{brand.brand_name}' already exists"
             )
         from sqlalchemy.exc import IntegrityError
         try:
@@ -219,6 +266,26 @@ class BrandService:
             )
     
     def update_brand(self, db: Session, brand_id: int, brand: schemas.BrandUpdate) -> schemas.Brand:
+        curr_brand = repository.brand_repository.get_by_id(db, brand_id)
+        if not curr_brand:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Brand with id {brand_id} not found"
+            )
+        if brand.brand_code:
+            existing_code = repository.brand_repository.get_by_code(db, brand.brand_code)
+            if existing_code and existing_code.id != brand_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Brand with code '{brand.brand_code}' already exists"
+                )
+        if brand.brand_name:
+            existing_name = repository.brand_repository.get_by_name(db, brand.brand_name)
+            if existing_name and existing_name.id != brand_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Brand with name '{brand.brand_name}' already exists"
+                )
         updated_brand = repository.brand_repository.update(db, brand_id, brand)
         if not updated_brand:
             raise HTTPException(

@@ -680,18 +680,24 @@ export default function PurchaseOrdersPage() {
     const navState = location.state as {
       createPOFromSupplier?: boolean;
       supplierId?: number;
+      creditDays?: number;
     } | null;
     
     if (navState?.createPOFromSupplier && navState.supplierId && !supplierNavHandled.current) {
       supplierNavHandled.current = true;
       startNewOrderInternal();
+      
+      const matchedSupplier = suppliers?.find((s: Supplier) => s.id === navState.supplierId);
+      const creditDays = matchedSupplier ? matchedSupplier.credit_days : (navState.creditDays ?? 0);
+
       setFormData(prev => ({
         ...prev,
         first_suppliers_id: navState.supplierId as number,
+        credit_date: creditDays,
       }));
       window.history.replaceState({}, document.title);
     }
-  }, [location.state, startNewOrderInternal, setFormData]);
+  }, [location.state, startNewOrderInternal, setFormData, suppliers]);
 
   // Check credit limit when supplier or amount changes
   const checkCreditLimit = useCallback(

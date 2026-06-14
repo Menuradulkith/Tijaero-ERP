@@ -309,6 +309,7 @@ export default function FinanceDashboard() {
     queryFn: () => bankDepositsApi.getAll({
       branch_code: branchCode || undefined,
       verified: false,
+      limit: 1000,
     }),
   });
 

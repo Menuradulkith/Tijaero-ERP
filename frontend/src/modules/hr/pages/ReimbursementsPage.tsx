@@ -56,6 +56,7 @@ import {
     TBranchFilter,
     TConfirmDialog,
     TCurrency,
+    TExportButton,
     TFilterPanel,
     TStatCard,
     TStatusChip,
@@ -1277,6 +1278,40 @@ export default function ReimbursementsPage() {
         icon={<ReceiptIcon />}
         masterPanel={renderListPanel()}
         detailPanel={isCreating ? renderCreateForm() : renderDetailView()}
+        headerActions={
+          <TExportButton
+            filename="reimbursements"
+            headers={[
+              "Reimbursement No",
+              "Employee ID",
+              "Employee",
+              "Branch",
+              "Claim Date",
+              "Type",
+              "Total Amount",
+              "Approved Amount",
+              "Paid Amount",
+              "Status",
+              "Payment Status",
+            ]}
+            rows={() =>
+              filteredItems.map((r) => [
+                r.reimbursement_no || "",
+                r.employee_id || "",
+                r.employee_name || "",
+                r.branch_code || "",
+                r.claim_date || "",
+                r.reimbursement_type || "",
+                r.total_amount ?? 0,
+                r.approved_amount ?? "",
+                r.paid_amount ?? "",
+                r.status || "",
+                r.payment_status || "",
+              ])
+            }
+            disabled={filteredItems.length === 0}
+          />
+        }
       />
 
       {/* ---- APPROVE DIALOG ---- */}

@@ -17,6 +17,7 @@ import {
   SortOption,
   TConfirmDialog,
   TDetailSkeleton,
+  TExportButton,
   TPrintButton,
   TPrintPreviewDialog,
   fmtLKR,
@@ -284,7 +285,41 @@ export default function PayrollPage() {
     <>
       <MasterDetailLayout title="Employee Payroll" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
         headerActions={
-          <TPrintButton documentType="payroll" documentId={0} tooltip="Print Payroll Report" onClick={() => setPrintDialogOpen(true)} />
+          <>
+            <TExportButton
+              filename="payroll"
+              headers={[
+                "Batch No",
+                "Employee ID",
+                "Employee",
+                "Month",
+                "Year",
+                "Basic Salary",
+                "Gross Salary",
+                "Total Deductions",
+                "Net Salary",
+                "Status",
+                "Payment Status",
+              ]}
+              rows={() =>
+                filtered.map((p) => [
+                  p.payroll_batch_no || "",
+                  p.employee_id || "",
+                  p.employee_name || "",
+                  p.payroll_month ?? "",
+                  p.payroll_year ?? "",
+                  p.basic_salary ?? 0,
+                  p.gross_salary ?? "",
+                  p.total_deductions ?? "",
+                  p.net_salary ?? "",
+                  p.status || "",
+                  p.payment_status || "",
+                ])
+              }
+              disabled={filtered.length === 0}
+            />
+            <TPrintButton documentType="payroll" documentId={0} tooltip="Print Payroll Report" onClick={() => setPrintDialogOpen(true)} />
+          </>
         }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

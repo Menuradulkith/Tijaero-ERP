@@ -528,3 +528,109 @@ class TestUnauthenticatedRejection:
     def test_sales_requires_auth(self, client):
         r = client.get("/api/v1/sales/statistics")
         assert r.status_code in (401, 403)
+
+
+# =========================================================================== #
+# COMMON APPROVALS — RBAC Validation
+# =========================================================================== #
+class TestCommonApprovalsAPI:
+    """Centralized approvals permission checks."""
+
+    def test_po_approver_can_approve(self, db, make_user, make_branch, make_supplier, api):
+        # Create prerequisites
+        branch = make_branch()
+        supplier = make_supplier()
+        
+        # Create a PO in draft/pending
+        from app.modules.purchasing.models import PurchasingOrder
+        from app.modules.common.models import Approvals
+        from datetime import date, datetime
+        
+        po = PurchasingOrder(
+            purchasing_order_no="TEST-PO-RBAC-1",
+            branch_code=branch.branch_code,
+            payment_method="cash",
+            purchasing_order_date=date.today(),
+            good_received_note_date=date.today(),
+            created_date=date.today(),
+            first_suppliers_id=supplier.id,
+            status="pending_approval",
+            added_date=datetime.utcnow(),
+        )
+        db.add(po)
+        db.flush()
+        
+        approval = Approvals(
+            approval_for=f"purchase_order:{po.id}:{po.purchasing_order_no}",
+            status="pending",
+            remark="PO needing approval",
+        )
+        db.add(approval)
+        db.flush()
+        
+        po.approval_id = approval.id
+        db.flush()
+        db.commit()
+        
+        # Create user with po_approvals:approve permission
+        _user, token = make_user(permissions=[("po_approvals", "approve")])
+        authed_client = api(token)
+        
+        # Approve request
+        r = authed_client.post(
+            f"/api/v1/common/approvals/{approval.id}/approve",
+            json={"remarks": "Looks good"}
+        )
+        assert r.status_code == 200
+        assert r.json()["status"] == "approved"
+        
+        # Verify PO status updated
+        db.refresh(po)
+        assert po.status == "approved"
+
+    def test_unauthorized_user_cannot_approve(self, db, make_user, make_branch, make_supplier, api):
+        # Create prerequisites
+        branch = make_branch()
+        supplier = make_supplier()
+        
+        # Create a PO in draft/pending
+        from app.modules.purchasing.models import PurchasingOrder
+        from app.modules.common.models import Approvals
+        from datetime import date, datetime
+        
+        po = PurchasingOrder(
+            purchasing_order_no="TEST-PO-RBAC-2",
+            branch_code=branch.branch_code,
+            payment_method="cash",
+            purchasing_order_date=date.today(),
+            good_received_note_date=date.today(),
+            created_date=date.today(),
+            first_suppliers_id=supplier.id,
+            status="pending_approval",
+            added_date=datetime.utcnow(),
+        )
+        db.add(po)
+        db.flush()
+        
+        approval = Approvals(
+            approval_for=f"purchase_order:{po.id}:{po.purchasing_order_no}",
+            status="pending",
+            remark="PO needing approval",
+        )
+        db.add(approval)
+        db.flush()
+        
+        po.approval_id = approval.id
+        db.flush()
+        db.commit()
+        
+        # Create user without po_approvals:approve permission (only view suppliers)
+        _user, token = make_user(permissions=[("suppliers", "view")])
+        authed_client = api(token)
+        
+        # Approve request should fail
+        r = authed_client.post(
+            f"/api/v1/common/approvals/{approval.id}/approve",
+            json={"remarks": "Try to approve"}
+        )
+        assert r.status_code == 403

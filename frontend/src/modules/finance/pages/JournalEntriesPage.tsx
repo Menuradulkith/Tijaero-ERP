@@ -56,6 +56,7 @@ import {
   TPrintButton,
   TPrintPreviewDialog,
   TSearchableSelect,
+  TExportButton,
   type SortOption,
   useMasterDetailState,
   modernTableStyles,
@@ -903,6 +904,25 @@ export default function JournalEntriesPage() {
           queryClient.invalidateQueries({ queryKey: ["journal-entry-detail"] });
         }}
         isLoading={isLoading}
+        headerActions={
+          <TExportButton
+            filename={`journal_entries_${new Date().toISOString().split("T")[0]}`}
+            headers={["JE No", "Date", "Description", "Total Debit", "Total Credit", "Status", "Reversed", "Branch"]}
+            rows={() =>
+              filteredEntries.map((e) => [
+                e.journal_entry_no || "",
+                e.entry_date || "",
+                e.description || "",
+                Number(e.total_debit || 0),
+                Number(e.total_credit || 0),
+                e.status || "",
+                e.is_reversed ? "Yes" : "No",
+                e.branch_code || "",
+              ])
+            }
+            disabled={filteredEntries.length === 0}
+          />
+        }
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />

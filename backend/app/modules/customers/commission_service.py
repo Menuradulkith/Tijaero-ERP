@@ -300,10 +300,22 @@ class CommissionService:
                 detail=f"Customer '{agent.customer_name}' is not registered as a customer agent"
             )
 
-        # Validate all commission items
+        # Validate all commission items.
+        #
+        # Standard maker-checker flow:
+        #   1. Commission must be APPROVED before it can be paid (approval gate).
+        #   2. The amount paid against a commission can never exceed its
+        #      outstanding balance (no overpayment).
+        #   3. The payment is created in 'pending' status. NO GL is posted and
+        #      the commission is NOT marked 'paid' yet - that only happens when
+        #      the payment is verified (see verify_payment). This guarantees an
+        #      unverified or cancelled payment never touches the ledger.
         total_items_amount = Decimal("0")
         for item in data.items:
-            commission = commission_repository.get_commission_by_id(db, item.commission_id)
+            # Lock the commission row to serialize concurrent payment creation
+            commission = db.query(CustomerAgentCommission).filter(
+                CustomerAgentCommission.id == item.commission_id
+            ).with_for_update().first()
             if not commission:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -314,15 +326,46 @@ class CommissionService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Commission {item.commission_id} does not belong to agent {data.customer_agent_id}"
                 )
-            if commission.status not in ["approved", "pending"]:
+            if commission.status != "approved":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Commission {item.commission_id} has status '{commission.status}' and cannot be paid"
+                    detail=(
+                        f"Commission {item.commission_id} is '{commission.status}'. "
+                        f"Only approved commissions can be paid - approve it first."
+                    )
                 )
-            total_items_amount += item.paid_amount
+
+            paid_amount = Decimal(str(item.paid_amount or 0))
+            if paid_amount <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Paid amount for commission {item.commission_id} must be greater than zero"
+                )
+
+            # Cap at the remaining balance - count every active (non-cancelled)
+            # payment item already recorded against this commission.
+            already_committed = db.query(
+                func.coalesce(func.sum(CustomerAgentCommissionPaymentItem.paid_amount), 0)
+            ).join(
+                CustomerAgentCommissionPayment,
+                CustomerAgentCommissionPaymentItem.payment_id == CustomerAgentCommissionPayment.id
+            ).filter(
+                CustomerAgentCommissionPaymentItem.commission_id == commission.id,
+                CustomerAgentCommissionPayment.status != "cancelled",
+            ).scalar()
+            remaining = Decimal(str(commission.commission_amount)) - Decimal(str(already_committed))
+            if paid_amount - remaining > Decimal("0.01"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Paid amount ({paid_amount}) for commission {item.commission_id} "
+                        f"exceeds the remaining balance ({remaining})."
+                    )
+                )
+            total_items_amount += paid_amount
 
         # Validate total payment matches items (with tolerance for floating point)
-        if abs(total_items_amount - data.payment_amount) > Decimal("0.01"):
+        if abs(total_items_amount - Decimal(str(data.payment_amount))) > Decimal("0.01"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Payment amount ({data.payment_amount}) does not match sum of items ({total_items_amount})"
@@ -332,38 +375,8 @@ class CommissionService:
         payment_data["created_by"] = created_by
         items_data = [item.model_dump() for item in data.items]
 
+        # Create the payment in 'pending' status. No ledger impact until verified.
         payment = commission_repository.create_payment(db, payment_data, items_data)
-
-        # ── GL Auto-Posting for immediate payment methods (cash) ─────────
-        try:
-            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
-            gl_service = PurchaseExpensePayrollGL(db)
-            gl_service.post_commission_payment_to_gl(payment, user_id=created_by)
-            db.commit()
-        except Exception as gl_err:
-            import logging as _logging
-            _logging.getLogger(__name__).warning(f"GL posting for commission payment failed (non-blocking): {gl_err}")
-            db.rollback()
-        # ─────────────────────────────────────────────────────────────────
-
-        # Update commission statuses to 'paid' for fully paid commissions
-        for item in data.items:
-            # Lock each commission row before updating status to prevent concurrent payment race
-            commission = db.query(CustomerAgentCommission).filter(
-                CustomerAgentCommission.id == item.commission_id
-            ).with_for_update().first()
-            if commission:
-                # Calculate total paid for this commission
-                total_paid = db.query(
-                    func.coalesce(func.sum(CustomerAgentCommissionPaymentItem.paid_amount), 0)
-                ).filter(
-                    CustomerAgentCommissionPaymentItem.commission_id == commission.id
-                ).scalar()
-
-                if total_paid >= commission.commission_amount:
-                    commission.status = "paid"
-                    db.commit()
-
         return payment
 
     def verify_payment(
@@ -372,15 +385,41 @@ class CommissionService:
         payment_id: int,
         verified_by: int,
     ) -> CustomerAgentCommissionPayment:
-        """Verify a payment"""
+        """Verify a payment.
+
+        This is the checker step of the maker-checker flow. Verifying a payment
+        is the only place that (a) posts the commission expense to the GL and
+        (b) marks fully-covered commissions as 'paid'.
+        """
         payment = commission_repository.verify_payment(db, payment_id, verified_by)
         if not payment:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Payment not found or is not in 'pending' status"
             )
-        
-        # ── GL Auto-Posting: Scenario 32 – Commission Payment Verified ─
+
+        # Mark commissions as 'paid' once their verified coverage reaches the
+        # full commission amount. Only verified payments count toward 'paid'.
+        for item in payment.items:
+            commission = db.query(CustomerAgentCommission).filter(
+                CustomerAgentCommission.id == item.commission_id
+            ).with_for_update().first()
+            if commission and commission.status == "approved":
+                total_verified = db.query(
+                    func.coalesce(func.sum(CustomerAgentCommissionPaymentItem.paid_amount), 0)
+                ).join(
+                    CustomerAgentCommissionPayment,
+                    CustomerAgentCommissionPaymentItem.payment_id == CustomerAgentCommissionPayment.id
+                ).filter(
+                    CustomerAgentCommissionPaymentItem.commission_id == commission.id,
+                    CustomerAgentCommissionPayment.status == "verified",
+                ).scalar()
+                if Decimal(str(total_verified)) >= Decimal(str(commission.commission_amount)):
+                    commission.status = "paid"
+        db.commit()
+
+        # ── GL Auto-Posting: Commission Payment Verified ────────────────
+        # Dr 5150 Commission Expense / Cr 1020 Bank (or 1010 Cash). Idempotent.
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
             gl_service = PurchaseExpensePayrollGL(db)
@@ -391,11 +430,18 @@ class CommissionService:
             logging.getLogger(__name__).warning(f"GL posting for commission payment {payment.payment_no} failed (non-blocking): {gl_err}")
             db.rollback()
         # ────────────────────────────────────────────────────────────────
-        
+
         return payment
 
     def cancel_payment(self, db: Session, payment_id: int) -> CustomerAgentCommissionPayment:
-        """Cancel a payment"""
+        """Cancel a pending payment.
+
+        Only 'pending' payments can be cancelled, and pending payments never
+        post to the GL nor mark commissions as 'paid', so there is no ledger
+        entry to reverse here. We still re-evaluate the linked commissions
+        defensively so any stale 'paid' status (e.g. legacy data) is corrected
+        back to 'approved' when verified coverage no longer reaches the total.
+        """
         payment = commission_repository.cancel_payment(db, payment_id)
         if not payment:
             raise HTTPException(
@@ -403,15 +449,23 @@ class CommissionService:
                 detail="Payment not found or is not in 'pending' status"
             )
 
-        # Revert commission statuses if needed
         for item in payment.items:
-            # Lock each commission row before reverting status to prevent concurrent race
             commission = db.query(CustomerAgentCommission).filter(
                 CustomerAgentCommission.id == item.commission_id
             ).with_for_update().first()
             if commission and commission.status == "paid":
-                commission.status = "approved"
-                db.commit()
+                total_verified = db.query(
+                    func.coalesce(func.sum(CustomerAgentCommissionPaymentItem.paid_amount), 0)
+                ).join(
+                    CustomerAgentCommissionPayment,
+                    CustomerAgentCommissionPaymentItem.payment_id == CustomerAgentCommissionPayment.id
+                ).filter(
+                    CustomerAgentCommissionPaymentItem.commission_id == commission.id,
+                    CustomerAgentCommissionPayment.status == "verified",
+                ).scalar()
+                if Decimal(str(total_verified)) < Decimal(str(commission.commission_amount)):
+                    commission.status = "approved"
+        db.commit()
 
         return payment
 

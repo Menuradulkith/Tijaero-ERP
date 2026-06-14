@@ -13,6 +13,10 @@ class ProductRepository:
         from sqlalchemy import func
         return db.query(Product).filter(func.lower(Product.item_code) == func.lower(item_code)).first()
     
+    def get_by_name(self, db: Session, name: str) -> Optional[Product]:
+        from sqlalchemy import func
+        return db.query(Product).filter(func.lower(Product.name) == func.lower(name)).first()
+    
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = True) -> List[Product]:
         query = db.query(Product)
         if active_only:
@@ -74,6 +78,10 @@ class CategoryRepository:
         from sqlalchemy import func
         return db.query(Category).filter(func.lower(Category.category_code) == func.lower(category_code)).first()
     
+    def get_by_name(self, db: Session, name: str) -> Optional[Category]:
+        from sqlalchemy import func
+        return db.query(Category).filter(func.lower(Category.name) == func.lower(name)).first()
+    
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Category]:
         query = db.query(Category)
         if active_only:
@@ -119,8 +127,15 @@ class BrandRepository:
         from sqlalchemy import func
         return db.query(ItemsBrand).filter(func.lower(ItemsBrand.brand_code) == func.lower(brand_code)).first()
     
-    def get_all(self, db: Session, skip: int = 0, limit: int = 100) -> List[ItemsBrand]:
-        return db.query(ItemsBrand).offset(skip).limit(limit).all()
+    def get_by_name(self, db: Session, brand_name: str) -> Optional[ItemsBrand]:
+        from sqlalchemy import func
+        return db.query(ItemsBrand).filter(func.lower(ItemsBrand.brand_name) == func.lower(brand_name)).first()
+    
+    def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[ItemsBrand]:
+        query = db.query(ItemsBrand)
+        if active_only:
+            query = query.filter(ItemsBrand.active == True)
+        return query.offset(skip).limit(limit).all()
     
     def create(self, db: Session, brand: BrandCreate) -> ItemsBrand:
         db_brand = ItemsBrand(**brand.dict())

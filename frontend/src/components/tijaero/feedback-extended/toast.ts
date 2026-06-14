@@ -43,6 +43,21 @@ const defaultOptions: ToastOptions = {
 };
 
 /**
+ * Derive a stable toast id from a message so identical error messages collapse
+ * into a single toast instead of stacking. react-hot-toast replaces (rather than
+ * adds) a toast whenever a new one shares an existing id. This lets the global
+ * Axios interceptor and a component/mutation handler both report the SAME error
+ * without the user seeing it twice.
+ */
+function messageToastId(prefix: string, message: string): string {
+  let hash = 0;
+  for (let i = 0; i < message.length; i++) {
+    hash = (hash * 31 + message.charCodeAt(i)) | 0;
+  }
+  return `${prefix}_${hash}`;
+}
+
+/**
  * Show toast notifications with consistent styling
  */
 export const showToast = {
@@ -57,12 +72,18 @@ export const showToast = {
   },
 
   /**
-   * Show error toast
+   * Show error toast.
+   *
+   * Errors are de-duplicated by message content: a stable id is derived from the
+   * message so the same error reported by both the global Axios interceptor and a
+   * component/mutation handler collapses into one toast. An explicit `options.id`
+   * always wins.
    */
   error: (message: string, options?: ToastOptions) => {
     return toast.error(message, {
       ...defaultOptions,
       duration: 5000, // Errors stay longer
+      id: messageToastId("t_err", message),
       ...options,
     });
   },

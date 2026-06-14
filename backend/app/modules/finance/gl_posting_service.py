@@ -299,6 +299,18 @@ class GLPostingService:
         try:
             # 1. Idempotency on the exact integer reference.
             if idempotent:
+                # Serialise concurrent posts of the *same* source document before
+                # the check-then-act. Without this lock two transactions can both
+                # pass `already_posted` (under READ COMMITTED neither sees the
+                # other's uncommitted JE) and double-post, because `idx_gl_reference`
+                # is a plain index, not a unique constraint. The xact-scoped advisory
+                # lock auto-releases on COMMIT/ROLLBACK, so the loser only proceeds
+                # once the winner's JE is durable (-> skipped_duplicate) or gone.
+                lock_key = f"glpost:{reference_type}:{reference_id}:{marker or ''}"
+                self.db.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                    {"k": lock_key},
+                )
                 existing = self.already_posted(reference_type, reference_id, marker)
                 if existing:
                     return PostResult(status="skipped_duplicate", journal_entry=existing)

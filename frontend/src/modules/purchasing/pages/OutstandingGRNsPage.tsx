@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { exportToCSV } from "@/utils/csvExport";
 import { useNavigate } from "react-router-dom";
 import {
   Autocomplete,
@@ -200,16 +201,11 @@ export default function OutstandingGRNsPage() {
       i.days_since_grn.toString(),
       i.branch_code,
     ]);
-    const csv = [headers, ...rows]
-      .map((r) => r.map((c) => `"${c}"`).join(","))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `outstanding_grns_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportToCSV({
+      filename: `outstanding_grns_${new Date().toISOString().split("T")[0]}`,
+      headers,
+      rows,
+    });
   };
 
   // Print

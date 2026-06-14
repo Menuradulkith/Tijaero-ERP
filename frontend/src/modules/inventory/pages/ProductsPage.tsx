@@ -14,6 +14,7 @@ import {
     SortOption,
     TabConfig,
     TConfirmDialog,
+    TExportButton,
     TFilterPanel,
     TStatusFilter,
     useConfirmDialog,
@@ -175,6 +176,8 @@ export default function ProductsPage({
   // Product filter states
   const [productActiveFilter, setProductActiveFilter] = useState<string | null>(null);
   const [productWebsiteFilter, setProductWebsiteFilter] = useState<string | null>(null);
+  const [categoryActiveFilter, setCategoryActiveFilter] = useState<string | null>(null);
+  const [brandActiveFilter, setBrandActiveFilter] = useState<string | null>(null);
 
   // Minimum selling price dialog state
   const [minPriceDialogOpen, setMinPriceDialogOpen] = useState(false);
@@ -242,7 +245,7 @@ export default function ProductsPage({
     refetch: refetchCategories,
   } = useQuery({
     queryKey: ["categories"],
-    queryFn: () => categoriesApi.getAll(0, 1000), // Get all including inactive
+    queryFn: () => categoriesApi.getAll(0, 1000, false), // Get all including inactive
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -253,7 +256,7 @@ export default function ProductsPage({
     refetch: refetchBrands,
   } = useQuery({
     queryKey: ["brands"],
-    queryFn: () => brandsApi.getAll(),
+    queryFn: () => brandsApi.getAll(0, 1000, false), // Get all including inactive
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -263,7 +266,10 @@ export default function ProductsPage({
     () => categories?.filter((c) => c.active) || [],
     [categories],
   );
-  const activeBrands = useMemo(() => brands || [], [brands]);
+  const activeBrands = useMemo(
+    () => brands?.filter((b) => b.active) || [],
+    [brands],
+  );
 
   // Fetch current minimum selling price for selected product
   const { data: currentMinPrice } = useQuery({
@@ -322,7 +328,7 @@ export default function ProductsPage({
 
   const filteredCategories = useMemo(() => {
     if (!categories) return [];
-    const filtered = categories.filter(
+    let filtered = categories.filter(
       (c) =>
         c.name
           .toLowerCase()
@@ -331,6 +337,10 @@ export default function ProductsPage({
           .toLowerCase()
           .includes(categoryState.searchQuery.toLowerCase()),
     );
+    if (categoryActiveFilter) {
+      const isActive = categoryActiveFilter === "active";
+      filtered = filtered.filter((c) => c.active === isActive);
+    }
     filtered.sort((a, b) => {
       if (categoryState.sortField === "name")
         return a.name.localeCompare(b.name);
@@ -339,11 +349,11 @@ export default function ProductsPage({
       return 0;
     });
     return filtered;
-  }, [categories, categoryState.searchQuery, categoryState.sortField]);
+  }, [categories, categoryState.searchQuery, categoryState.sortField, categoryActiveFilter]);
 
   const filteredBrands = useMemo(() => {
     if (!brands) return [];
-    const filtered = brands.filter(
+    let filtered = brands.filter(
       (b) =>
         b.brand_name
           .toLowerCase()
@@ -352,6 +362,10 @@ export default function ProductsPage({
           .toLowerCase()
           .includes(brandState.searchQuery.toLowerCase()),
     );
+    if (brandActiveFilter) {
+      const isActive = brandActiveFilter === "active";
+      filtered = filtered.filter((b) => b.active === isActive);
+    }
     filtered.sort((a, b) => {
       if (brandState.sortField === "brand_name")
         return a.brand_name.localeCompare(b.brand_name);
@@ -360,7 +374,7 @@ export default function ProductsPage({
       return 0;
     });
     return filtered;
-  }, [brands, brandState.searchQuery, brandState.sortField]);
+  }, [brands, brandState.searchQuery, brandState.sortField, brandActiveFilter]);
 
   // Mutations
   const createProductMutation = useCrudMutation({
@@ -589,6 +603,18 @@ export default function ProductsPage({
       });
       return;
     }
+    // Check for duplicate name
+    if (products) {
+      const isDuplicateName = products.some(
+        (p) =>
+          p.name.trim().toLowerCase() === productState.formData.name?.trim().toLowerCase() &&
+          (!productState.selectedItem || p.id !== productState.selectedItem.id)
+      );
+      if (isDuplicateName) {
+        showErrorToast("Product name already exists");
+        return;
+      }
+    }
     
     // Validate prices
     if (productState.formData.selling_price < productState.formData.cost_price) {
@@ -698,6 +724,19 @@ export default function ProductsPage({
       return;
     }
 
+    // Check for duplicate name
+    if (categories) {
+      const isDuplicateName = categories.some(
+        (c) =>
+          c.name.trim().toLowerCase() === categoryState.formData.name?.trim().toLowerCase() &&
+          (!categoryState.selectedItem || c.id !== categoryState.selectedItem.id)
+      );
+      if (isDuplicateName) {
+        showErrorToast("Category name already exists");
+        return;
+      }
+    }
+
     if (categoryState.isCreating) {
       createCategoryMutation.mutate(categoryState.formData);
     } else if (categoryState.selectedItem) {
@@ -762,6 +801,7 @@ export default function ProductsPage({
       brand_name: brand.brand_name,
       brand_code: brand.brand_code,
       description: brand.description || "",
+      active: brand.active,
     });
     brandState.setIsEditing(false);
     brandState.setIsCreating(false);
@@ -830,6 +870,25 @@ export default function ProductsPage({
       showErrorToast("Please fill in all required fields");
       setBrandTouched({ brand_name: true, brand_code: true });
       return;
+    }
+
+    if (brandState.formData.brand_code.length > 4) {
+      showErrorToast("Brand code cannot exceed 4 characters");
+      setBrandTouched({ ...brandTouched, brand_code: true });
+      return;
+    }
+
+    // Check for duplicate name
+    if (brands) {
+      const isDuplicateName = brands.some(
+        (b) =>
+          b.brand_name.trim().toLowerCase() === brandState.formData.brand_name?.trim().toLowerCase() &&
+          (!brandState.selectedItem || b.id !== brandState.selectedItem.id)
+      );
+      if (isDuplicateName) {
+        showErrorToast("Brand name already exists");
+        return;
+      }
     }
 
     if (brandState.isCreating) {
@@ -1301,7 +1360,11 @@ export default function ProductsPage({
                   value={
                     activeCategories.find(
                       (c) => c.id === productState.formData.category_id,
-                    ) || null
+                    ) ||
+                    categories?.find(
+                      (c) => c.id === productState.formData.category_id,
+                    ) ||
+                    null
                   }
                   onChange={(_, newValue) =>
                     productState.setFormData({
@@ -1327,12 +1390,16 @@ export default function ProductsPage({
                 />
                 <Autocomplete
                   size="small"
-                  options={brands || []}
+                  options={activeBrands}
                   getOptionLabel={(option) => option.brand_name}
                   value={
+                    activeBrands.find(
+                      (b) => b.id === productState.formData.items_brand_id,
+                    ) ||
                     brands?.find(
                       (b) => b.id === productState.formData.items_brand_id,
-                    ) || null
+                    ) ||
+                    null
                   }
                   onChange={(_, newValue) =>
                     productState.setFormData({
@@ -1342,7 +1409,15 @@ export default function ProductsPage({
                   }
                   disabled={!productState.isEditing && !productState.isCreating}
                   renderInput={(params) => (
-                    <TextField {...params} label="Brand" />
+                    <TextField
+                      {...params}
+                      label="Brand"
+                      helperText={
+                        productState.isEditing || productState.isCreating
+                          ? "Only active brands can be selected"
+                          : ""
+                      }
+                    />
                   )}
                   isOptionEqualToValue={(option, value) =>
                     option.id === value.id
@@ -1651,6 +1726,18 @@ export default function ProductsPage({
         onSortChange={categoryState.setSortField}
         isLoading={categoriesLoading}
         emptyMessage="No categories found"
+        listHeader={
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: 1.5, paddingBottom: 0 }}>
+            <TFilterPanel>
+              <TStatusFilter
+                options={PRODUCT_ACTIVE_FILTER_OPTIONS}
+                value={categoryActiveFilter}
+                onChange={setCategoryActiveFilter}
+                label="Status"
+              />
+            </TFilterPanel>
+          </Box>
+        }
       >
         {filteredCategories.map((category) => {
           const isSelected = categoryState.selectedItem?.id === category.id;
@@ -1951,6 +2038,18 @@ export default function ProductsPage({
         onSortChange={brandState.setSortField}
         isLoading={brandsLoading}
         emptyMessage="No brands found"
+        listHeader={
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: 1.5, paddingBottom: 0 }}>
+            <TFilterPanel>
+              <TStatusFilter
+                options={PRODUCT_ACTIVE_FILTER_OPTIONS}
+                value={brandActiveFilter}
+                onChange={setBrandActiveFilter}
+                label="Status"
+              />
+            </TFilterPanel>
+          </Box>
+        }
       >
         {filteredBrands.map((brand) => {
           const isSelected = brandState.selectedItem?.id === brand.id;
@@ -2008,6 +2107,22 @@ export default function ProductsPage({
                           (Code)
                         </Typography>
                       </Box>
+                      {/* Status Chips - shown below all fields when selected */}
+                      <Box
+                        sx={{
+                          display: "flex",
+                          gap: 0.5,
+                          mt: 0.5,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <Chip
+                          label={brand.active ? "Active" : "Inactive"}
+                          size="small"
+                          color={brand.active ? "success" : "default"}
+                          sx={{ height: 18, fontSize: "0.65rem" }}
+                        />
+                      </Box>
                     </>
                   )}
                 </Box>
@@ -2015,6 +2130,16 @@ export default function ProductsPage({
               secondaryText={!isSelected ? brand.brand_code : undefined}
               isFavorite={brandState.favorites.includes(brand.id)}
               onToggleFavorite={() => brandState.toggleFavorite(brand.id)}
+              chips={
+                !isSelected
+                  ? [
+                      {
+                        label: brand.active ? "Active" : "Inactive",
+                        color: brand.active ? "success" : "default",
+                      },
+                    ]
+                  : undefined
+              }
             />
           );
         })}
@@ -2040,6 +2165,20 @@ export default function ProductsPage({
               : brandState.selectedItem
                 ? brandState.selectedItem.brand_name
                 : "Select a Brand"
+          }
+          chips={
+            brandState.selectedItem && !brandState.isCreating
+              ? [
+                  {
+                    label: brandState.selectedItem.active
+                      ? "Active"
+                      : "Inactive",
+                    color: brandState.selectedItem.active
+                      ? "success"
+                      : "default",
+                  },
+                ]
+              : undefined
           }
         />
 
@@ -2067,7 +2206,18 @@ export default function ProductsPage({
           {!brandState.selectedItem && !brandState.isCreating ? (
             <EmptyState message="Select a brand from the list or create a new one" />
           ) : (
-            <FormSection title="Brand Information" isLast>
+            <>
+              {/* Show inactive warning */}
+              {brandState.selectedItem &&
+                !brandState.selectedItem.active &&
+                !brandState.isCreating && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    This brand is inactive and cannot be assigned to new
+                    products. Edit to reactivate.
+                  </Alert>
+                )}
+
+              <FormSection title="Brand Information" isLast>
               <TextField
                 label="Brand Name"
                 size="small"
@@ -2104,15 +2254,44 @@ export default function ProductsPage({
                 disabled={!brandState.isCreating}
                 required
                 error={
-                  brandTouched.brand_code && !brandState.formData.brand_code
+                  (brandTouched.brand_code && !brandState.formData.brand_code) ||
+                  (brandState.formData.brand_code?.length > 4)
                 }
                 helperText={
                   brandTouched.brand_code && !brandState.formData.brand_code
                     ? "Brand code is required"
-                    : ""
+                    : brandState.formData.brand_code?.length > 4
+                      ? "Brand code cannot exceed 4 characters"
+                      : ""
                 }
-                inputProps={{ style: { textTransform: "uppercase" } }}
+                inputProps={{ maxLength: 4, style: { textTransform: "uppercase" } }}
               />
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={brandState.formData.active ?? true}
+                      onChange={(e) =>
+                        brandState.setFormData({
+                          ...brandState.formData,
+                          active: e.target.checked,
+                        })
+                      }
+                      disabled={
+                        !brandState.isEditing && !brandState.isCreating
+                      }
+                    />
+                  }
+                  label="Active"
+                />
+                {!(brandState.formData.active ?? true) &&
+                  (brandState.isEditing || brandState.isCreating) && (
+                    <Typography variant="caption" color="warning.main">
+                      Note: Inactive brands cannot be assigned to new
+                      products.
+                    </Typography>
+                  )}
+              </Box>
               <TextField
                 label="Description"
                 size="small"
@@ -2129,6 +2308,7 @@ export default function ProductsPage({
                 sx={{ gridColumn: { sm: "1 / -1" } }}
               />
             </FormSection>
+            </>
           )}
         </Box>
       </Box>
@@ -2152,6 +2332,33 @@ export default function ProductsPage({
             >
               Export CSV
             </Button>
+          ) : activeTab === 1 ? (
+            <TExportButton
+              filename="categories"
+              headers={["Category Code", "Name", "Description", "Active"]}
+              rows={() =>
+                filteredCategories.map((c) => [
+                  c.category_code || "",
+                  c.name || "",
+                  c.description || "",
+                  c.active ? "Yes" : "No",
+                ])
+              }
+              disabled={filteredCategories.length === 0}
+            />
+          ) : activeTab === 2 ? (
+            <TExportButton
+              filename="brands"
+              headers={["Brand Code", "Brand Name", "Description"]}
+              rows={() =>
+                filteredBrands.map((b) => [
+                  b.brand_code || "",
+                  b.brand_name || "",
+                  b.description || "",
+                ])
+              }
+              disabled={filteredBrands.length === 0}
+            />
           ) : undefined
         }
         {...(!hideTabs

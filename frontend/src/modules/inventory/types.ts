@@ -31,18 +31,21 @@ export interface Brand {
   brand_name: string;
   brand_code: string;
   description?: string;
+  active: boolean;
 }
 
 export interface BrandCreate {
   brand_name: string;
   brand_code: string;
   description?: string;
+  active?: boolean;
 }
 
 export interface BrandUpdate {
   brand_name?: string;
   brand_code?: string;
   description?: string;
+  active?: boolean;
 }
 
 export interface Product {

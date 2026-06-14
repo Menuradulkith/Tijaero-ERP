@@ -31,6 +31,7 @@ import {
   SortOption,
   TDetailSkeleton,
   TFilterPanel,
+  TExportButton,
   fmtLKR,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
@@ -347,6 +348,23 @@ export default function CreditNotesPage() {
         title="Credit Notes"
         onRefresh={refetch}
         isLoading={isLoading}
+        headerActions={
+          <TExportButton
+            filename={`credit_notes_${new Date().toISOString().split("T")[0]}`}
+            headers={["ID", "Customer", "Amount", "Date", "Invoice No", "Remark"]}
+            rows={() =>
+              filteredNotes.map((n) => [
+                `CN-${n.id}`,
+                getCustomerName(n.customer_id),
+                Number(n.amount || 0),
+                n.date ? new Date(n.date).toLocaleString() : "",
+                n.invoice_no || "",
+                n.remark || "",
+              ])
+            }
+            disabled={filteredNotes.length === 0}
+          />
+        }
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />

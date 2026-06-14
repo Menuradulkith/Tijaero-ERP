@@ -171,7 +171,7 @@ export interface CustomerAdvancePayment {
 }
 
 export interface CustomerAdvancePaymentCreate {
-  advance_payments_no: string;
+  advance_payments_no?: string;
   payment_method: string;
   branch_code: string;
   payment_amount: number;

@@ -407,7 +407,7 @@ def get_outstanding_documents(
     response_model=List[schemas.CustomerCuponCodes],
     summary="List All Coupons",
     description="Get list of all coupons with pagination",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.COUPON_VIEW))],
 )
 def list_coupons(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
@@ -416,7 +416,7 @@ def list_coupons(
     ),
     active_only: bool = Query(False, description="Only return active coupons"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.COUPON_VIEW)),
 ):
     """Get all coupons with usage count"""
     return service.coupon_service.get_all_coupons(db, skip, limit, active_only)
@@ -427,12 +427,12 @@ def list_coupons(
     response_model=schemas.CustomerCuponCodes,
     summary="Get Coupon by ID",
     description="Retrieve coupon details by ID",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.COUPON_VIEW))],
 )
 def get_coupon(
     coupon_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.COUPON_VIEW)),
 ):
     """Get a single coupon by ID"""
     return service.coupon_service.get_coupon(db, coupon_id)
@@ -443,12 +443,12 @@ def get_coupon(
     response_model=schemas.CustomerCuponCodes,
     summary="Get Coupon by Code",
     description="Retrieve coupon details by barcode/code",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.COUPON_VIEW))],
 )
 def get_coupon_by_code(
     coupon_code: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.COUPON_VIEW)),
 ):
     """Get a coupon by its code/barcode"""
     from fastapi import HTTPException
@@ -465,12 +465,12 @@ def get_coupon_by_code(
     status_code=status.HTTP_201_CREATED,
     summary="Create Coupon",
     description="Create a new coupon",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.COUPON_CREATE))],
 )
 def create_coupon(
     coupon: schemas.CustomerCuponCodesCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_CREATE)),
+    current_user: User = Depends(require_permission(*Permissions.COUPON_CREATE)),
 ):
     """Create a new coupon"""
     return service.coupon_service.create_coupon(db, coupon)
@@ -481,13 +481,13 @@ def create_coupon(
     response_model=schemas.CustomerCuponCodes,
     summary="Update Coupon",
     description="Update an existing coupon",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.COUPON_UPDATE))],
 )
 def update_coupon(
     coupon_id: int,
     coupon: schemas.CustomerCuponCodesUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
+    current_user: User = Depends(require_permission(*Permissions.COUPON_UPDATE)),
 ):
     """Update an existing coupon"""
     return service.coupon_service.update_coupon(db, coupon_id, coupon)
@@ -498,12 +498,12 @@ def update_coupon(
     status_code=status.HTTP_200_OK,
     summary="Delete Coupon",
     description="Delete a coupon (only if not used)",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.COUPON_DELETE))],
 )
 def delete_coupon(
     coupon_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_DELETE)),
+    current_user: User = Depends(require_permission(*Permissions.COUPON_DELETE)),
 ):
     """Delete a coupon"""
     return service.coupon_service.delete_coupon(db, coupon_id)
@@ -530,14 +530,14 @@ def validate_coupon(
     response_model=List[schemas.CouponUsage],
     summary="Get Coupon Usage History",
     description="Get usage history for a coupon",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.COUPON_VIEW))],
 )
 def get_coupon_usage_history(
     coupon_id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.COUPON_VIEW)),
 ):
     """Get usage history for a coupon"""
     return service.coupon_service.get_coupon_usage_history(db, coupon_id, skip, limit)
@@ -551,7 +551,7 @@ def get_coupon_usage_history(
     response_model=List[schemas.GiftVoucher],
     summary="List All Gift Vouchers",
     description="Get list of all gift vouchers with pagination",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW))],
 )
 def list_vouchers(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
@@ -560,7 +560,7 @@ def list_vouchers(
     ),
     active_only: bool = Query(False, description="Only return active vouchers"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW)),
 ):
     """Get all gift vouchers"""
     return service.voucher_service.get_all_vouchers(db, skip, limit, active_only)
@@ -571,12 +571,12 @@ def list_vouchers(
     response_model=schemas.GiftVoucher,
     summary="Get Voucher by ID",
     description="Retrieve voucher details by ID",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW))],
 )
 def get_voucher(
     voucher_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW)),
 ):
     """Get a single voucher by ID"""
     return service.voucher_service.get_voucher(db, voucher_id)
@@ -587,12 +587,12 @@ def get_voucher(
     response_model=schemas.GiftVoucher,
     summary="Get Voucher by Barcode",
     description="Retrieve voucher details by barcode number",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW))],
 )
 def get_voucher_by_barcode(
     barcode_no: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW)),
 ):
     """Get a voucher by its barcode"""
     from fastapi import HTTPException
@@ -609,12 +609,12 @@ def get_voucher_by_barcode(
     status_code=status.HTTP_201_CREATED,
     summary="Create Gift Voucher",
     description="Create a new gift voucher",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_CREATE))],
+    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_CREATE))],
 )
 def create_voucher(
     voucher: schemas.GiftVoucherCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_CREATE)),
+    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_CREATE)),
 ):
     """Create a new gift voucher"""
     return service.voucher_service.create_voucher(db, voucher)
@@ -625,13 +625,13 @@ def create_voucher(
     response_model=schemas.GiftVoucher,
     summary="Update Voucher",
     description="Update an existing voucher",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_UPDATE))],
 )
 def update_voucher(
     voucher_id: int,
     voucher: schemas.GiftVoucherUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
+    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_UPDATE)),
 ):
     """Update an existing voucher"""
     return service.voucher_service.update_voucher(db, voucher_id, voucher)
@@ -642,12 +642,12 @@ def update_voucher(
     status_code=status.HTTP_200_OK,
     summary="Delete Voucher",
     description="Delete a voucher (only if not used)",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_DELETE))],
 )
 def delete_voucher(
     voucher_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_DELETE)),
+    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_DELETE)),
 ):
     """Delete a voucher"""
     return service.voucher_service.delete_voucher(db, voucher_id)
@@ -690,14 +690,14 @@ def redeem_voucher(
     response_model=List[schemas.VoucherUsage],
     summary="Get Voucher Usage History",
     description="Get usage history for a voucher",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW))],
 )
 def get_voucher_usage_history(
     voucher_id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW)),
 ):
     """Get usage history for a voucher"""
     return service.voucher_service.get_voucher_usage_history(

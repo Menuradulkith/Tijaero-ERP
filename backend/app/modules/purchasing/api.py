@@ -338,7 +338,21 @@ def create_purchase_order(
             detail=f"Access denied to branch: {order.branch_code}",
         )
     order_service = service.PurchasingOrderService(db)
-    return order_service.create_order(order, created_by=current_user.id)
+    created = order_service.create_order(order, created_by=current_user.id)
+
+    # Notify the branch (everyone but the creator) about the new purchase order.
+    from app.modules.notifications import dispatcher as notify
+
+    notify.branch(
+        created.branch_code,
+        title="Purchase Order Created",
+        message=f"PO {created.purchasing_order_no} was created.",
+        notification_type=notify.INFO,
+        category=notify.PURCHASING,
+        action_url="/purchasing/orders",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 
 @router.get(
@@ -619,7 +633,21 @@ def create_grn(
             detail=f"Access denied to branch: {grn.branch_code}",
         )
     grn_service = service.GoodReceivedNoteService(db)
-    return grn_service.create(grn, allow_credit_override=allow_credit_override)
+    created = grn_service.create(grn, allow_credit_override=allow_credit_override)
+
+    # Notify the branch that stock was received against this GRN.
+    from app.modules.notifications import dispatcher as notify
+
+    notify.branch(
+        created.branch_code,
+        title="Goods Received",
+        message=f"GRN {created.good_received_no} was received into stock.",
+        notification_type=notify.INFO,
+        category=notify.PURCHASING,
+        action_url="/purchasing/grn",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 
 @router.get(
@@ -1158,8 +1186,14 @@ def get_supplier_payments(
 
 # ==================== ELIGIBLE ADVANCE POs (single-query) ====================
 
-@router.get("/eligible-advance-pos")
-def get_eligible_advance_pos(db: Session = Depends(get_db)):
+@router.get(
+    "/eligible-advance-pos",
+    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW))],
+)
+def get_eligible_advance_pos(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW)),
+):
     """
     Return approved, non-credit POs that have NO GRN and still have a remaining
     amount > 0.  This replaces the N+1 pattern on the frontend that previously

@@ -52,6 +52,7 @@ import {
   SortOption,
   TBranchFilter,
   TConfirmDialog,
+  TExportButton,
   TFilterPanel,
   TPrintButton,
   TPrintPreviewDialog,
@@ -1183,6 +1184,36 @@ export default function PurchaseReturnsPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="purchase_returns"
+            headers={[
+              "Return No",
+              "GRN No",
+              "PO No",
+              "Supplier",
+              "Branch",
+              "Added Date",
+              "Approved Date",
+              "Status",
+              "Remark",
+            ]}
+            rows={() =>
+              filteredReturns.map((ret) => [
+                ret.purchasing_return_no || "",
+                ret.grn_no || "",
+                ret.po_no || "",
+                ret.supplier_name || "",
+                ret.branch_code || "",
+                ret.added_date || "",
+                ret.approved_date || "",
+                ret.status || "",
+                ret.remark || "",
+              ])
+            }
+            disabled={filteredReturns.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

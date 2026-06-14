@@ -4,6 +4,7 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { exportToCSV } from "@/utils/csvExport";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
@@ -190,16 +191,9 @@ export default function BankDepositsPage() {
                   d.branch_code ?? "",
                   d.deposits_amount ?? "",
                   d.verified ? "Verified" : "Pending",
-                  (d.remarks ?? "").replace(/,/g, " "),
+                  d.remarks ?? "",
                 ]);
-                const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-                const blob = new Blob([csv], { type: "text/csv" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "bank_deposits.csv";
-                a.click();
-                URL.revokeObjectURL(url);
+                exportToCSV({ filename: "bank_deposits", headers, rows });
               }}
             >
               Export CSV

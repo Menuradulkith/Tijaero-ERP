@@ -24,3 +24,4 @@ export {
   type TPrintButtonProps,
   type TPrintDocumentType,
 } from "./TPrintButton";
+export { TExportButton, type TExportButtonProps } from "./TExportButton";

@@ -57,6 +57,7 @@ import {
   fmtLKR,
   TBranchFilter,
   TCurrency,
+  TExportButton,
   TStatCard,
   TStatusChip,
   handleApiError,
@@ -457,13 +458,45 @@ export default function SalesCommissionsPage() {
     <>
       <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
         <Typography variant="h6">Monthly Branch Sales Summaries</Typography>
-        <Button
-          startIcon={<AddIcon />}
-          variant="contained"
-          onClick={() => setGenerateDialogOpen(true)}
-        >
-          Generate Summary
-        </Button>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <TExportButton
+            filename="branch_sales_summaries"
+            headers={[
+              "Branch",
+              "Period",
+              "Invoices",
+              "Revenue",
+              "COGS",
+              "Returns",
+              "Discounts",
+              "Gross Profit",
+              "Margin %",
+              "Status",
+            ]}
+            rows={() =>
+              summaries.map((s) => [
+                s.branch_name || s.branch_code || "",
+                s.month_name || "",
+                s.total_invoices ?? 0,
+                s.total_sales_revenue ?? 0,
+                s.total_sales_cost ?? 0,
+                s.total_sales_returns ?? 0,
+                s.total_discounts ?? 0,
+                s.gross_profit ?? 0,
+                s.gross_profit_margin ?? 0,
+                s.status || "",
+              ])
+            }
+            disabled={summaries.length === 0}
+          />
+          <Button
+            startIcon={<AddIcon />}
+            variant="contained"
+            onClick={() => setGenerateDialogOpen(true)}
+          >
+            Generate Summary
+          </Button>
+        </Box>
       </Box>
 
       {summariesLoading && <LinearProgress sx={{ mb: 2 }} />}
@@ -569,15 +602,45 @@ export default function SalesCommissionsPage() {
     <>
       <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
         <Typography variant="h6">Sales Officer Commissions</Typography>
-        <Button
-          startIcon={<ApproveIcon />}
-          variant="contained"
-          color="success"
-          onClick={handleBulkApprove}
-          disabled={commissions.filter((c) => c.status === "pending").length === 0}
-        >
-          Approve All Pending
-        </Button>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <TExportButton
+            filename="officer_commissions"
+            headers={[
+              "Employee",
+              "Branch",
+              "Period",
+              "Branch Profit",
+              "Commission %",
+              "Pool",
+              "Officers",
+              "Amount",
+              "Status",
+            ]}
+            rows={() =>
+              commissions.map((c) => [
+                c.employee_name || `Employee #${c.employee_id}`,
+                c.branch_name || c.branch_code || "",
+                c.month_name || "",
+                c.branch_gross_profit ?? 0,
+                c.commission_percentage ?? 0,
+                c.total_commission_pool ?? 0,
+                c.total_branch_employees ?? 0,
+                c.individual_commission_amount ?? 0,
+                c.status || "",
+              ])
+            }
+            disabled={commissions.length === 0}
+          />
+          <Button
+            startIcon={<ApproveIcon />}
+            variant="contained"
+            color="success"
+            onClick={handleBulkApprove}
+            disabled={commissions.filter((c) => c.status === "pending").length === 0}
+          >
+            Approve All Pending
+          </Button>
+        </Box>
       </Box>
 
       {commissionsLoading && <LinearProgress sx={{ mb: 2 }} />}

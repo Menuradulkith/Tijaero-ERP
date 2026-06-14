@@ -17,6 +17,7 @@ import {
   SortOption,
   TConfirmDialog,
   TDetailSkeleton,
+  TExportButton,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -217,7 +218,23 @@ export default function EmployeeAssetsPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Employee Assets" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel} />
+      <MasterDetailLayout title="Employee Assets" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="employee_assets"
+            headers={["Employee ID", "Asset ID", "Assign Reason", "Revoked"]}
+            rows={() =>
+              filtered.map((a) => [
+                a.employee_id || "",
+                a.asset_id ?? "",
+                a.assign_reason || "",
+                a.revoke_assignment ? "Yes" : "No",
+              ])
+            }
+            disabled={filtered.length === 0}
+          />
+        }
+      />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

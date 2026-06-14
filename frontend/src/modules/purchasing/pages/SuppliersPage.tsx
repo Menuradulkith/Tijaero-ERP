@@ -569,6 +569,7 @@ export default function SuppliersPage() {
                   state: {
                     createPOFromSupplier: true,
                     supplierId: selectedSupplier.id,
+                    creditDays: selectedSupplier.credit_days,
                   },
                 })
               }

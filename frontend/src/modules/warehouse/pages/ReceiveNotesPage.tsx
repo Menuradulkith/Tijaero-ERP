@@ -42,6 +42,7 @@ import {
   handleApiError,
   EmptyState,
   TDetailSkeleton,
+  TExportButton,
   TFilterPanel,
   TLoadingSkeleton,
   TStatusChip,
@@ -1162,6 +1163,22 @@ export default function ReceiveNotesPage() {
       masterPanel={masterPanel}
       detailPanel={detailPanel}
       onRefresh={() => refetchIRNs()}
+      headerActions={
+        <TExportButton
+          filename="item_receive_notes"
+          headers={["Receive Note", "Transfer Note", "Received Date", "Status", "Note"]}
+          rows={() =>
+            receiveNotes.map((irn: ItemReceiveNote) => [
+              `IRN-${irn.id}`,
+              `ITN-${irn.item_transfer_note_id}`,
+              irn.recieved_date || "",
+              irn.received_approval_status === 1 ? "approved" : "pending",
+              irn.received_note || "",
+            ])
+          }
+          disabled={receiveNotes.length === 0}
+        />
+      }
     />
   );
 }

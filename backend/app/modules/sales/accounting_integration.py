@@ -48,8 +48,9 @@ VOUCHER REDEMPTION:
     Cr  4010  Cash Sales ............... voucher_amount
 
 SALE RETURN (reversal):
-    Dr  4030  Sales Returns ............ return_amount
-    Cr  1010/1020/1110  ................ return_amount (based on original payment)
+    Dr  4030  Sales Returns ............ total_refund - tax_refund
+    Dr  2210  VAT/Tax Payable .......... tax_refund (if any)
+    Cr  1010/1020/1110/2530 ........... total_refund (based on REFUND method)
 ─────────────────────────────────────────────────────────────────────
 """
 
@@ -83,6 +84,7 @@ ACCT_TRADE_DEBTORS = "1110"
 ACCT_FINISHED_GOODS = "1210"
 ACCT_VAT_PAYABLE = "2210"
 ACCT_GIFT_VOUCHERS = "2510"
+ACCT_CREDIT_NOTES = "2530"
 ACCT_CASH_SALES = "4010"
 ACCT_CREDIT_SALES = "4020"
 ACCT_SALES_RETURNS = "4030"
@@ -535,7 +537,20 @@ class SalesAccountingIntegration:
     ) -> Optional[JournalEntry]:
         """
         Post sale return reversal to GL.
-        Dr 4030 Sales Returns / Cr Asset or Receivable.
+
+        ``total_refund`` already INCLUDES ``tax_refund`` (service computes
+        total_refund = subtotal + tax_refund), so the entry is composed as:
+
+            Dr 4030 Sales Returns ...... total_refund - tax_refund (net revenue reversal)
+            Dr 2210 VAT/Tax Payable .... tax_refund               (reverse tax liability)
+            Cr <refund account> ........ total_refund             (what goes back to customer)
+
+        The credit account follows the REFUND method chosen on the return
+        (``sale_return.payment_method``), not the original invoice tender:
+            cash                     -> 1010 Cash on Hand   (cashbook money-out mirrors this)
+            bank_transfer / cheque   -> 1020 Bank Account
+            credit_note (credit sale)-> 1110 Trade Debtors  (reduces what customer owes)
+            credit_note (cash sale)  -> 2530 Customer Credit Notes Outstanding (liability)
         """
         if self._check_already_posted(sale_return.id, reference_type="SaleReturn"):
             return None
@@ -546,51 +561,58 @@ class SalesAccountingIntegration:
         if not invoice:
             return None
 
-        payment_method = (invoice.payment_method or "").lower()
         total_refund = Decimal(str(sale_return.total_refund or 0))
-
+        tax_refund = Decimal(str(sale_return.tax_refund or 0))
         if total_refund <= 0:
             return None
+        # Guard against bad data: tax can never exceed the total refund.
+        if tax_refund < 0 or tax_refund > total_refund:
+            tax_refund = Decimal("0")
+        revenue_reversal = total_refund - tax_refund
 
-        # Determine credit account based on original payment method
-        if payment_method == "cash":
+        # Credit account is driven by HOW the refund is issued.
+        refund_method = (sale_return.payment_method or "").lower()
+        if refund_method == "cash":
             credit_account = ACCT_CASH_ON_HAND
-        elif payment_method == "credit":
-            credit_account = ACCT_TRADE_DEBTORS
-        else:
+        elif refund_method in ("bank_transfer", "bank", "cheque", "check", "card"):
             credit_account = ACCT_BANK_ACCOUNT
+        elif refund_method == "credit_note":
+            is_credit_sale = (
+                (invoice.payment_method or "").lower() == "credit"
+                or Decimal(str(invoice.credit_amount or 0)) > 0
+            )
+            credit_account = ACCT_TRADE_DEBTORS if is_credit_sale else ACCT_CREDIT_NOTES
+        else:
+            # Legacy fallback: derive from the original invoice tender.
+            original = (invoice.payment_method or "").lower()
+            if original == "cash":
+                credit_account = ACCT_CASH_ON_HAND
+            elif original == "credit":
+                credit_account = ACCT_TRADE_DEBTORS
+            else:
+                credit_account = ACCT_BANK_ACCOUNT
 
         lines = [
             {
                 "account_code": ACCT_SALES_RETURNS,
-                "debit": total_refund,
+                "debit": revenue_reversal,
                 "credit": Decimal("0"),
                 "description": f"Sale return {sale_return.sale_return_no} for {invoice.invoice_no}",
             },
-            {
-                "account_code": credit_account,
-                "debit": Decimal("0"),
-                "credit": total_refund,
-                "description": f"Refund for return {sale_return.sale_return_no}",
-            },
         ]
-
-        # If there's a tax refund, reverse the tax
-        tax_refund = Decimal(str(sale_return.tax_refund or 0))
         if tax_refund > 0:
             lines.append({
                 "account_code": ACCT_VAT_PAYABLE,
                 "debit": tax_refund,
                 "credit": Decimal("0"),
-                "description": f"Tax refund for return {sale_return.sale_return_no}",
+                "description": f"Tax reversed on return {sale_return.sale_return_no}",
             })
-            # Adjust credit account for tax portion
-            lines.append({
-                "account_code": credit_account,
-                "debit": Decimal("0"),
-                "credit": tax_refund,
-                "description": f"Tax refund payment {sale_return.sale_return_no}",
-            })
+        lines.append({
+            "account_code": credit_account,
+            "debit": Decimal("0"),
+            "credit": total_refund,
+            "description": f"Refund ({refund_method or 'original method'}) for return {sale_return.sale_return_no}",
+        })
 
         description = (
             f"Auto GL - Sale Return | Return: {sale_return.sale_return_no} | "

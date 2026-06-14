@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 
 from app.auth.dependencies import get_current_active_user
 from app.auth.models import User
-from app.auth.rbac import Permissions, require_permission
+from app.auth.rbac import Permissions, require_permission, user_has_permission
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -189,7 +189,10 @@ def get_location(location_id: int, db: Session = Depends(get_db)):
 
 
 @router.post(
-    "/locations", response_model=schemas.Location, status_code=status.HTTP_201_CREATED
+    "/locations",
+    response_model=schemas.Location,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.COMMON_CREATE))],
 )
 def create_location(location: schemas.LocationCreate, db: Session = Depends(get_db)):
 
@@ -197,7 +200,11 @@ def create_location(location: schemas.LocationCreate, db: Session = Depends(get_
     return location_service.create(location)
 
 
-@router.put("/locations/{location_id}", response_model=schemas.Location)
+@router.put(
+    "/locations/{location_id}",
+    response_model=schemas.Location,
+    dependencies=[Depends(require_permission(*Permissions.COMMON_UPDATE))],
+)
 def update_location(
     location_id: int, location: schemas.LocationCreate, db: Session = Depends(get_db)
 ):
@@ -206,14 +213,22 @@ def update_location(
     return location_service.update(location_id, location)
 
 
-@router.delete("/locations/{location_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/locations/{location_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(*Permissions.COMMON_DELETE))],
+)
 def delete_location(location_id: int, db: Session = Depends(get_db)):
 
     location_service = service.LocationService(db)
     location_service.delete(location_id)
 
 
-@router.get("/approvals/{approval_id}", response_model=schemas.Approval)
+@router.get(
+    "/approvals/{approval_id}",
+    response_model=schemas.Approval,
+    dependencies=[Depends(require_permission(*Permissions.COMMON_VIEW))],
+)
 def get_approval(approval_id: int, db: Session = Depends(get_db)):
 
     approval_service = service.ApprovalService(db)
@@ -221,14 +236,21 @@ def get_approval(approval_id: int, db: Session = Depends(get_db)):
 
 
 @router.post(
-    "/approvals", response_model=schemas.Approval, status_code=status.HTTP_201_CREATED
+    "/approvals",
+    response_model=schemas.Approval,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.COMMON_CREATE))],
 )
 def create_approval(approval: schemas.ApprovalCreate, db: Session = Depends(get_db)):
     approval_service = service.ApprovalService(db)
     return approval_service.create(approval)
 
 
-@router.patch("/approvals/{approval_id}", response_model=schemas.Approval)
+@router.patch(
+    "/approvals/{approval_id}",
+    response_model=schemas.Approval,
+    dependencies=[Depends(require_permission(*Permissions.COMMON_UPDATE))],
+)
 def update_approval(
     approval_id: int, approval: schemas.ApprovalUpdate, db: Session = Depends(get_db)
 ):
@@ -315,7 +337,7 @@ def approve_request(
     approval_id: int,
     request: ApprovalActionRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.COMMON_UPDATE)),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Approve a pending approval request through the centralized system.
@@ -333,6 +355,53 @@ def approve_request(
     if not approval:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found"
+        )
+
+    # Determine required permission based on approval_type
+    required_perm = Permissions.COMMON_UPDATE  # Fallback
+    if approval.approval_for:
+        parts = approval.approval_for.split(":")
+        if len(parts) >= 2:
+            approval_type = parts[0]
+            
+            # Map approval_type to specific approve permission
+            if approval_type == "sales_order":
+                required_perm = Permissions.SO_APPROVAL_APPROVE
+            elif approval_type == "sale_return":
+                required_perm = Permissions.SALES_RETURN_APPROVAL_APPROVE
+            elif approval_type == "purchase_order":
+                required_perm = Permissions.PO_APPROVAL_APPROVE
+            elif approval_type == "purchase_return":
+                required_perm = Permissions.PURCHASE_RETURN_APPROVAL_APPROVE
+            elif approval_type == "item_transfer":
+                required_perm = Permissions.ITN_APPROVAL_APPROVE
+            elif approval_type == "payment_voucher":
+                required_perm = Permissions.PAYMENT_APPROVAL_APPROVE
+            elif approval_type == "expense":
+                required_perm = Permissions.EXPENSE_APPROVAL_APPROVE
+            elif approval_type == "leave":
+                required_perm = Permissions.LEAVE_APPROVAL_APPROVE
+            elif approval_type == "reimbursement":
+                required_perm = Permissions.REIMBURSEMENT_APPROVAL_APPROVE
+            elif approval_type == "journal_entry":
+                required_perm = Permissions.PAYMENT_APPROVAL_APPROVE
+            elif approval_type == "bank_deposit":
+                required_perm = Permissions.PAYMENT_APPROVAL_APPROVE
+            elif approval_type == "payroll_batch":
+                required_perm = Permissions.PAYROLL_APPROVAL_APPROVE
+            elif approval_type == "commission_payment":
+                required_perm = Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE
+            elif approval_type == "commission_approval":
+                required_perm = Permissions.COMMISSION_APPROVAL_APPROVE
+
+    # Check permission (allow if user has the specific permission OR the general common:update)
+    if not (
+        user_has_permission(current_user, required_perm[0], required_perm[1])
+        or user_has_permission(current_user, Permissions.COMMON_UPDATE[0], Permissions.COMMON_UPDATE[1])
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied. Required: {required_perm[0]}:{required_perm[1]} or common:update",
         )
 
     if approval.status != "pending":
@@ -416,7 +485,7 @@ def reject_request(
     approval_id: int,
     request: ApprovalActionRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.COMMON_UPDATE)),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Reject a pending approval request.
@@ -440,6 +509,53 @@ def reject_request(
     if not approval:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found"
+        )
+
+    # Determine required permission based on approval_type
+    required_perm = Permissions.COMMON_UPDATE  # Fallback
+    if approval.approval_for:
+        parts = approval.approval_for.split(":")
+        if len(parts) >= 2:
+            approval_type = parts[0]
+            
+            # Map approval_type to specific approve permission
+            if approval_type == "sales_order":
+                required_perm = Permissions.SO_APPROVAL_APPROVE
+            elif approval_type == "sale_return":
+                required_perm = Permissions.SALES_RETURN_APPROVAL_APPROVE
+            elif approval_type == "purchase_order":
+                required_perm = Permissions.PO_APPROVAL_APPROVE
+            elif approval_type == "purchase_return":
+                required_perm = Permissions.PURCHASE_RETURN_APPROVAL_APPROVE
+            elif approval_type == "item_transfer":
+                required_perm = Permissions.ITN_APPROVAL_APPROVE
+            elif approval_type == "payment_voucher":
+                required_perm = Permissions.PAYMENT_APPROVAL_APPROVE
+            elif approval_type == "expense":
+                required_perm = Permissions.EXPENSE_APPROVAL_APPROVE
+            elif approval_type == "leave":
+                required_perm = Permissions.LEAVE_APPROVAL_APPROVE
+            elif approval_type == "reimbursement":
+                required_perm = Permissions.REIMBURSEMENT_APPROVAL_APPROVE
+            elif approval_type == "journal_entry":
+                required_perm = Permissions.PAYMENT_APPROVAL_APPROVE
+            elif approval_type == "bank_deposit":
+                required_perm = Permissions.PAYMENT_APPROVAL_APPROVE
+            elif approval_type == "payroll_batch":
+                required_perm = Permissions.PAYROLL_APPROVAL_APPROVE
+            elif approval_type == "commission_payment":
+                required_perm = Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE
+            elif approval_type == "commission_approval":
+                required_perm = Permissions.COMMISSION_APPROVAL_APPROVE
+
+    # Check permission (allow if user has the specific permission OR the general common:update)
+    if not (
+        user_has_permission(current_user, required_perm[0], required_perm[1])
+        or user_has_permission(current_user, Permissions.COMMON_UPDATE[0], Permissions.COMMON_UPDATE[1])
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied. Required: {required_perm[0]}:{required_perm[1]} or common:update",
         )
 
     if approval.status != "pending":

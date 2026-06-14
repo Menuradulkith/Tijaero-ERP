@@ -52,6 +52,7 @@ import {
     SelectableListItem,
     SortOption,
     TDetailSkeleton,
+    TExportButton,
     useMasterDetailState,
     TConfirmDialog,
     useConfirmDialog,
@@ -738,6 +739,22 @@ export default function BranchesPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="branches"
+            headers={["Branch Code", "Branch Name", "Address", "Contact Number", "Email"]}
+            rows={() =>
+              filteredBranches.map((b) => [
+                b.branch_code || "",
+                b.branch_name || "",
+                b.address || "",
+                b.contact_number || "",
+                b.email || "",
+              ])
+            }
+            disabled={filteredBranches.length === 0}
+          />
+        }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
       

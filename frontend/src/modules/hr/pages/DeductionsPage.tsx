@@ -17,6 +17,7 @@ import {
   SortOption,
   TConfirmDialog,
   TDetailSkeleton,
+  TExportButton,
   fmtLKR,
   handleApiError,
   showErrorToast,
@@ -205,7 +206,24 @@ export default function DeductionsPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Salary Deductions" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel} />
+      <MasterDetailLayout title="Salary Deductions" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="salary_deductions"
+            headers={["Employee ID", "Reason", "Amount", "Remarks", "Created"]}
+            rows={() =>
+              filtered.map((d) => [
+                d.employee_id ?? "",
+                d.reason || "",
+                d.amount ?? 0,
+                d.remarks || "",
+                d.created_date || d.created_at || "",
+              ])
+            }
+            disabled={filtered.length === 0}
+          />
+        }
+      />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

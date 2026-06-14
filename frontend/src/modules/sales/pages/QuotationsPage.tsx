@@ -35,6 +35,7 @@ import {
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
 import { customersApi } from "@/modules/customers/api";
+import { advancePaymentsApi } from "@/modules/finance/api";
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import {
   Add as AddIcon,
@@ -46,6 +47,7 @@ import {
   Inventory as StockIcon,
   LocalShipping as POIcon,
   Percent as PercentIcon,
+  Payments as PaymentIcon,
   Receipt as InvoiceIcon,
   Receipt as TaxIcon,
   SwapHoriz as ProformaIcon,
@@ -167,6 +169,11 @@ export default function QuotationsPage() {
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [selectedQuoteForPrint, setSelectedQuoteForPrint] = useState<SalesQuote | null>(null);
+
+  // Proforma customer-advance dialog state
+  const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
+  const [advanceAmount, setAdvanceAmount] = useState<number | "">("");
+  const [advancePaymentMethod, setAdvancePaymentMethod] = useState("cash");
 
   // Workflow Dialog States
   const [stockCheckDialogOpen, setStockCheckDialogOpen] = useState(false);
@@ -500,6 +507,45 @@ export default function QuotationsPage() {
       navigate("/sales/proforma", { state: { selectedQuoteId: variables.id } });
     },
   });
+
+  // Place a customer advance against a proforma invoice
+  const placeAdvanceMutation = useCrudMutation({
+    mutationFn: (vars: {
+      customer_id: number;
+      branch_code: string;
+      payment_amount: number;
+      payment_method: string;
+      proforma_invoice_id: number;
+    }) =>
+      advancePaymentsApi.create({
+        customer_id: vars.customer_id,
+        branch_code: vars.branch_code,
+        payment_amount: vars.payment_amount,
+        payment_method: vars.payment_method,
+        cheque_date: format(new Date(), "yyyy-MM-dd"),
+        proforma_invoice_id: vars.proforma_invoice_id,
+      }),
+    invalidateQueryKeys: [["sales-quotes"], ["sales-quote-details"]],
+    successMessage: "Customer advance recorded for proforma invoice",
+    errorMessage: "Failed to record customer advance",
+    onSuccess: () => {
+      setAdvanceDialogOpen(false);
+      setAdvanceAmount("");
+      setAdvancePaymentMethod("cash");
+      queryClient.invalidateQueries({ queryKey: ["sales-quote-details", selectedQuote?.id] });
+    },
+  });
+
+  const handlePlaceAdvance = () => {
+    if (!selectedQuote || !advanceAmount || Number(advanceAmount) <= 0) return;
+    placeAdvanceMutation.mutate({
+      customer_id: selectedQuote.customer_id,
+      branch_code: selectedQuote.branch_code,
+      payment_amount: Number(advanceAmount),
+      payment_method: advancePaymentMethod,
+      proforma_invoice_id: selectedQuote.id,
+    });
+  };
 
   const rejectMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: { reason?: string; cancel_linked_po?: boolean } }) =>
@@ -1308,6 +1354,32 @@ export default function QuotationsPage() {
                     </Button>
                   </Tooltip>
                 )}
+                {/* Proforma customer advance */}
+                {selectedQuote.quote_type === 'proforma' &&
+                  !['cancelled', 'converted', 'converted_to_invoice', 'revised'].includes(selectedQuote.status) && (
+                    selectedQuote.advance_payment_id ? (
+                      <Tooltip title="A customer advance is already recorded for this proforma">
+                        <Chip
+                          size="small"
+                          color="success"
+                          variant="outlined"
+                          icon={<PaymentIcon />}
+                          label={`Advance: Rs. ${Number(selectedQuote.advance_amount || 0).toLocaleString()}`}
+                        />
+                      </Tooltip>
+                    ) : (
+                      <Tooltip title="Record a customer advance (deposit) for this proforma invoice">
+                        <Button size="small" variant="outlined" color="success" startIcon={<PaymentIcon />}
+                          onClick={() => {
+                            setAdvanceAmount("");
+                            setAdvancePaymentMethod("cash");
+                            setAdvanceDialogOpen(true);
+                          }}>
+                          Place Advance
+                        </Button>
+                      </Tooltip>
+                    )
+                  )}
                 <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
                 <TPrintButton
                   documentType="quotation"
@@ -2257,6 +2329,64 @@ export default function QuotationsPage() {
           <Button variant="contained" color="error" onClick={handleRejectSubmit}
             disabled={rejectMutation.isPending}>
             {rejectMutation.isPending ? "Rejecting..." : "Reject"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ==================== Proforma Customer Advance Dialog ==================== */}
+      <Dialog open={advanceDialogOpen} onClose={() => setAdvanceDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <PaymentIcon color="success" />
+            Place Customer Advance
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Record a customer advance (deposit) against proforma{" "}
+            <strong>{selectedQuote?.quote_no}</strong>. The advance posts a GL
+            receipt now and is applied when the proforma is converted to an invoice.
+          </Alert>
+          <TextField
+            label="Advance Amount"
+            type="number"
+            size="small"
+            fullWidth
+            value={advanceAmount}
+            onChange={(e) =>
+              setAdvanceAmount(e.target.value === "" ? "" : Number(e.target.value))
+            }
+            InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            select
+            label="Payment Method"
+            size="small"
+            fullWidth
+            value={advancePaymentMethod}
+            onChange={(e) => setAdvancePaymentMethod(e.target.value)}
+          >
+            <MenuItem value="cash">Cash</MenuItem>
+            <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
+            <MenuItem value="cheque">Cheque</MenuItem>
+            <MenuItem value="card">Card</MenuItem>
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAdvanceDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handlePlaceAdvance}
+            disabled={
+              placeAdvanceMutation.isPending ||
+              !advanceAmount ||
+              Number(advanceAmount) <= 0
+            }
+            startIcon={<PaymentIcon />}
+          >
+            {placeAdvanceMutation.isPending ? "Saving..." : "Record Advance"}
           </Button>
         </DialogActions>
       </Dialog>

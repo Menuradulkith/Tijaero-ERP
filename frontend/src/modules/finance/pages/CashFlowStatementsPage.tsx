@@ -44,6 +44,7 @@ import {
   showSuccessToast,
   TCurrency,
   TDetailSkeleton,
+  TExportButton,
   TFilterPanel,
   TSearchableSelect,
   type SortOption,
@@ -545,6 +546,40 @@ export default function CashFlowStatementsPage() {
         isLoading={isLoading}
         masterPanel={masterPanel}
         detailPanel={detailPanel}
+        headerActions={
+          <TExportButton
+            filename="cash_flow_statements"
+            headers={[
+              "Statement No",
+              "Fiscal Year",
+              "Start Date",
+              "End Date",
+              "Opening Cash",
+              "Operating",
+              "Investing",
+              "Financing",
+              "Closing Cash",
+              "Method",
+              "Status",
+            ]}
+            rows={() =>
+              filteredStatements.map((s) => [
+                s.statement_no || "",
+                s.fiscal_year ?? "",
+                s.start_date || "",
+                s.end_date || "",
+                s.opening_cash_balance ?? 0,
+                s.net_cash_from_operating ?? 0,
+                s.net_cash_from_investing ?? 0,
+                s.net_cash_from_financing ?? 0,
+                s.closing_cash_balance ?? 0,
+                s.method || "",
+                s.status || "",
+              ])
+            }
+            disabled={filteredStatements.length === 0}
+          />
+        }
       />
 
       {/* Generate Dialog */}

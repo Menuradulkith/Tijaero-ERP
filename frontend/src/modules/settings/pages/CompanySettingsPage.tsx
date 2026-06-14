@@ -1,4 +1,5 @@
 import {
+  handleApiError,
   showErrorToast,
   showSuccessToast,
   TButton,
@@ -34,7 +35,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { AxiosError } from "axios";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -288,10 +288,7 @@ export default function CompanySettingsPage() {
       });
     } catch (err: unknown) {
       console.error("Failed to load company settings:", err);
-      const axiosError = err as AxiosError<{ detail?: string }>;
-      const errorMessage =
-        axiosError.response?.data?.detail || "Failed to load company settings.";
-      showErrorToast(errorMessage);
+      showErrorToast(handleApiError(err, "Failed to load company settings."));
     } finally {
       setLoading(false);
     }
@@ -309,10 +306,7 @@ export default function CompanySettingsPage() {
       reset(data); // reset form to clear isDirty state
     } catch (err: unknown) {
       console.error("Failed to update company settings:", err);
-      const axiosError = err as AxiosError<{ detail?: string }>;
-      const errorMessage =
-        axiosError.response?.data?.detail || "Failed to save company settings.";
-      showErrorToast(errorMessage);
+      showErrorToast(handleApiError(err, "Failed to save company settings."));
     } finally {
       setSaving(false);
     }
