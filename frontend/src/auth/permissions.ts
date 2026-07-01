@@ -221,6 +221,17 @@ export const PERMISSIONS = {
   // Commission Payment Approvals
   COMMISSION_PAYMENT_APPROVALS_VIEW: { resource: "commission_payment_approvals", action: "view" },
   COMMISSION_PAYMENT_APPROVALS_APPROVE: { resource: "commission_payment_approvals", action: "approve" },
+  // Petty Cash
+  PETTY_CASH_VIEW: { resource: "petty_cash", action: "view" },
+  PETTY_CASH_CREATE: { resource: "petty_cash", action: "create" },
+  PETTY_CASH_UPDATE: { resource: "petty_cash", action: "update" },
+  PETTY_CASH_DELETE: { resource: "petty_cash", action: "delete" },
+  // Payment Vouchers
+  PAYMENT_VOUCHERS_VIEW: { resource: "payment_vouchers", action: "view" },
+  PAYMENT_VOUCHERS_CREATE: { resource: "payment_vouchers", action: "create" },
+  PAYMENT_VOUCHERS_UPDATE: { resource: "payment_vouchers", action: "update" },
+  PAYMENT_VOUCHERS_APPROVE: { resource: "payment_vouchers", action: "approve" },
+  PAYMENT_VOUCHERS_DELETE: { resource: "payment_vouchers", action: "delete" },
 
   // ═══════════════════════════════════════════════════════════════════
   // HR — per sub-page permissions

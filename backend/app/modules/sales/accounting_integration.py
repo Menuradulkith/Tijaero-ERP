@@ -83,6 +83,7 @@ ACCT_BANK_ACCOUNT = "1020"
 ACCT_TRADE_DEBTORS = "1110"
 ACCT_FINISHED_GOODS = "1210"
 ACCT_VAT_PAYABLE = "2210"
+ACCT_COUPON_LIABILITY = "2520"  # Liability for coupons owed to customers
 ACCT_GIFT_VOUCHERS = "2510"
 ACCT_CREDIT_NOTES = "2530"
 ACCT_CASH_SALES = "4010"
@@ -321,6 +322,8 @@ class SalesAccountingIntegration:
                 })
 
         # If voucher was used, debit the voucher liability (reduce outstanding voucher obligation)
+        # NOTE: Voucher is NOT double-credited to revenue; it's already included in subtotal.
+        # The voucher reduces cash received (grand_total = subtotal - voucher).
         if voucher_amount > 0:
             lines.append({
                 "account_code": ACCT_GIFT_VOUCHERS,
@@ -330,6 +333,7 @@ class SalesAccountingIntegration:
             })
 
         # --- CREDIT: Revenue ---
+        # Revenue = subtotal - discount - coupon (voucher NOT subtracted; it reduces cash, not revenue)
         if revenue_amount > 0:
             lines.append({
                 "account_code": revenue_account,
@@ -338,13 +342,14 @@ class SalesAccountingIntegration:
                 "description": f"{'Credit' if is_credit else 'Cash'} sale revenue - {invoice.invoice_no}",
             })
 
-        # If voucher amount goes to revenue (customer gets goods worth voucher value)
-        if voucher_amount > 0:
+        # If coupon was applied, credit the coupon liability/discount account
+        # Coupon is a reduction in revenue but still owed to customer as a discount
+        if coupon_amount > 0:
             lines.append({
-                "account_code": revenue_account,
+                "account_code": ACCT_COUPON_LIABILITY,  # Liability for coupon owed
                 "debit": Decimal("0"),
-                "credit": voucher_amount,
-                "description": f"Revenue from voucher redemption - {invoice.invoice_no}",
+                "credit": coupon_amount,
+                "description": f"Coupon applied on {invoice.invoice_no}",
             })
 
         # If credit note was applied, record as revenue adjustment  

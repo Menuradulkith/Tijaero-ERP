@@ -240,10 +240,11 @@ class CommissionRepository:
             "items": items_with_details,
         }
 
-    def generate_payment_no(self, db: Session) -> str:
-        """Generate next payment number: ACP-YYYYMMDD-XXXX"""
+    def generate_payment_no(self, db: Session, branch_code: str = None) -> str:
+        """Generate next payment number: ACP-{BranchCode}-YYYYMMDD-XXXX"""
+        branch_code = branch_code or "HQ"
         today = tz.now().strftime("%Y%m%d")
-        prefix = f"ACP-{today}-"
+        prefix = f"ACP-{branch_code}-{today}-"
 
         # Advisory lock to prevent race conditions on sequence generation
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
@@ -261,7 +262,8 @@ class CommissionRepository:
 
     def create_payment(self, db: Session, payment_data: dict, items_data: list) -> CustomerAgentCommissionPayment:
         """Create a commission payment with items"""
-        payment_no = self.generate_payment_no(db)
+        branch_code = payment_data.get("branch_code", "HQ")
+        payment_no = self.generate_payment_no(db, branch_code)
         payment_data["payment_no"] = payment_no
 
         payment = CustomerAgentCommissionPayment(**payment_data)

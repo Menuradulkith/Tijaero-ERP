@@ -103,6 +103,7 @@ export default function PurchaseInvoicesPage() {
   const navigationState = location.state as { supplier_id?: number; branch_code?: string; grn_id?: number } | null;
 
   const [selectedGRNs, setSelectedGRNs] = useState<GRNInvoiceableItem[]>([]);
+  const [creditPeriod, setCreditPeriod] = useState<number | ''>('');
   const [invoiceableGRNs, setInvoiceableGRNs] = useState<GRNInvoiceableItem[]>([]);
   const [loadingGRNs, setLoadingGRNs] = useState(false);
   const [detailedInvoice, setDetailedInvoice] = useState<PurchaseInvoice | null>(null);
@@ -151,14 +152,17 @@ export default function PurchaseInvoicesPage() {
     extraDirty: selectedGRNs.length > 0,
     onDiscard: () => {
       setSelectedGRNs([]);
+      setCreditPeriod("");
     },
   });
+
 
   const handleCancel = useCallback(
     (items: PurchaseInvoiceListItem[]) => {
       handleCancelBase(items);
       setSelectedGRNs([]);
       setInvoiceableGRNs([]);
+      setCreditPeriod("");
     },
     [handleCancelBase],
   );
@@ -167,6 +171,7 @@ export default function PurchaseInvoicesPage() {
     const result = await handleNewBase();
     setSelectedGRNs([]);
     setInvoiceableGRNs([]);
+    setCreditPeriod("");
     return result;
   }, [handleNewBase]);
 
@@ -313,13 +318,21 @@ export default function PurchaseInvoicesPage() {
   };
 
   // GRN selection toggle
-  const handleToggleGRN = (grn: GRNInvoiceableItem) => {
+  const handleToggleGRN = useCallback((grn: GRNInvoiceableItem) => {
     setSelectedGRNs((prev) => {
       const exists = prev.find((g) => g.grn_id === grn.grn_id);
-      if (exists) return prev.filter((g) => g.grn_id !== grn.grn_id);
-      return [...prev, grn];
+      const newSelection = exists 
+        ? prev.filter((g) => g.grn_id !== grn.grn_id)
+        : [...prev, grn];
+      
+      // Set credit period when selecting the first GRN
+      if (newSelection.length === 1 && formData.payment_type === 'credit') {
+        const po = purchaseOrders.find(po => po.id === newSelection[0].po_id);
+        if (po?.credit_date) setCreditPeriod(po.credit_date);
+      }
+      return newSelection;
     });
-  };
+  }, [purchaseOrders, formData.payment_type]);
 
   // Calculate totals
   const calculateTotal = () =>
@@ -334,7 +347,8 @@ export default function PurchaseInvoicesPage() {
     formData.branch_code &&
     formData.supplier_invoice_no &&
     formData.supplier_invoice_date &&
-    selectedGRNs.length > 0;
+    selectedGRNs.length > 0 &&
+    (formData.payment_type !== "credit" || typeof creditPeriod === "number");
 
   // Create mutation
   const createMutation = useCrudMutation({
@@ -347,6 +361,7 @@ export default function PurchaseInvoicesPage() {
       setIsEditing(false);
       setSelectedGRNs([]);
       setInvoiceableGRNs([]);
+      setCreditPeriod("");
     },
   });
 
@@ -366,6 +381,15 @@ export default function PurchaseInvoicesPage() {
     const total = calculateSelectedTotal();
     const today = new Date().toISOString().split("T")[0];
     const invoiceDate = formData.supplier_invoice_date || today;
+    
+    // Calculate due date based on payment type and credit period
+    let calculatedDueDate = invoiceDate;
+    if (formData.payment_type === "credit" && typeof creditPeriod === "number" && creditPeriod > 0) {
+      const date = new Date(invoiceDate);
+      date.setDate(date.getDate() + creditPeriod);
+      calculatedDueDate = date.toISOString().split("T")[0];
+    }
+    
     // Build per-product items from selected GRNs
     const items = selectedGRNs.flatMap((grn) =>
       (grn.products || []).map((p) => ({
@@ -384,16 +408,14 @@ export default function PurchaseInvoicesPage() {
       branch_code: formData.branch_code,
       payment_type: formData.payment_type,
       received_date: today,
-      // For credit invoices the backend will override due_date using supplier.credit_days
-      // For non-credit we use the invoice date (same-day payment expected)
-      due_date: invoiceDate,
+      due_date: calculatedDueDate,
       subtotal: total,
       total_amount: total,
       remarks: formData.remarks || undefined,
       items,
     };
     createMutation.mutate(dataToSave);
-  }, [formData, selectedGRNs, createMutation]);
+  }, [formData, selectedGRNs, createMutation, creditPeriod]);
 
   const handleCancelInvoice = useCallback(async () => {
     if (!selectedInvoice) return;
@@ -627,12 +649,32 @@ export default function PurchaseInvoicesPage() {
                 label="Payment Type"
                 size="small"
                 value={formData.payment_type}
-                onChange={(e) => setFormData({ ...formData, payment_type: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData({ ...formData, payment_type: val });
+                  if (val === "credit" && creditPeriod === "" && selectedGRNs.length > 0) {
+                    const po = purchaseOrders.find(po => po.id === selectedGRNs[0].po_id);
+                    if (po?.credit_date) setCreditPeriod(po.credit_date);
+                  }
+                }}
                 disabled={!isEditing && !isCreating}
               >
                 <MenuItem value="non_credit">Non-Credit</MenuItem>
                 <MenuItem value="credit">Credit</MenuItem>
               </TextField>
+              {formData.payment_type === "credit" && (
+                <TextField
+                  label="Credit Period (Days)"
+                  size="small"
+                  type="number"
+                  value={creditPeriod}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    setCreditPeriod(isNaN(val) ? "" : val);
+                  }}
+                  disabled={!isEditing && !isCreating}
+                />
+              )}
             </FormSection>
 
             {/* View mode: status & amounts */}

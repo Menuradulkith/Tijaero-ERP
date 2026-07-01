@@ -110,9 +110,14 @@ export default function ItemTransferNoteApprovalsPage() {
 
   // Fetch transfer notes with approval status
   const { data: transferNotes = [], isLoading, refetch } = useQuery({
-    queryKey: ["transfer-notes"],
-    queryFn: () => transferNotesApi.getAll(),
-    enabled: branchResolved,
+    queryKey: ["transfer-notes", filterBranch, filterStatus],
+    queryFn: () => {
+      if (!filterBranch) return Promise.resolve([]);
+      const params: Record<string, any> = { branch_code: filterBranch };
+      // Filter by approval status by checking the ITN status field
+      return transferNotesApi.getAll(params);
+    },
+    enabled: branchResolved && filterBranch !== null,
   });
 
   // Fetch locations

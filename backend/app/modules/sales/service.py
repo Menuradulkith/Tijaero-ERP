@@ -43,10 +43,14 @@ class SalesService:
             next_seq = 1
         return f"{prefix}-{next_seq:05d}"
     
-    def _get_next_sale_return_number(self, db: Session) -> str:
-        """Generate next Sale Return number: SR-YYYY-XXXXX with advisory lock"""
+    def _get_next_sale_return_number(self, db: Session, branch_code: str = None) -> str:
+        """Generate next Sale Return number: SRN-{BranchCode}-YYYY-XXXXX with advisory lock"""
         year = tz.year()
-        prefix = f"SR-{year}"
+        
+        # Extract branch code with default
+        branch_code = branch_code or "HQ"
+        
+        prefix = f"SRN-{branch_code}-{year}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             db.query(SaleReturn)
@@ -2293,7 +2297,8 @@ class SalesService:
         
         # Create sale return record
         return_dict = sale_return_data.model_dump(exclude={'items'})
-        return_dict['sale_return_no'] = self._get_next_sale_return_number(db)
+        branch_code = sale_return_data.branch_code or invoice.branch_code or "HQ"
+        return_dict['sale_return_no'] = self._get_next_sale_return_number(db, branch_code)
         return_dict['added_date'] = tz.today()
         return_dict['cheque_date'] = tz.today()
         return_dict['status'] = DocumentStatus.PENDING

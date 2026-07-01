@@ -189,13 +189,17 @@ class SalesQuoteRepository:
     ) -> str:
         """Generate next quote number"""
         year = tz.year()
-        prefix = "QT" if quote_type == QuoteType.QUOTATION.value else "PI"
-
+        prefix_type = "QT" if quote_type == QuoteType.QUOTATION.value else "PI"
+        
+        # Extract branch code with default
+        branch_code = branch_code or "HQ"
+        
         # Advisory lock to prevent race conditions on sequence generation
-        lock_key = f"{prefix}-{year}"
+        lock_key = f"{prefix_type}-{branch_code}-{year}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": lock_key})
-        # Get the last quote number for this type and year
-        pattern = f"{prefix}-{year}-%"
+        
+        # Get the last quote number for this type, branch and year
+        pattern = f"{prefix_type}-{branch_code}-{year}-%"
         last_quote = (
             db.query(SalesQuote)
             .filter(SalesQuote.quote_no.like(pattern))
@@ -213,7 +217,7 @@ class SalesQuoteRepository:
         else:
             next_seq = 1
 
-        return f"{prefix}-{year}-{next_seq:05d}"
+        return f"{prefix_type}-{branch_code}-{year}-{next_seq:05d}"
 
     def get_next_revision_number(self, db: Session, parent_quote_id: int) -> int:
         """Get next revision number for a quote"""

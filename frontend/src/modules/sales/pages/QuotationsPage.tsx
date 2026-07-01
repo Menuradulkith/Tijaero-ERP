@@ -1384,8 +1384,8 @@ export default function QuotationsPage() {
                 <TPrintButton
                   documentType="quotation"
                   documentId={selectedQuote.id}
-                  disabled={!canPrintDocument(selectedQuote.status, ["cancelled"])}
-                  disabledReason={`Cannot print: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}`}
+                  disabled={selectedQuote.status !== "draft" && !canPrintDocument(selectedQuote.status, ["cancelled"])}
+                  disabledReason={selectedQuote.status === "cancelled" ? "Cannot print: quotation is cancelled" : `Cannot print: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}`}
                   onClick={() => {
                     setSelectedQuoteForPrint(selectedQuote);
                     setPrintDialogOpen(true);

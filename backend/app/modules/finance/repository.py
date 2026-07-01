@@ -134,7 +134,8 @@ class ExpenseRepository:
     def create(self, expense: schemas.ExpenseCreate, submitted_by: int = None) -> models.Expenses:
         data = expense.model_dump(exclude_none=True)
         if not data.get("expenses_no"):
-            data["expenses_no"] = self._generate_expense_no()
+            branch_code = data.get("branch_code") or "HQ"
+            data["expenses_no"] = self._generate_expense_no(branch_code)
         if not data.get("expense_date"):
             data["expense_date"] = tz.today()
         db_expense = models.Expenses(
@@ -193,23 +194,28 @@ class ExpenseRepository:
         items = query.order_by(models.Expenses.created_date.desc()).offset(filters.skip).limit(filters.limit).all()
         return items, total
 
-    def _generate_expense_no(self) -> str:
-        """Generate unique expense number.
+    def _generate_expense_no(self, branch_code: str = None) -> str:
+        """Generate unique expense number: EXP-{BranchCode}-YYYY-XXXXX
         Uses advisory lock to prevent duplicate numbers under concurrency.
         """
         from sqlalchemy import text
-        today = tz.today().strftime("%Y%m%d")
-        prefix = f"EXP-{today}-"
+        from app.core import timezone as tz
+        
+        # Extract branch code with default
+        branch_code = branch_code or "HQ"
+        
+        year = tz.year()
+        prefix = f"EXP-{branch_code}-{year}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = self.db.query(models.Expenses).filter(
-            models.Expenses.expenses_no.like(f"{prefix}%")
+            models.Expenses.expenses_no.like(f"{prefix}-%")
         ).order_by(models.Expenses.expenses_no.desc()).first()
         if last and last.expenses_no.startswith(prefix):
             try:
-                return f"{prefix}{int(last.expenses_no.split('-')[-1]) + 1:04d}"
+                return f"{prefix}-{int(last.expenses_no.split('-')[-1]) + 1:05d}"
             except ValueError:
                 pass
-        return f"{prefix}0001"
+        return f"{prefix}-00001"
 
 class CustomerAdvancePaymentRepository:
     def __init__(self, db: Session):

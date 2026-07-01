@@ -748,3 +748,200 @@ export const postingFailuresApi = {
     return response.data;
   },
 };
+
+// ============================================================================
+// PETTY CASH API
+// ============================================================================
+
+export const pettyCashApi = {
+  /**
+   * Create a new petty cash fund
+   */
+  createFund: async (data: any) => {
+    const response = await apiClient.post(
+      "/finance/petty-cash/funds",
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * List all petty cash funds with optional filters
+   */
+  listFunds: async (params?: {
+    branch_code?: string;
+    status?: "active" | "closed";
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get(
+      "/finance/petty-cash/funds",
+      { params }
+    );
+    return response.data;
+  },
+
+  /**
+   * Get a specific petty cash fund by ID
+   */
+  getFund: async (fundId: number) => {
+    const response = await apiClient.get(
+      `/finance/petty-cash/funds/${fundId}`
+    );
+    return response.data;
+  },
+
+  /**
+   * Get petty cash fund with all its transactions
+   */
+  getFundDetails: async (fundId: number) => {
+    const response = await apiClient.get(
+      `/finance/petty-cash/funds/${fundId}/details`
+    );
+    return response.data;
+  },
+
+  /**
+   * Get summary statistics for a petty cash fund
+   */
+  getFundSummary: async (fundId: number) => {
+    const response = await apiClient.get(
+      `/finance/petty-cash/funds/${fundId}/summary`
+    );
+    return response.data;
+  },
+
+  /**
+   * Record an expense transaction (deducts from fund)
+   */
+  recordExpense: async (data: any) => {
+    const response = await apiClient.post(
+      "/finance/petty-cash/expenses",
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * Replenish a petty cash fund (adds to fund)
+   */
+  replenishFund: async (data: any) => {
+    const response = await apiClient.post(
+      "/finance/petty-cash/replenishments",
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * Reconcile and close a petty cash fund
+   */
+  reconcileFund: async (fundId: number, data: any) => {
+    const response = await apiClient.post(
+      `/finance/petty-cash/funds/${fundId}/reconcile`,
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * List transactions for a petty cash fund
+   */
+  listTransactions: async (fundId: number, skip = 0, limit = 100) => {
+    const response = await apiClient.get(
+      `/finance/petty-cash/funds/${fundId}/transactions`,
+      { params: { skip, limit } }
+    );
+    return response.data;
+  },
+};
+
+// ============================================================================
+// PAYMENT VOUCHER API
+// ============================================================================
+
+export const paymentVoucherApi = {
+  /**
+   * Create a new payment voucher
+   */
+  createVoucher: async (data: any) => {
+    const response = await apiClient.post(
+      "/finance/payment-vouchers",
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * List all payment vouchers with optional filters
+   */
+  listVouchers: async (params?: {
+    branch_code?: string;
+    status?: string;
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get(
+      "/finance/payment-vouchers",
+      { params }
+    );
+    return response.data;
+  },
+
+  /**
+   * Get a specific payment voucher by ID
+   */
+  getVoucher: async (voucherId: number) => {
+    const response = await apiClient.get(
+      `/finance/payment-vouchers/${voucherId}`
+    );
+    return response.data;
+  },
+
+  /**
+   * Update a payment voucher
+   */
+  updateVoucher: async (voucherId: number, data: any) => {
+    const response = await apiClient.put(
+      `/finance/payment-vouchers/${voucherId}`,
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * Delete a payment voucher
+   */
+  deleteVoucher: async (voucherId: number) => {
+    const response = await apiClient.delete(
+      `/finance/payment-vouchers/${voucherId}`
+    );
+    return response.data;
+  },
+
+  /**
+   * Approve a payment voucher
+   */
+  approveVoucher: async (voucherId: number, approverId?: number) => {
+    const response = await apiClient.post(
+      `/finance/payment-vouchers/${voucherId}/approve`,
+      { approver_id: approverId }
+    );
+    return response.data;
+  },
+
+  /**
+   * Reject a payment voucher
+   */
+  rejectVoucher: async (voucherId: number, reason: string) => {
+    const response = await apiClient.post(
+      `/finance/payment-vouchers/${voucherId}/reject`,
+      { reason }
+    );
+    return response.data;
+  },
+};

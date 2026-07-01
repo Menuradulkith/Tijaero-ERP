@@ -721,3 +721,145 @@ export interface DayEndReconciliation {
   discrepancies: string[];
   warnings: string[];
 }
+
+// ─── Petty Cash Types ────────────────────────────────────────────────────
+
+export interface PettyCashFund {
+  id: number;
+  petty_cash_no: string;
+  opening_balance: number;
+  current_balance: number;
+  closing_balance?: number | null;
+  branch_code: string;
+  opened_by?: number;
+  opened_date: string;
+  status: "active" | "closed";
+  closed_by?: number;
+  closed_date?: string;
+  remarks?: string;
+  created_date: string;
+}
+
+export interface PettyCashFundCreate {
+  branch_code: string;
+  opening_balance: number;
+  opened_date: string;
+  remarks?: string;
+}
+
+export interface PettyCashTransaction {
+  id: number;
+  transaction_no: string;
+  petty_cash_id: number;
+  transaction_type: "expense" | "replenishment";
+  amount: number;
+  balance_after: number;
+  expense_type?: string;
+  recipient_name?: string;
+  purpose?: string;
+  receipt_number?: string;
+  approved_by?: number;
+  description?: string;
+  transaction_date: string;
+  recorded_by?: number;
+  branch_code: string;
+  remarks?: string;
+  created_date: string;
+}
+
+export interface PettyCashExpenseCreate {
+  petty_cash_id: number;
+  amount: number;
+  expense_type: string;
+  recipient_name: string;
+  purpose: string;
+  receipt_number?: string;
+  transaction_date: string;
+  description?: string;
+}
+
+export interface PettyCashReplenishCreate {
+  petty_cash_id: number;
+  amount: number;
+  transaction_date: string;
+  description?: string;
+}
+
+export interface PettyCashReconcileRequest {
+  closing_balance: number;
+  remarks?: string;
+}
+
+export interface PettyCashReconcileResponse {
+  id: number;
+  status: string;
+  closing_balance: number;
+  variance: number;
+  closed_date: string;
+  remarks?: string;
+}
+
+export interface PettyCashSummary {
+  opening_balance: number;
+  total_expenses: number;
+  total_replenishments: number;
+  current_balance: number;
+  transaction_count: number;
+  last_transaction_date?: string;
+}
+
+export interface PettyCashListFilter {
+  branch_code?: string;
+  status?: "active" | "closed";
+  date_from?: string;
+  date_to?: string;
+  skip?: number;
+  limit?: number;
+}
+
+export interface PettyCashFundWithTransactions extends PettyCashFund {
+  transactions: PettyCashTransaction[];
+}
+
+// ─── Payment Voucher Types ────────────────────────────────────────────────────
+
+export interface PaymentVoucher {
+  id: number;
+  voucher_no: string;
+  amount: number;
+  status: "pending" | "approved" | "rejected" | "used" | "expired";
+  payee_name: string;
+  payment_date: string;
+  expiry_date?: string;
+  description?: string;
+  branch_code: string;
+  created_by?: number;
+  approved_by?: number;
+  created_date: string;
+}
+
+export interface PaymentVoucherCreate {
+  amount: number;
+  payee_name: string;
+  payment_date: string;
+  description?: string;
+  branch_code: string;
+  expiry_date?: string;
+}
+
+export interface PaymentVoucherUpdate {
+  amount?: number;
+  payee_name?: string;
+  payment_date?: string;
+  description?: string;
+  expiry_date?: string;
+}
+
+export interface PaymentVoucherFilter {
+  branch_code?: string;
+  status?: string;
+  date_from?: string;
+  date_to?: string;
+  skip?: number;
+  limit?: number;
+}

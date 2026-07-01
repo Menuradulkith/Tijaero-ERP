@@ -103,6 +103,42 @@ import {
   Supplier,
 } from "@/modules/purchasing/types";
 
+// ─── Monthly Instalment Outstanding ─────────────────────────────────────────
+// Computes how much of the credit invoice is overdue relative to an even monthly
+// instalment schedule. Returns null for non-credit invoices.
+// Formula:
+//   duration_months = max(1, round((due_date - invoice_date) / 30))
+//   monthly_instalment = total_amount / duration_months
+//   months_elapsed = min(floor((today - invoice_date) / 30), duration_months)
+//   expected_cumulative = monthly_instalment * months_elapsed
+//   result = expected_cumulative - paid_amount   (negative = paid ahead)
+function calcMonthlyInstalmentOutstanding(doc: {
+  payment_type: string;
+  date: string;
+  due_date: string;
+  total_amount: number;
+  paid_amount: number;
+}): number | null {
+  if (doc.payment_type !== "credit") return null;
+  const invoiceDate = new Date(doc.date);
+  const dueDate = new Date(doc.due_date);
+  const today = new Date();
+  const durationDays = Math.round(
+    (dueDate.getTime() - invoiceDate.getTime()) / 86_400_000
+  );
+  const durationMonths = Math.max(1, Math.round(durationDays / 30));
+  const monthlyInstalment = doc.total_amount / durationMonths;
+  const elapsedDays = Math.floor(
+    (today.getTime() - invoiceDate.getTime()) / 86_400_000
+  );
+  const monthsElapsed = Math.min(
+    Math.floor(elapsedDays / 30),
+    durationMonths
+  );
+  const expectedCumulative = monthlyInstalment * monthsElapsed;
+  return expectedCumulative - doc.paid_amount;
+}
+
 // Configuration
 interface SortOption {
   value: string;
@@ -1109,6 +1145,7 @@ export default function SupplierPaymentsPage() {
                   <TableCell align="right">Supplier Advance (Rs.)</TableCell>
                   <TableCell align="right">Returns (Rs.)</TableCell>
                   <TableCell align="right">Outstanding (Rs.)</TableCell>
+                  <TableCell align="right">Monthly Instalment Outstanding (Rs.)</TableCell>
                   <TableCell>Status</TableCell>
                 </TableRow>
               </TableHead>
@@ -1167,6 +1204,20 @@ export default function SupplierPaymentsPage() {
                       <Typography color="warning.main" fontWeight="bold">
                         {fmtLKR(doc.remaining_amount)}
                       </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      {(() => {
+                        const mio = calcMonthlyInstalmentOutstanding(doc);
+                        if (mio === null) return <Typography color="text.disabled">—</Typography>;
+                        return (
+                          <Typography
+                            fontWeight="bold"
+                            color={mio < 0 ? "success.main" : mio === 0 ? "text.secondary" : "error.main"}
+                          >
+                            {mio < 0 ? `-Rs. ${fmtLKR(Math.abs(mio))}` : `Rs. ${fmtLKR(mio)}`}
+                          </Typography>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       {doc.payment_type === "credit" ? (
@@ -1319,6 +1370,7 @@ export default function SupplierPaymentsPage() {
                   {showDueDateColumn && <TableCell>Due Date</TableCell>}
                   <TableCell align="right">Total</TableCell>
                   <TableCell align="right">Outstanding</TableCell>
+                  <TableCell align="right">Monthly Instalment Outstanding</TableCell>
                   <TableCell>Status</TableCell>
                 </TableRow>
               </TableHead>
@@ -1361,13 +1413,27 @@ export default function SupplierPaymentsPage() {
                   )}
                   <TableCell align="right">
                     <Typography variant="body2" color="text.secondary">
+                      Rs. {fmtLKR(doc.total_amount)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography fontWeight="bold" color="warning.main">
                       Rs. {fmtLKR(doc.remaining_amount)}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
-                    <Typography fontWeight="bold">
-                      Rs. {fmtLKR(doc.remaining_amount)}
-                    </Typography>
+                    {(() => {
+                      const mio = calcMonthlyInstalmentOutstanding(doc);
+                      if (mio === null) return <Typography color="text.disabled">—</Typography>;
+                      return (
+                        <Typography
+                          fontWeight="bold"
+                          color={mio < 0 ? "success.main" : mio === 0 ? "text.secondary" : "error.main"}
+                        >
+                          {mio < 0 ? `-Rs. ${fmtLKR(Math.abs(mio))}` : `Rs. ${fmtLKR(mio)}`}
+                        </Typography>
+                      );
+                    })()}
                   </TableCell>
                     <TableCell>
                       {doc.payment_type === "credit" ? (

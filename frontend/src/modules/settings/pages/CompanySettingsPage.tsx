@@ -12,6 +12,8 @@ import BusinessIcon from "@mui/icons-material/Business";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
+import SecurityIcon from "@mui/icons-material/Security";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import {
   Avatar,
   Box,
@@ -28,6 +30,7 @@ import {
   MenuItem,
   Paper,
   Select,
+  Slider,
   Switch,
   Tab,
   Tabs,
@@ -87,11 +90,21 @@ export default function CompanySettingsPage() {
   const [showInactiveCards, setShowInactiveCards] = useState(false);
   const [savingCardSettings, setSavingCardSettings] = useState(false);
 
+  // ── Passcode expiry settings ─────────────────────────────────────────────
+  const [passcodeExpiryDays, setPasscodeExpiryDays] = useState(30);
+  const [savingPasscodeSetting, setSavingPasscodeSetting] = useState(false);
+
   const { data: companySettings } = useQuery({
     queryKey: ["company-settings"],
     queryFn: () => settingsApi.getCompanySettings(),
   });
   const hideServiceCharge = companySettings?.hide_service_charge ?? false;
+
+  // Sync passcode expiry slider from server data
+  useEffect(() => {
+    const val = (companySettings as any)?.passcode_expiry_days;
+    if (val) setPasscodeExpiryDays(Number(val));
+  }, [(companySettings as any)?.passcode_expiry_days]);
 
   const { data: cards, isLoading: cardsLoading } = useQuery({
     queryKey: ["payment-cards", showInactiveCards],
@@ -344,6 +357,11 @@ export default function CompanySettingsPage() {
           <Tab
             label="Payment Cards"
             icon={<CreditCardIcon fontSize="small" />}
+            iconPosition="start"
+          />
+          <Tab
+            label="Security"
+            icon={<SecurityIcon fontSize="small" />}
             iconPosition="start"
           />
         </Tabs>
@@ -642,6 +660,97 @@ export default function CompanySettingsPage() {
               />
             </Box>
           </TFormDialog>
+        </TabPanel>
+
+        {/* ── Tab 2: Security ── */}
+        <TabPanel value={activeTab} index={2}>
+          <Typography variant="h6" fontWeight={600} gutterBottom>
+            Passcode Security Policy
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Configure the global passcode expiry period. All users' passcodes will expire after
+            this many days, forcing a monthly reset at minimum.
+          </Typography>
+
+          <Box sx={{ maxWidth: 480 }}>
+            <Box
+              sx={{
+                p: 2.5,
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: 2,
+                bgcolor: "background.paper",
+                mb: 2,
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                <SecurityIcon color="primary" fontSize="small" />
+                <Typography variant="subtitle2" fontWeight={600}>
+                  Passcode Expiry Period
+                </Typography>
+                <Chip size="small" label={`${passcodeExpiryDays} day${passcodeExpiryDays !== 1 ? "s" : ""}`} color="primary" />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
+                Monthly reset required — maximum 30 days. Set lower for higher-security environments.
+              </Typography>
+              <Slider
+                value={passcodeExpiryDays}
+                onChange={(_, v) => setPasscodeExpiryDays(v as number)}
+                min={1}
+                max={30}
+                step={1}
+                marks={[
+                  { value: 1, label: "1d" },
+                  { value: 7, label: "7d" },
+                  { value: 14, label: "14d" },
+                  { value: 30, label: "30d" },
+                ]}
+                valueLabelDisplay="auto"
+                sx={{ mt: 1 }}
+              />
+            </Box>
+
+            <Box
+              sx={{
+                p: 2,
+                bgcolor: "info.main",
+                color: "info.contrastText",
+                borderRadius: 1.5,
+                display: "flex",
+                gap: 1,
+                alignItems: "flex-start",
+                mb: 3,
+                opacity: 0.9,
+              }}
+            >
+              <InfoOutlinedIcon fontSize="small" sx={{ mt: 0.2, flexShrink: 0 }} />
+              <Typography variant="caption">
+                When a user's passcode expires, they are redirected to the Password login tab.
+                After signing in with their password, they can set a new passcode from their
+                Profile → Security section.
+              </Typography>
+            </Box>
+
+            <Button
+              variant="contained"
+              startIcon={<SecurityIcon />}
+              disabled={savingPasscodeSetting}
+              onClick={async () => {
+                setSavingPasscodeSetting(true);
+                try {
+                  await settingsApi.updateCompanySettings({ passcode_expiry_days: passcodeExpiryDays } as any);
+                  queryClient.invalidateQueries({ queryKey: ["company-settings"] });
+                  showSuccessToast("Passcode expiry policy saved.");
+                } catch (err) {
+                  showErrorToast(handleApiError(err, "Failed to save security settings."));
+                } finally {
+                  setSavingPasscodeSetting(false);
+                }
+              }}
+            >
+              {savingPasscodeSetting ? "Saving…" : "Save Security Settings"}
+            </Button>
+          </Box>
         </TabPanel>
       </Paper>
     </Box>

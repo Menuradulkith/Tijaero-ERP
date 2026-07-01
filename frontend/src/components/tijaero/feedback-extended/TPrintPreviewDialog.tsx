@@ -42,24 +42,25 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
 
     const reportUrl = useMemo(() => {
         const baseUrl = getReportUrl(documentType, documentId);
-        const params = new URLSearchParams();
+        // Parse the URL to add more query parameters
+        const urlObj = new URL(baseUrl, 'http://localhost');
+        
+        // Add additional parameters (token is already in baseUrl from getReportUrl)
+        if (!showHeader) urlObj.searchParams.append("show_header", "false");
+        if (!showDiscount) urlObj.searchParams.append("show_discount", "false");
+        if (!showSignatures) urlObj.searchParams.append("show_signatures", "false");
+        if (customRemarks) urlObj.searchParams.append("custom_remarks", customRemarks);
 
-        if (token) params.append("token", token);
-        if (!showHeader) params.append("show_header", "false");
-        if (!showDiscount) params.append("show_discount", "false");
-        if (!showSignatures) params.append("show_signatures", "false");
-        if (customRemarks) params.append("custom_remarks", customRemarks);
+        urlObj.searchParams.append("t", Date.now().toString());
 
-        params.append("t", Date.now().toString());
-
-        const queryString = params.toString();
-        return queryString ? `${baseUrl}?${queryString}` : baseUrl;
+        // Return relative path
+        return urlObj.pathname + urlObj.search;
     }, [documentType, documentId, showHeader, showDiscount, showSignatures, customRemarks, token]);
 
     const handlePrint = () => {
-        const printUrl = new URL(reportUrl);
+        const printUrl = new URL(reportUrl, window.location.origin);
         printUrl.pathname = `${printUrl.pathname}/pdf`;
-        window.open(printUrl.toString(), "_blank");
+        window.open(printUrl.toString().replace(window.location.origin, ""), "_blank");
         onClose();
     };
 

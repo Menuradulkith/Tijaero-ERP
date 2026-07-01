@@ -152,3 +152,52 @@ class PaginatedResponse(BaseModel):
     page: int
     size: int
     pages: int
+
+
+# ---------------------------------------------------------------------------
+# Passcode schemas
+# ---------------------------------------------------------------------------
+
+class PasscodeLoginRequest(BaseModel):
+    """Body for POST /auth/passcode-login."""
+    username: str = Field(..., description="The user's login username")
+    passcode: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="Exactly 6 numeric digits",
+    )
+
+
+class PasscodeLoginResponse(Token):
+    """Extends the standard Token response with an expiry flag used to
+    prompt the user to set a new passcode after a password login."""
+    passcode_expired: bool = False
+
+
+class SetPasscodeRequest(BaseModel):
+    """Body for POST /auth/passcode (set or change passcode)."""
+    passcode: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="Exactly 6 numeric digits",
+    )
+    confirm_passcode: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="Must match passcode",
+    )
+
+
+class PasscodeStatus(BaseModel):
+    """Returned by GET /auth/passcode/status."""
+    has_passcode: bool
+    locked_out: bool
+    failed_attempts: int
+    expires_at: Optional[str] = None    # ISO datetime string
+    is_expired: bool
+    days_until_expiry: Optional[int] = None

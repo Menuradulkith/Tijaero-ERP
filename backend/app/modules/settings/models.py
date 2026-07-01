@@ -39,6 +39,10 @@ class Settings(Base, AuditMixin):
     fiscal_year_start = Column(String(10), default="01-01")  # MM-DD format
     default_currency = Column(String(3), default="LKR")
     tax_registration_number = Column(String(50))
+
+    # Passcode security settings
+    # Mandatory monthly reset: admin can only lower (1–30 days), default is 30
+    passcode_expiry_days = Column(Integer, nullable=False, default=30)
     
 
 class UserNotification(Base, AuditMixin):

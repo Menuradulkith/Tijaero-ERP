@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    func,
 )
 from sqlalchemy.orm import relationship
 
@@ -149,3 +150,40 @@ class LoginShortcode(Base, AuditMixin):
     )
     login_short_code = Column(Text, unique=True)
     barcode = Column(Text)
+
+
+class UserPasscode(Base, AuditMixin):
+    """Stores the active 6-digit bcrypt-hashed passcode for each user.
+    Includes attempt tracking and lockout state.
+    created_at_ts is refreshed every time the passcode is changed and
+    is the anchor for the configurable expiry check.
+    """
+
+    __tablename__ = "user_passcodes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("accounts_user.id"), unique=True, nullable=False, index=True
+    )
+    hashed_passcode = Column(String(128), nullable=False)
+    failed_attempts = Column(Integer, default=0, nullable=False)
+    locked_out = Column(Boolean, default=False, nullable=False)
+    # Anchor timestamp used for expiry: refreshed whenever passcode is (re)set
+    created_at_ts = Column(TIMESTAMP, nullable=False, server_default=func.now())
+
+
+class UserPasscodeHistory(Base, AuditMixin):
+    """Keeps the last 5 bcrypt-hashed passcodes per user to prevent reuse.
+    Rows are pruned to maintain a maximum of 5 entries (oldest removed first).
+    History is intentionally kept even when the active passcode is deleted.
+    """
+
+    __tablename__ = "user_passcode_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("accounts_user.id"), nullable=False, index=True
+    )
+    hashed_passcode = Column(String(128), nullable=False)
+    # set_at is used for chronological ordering during pruning
+    set_at = Column(TIMESTAMP, nullable=False, server_default=func.now())

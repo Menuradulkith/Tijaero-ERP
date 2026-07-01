@@ -25,6 +25,8 @@ import {
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { settingsApi } from "../api";
+import { PasscodeSettingsSection } from "@/auth/components/PasscodeSettingsSection";
+
 
 interface ProfileFormData {
   first_name: string;
@@ -295,6 +297,10 @@ export default function ProfileSettings() {
                 </Grid>
               </CardContent>
             </Card>
+
+            <Box sx={{ mt: 2.5 }}>
+              <PasscodeSettingsSection />
+            </Box>
           </Grid>
 
           <Grid item xs={12} md={4}>

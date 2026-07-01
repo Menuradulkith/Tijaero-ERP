@@ -60,15 +60,16 @@ class PurchaseInvoiceService:
         self.db = db
 
     # ─── INVOICE NUMBER GENERATION ─────────────────────────────────────
-    def _generate_invoice_no(self) -> str:
-        """Generate unique purchase invoice number: PI-YYYY-XXXXX.
+    def _generate_invoice_no(self, branch_code: str = None) -> str:
+        """Generate unique purchase invoice number: PI-{BranchCode}-YYYY-XXXXX.
 
         Uses a PostgreSQL advisory transaction lock (same technique as PO number
         generation in PurchasingOrderRepository) so that concurrent requests
         cannot read the same last sequence number and produce a duplicate.
         """
+        branch_code = branch_code or "HQ"
         year = tz.today().year
-        prefix = f"PI-{year}-"
+        prefix = f"PI-{branch_code}-{year}-"
         # Serialise number generation; lock is released automatically at
         # transaction end (xact lock), so no manual release is needed.
         self.db.execute(
@@ -160,7 +161,7 @@ class PurchaseInvoiceService:
         total = calculated_subtotal + calculated_tax - data.discount_amount
 
         # Generate invoice number
-        invoice_no = self._generate_invoice_no()
+        invoice_no = self._generate_invoice_no(data.branch_code)
 
         # Use payment_type from frontend (user selects credit/non-credit on invoice)
         payment_type = data.payment_type or "non_credit"
@@ -193,11 +194,13 @@ class PurchaseInvoiceService:
                     ),
                 )
 
-        # For credit invoices: auto-calculate due_date from supplier credit_days
-        # ignore whatever due_date the frontend sent
+        # For credit invoices: use the due_date sent from frontend, or auto-calculate from supplier credit_days
         if payment_type == "credit":
-            credit_days = supplier.credit_days or 30
-            due_date = data.supplier_invoice_date + timedelta(days=credit_days)
+            if data.due_date and data.due_date > data.supplier_invoice_date:
+                due_date = data.due_date
+            else:
+                credit_days = supplier.credit_days or 30
+                due_date = data.supplier_invoice_date + timedelta(days=credit_days)
         else:
             due_date = data.due_date or data.supplier_invoice_date
 

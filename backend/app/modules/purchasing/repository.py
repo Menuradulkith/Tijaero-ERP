@@ -66,10 +66,11 @@ class PurchasingOrderRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def get_next_po_number(self) -> str:
-        """Generate next PO number: PO-YYYY-XXXXX with advisory lock"""
+    def get_next_po_number(self, branch_code: str = "HQ") -> str:
+        """Generate next PO number: PO-BranchCode-YYYY-XXXXX with advisory lock"""
         year = tz.year()
-        prefix = f"PO-{year}"
+        branch = branch_code or "HQ"
+        prefix = f"PO-{branch}-{year}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             self.db.query(models.PurchasingOrder)
@@ -89,8 +90,9 @@ class PurchasingOrderRepository:
     
     def create(self, order: schemas.PurchasingOrderCreate, initial_status: str = "pending") -> models.PurchasingOrder:
         order_data = order.model_dump(exclude={'items'})
-        # Server-side sequential number generation
-        order_data['purchasing_order_no'] = self.get_next_po_number()
+        # Server-side sequential number generation with branch code
+        branch_code = order_data.get('branch_code', 'HQ')
+        order_data['purchasing_order_no'] = self.get_next_po_number(branch_code)
         # Treat 0 as NULL for optional FK fields
         if not order_data.get('second_suppliers_id'):
             order_data['second_suppliers_id'] = None
@@ -242,10 +244,14 @@ class PurchasingReturnRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def get_next_return_number(self) -> str:
-        """Generate next Purchase Return number: RET-YYYY-XXXXX with advisory lock"""
+    def get_next_return_number(self, branch_code: str = None) -> str:
+        """Generate next Purchase Return number: PRN-{BranchCode}-YYYY-XXXXX with advisory lock"""
         year = tz.year()
-        prefix = f"RET-{year}"
+        
+        # Extract branch code with default
+        branch_code = branch_code or "HQ"
+        
+        prefix = f"PRN-{branch_code}-{year}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             self.db.query(models.PurchasingReturn)
@@ -266,7 +272,8 @@ class PurchasingReturnRepository:
     def create(self, return_data: schemas.PurchasingReturnCreate) -> models.PurchasingReturn:
         return_dict = return_data.model_dump(exclude={'items'})
         # Server-side sequential number generation
-        return_dict['purchasing_return_no'] = self.get_next_return_number()
+        branch_code = return_data.branch_code or "HQ"
+        return_dict['purchasing_return_no'] = self.get_next_return_number(branch_code)
         db_return = models.PurchasingReturn(**return_dict, added_date=tz.today())
         self.db.add(db_return)
         self.db.flush()
@@ -301,10 +308,11 @@ class GoodReceivedNoteRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def get_next_grn_number(self) -> str:
-        """Generate next GRN number: GRN-YYYY-XXXXX with advisory lock"""
+    def get_next_grn_number(self, branch_code: str = "HQ") -> str:
+        """Generate next GRN number: GRN-BranchCode-YYYY-XXXXX with advisory lock"""
         year = tz.year()
-        prefix = f"GRN-{year}"
+        branch = branch_code or "HQ"
+        prefix = f"GRN-{branch}-{year}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             self.db.query(models.GoodReceivedNote)
@@ -324,8 +332,9 @@ class GoodReceivedNoteRepository:
     
     def create(self, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
         grn_data = grn.model_dump()
-        # Server-side sequential number generation
-        grn_data['good_received_no'] = self.get_next_grn_number()
+        # Server-side sequential number generation with branch code
+        branch_code = grn_data.get('branch_code', 'HQ')
+        grn_data['good_received_no'] = self.get_next_grn_number(branch_code)
         db_grn = models.GoodReceivedNote(
             **grn_data,
             created_date=tz.today(),

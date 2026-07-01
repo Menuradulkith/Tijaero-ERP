@@ -8,10 +8,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-erp_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_password}
       POSTGRES_DB: ${POSTGRES_DB:-erp_db}
+      TZ: Asia/Colombo
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     networks:
       - erp_network
     healthcheck:
@@ -35,10 +38,13 @@ services:
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://localhost:5173"]}
       PROJECT_NAME: ${PROJECT_NAME:-ERP System}
       API_V1_STR: ${API_V1_STR:-/api/v1}
+      TZ: Asia/Colombo
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     networks:
       - erp_network
     depends_on:
@@ -63,6 +69,8 @@ services:
         python scripts/init_permissions.py &&
         echo 'Ensuring admin user exists...' &&
         python scripts/ensure_admin.py &&
+        echo 'Seeding chart of accounts...' &&
+        python scripts/seed_chart_of_accounts.py &&
         gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --timeout 120 --graceful-timeout 30 --access-logfile - --error-logfile -
       "
 
@@ -75,8 +83,13 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1}
     container_name: erp_frontend
     restart: unless-stopped
+    environment:
+      TZ: Asia/Colombo
     ports:
       - "${FRONTEND_PORT:-3000}:80"
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     networks:
       - erp_network
     depends_on:

@@ -572,13 +572,14 @@ class SalesQuoteService:
                 )
             invoice_items_to_create.append((qi, req_item.quantity))
 
-        # Generate invoice number
+        # Generate invoice number with branch code: INV-BranchCode-YYYY-XXXXX
         now = tz.now()
         year = now.year
-        prefix = f"INV-{year}"
+        branch_code = quote.branch_code or "HQ"
+        prefix = f"INV-{branch_code}-{year}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last_invoice = db.query(Invoice).filter(
-            Invoice.invoice_no.like(f"INV-{year}-%")
+            Invoice.invoice_no.like(f"INV-{branch_code}-{year}-%")
         ).order_by(Invoice.id.desc()).first()
         if last_invoice:
             try:
@@ -587,7 +588,7 @@ class SalesQuoteService:
                 next_seq = 1
         else:
             next_seq = 1
-        invoice_no = f"INV-{year}-{next_seq:05d}"
+        invoice_no = f"INV-{branch_code}-{year}-{next_seq:05d}"
 
         # Create the invoice
         invoice = Invoice(

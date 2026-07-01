@@ -25,14 +25,51 @@ def _use_secure_cookie() -> bool:
     return any(str(origin).startswith("https://") for origin in origins)
 
 
+def _get_expiry_days(db: Session) -> int:
+    """Read passcode_expiry_days from company settings. Falls back to 30 if not set."""
+    try:
+        from app.modules.settings.models import Settings as CompanySettings
+        row = db.query(CompanySettings).first()
+        if row and hasattr(row, "passcode_expiry_days") and row.passcode_expiry_days:
+            return int(row.passcode_expiry_days)
+    except Exception:
+        pass
+    return 30
+
+
+def _issue_tokens(user, response: Response, db: Session) -> dict:
+    """Create and set access+refresh token pair. Returns the token dict."""
+    password_marker = get_password_marker(user.hashed_password)
+    access_token = create_access_token(
+        data={"sub": str(user.id), "pwd": password_marker}
+    )
+    refresh_token_val = create_refresh_token(
+        data={"sub": str(user.id), "pwd": password_marker}
+    )
+    secure_cookie = _use_secure_cookie()
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token_val,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax",
+        max_age=7 * 24 * 60 * 60,
+        path="/",
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
 @router.post(
     "/login",
-    response_model=schemas.Token,
+    response_model=schemas.PasscodeLoginResponse,
     summary="User Login",
-    description="Authenticate user and receive JWT access token. Refresh token is securely set in an HttpOnly cookie.",
-    dependencies=[
-        Depends(rate_limit(5))
-    ],  # Industry standard: strict rate limiting on login
+    description=(
+        "Authenticate user and receive JWT access token. "
+        "Refresh token is securely set in an HttpOnly cookie. "
+        "passcode_expired=true in the response signals that the user's passcode "
+        "has expired and they should visit Profile → Security to set a new one."
+    ),
+    dependencies=[Depends(rate_limit(5))],
     responses={
         200: {"description": "Successfully authenticated"},
         401: {"description": "Invalid credentials"},
@@ -47,30 +84,102 @@ def login(
     user = service.auth_service.authenticate_user(
         db, form_data.username, form_data.password
     )
-    password_marker = get_password_marker(user.hashed_password)
-    access_token = create_access_token(
-        data={"sub": str(user.id), "pwd": password_marker}
-    )
-    refresh_token = create_refresh_token(
-        data={"sub": str(user.id), "pwd": password_marker}
-    )
-    secure_cookie = _use_secure_cookie()
+    token_data = _issue_tokens(user, response, db)
 
-    # Industry Standard: Send refresh token securely via HttpOnly cookie
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        secure=secure_cookie,
-        samesite="lax",  # Prevents CSRF while allowing seamless navigation
-        max_age=7 * 24 * 60 * 60,  # 7 Days
-        path="/",
-    )
+    # Handle passcode lockout and expiry checks
+    from app.auth.passcode_service import check_and_reset_passcode_lockout, is_passcode_expired
+    
+    # If the user was locked out, we delete their passcode and notify the frontend
+    passcode_locked_out = check_and_reset_passcode_lockout(db, user.id)
+
+    # Inform the frontend whether the passcode has expired so it can show a nudge
+    expiry_days = _get_expiry_days(db)
+    passcode_expired = False
+    if not passcode_locked_out:
+        # Only check expiry if they weren't just locked out (and thus had it deleted)
+        passcode_expired = is_passcode_expired(db, user.id, expiry_days)
 
     return {
-        "access_token": access_token,
-        "token_type": "bearer",
+        **token_data, 
+        "passcode_expired": passcode_expired,
+        "passcode_locked_out": passcode_locked_out
     }
+
+
+@router.post(
+    "/passcode-login",
+    response_model=schemas.Token,
+    summary="Passcode Login",
+    description=(
+        "Authenticate with a 6-digit numeric passcode instead of a full password. "
+        "Returns structured error codes (PASSCODE_EXPIRED, PASSCODE_LOCKED, "
+        "PASSCODE_INVALID) so the UI can react appropriately."
+    ),
+    dependencies=[Depends(rate_limit(5))],
+    responses={
+        200: {"description": "Successfully authenticated via passcode"},
+        401: {"description": "Invalid, expired, or locked passcode"},
+        429: {"description": "Too many requests (Rate limited)"},
+    },
+)
+def passcode_login(
+    body: schemas.PasscodeLoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    from app.auth.passcode_service import verify_passcode_login
+
+    expiry_days = _get_expiry_days(db)
+    user = verify_passcode_login(db, body.username, body.passcode, expiry_days)
+    return _issue_tokens(user, response, db)
+
+
+@router.post(
+    "/passcode",
+    summary="Set or Change Passcode",
+    description=(
+        "Set or change the authenticated user's 6-digit passcode. "
+        "Returns 400 if the passcode matches any of the last 5 used passcodes."
+    ),
+)
+def set_passcode(
+    body: schemas.SetPasscodeRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
+):
+    from app.auth.passcode_service import set_passcode as svc_set_passcode
+    return svc_set_passcode(db, current_user.id, body.passcode, body.confirm_passcode)
+
+
+@router.get(
+    "/passcode/status",
+    response_model=schemas.PasscodeStatus,
+    summary="Get Passcode Status",
+    description="Returns the current passcode state for the authenticated user.",
+)
+def get_passcode_status(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
+):
+    from app.auth.passcode_service import get_passcode_status as svc_status
+    expiry_days = _get_expiry_days(db)
+    return svc_status(db, current_user.id, expiry_days)
+
+
+@router.delete(
+    "/passcode",
+    summary="Remove Passcode",
+    description=(
+        "Removes the authenticated user's active passcode. "
+        "History is retained so previously used codes remain blocked."
+    ),
+)
+def delete_passcode(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
+):
+    from app.auth.passcode_service import delete_passcode as svc_delete
+    return svc_delete(db, current_user.id)
 
 
 @router.post(
@@ -131,7 +240,6 @@ def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Issue new token pair (rotation)
     new_access_token = create_access_token(
         data={"sub": str(user.id), "pwd": current_password_marker}
     )

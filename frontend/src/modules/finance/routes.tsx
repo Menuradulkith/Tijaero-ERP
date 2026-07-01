@@ -32,6 +32,8 @@ import CommissionPaymentsPage from "./pages/CommissionPaymentsPage";
 import CommissionPaymentApprovalsPage from "./pages/CommissionPaymentApprovalsPage";
 import SupplierPaymentReportPage from "./pages/SupplierPaymentReportPage";
 import CustomerPaymentReportPage from "./pages/CustomerPaymentReportPage";
+import PettyCashPage from "./pages/PettyCashPage";
+import PaymentVouchersPage from "./pages/PaymentVouchersPage";
 
 export default function FinanceRoutes() {
   return (
@@ -71,6 +73,9 @@ export default function FinanceRoutes() {
       {/* Commission Payments */}
       <Route path="commission-payments" element={<ProtectedRoute resource="commission_payments" action="view"><CommissionPaymentsPage /></ProtectedRoute>} />
       <Route path="commission-payment-approvals" element={<ProtectedRoute resource="commission_payment_approvals" action="view"><CommissionPaymentApprovalsPage /></ProtectedRoute>} />
+      {/* Petty Cash & Payment Vouchers */}
+      <Route path="petty-cash" element={<ProtectedRoute resource="cashbook" action="view"><PettyCashPage /></ProtectedRoute>} />
+      <Route path="payment-vouchers" element={<ProtectedRoute resource="payment_vouchers" action="view"><PaymentVouchersPage /></ProtectedRoute>} />
       {/* Other finance routes */}
       <Route path="supplier-payments" element={<ProtectedRoute resource="supplier_payments" action="view"><SupplierPaymentsPage /></ProtectedRoute>} />
       <Route path="supplier-payments/report" element={<ProtectedRoute resource="supplier_payments" action="view"><SupplierPaymentReportPage /></ProtectedRoute>} />

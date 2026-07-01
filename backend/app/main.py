@@ -217,7 +217,21 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(SQLAlchemyError)
 async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
-    """Log DB exceptions but return generic error to client to avoid exposing query details."""
+    """Log DB exceptions but return generic error to client to avoid exposing query details.
+
+    IntegrityError is excluded here — service-layer code catches it first and raises
+    an HTTPException with a proper user-facing message (e.g. duplicate invoice number).
+    That HTTPException is handled by FastAPI before reaching this handler.
+    """
+    from sqlalchemy.exc import IntegrityError as SAIntegrityError
+    if isinstance(exc, SAIntegrityError):
+        # Service code should have already caught this and raised an HTTPException.
+        # If it somehow bubbles up unwrapped, give a meaningful message.
+        logging.warning(f"Uncaught IntegrityError: {exc}")
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "A duplicate record was detected. Please check your data and try again."},
+        )
     logging.error(f"Database Error: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,

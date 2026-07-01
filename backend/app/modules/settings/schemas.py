@@ -100,6 +100,8 @@ class CompanySettingsBase(BaseModel):
     fiscal_year_start: str = "01-01"
     default_currency: str = "LKR"
     tax_registration_number: Optional[str] = None
+    # Passcode expiry: mandatory monthly cap — admin can lower (1-30), never disable
+    passcode_expiry_days: int = Field(default=30, ge=1, le=30)
 
 
 class CompanySettingsUpdate(BaseModel):
@@ -122,6 +124,8 @@ class CompanySettingsUpdate(BaseModel):
     fiscal_year_start: Optional[str] = None
     default_currency: Optional[str] = None
     tax_registration_number: Optional[str] = None
+    # Passcode expiry: range 1-30 (mandatory monthly cap)
+    passcode_expiry_days: Optional[int] = Field(default=None, ge=1, le=30)
 
 
 class CompanySettings(CompanySettingsBase, TijaeroBaseSchema):

@@ -392,9 +392,12 @@ export default function ItemTransferNotesPage() {
   }, [handleSelectITN, loadITNItems]);
 
   const { data: transferNotes, isLoading } = useQuery({
-    queryKey: ["transfer-notes"],
-    queryFn: () => transferNotesApi.getAll(),
-    enabled: branchResolved,
+    queryKey: ["transfer-notes", filterBranch],
+    queryFn: () => {
+      if (!filterBranch) return Promise.resolve([]);
+      return transferNotesApi.getAll({ branch_code: filterBranch });
+    },
+    enabled: branchResolved && filterBranch !== null,
   });
 
   const nextITNNumber = useMemo(() =>

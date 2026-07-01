@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from typing import List
 from datetime import datetime
+from sqlalchemy import text
 from app.core import timezone as tz
 from . import schemas
 from .models import CustomerSupport, CSJobItem, CustomerCallLog, WarrantyClaims
@@ -11,12 +12,43 @@ class CustomerSupportService:
     def __init__(self, db: Session):
         self.db = db
     
+    def _get_next_ticket_number(self, branch_code: str = None) -> str:
+        """Generate next Support Ticket number: TKT-{BranchCode}-YYYY-XXXXX with advisory lock"""
+        year = tz.year()
+        
+        # Extract branch code with default
+        branch_code = branch_code or "HQ"
+        
+        prefix = f"TKT-{branch_code}-{year}"
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+        last = (
+            self.db.query(CustomerSupport)
+            .filter(CustomerSupport.job_number.like(f"{prefix}-%"))
+            .order_by(CustomerSupport.id.desc())
+            .first()
+        )
+        if last:
+            try:
+                last_seq = int(last.job_number.split("-")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        return f"{prefix}-{next_seq:05d}"
+    
     def create_support_ticket(self, ticket: schemas.CustomerSupportCreate) -> CustomerSupport:
-        db_ticket = CustomerSupport(**ticket.model_dump())
+        # Extract branch code with default
+        branch_code = ticket.branch_code or "HQ"
+        # Generate job number
+        job_number = self._get_next_ticket_number(branch_code)
+        # Create ticket with auto-generated job number
+        db_ticket = CustomerSupport(**ticket.model_dump(), job_number=job_number)
         self.db.add(db_ticket)
         self.db.commit()
         self.db.refresh(db_ticket)
         return db_ticket
+
     
     def get_support_ticket(self, ticket_id: int) -> CustomerSupport:
         ticket = self.db.query(CustomerSupport).filter(CustomerSupport.id == ticket_id).first()

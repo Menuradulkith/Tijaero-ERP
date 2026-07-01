@@ -143,6 +143,33 @@ class DocumentReportService:
             "address": "",
         }
 
+    def _generate_syscode_from_amount(self, amount: float) -> str:
+        """
+        Generate syscode from paid amount.
+        Rounds amount to nearest integer and converts each digit to alphabet (0-A, 1-B, etc).
+        
+        Example: 1234.56 -> 1235 -> "BCDE"
+        
+        Args:
+            amount: The paid amount as float
+            
+        Returns:
+            String with alphabet characters representing each digit
+        """
+        # Round to nearest integer
+        rounded_amount = round(amount)
+        
+        # Convert to string to get individual digits
+        amount_str = str(abs(int(rounded_amount)))
+        
+        # Convert each digit to alphabet (0=A, 1=B, 2=C, ..., 9=J)
+        cipher = "TMAKEPROFI"
+        digit_to_letter = {str(i): cipher[i] for i in range(10)}
+
+        syscode = ''.join(digit_to_letter.get(digit, 'T') for digit in amount_str)
+
+        return syscode if syscode else 'T'  # Return 'T' if amount is 0
+
     def generate_purchase_order_report(
         self,
         po_id: int,
@@ -633,7 +660,7 @@ class DocumentReportService:
                 "ourRefPoNo":     '', #TODO NEED TO CHECK WHAT IS THIS
                 "ourRefPoDate":   '', #TODO NEED TO CHECK WHAT IS THIS
                 "repCode":        invoice.customer_agent_id or '',
-                "sysCode":        invoice.customer_agent_id or '',
+                "sysCode":        self._generate_syscode_from_amount(invoice.paid_amount or 0),
                 "customerCode":   invoice.customer_id or '',
                 "customerName":   customer.get("customer_name", ""),
                 "customerAddress": f"{customer.get('customer_address', '') + ' ' + customer.get('email', '')}".strip(),

@@ -415,6 +415,18 @@ const menuItems: MenuItem[] = [
         path: "/finance/commission-payments",
         permission: PERMISSIONS.COMMISSION_PAYMENTS_VIEW,
       },
+      {
+        text: "Petty Cash",
+        icon: <MonetizationOnIcon />,
+        path: "/finance/petty-cash",
+        permission: PERMISSIONS.PETTY_CASH_VIEW,
+      },
+      {
+        text: "Payment Vouchers",
+        icon: <ReceiptLongIcon />,
+        path: "/finance/payment-vouchers",
+        permission: PERMISSIONS.PAYMENT_VOUCHERS_VIEW,
+      },
     ],
   },
   {

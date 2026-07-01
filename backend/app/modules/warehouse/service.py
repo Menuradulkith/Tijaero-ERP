@@ -23,10 +23,14 @@ class ItemTransferNoteService:
     def __init__(self, db: Session):
         self.db = db
     
-    def _get_next_itn_number(self) -> str:
-        """Generate next ITN number: ITN-YYYY-XXXXX with advisory lock"""
+    def _get_next_itn_number(self, branch_code: str = None) -> str:
+        """Generate next ITN number: ITN-{BranchCode}-YYYY-XXXXX with advisory lock"""
         year = tz.year()
-        prefix = f"ITN-{year}"
+        
+        # Extract branch code with default
+        branch_code = branch_code or "HQ"
+        
+        prefix = f"ITN-{branch_code}-{year}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             self.db.query(ItemTransferNote)
@@ -55,7 +59,8 @@ class ItemTransferNoteService:
 
         transfer_data = transfer_note.model_dump(exclude={'status', 'approval_id'})
         # Server-side sequential ITN number generation
-        transfer_data['item_transfer_note'] = self._get_next_itn_number()
+        branch_code = transfer_note.branch_code or "HQ"
+        transfer_data['item_transfer_note'] = self._get_next_itn_number(branch_code)
         db_transfer_note = ItemTransferNote(
             **transfer_data,
             added_date=tz.now(),
