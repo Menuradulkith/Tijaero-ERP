@@ -111,10 +111,11 @@ export const approvalsApi = {
     return response.data;
   },
 
-  reject: async (id: number, remarks: string) => {
+  reject: async (id: number, remarks: string, credentials?: { approver_username?: string, approver_password?: string }) => {
+    const payload = { remarks, ...credentials };
     const response = await apiClient.post<Approval>(
       `/common/approvals/${id}/reject`,
-      { remarks }
+      payload
     );
     return response.data;
   },
