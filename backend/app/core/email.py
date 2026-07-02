@@ -58,7 +58,8 @@ def send_document_email_task(
         msg.set_content(email_log.body)
 
         # Attach PDF
-        filename = f"{email_log.document_type}-{email_log.document_id}.pdf"
+        display_id_safe = email_log.display_id if email_log.display_id else str(email_log.document_id)
+        filename = f"{email_log.document_type}-{display_id_safe}.pdf"
         msg.add_attachment(
             pdf_bytes,
             maintype='application',

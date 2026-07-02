@@ -741,11 +741,14 @@ export default function SaleReturnsPage() {
                         </Button>
                     ) : selectedReturn && !isCreating && !isEditing ? (
                         <>
-                            <Tooltip title="Send via Email">
-                                <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
-                                    onClick={() => setEmailDialogOpen(true)}>
-                                    Email
-                                </Button>
+                            <Tooltip title={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"]) ? `Cannot email: return is ${(selectedReturn.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+                                <span>
+                                    <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+                                        disabled={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"])}
+                                        onClick={() => setEmailDialogOpen(true)}>
+                                        Email
+                                    </Button>
+                                </span>
                             </Tooltip>
                             <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
                             <TPrintButton

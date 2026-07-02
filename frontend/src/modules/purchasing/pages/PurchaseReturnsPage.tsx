@@ -823,11 +823,14 @@ export default function PurchaseReturnsPage() {
             </Button>
           ) : selectedReturn && !isCreating && !isEditing ? (
             <>
-              <Tooltip title="Send via Email">
-                <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
-                  onClick={() => setEmailDialogOpen(true)}>
-                  Email
-                </Button>
+              <Tooltip title={!canPrintDocument(selectedReturn.status, ["cancelled", "rejected"]) ? `Cannot email: return is ${(selectedReturn.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+                <span>
+                  <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+                    disabled={!canPrintDocument(selectedReturn.status, ["cancelled", "rejected"])}
+                    onClick={() => setEmailDialogOpen(true)}>
+                    Email
+                  </Button>
+                </span>
               </Tooltip>
               <TPrintButton
               documentType="purchase-return"

@@ -22,21 +22,24 @@ def get_email_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    logs = db.query(EmailLog).order_by(EmailLog.id.desc()).limit(100).all()
-    # Serialize datetime to string
+    from app.auth.models import User as AuthUser
+    logs_with_users = db.query(EmailLog, AuthUser).outerjoin(AuthUser, EmailLog.created_by == AuthUser.id).order_by(EmailLog.id.desc()).limit(100).all()
+    
     response_logs = []
-    for log in logs:
+    for log, user in logs_with_users:
         response_logs.append({
             "id": log.id,
             "document_type": log.document_type,
             "document_id": log.document_id,
+            "display_id": log.display_id,
             "to_email": log.to_email,
             "cc_email": log.cc_email,
             "subject": log.subject,
             "status": log.status,
             "error_message": log.error_message,
             "sent_at": log.sent_at.isoformat() if log.sent_at else None,
-            "created_date": log.created_date.isoformat() if log.created_date else ""
+            "created_date": log.created_at.isoformat() if log.created_at else "",
+            "sender_name": f"{user.first_name} {user.last_name}" if user else "System"
         })
     return response_logs
 
@@ -55,7 +58,7 @@ def get_email_templates(
             new_template = EmailTemplate(
                 document_type=doc,
                 subject_template=f"{doc.replace('-', ' ').title()} #{{document_id}}",
-                body_template=f"Please find attached the {doc.replace('-', ' ').title()} #{{document_id}}.\n\nThank you,\n{{company_name}}"
+                body_template=f"Dear {{title}} {{name}},\n\nPlease find attached the {doc.replace('-', ' ').title()} #{{document_id}}.\n\nThank you,\n{{company_name}}"
             )
             db.add(new_template)
     
@@ -96,33 +99,55 @@ def get_email_draft(
     cc_email = ""
     customer_name = ""
     supplier_name = ""
+    person_title = ""
+    doc_display_id = str(document_id)
 
     # Look up email based on document type
     if document_type in ["quotation", "proforma"]:
         doc = db.query(SalesQuote).filter(SalesQuote.id == document_id).first()
-        if doc and doc.customer:
-            to_email = doc.customer.email
-            customer_name = doc.customer.customer_name
+        if doc:
+            doc_display_id = doc.quote_no
+            if doc.customer:
+                to_email = doc.customer.email
+                customer_name = doc.customer.customer_name
+                person_title = doc.customer.title or ""
     elif document_type in ["invoice", "sales-order"]:
         doc = db.query(Invoice).filter(Invoice.id == document_id).first()
-        if doc and doc.customer:
-            to_email = doc.customer.email
-            customer_name = doc.customer.customer_name
+        if doc:
+            doc_display_id = doc.invoice_no
+            if doc.customer:
+                to_email = doc.customer.email
+                customer_name = doc.customer.customer_name
+                person_title = doc.customer.title or ""
     elif document_type == "sales-return":
         doc = db.query(SaleReturn).filter(SaleReturn.id == document_id).first()
-        if doc and doc.customer:
-            to_email = doc.customer.email
-            customer_name = doc.customer.customer_name
+        if doc:
+            doc_display_id = doc.sale_return_no
+            if doc.customer:
+                to_email = doc.customer.email
+                customer_name = doc.customer.customer_name
+                person_title = doc.customer.title or ""
     elif document_type == "purchase-order":
         doc = db.query(PurchasingOrder).filter(PurchasingOrder.id == document_id).first()
-        if doc and doc.supplier:
-            to_email = doc.supplier.email
-            supplier_name = doc.supplier.supplier_name
+        if doc:
+            doc_display_id = doc.purchasing_order_no
+            if doc.supplier:
+                to_email = doc.supplier.email
+                supplier_name = doc.supplier.full_name or doc.supplier.title
+                person_title = doc.supplier.title or ""
     elif document_type == "purchase-return":
         doc = db.query(PurchasingReturn).filter(PurchasingReturn.id == document_id).first()
-        if doc and doc.supplier:
-            to_email = doc.supplier.email
-            supplier_name = doc.supplier.supplier_name
+        if doc:
+            doc_display_id = doc.purchasing_return_no
+            if doc.supplier:
+                to_email = doc.supplier.email
+                supplier_name = doc.supplier.full_name or doc.supplier.title
+                person_title = doc.supplier.title or ""
+
+    # Fetch Company Settings for company_name replacement
+    from app.modules.settings.models import Settings
+    company_settings = db.query(Settings).first()
+    actual_company_name = company_settings.company_name if company_settings else "Our Company"
 
     # Check for template in DB
     template = db.query(EmailTemplate).filter(EmailTemplate.document_type == document_type).first()
@@ -132,12 +157,23 @@ def get_email_draft(
         body = template.body_template
     else:
         # Fallback templates
-        subject = f"{document_type.replace('-', ' ').title()} #{document_id}"
-        body = f"Please find attached the {document_type.replace('-', ' ').title()} #{document_id}."
+        subject = f"{document_type.replace('-', ' ').title()} #{doc_display_id}"
+        body = f"Dear {{title}} {{name}},\n\nPlease find attached the {document_type.replace('-', ' ').title()} #{doc_display_id}.\n\nThank you,\n{{company_name}}"
 
     # Dynamic Replacements
-    subject = subject.replace("{document_id}", str(document_id))
-    body = body.replace("{document_id}", str(document_id))
+    person_name = customer_name if customer_name else supplier_name
+    
+    subject = subject.replace("{document_id}", str(doc_display_id))
+    body = body.replace("{document_id}", str(doc_display_id))
+    
+    body = body.replace("{company_name}", actual_company_name)
+    body = body.replace("{comapny_name}", actual_company_name) # user typo support
+    body = body.replace("{company}", actual_company_name)
+
+    body = body.replace("{title}", person_title.title() if person_title else "")
+    body = body.replace("{name}", person_name)
+    body = body.replace("{customer_name}", customer_name)
+    body = body.replace("{supplier_name}", supplier_name)
     if customer_name:
         body = body.replace("{customer_name}", customer_name)
     if supplier_name:
@@ -152,7 +188,8 @@ def get_email_draft(
         to_email=to_email or "",
         cc_email=cc_email or None,
         subject=subject,
-        body=body
+        body=body,
+        display_id=str(doc_display_id)
     )
 
 @router.post("/email/send")
@@ -170,11 +207,13 @@ def send_email(
     email_log = EmailLog(
         document_type=request.document_type,
         document_id=request.document_id,
+        display_id=request.display_id,
         to_email=request.to_email,
         cc_email=request.cc_email,
         subject=request.subject,
         body=request.body,
-        status="pending"
+        status="pending",
+        created_by=current_user.id
     )
     db.add(email_log)
     db.commit()

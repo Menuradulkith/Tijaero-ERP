@@ -1325,11 +1325,14 @@ export default function PurchaseOrdersPage() {
           ) :
           selectedOrder && !isCreating && !isEditing ? (
             <Box sx={{ display: "flex", gap: 1 }}>
-              <Tooltip title="Send via Email">
-                <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
-                  onClick={() => setEmailDialogOpen(true)}>
-                  Email
-                </Button>
+              <Tooltip title={!canPrintDocument(selectedOrder.status, ["cancelled"]) ? `Cannot email: order is ${(selectedOrder.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+                <span>
+                  <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+                    disabled={!canPrintDocument(selectedOrder.status, ["cancelled"])}
+                    onClick={() => setEmailDialogOpen(true)}>
+                    Email
+                  </Button>
+                </span>
               </Tooltip>
               <TPrintButton
                 documentType="purchase-order"

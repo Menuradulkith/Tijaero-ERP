@@ -1385,11 +1385,14 @@ export default function QuotationsPage() {
                       </Tooltip>
                     )
                   )}
-                <Tooltip title="Send via Email">
-                  <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
-                    onClick={() => setEmailDialogOpen(true)}>
-                    Email
-                  </Button>
+                <Tooltip title={selectedQuote.status !== "draft" && !canPrintDocument(selectedQuote.status, ["cancelled"]) ? `Cannot email: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+                  <span>
+                    <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+                      disabled={selectedQuote.status !== "draft" && !canPrintDocument(selectedQuote.status, ["cancelled"])}
+                      onClick={() => setEmailDialogOpen(true)}>
+                      Email
+                    </Button>
+                  </span>
                 </Tooltip>
                 <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
                 <TPrintButton

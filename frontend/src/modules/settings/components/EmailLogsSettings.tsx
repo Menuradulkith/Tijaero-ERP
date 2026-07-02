@@ -42,6 +42,7 @@ export default function EmailLogsSettings() {
     },
     { field: "document_type", headerName: "Type", width: 150 },
     { field: "document_id", headerName: "ID", width: 90 },
+    { field: "sender_name", headerName: "Sent By", width: 150 },
     { field: "to_email", headerName: "To", width: 200 },
     { field: "subject", headerName: "Subject", width: 250 },
     { 

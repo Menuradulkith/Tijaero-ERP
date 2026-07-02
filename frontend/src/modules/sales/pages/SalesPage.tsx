@@ -2064,11 +2064,14 @@ export default function SalesPage() {
         >
           Edit
         </Button>
-        <Tooltip title="Send via Email">
-          <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
-            onClick={() => setEmailDialogOpen(true)}>
-            Email
-          </Button>
+        <Tooltip title={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"]) ? `Cannot email: invoice is ${(state.selectedItem.approval_status || "").replace(/_/g, " ")}` : "Send via Email"}>
+          <span>
+            <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+              disabled={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"])}
+              onClick={() => setEmailDialogOpen(true)}>
+              Email
+            </Button>
+          </span>
         </Tooltip>
         <TPrintButton
           documentType="invoice"

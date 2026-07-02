@@ -35,6 +35,7 @@ export function TEmailDialog({
     cc_email: "",
     subject: "",
     body: "",
+    display_id: "",
   });
 
   useEffect(() => {
@@ -48,6 +49,7 @@ export function TEmailDialog({
             cc_email: res.data.cc_email || "",
             subject: res.data.subject || "",
             body: res.data.body || "",
+            display_id: res.data.display_id || "",
           });
         })
         .catch((err) => {
@@ -79,6 +81,7 @@ export function TEmailDialog({
         cc_email: formData.cc_email || null,
         subject: formData.subject,
         body: formData.body,
+        display_id: formData.display_id,
       })
       .then(() => {
         showSuccessToast("Email queued for sending");
