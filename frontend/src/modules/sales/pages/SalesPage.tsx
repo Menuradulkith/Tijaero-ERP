@@ -17,6 +17,7 @@ import {
     showSuccessToast,
     SortOption,
     TConfirmDialog,
+    TEmailDialog,
     TPrintButton,
     TPrintPreviewDialog,
     TStatusChip,
@@ -44,6 +45,7 @@ import {
     Delete as DeleteIcon,
     FileDownload as DownloadIcon,
     Edit as EditIcon,
+    Email as EmailIcon,
     MenuBook as MenuBookIcon,
     AttachMoney as MoneyIcon,
     Percent as PercentIcon,
@@ -255,6 +257,7 @@ export default function SalesPage() {
   const [selectedInvoiceForView, setSelectedInvoiceForView] =
     useState<Invoice | null>(null);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [selectedItemForPrint, setSelectedItemForPrint] =
     useState<Invoice | null>(null);
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
@@ -2061,6 +2064,12 @@ export default function SalesPage() {
         >
           Edit
         </Button>
+        <Tooltip title="Send via Email">
+          <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+            onClick={() => setEmailDialogOpen(true)}>
+            Email
+          </Button>
+        </Tooltip>
         <TPrintButton
           documentType="invoice"
           documentId={state.selectedItem.id}
@@ -5506,6 +5515,16 @@ export default function SalesPage() {
           documentType="invoice"
           documentId={selectedItemForPrint.id}
           title={`Print Invoice: ${selectedItemForPrint.invoice_no}`}
+        />
+      )}
+
+      {/* Email Dialog */}
+      {state.selectedItem && (
+        <TEmailDialog
+          open={emailDialogOpen}
+          onClose={() => setEmailDialogOpen(false)}
+          documentType="invoice"
+          documentId={state.selectedItem.id}
         />
       )}
     </>

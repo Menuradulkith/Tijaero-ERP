@@ -30,7 +30,8 @@ import {
   TSteps,
   useCrudMutation,
   useMasterDetailState,
-  useTConfirmDialog
+  useTConfirmDialog,
+  TEmailDialog,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
@@ -54,6 +55,7 @@ import {
   Send as SendIcon,
   ThumbDown as RejectIcon,
   Warehouse as WarehouseIcon,
+  Email as EmailIcon,
 } from "@mui/icons-material";
 import {
   Alert,
@@ -168,6 +170,7 @@ export default function QuotationsPage() {
 
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [selectedQuoteForPrint, setSelectedQuoteForPrint] = useState<SalesQuote | null>(null);
 
   // Proforma customer-advance dialog state
@@ -1077,19 +1080,21 @@ export default function QuotationsPage() {
   // Add line item
   const handleAddLineItem = () => {
     setLineItemsDirty(true);
-    setLineItems([
-      ...lineItems,
-      {
-        product_id: 0,
-        quantity: 1,
-        selling_price: 0,
-        minimum_selling_price: 0,
-        warrenty_month: "12",
-        is_price_estimate: formData.quote_type === "quotation",
-        discount_percent: 0,
-        tax_rate: 0,
-      },
-    ]);
+    setLineItems(
+      [
+        ...lineItems,
+        {
+          product_id: 0,
+          quantity: 1,
+          selling_price: 0,
+          minimum_selling_price: 0,
+          warrenty_month: "12",
+          is_price_estimate: formData.quote_type === "quotation",
+          discount_percent: 0,
+          tax_rate: 0,
+        },
+      ]
+    );
   };
 
   // Update line item
@@ -1380,6 +1385,12 @@ export default function QuotationsPage() {
                       </Tooltip>
                     )
                   )}
+                <Tooltip title="Send via Email">
+                  <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+                    onClick={() => setEmailDialogOpen(true)}>
+                    Email
+                  </Button>
+                </Tooltip>
                 <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
                 <TPrintButton
                   documentType="quotation"
@@ -2192,6 +2203,16 @@ export default function QuotationsPage() {
         detailPanel={renderDetailPanel()}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      {/* Email Dialog */}
+      {selectedQuote && (
+        <TEmailDialog
+          open={emailDialogOpen}
+          onClose={() => setEmailDialogOpen(false)}
+          documentType={selectedQuote.quote_type === 'proforma' ? 'proforma' : 'quotation'}
+          documentId={selectedQuote.id}
+        />
+      )}
 
       {/* ==================== Stock Availability Dialog ==================== */}
       <Dialog open={stockCheckDialogOpen} onClose={() => setStockCheckDialogOpen(false)} maxWidth="lg" fullWidth>

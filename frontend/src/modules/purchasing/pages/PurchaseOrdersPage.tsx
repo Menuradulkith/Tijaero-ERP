@@ -5,7 +5,11 @@
 
 // Confirm dialog now uses TConfirmDialog from tijaero
 import apiClient from "@/api/client";
-import { FileDownload as DownloadIcon } from "@mui/icons-material";
+import { 
+  FileDownload as DownloadIcon,
+  Check as CheckIcon,
+  Email as EmailIcon,
+} from "@mui/icons-material";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -215,6 +219,7 @@ export default function PurchaseOrdersPage() {
 
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [selectedPoIdForPrint, setSelectedPoIdForPrint] = useState<
     number | null
   >(null);
@@ -1320,6 +1325,12 @@ export default function PurchaseOrdersPage() {
           ) :
           selectedOrder && !isCreating && !isEditing ? (
             <Box sx={{ display: "flex", gap: 1 }}>
+              <Tooltip title="Send via Email">
+                <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+                  onClick={() => setEmailDialogOpen(true)}>
+                  Email
+                </Button>
+              </Tooltip>
               <TPrintButton
                 documentType="purchase-order"
                 documentId={selectedOrder.id}

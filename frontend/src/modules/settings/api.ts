@@ -70,6 +70,24 @@ export const settingsApi = {
     return response.data;
   },
 
+
+
+  // Email Templates & Logs
+  getEmailLogs: async () => {
+    const response = await apiClient.get("/communication/email/logs");
+    return response.data;
+  },
+
+  getEmailTemplates: async () => {
+    const response = await apiClient.get("/communication/email/templates");
+    return response.data;
+  },
+
+  updateEmailTemplate: async (id: number, data: { subject_template?: string; body_template?: string }) => {
+    const response = await apiClient.put(`/communication/email/templates/${id}`, data);
+    return response.data;
+  },
+
   // Company Settings
   getCompanySettings: async () => {
     const response =

@@ -91,6 +91,7 @@ from app.modules.warehouse.models import (
     ItemTransferNoteItemProduct,
     ItemTransferNoteItems,
 )
+from app.modules.communication.models import EmailTemplate, EmailLog
 
 __all__ = [
     "User",
@@ -134,4 +135,6 @@ __all__ = [
     "Report",
     "ReportExecution",
     "GLPostingFailure",
+    "EmailTemplate",
+    "EmailLog",
 ]

@@ -19,6 +19,14 @@ class Settings(BaseSettings, AuditMixin):
     
     BACKEND_CORS_ORIGINS: Union[List[str], str] = ["http://localhost:3000"]
     
+    # Email Settings
+    ENABLE_EMAIL_SERVICE: bool = False
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
