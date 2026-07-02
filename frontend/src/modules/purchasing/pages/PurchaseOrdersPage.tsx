@@ -65,6 +65,8 @@ import {
     TPrintPreviewDialog,
     TStatusChip,
     TSupplierFilter,
+    TStatusFilter,
+    PO_STATUS_FILTER_OPTIONS,
     useCrudMutation,
     useMasterDetailState,
     useTConfirmDialog,
@@ -197,6 +199,7 @@ export default function PurchaseOrdersPage() {
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
   // Item remarks modal state
   const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
@@ -470,6 +473,11 @@ export default function PurchaseOrdersPage() {
           order.first_suppliers_id === filterSupplier ||
           order.second_suppliers_id === filterSupplier,
       );
+    }
+
+    // Apply status filter
+    if (filterStatus) {
+      filtered = filtered.filter((order) => order.status === filterStatus);
     }
 
     filtered.sort((a, b) => {
@@ -813,37 +821,33 @@ export default function PurchaseOrdersPage() {
     },
   });
 
+  // Check if order can be deleted (no GRN created)
+  const canDelete = !!(
+    selectedOrder &&
+    !["completed", "partially_completed"].includes(selectedOrder.status?.toLowerCase() || "")
+  );
+
+  // Check if order can be edited (no GRN created)
+  const canEdit = !!(
+    selectedOrder && 
+    !["completed", "partially_completed"].includes(selectedOrder.status?.toLowerCase() || "")
+  );
+
   const handleDelete = useCallback(async () => {
-    if (
-      selectedOrder &&
-      selectedOrder.status?.toLowerCase() !== "approved" &&
-      selectedOrder.status?.toLowerCase() !== "completed"
-    ) {
+    if (canDelete) {
       const confirmed = await confirmDialog.confirm({
         title: "Delete Purchase Order",
-        message: `Are you sure you want to delete purchase order "${selectedOrder.purchasing_order_no}"?`,
+        message: `Are you sure you want to delete purchase order "${selectedOrder?.purchasing_order_no}"?`,
         confirmText: "Delete",
         confirmColor: "error",
       });
-      if (confirmed) {
+      if (confirmed && selectedOrder) {
         deleteMutation.mutate(selectedOrder.id);
       }
     } else {
-      showErrorToast("Cannot delete an approved or completed purchase order");
+      showErrorToast("Cannot delete a purchase order that has been partially or fully received.");
     }
-  }, [selectedOrder, deleteMutation, confirmDialog]);
-
-  // Check if order can be deleted (not approved or completed)
-  const canDelete = !!(
-    selectedOrder &&
-    selectedOrder.status?.toLowerCase() !== "approved" &&
-    selectedOrder.status?.toLowerCase() !== "completed"
-  );
-
-  // Check if order can be edited (any status except completed)
-  const canEdit = !!(
-    selectedOrder && selectedOrder.status?.toLowerCase() !== "completed"
-  );
+  }, [selectedOrder, deleteMutation, confirmDialog, canDelete]);
 
   const handleAddLineItem = () => {
     const newItem: OrderLineItem = {
@@ -1120,6 +1124,11 @@ export default function PurchaseOrdersPage() {
             suppliers={suppliers || []}
             value={filterSupplier}
             onChange={setFilterSupplier}
+          />
+          <TStatusFilter
+            options={PO_STATUS_FILTER_OPTIONS}
+            value={filterStatus}
+            onChange={setFilterStatus}
           />
         </TFilterPanel>
       }

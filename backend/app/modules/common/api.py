@@ -265,6 +265,8 @@ def update_approval(
 
 class ApprovalActionRequest(BaseModel):
     remarks: Optional[str] = None
+    approver_username: Optional[str] = None
+    approver_password: Optional[str] = None
 
 
 class ApprovalStatisticsResponse(BaseModel):
@@ -344,6 +346,25 @@ def approve_request(
     This will automatically update the status of the related record.
     """
     from .models import Approvals
+
+    # Custom step-up authentication for approver override
+    if request.approver_username and request.approver_password:
+        from app.auth.service import AuthService
+        from app.core.exceptions import AuthenticationError
+        from app.auth import passcode_service
+
+        try:
+            current_user = passcode_service.verify_passcode_login(
+                db, request.approver_username, request.approver_password, expiry_days=30
+            )
+        except HTTPException:
+            try:
+                current_user = AuthService().authenticate_user(db, request.approver_username, request.approver_password)
+            except AuthenticationError:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid approver credentials"
+                )
 
     # Lock the approval row to prevent concurrent approve/reject
     approval = (
@@ -492,6 +513,25 @@ def reject_request(
     Reason/remarks are required for rejection.
     """
     from .models import Approvals
+
+    # Custom step-up authentication for approver override
+    if request.approver_username and request.approver_password:
+        from app.auth.service import AuthService
+        from app.core.exceptions import AuthenticationError
+        from app.auth import passcode_service
+
+        try:
+            current_user = passcode_service.verify_passcode_login(
+                db, request.approver_username, request.approver_password, expiry_days=30
+            )
+        except HTTPException:
+            try:
+                current_user = AuthService().authenticate_user(db, request.approver_username, request.approver_password)
+            except AuthenticationError:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid approver credentials"
+                )
 
     if not request.remarks:
         raise HTTPException(

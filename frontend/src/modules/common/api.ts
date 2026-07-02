@@ -105,11 +105,9 @@ export const approvalsApi = {
     return response.data;
   },
 
-  approve: async (id: number, remarks?: string) => {
-    const response = await apiClient.post<Approval>(
-      `/common/approvals/${id}/approve`,
-      { remarks }
-    );
+  approve: async (id: number, remarks?: string, credentials?: { approver_username?: string, approver_password?: string }): Promise<Approval> => {
+    const payload = { remarks, ...credentials };
+    const response = await apiClient.post<Approval>(`/common/approvals/${id}/approve`, payload);
     return response.data;
   },
 
