@@ -1301,31 +1301,34 @@ export default function SaleReturnsPage() {
     );
 
     return (
-        <MasterDetailLayout
-            title="Sale Returns"
-            headerActions={
-                <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filteredReturns.length === 0}
-                sx={{ mr: 1 }}
-                >
-                Export CSV
-                </Button>
-            }
-            onRefresh={() => {
-                queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-                queryClient.invalidateQueries({ queryKey: ["sales"] });
-            }}
-            isLoading={isLoading}
-            masterPanel={masterPanel}
-            detailPanel={detailPanel}
-        >
+        <>
+            <MasterDetailLayout
+                title="Sale Returns"
+                headerActions={
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<DownloadIcon />}
+                        onClick={handleExportCSV}
+                        disabled={filteredReturns.length === 0}
+                        sx={{ mr: 1 }}
+                    >
+                        Export CSV
+                    </Button>
+                }
+                onRefresh={() => {
+                    queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
+                    queryClient.invalidateQueries({ queryKey: ["sales"] });
+                }}
+                isLoading={isLoading}
+                masterPanel={masterPanel}
+                detailPanel={detailPanel}
+            />
+
+            {/* Confirm Dialogs */}
             <TConfirmDialog {...confirmDialog.dialogProps} />
             <TConfirmDialog {...deleteDialog2.dialogProps} confirmText="Delete" confirmColor="error" />
-            
+
             {/* Print Preview Dialog */}
             {selectedReturnForPrint && (
                 <TPrintPreviewDialog
@@ -1349,6 +1352,6 @@ export default function SaleReturnsPage() {
                     documentId={selectedReturn.id}
                 />
             )}
-        </MasterDetailLayout>
+        </>
     );
 }
