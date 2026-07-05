@@ -44,9 +44,9 @@ const INITIAL_FORM: SalaryDeductionCreate = {
 
 export default function DeductionsPage() {
   const qc = useQueryClient();
-  const canCreate = usePermission("hr", "create");
-  const canUpdate = usePermission("hr", "update");
-  const canDelete = usePermission("hr", "delete");
+  const canCreate = usePermission("deductions", "create");
+  const canUpdate = usePermission("deductions", "update");
+  const canDelete = usePermission("deductions", "delete");
 
   const {
     searchQuery, setSearchQuery,

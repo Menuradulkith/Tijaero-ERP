@@ -167,9 +167,6 @@ class CommissionDashboardStats(BaseModel):
     total_pending_amount: Decimal
     total_approved_amount: Decimal
     total_paid_amount: Decimal
-    total_pending_amount: Decimal
-    total_approved_amount: Decimal
-    total_paid_amount: Decimal
 
 
 # Forward reference update

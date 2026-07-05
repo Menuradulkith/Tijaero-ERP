@@ -45,9 +45,9 @@ const INITIAL_FORM: EmployeePromotionCreate = {
 
 export default function PromotionsPage() {
   const qc = useQueryClient();
-  const canCreate = usePermission("hr", "create");
-  const canUpdate = usePermission("hr", "update");
-  const canDelete = usePermission("hr", "delete");
+  const canCreate = usePermission("promotions", "create");
+  const canUpdate = usePermission("promotions", "update");
+  const canDelete = usePermission("promotions", "delete");
 
   const {
     searchQuery, setSearchQuery,

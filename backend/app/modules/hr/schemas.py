@@ -36,7 +36,9 @@ class SalaryDeduction(SalaryDeductionBase, TijaeroBaseSchema):
     other_deductions: Optional[Decimal] = None
     remarks: Optional[str] = None
     created_by: Optional[int] = None
-    created_date: Optional[str] = None
+    created_date: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 # Reimbursement Item Schemas
 class ReimbursementItemBase(BaseModel):
@@ -284,6 +286,8 @@ class EmployeePromotionCreate(EmployeePromotionBase):
 
 class EmployeePromotion(EmployeePromotionBase, TijaeroBaseSchema):
     id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 # Employee Asset Schemas
 class EmployeeAssetBase(BaseModel):
@@ -297,6 +301,8 @@ class EmployeeAssetCreate(EmployeeAssetBase):
 
 class EmployeeAsset(EmployeeAssetBase, TijaeroBaseSchema):
     id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 # Filter Schemas
 class HRListFilter(BaseModel):

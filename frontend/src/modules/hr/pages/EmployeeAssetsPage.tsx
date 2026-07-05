@@ -44,9 +44,9 @@ const INITIAL_FORM: EmployeeAssetCreate = {
 
 export default function EmployeeAssetsPage() {
   const qc = useQueryClient();
-  const canCreate = usePermission("hr", "create");
-  const canUpdate = usePermission("hr", "update");
-  const canDelete = usePermission("hr", "delete");
+  const canCreate = usePermission("hr_assets", "create");
+  const canUpdate = usePermission("hr_assets", "update");
+  const canDelete = usePermission("hr_assets", "delete");
 
   const {
     searchQuery, setSearchQuery,
