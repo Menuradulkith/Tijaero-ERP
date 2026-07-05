@@ -151,10 +151,3 @@ class EmployeesAssets(Base, AuditMixin):
         lazy="select",
         viewonly=True,
     )
-    employee = relationship("Employee", back_populates="assets", lazy="select")
-    asset = relationship(
-        "CompanyAssets",
-        back_populates="employee_assignments",
-        lazy="select",
-        viewonly=True,
-    )

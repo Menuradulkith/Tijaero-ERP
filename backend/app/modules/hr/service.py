@@ -17,9 +17,19 @@ from app.common.enums import DocumentStatus, PaymentStatus
 class SalaryDeductionService:
     def __init__(self, db: Session):
         self.db = db
-    
+
+    def _validate_employee(self, employee_pk: int) -> None:
+        exists = self.db.query(Employee.id).filter(Employee.id == employee_pk).first()
+        if not exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Employee with id {employee_pk} not found",
+            )
+
     def create_deduction(self, deduction: schemas.SalaryDeductionCreate) -> SalaryDeductions:
+        self._validate_employee(deduction.employee_id)
         db_deduction = SalaryDeductions(**deduction.model_dump())
+        db_deduction.created_date = tz.now()
         self.db.add(db_deduction)
         self.db.commit()
         self.db.refresh(db_deduction)
@@ -35,12 +45,19 @@ class SalaryDeductionService:
         query = self.db.query(SalaryDeductions)
         
         if filters.employee_id:
-            query = query.filter(SalaryDeductions.employee_id == filters.employee_id)
+            # SalaryDeductions.employee_id is an Integer FK (employees.id) while the
+            # shared HRListFilter carries it as a string - coerce before comparing.
+            try:
+                employee_pk = int(filters.employee_id)
+            except (TypeError, ValueError):
+                return []
+            query = query.filter(SalaryDeductions.employee_id == employee_pk)
         
-        return query.offset(filters.skip).limit(filters.limit).all()
+        return query.order_by(SalaryDeductions.id.desc()).offset(filters.skip).limit(filters.limit).all()
     
     def update_deduction(self, deduction_id: int, deduction: schemas.SalaryDeductionCreate) -> SalaryDeductions:
         db_deduction = self.get_deduction(deduction_id)
+        self._validate_employee(deduction.employee_id)
         for key, value in deduction.model_dump().items():
             setattr(db_deduction, key, value)
         self.db.commit()
@@ -284,7 +301,8 @@ class ReimbursementService:
 
     def verify_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementVerify, user_id: int) -> schemas.Reimbursement:
         """Finance verification of an approved reimbursement."""
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).first()
+        # Lock the reimbursement row to prevent concurrent verification
+        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).with_for_update().first()
         if not r:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
         if r.status not in ("approved", "partial_approved"):
@@ -302,7 +320,8 @@ class ReimbursementService:
 
     def process_payment(self, reimbursement_id: int, data: schemas.ReimbursementPayment, user_id: int) -> schemas.Reimbursement:
         """Process payment for a verified reimbursement."""
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).first()
+        # Lock the reimbursement row to prevent concurrent double payment
+        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).with_for_update().first()
         if not r:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
         if r.status != "verified":
@@ -350,7 +369,7 @@ class PayrollService:
     # Sri Lankan statutory rates
     EPF_EMPLOYEE_RATE = Decimal("0.08")   # 8%
     EPF_EMPLOYER_RATE = Decimal("0.12")   # 12%
-    ETF_EMPLOYEE_RATE = Decimal("0.03")   # 3%
+    # ETF is an employer-only contribution in Sri Lanka (no employee portion).
     ETF_EMPLOYER_RATE = Decimal("0.03")   # 3%
     STAMP_DUTY = Decimal("100.00")        # Fixed LKR 100
 
@@ -508,7 +527,8 @@ class PayrollService:
 
         # Statutory deductions based on basic salary
         epf_employee = basic * self.EPF_EMPLOYEE_RATE
-        etf_employee = basic * self.ETF_EMPLOYEE_RATE
+        # ETF is employer-only in Sri Lanka - nothing is deducted from the employee.
+        etf_employee = Decimal("0")
         stamp_duty = self.STAMP_DUTY if basic > Decimal("0") else Decimal("0")
 
         # APIT (Advance Personal Income Tax) on gross salary
@@ -527,7 +547,13 @@ class PayrollService:
             late_deductions += d.late_deductions or Decimal("0")
             salary_advance_repayment += d.salary_advance_repayment or Decimal("0")
             loan_repayment += d.loan_repayment or Decimal("0")
-            other_deductions += d.other_deductions or (d.amount or Decimal("0"))
+            if d.other_deductions is not None:
+                other_deductions += d.other_deductions
+            elif not any([d.late_deductions, d.salary_advance_repayment, d.loan_repayment]):
+                # No component breakdown provided - treat the headline amount as a
+                # general deduction. (Never add `amount` on top of a breakdown,
+                # that would double-count the deduction.)
+                other_deductions += d.amount or Decimal("0")
 
         total_deductions = (
             epf_employee + etf_employee + stamp_duty + apit +
@@ -563,6 +589,9 @@ class PayrollService:
 
     # --- CRUD (backward compatible) ---
     def create_payroll(self, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
+        employee = self.db.query(Employee).filter(Employee.employee_id == payroll.employee_id).first()
+        if not employee:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{payroll.employee_id}' not found")
         db_payroll = EmployeePayroll(**payroll.model_dump())
         db_payroll.created_at = tz.now()
         self.db.add(db_payroll)
@@ -604,6 +633,19 @@ class PayrollService:
     def trigger_payroll_run(self, data: schemas.PayrollRunRequest, user_id: int) -> schemas.PayrollBatchResponse:
         """Step 3: Trigger payroll processing - generate payroll records for all employees with salary profiles."""
         month, year = data.payroll_month, data.payroll_year
+
+        if not 1 <= month <= 12:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="payroll_month must be between 1 and 12",
+            )
+
+        # Serialise concurrent runs for the same period (lock is released at
+        # transaction end) so the duplicate-batch check below is race-free.
+        self.db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"payroll-run-{year}-{month:02d}"},
+        )
 
         # Check if batch already exists for this period
         existing = self.db.query(PayrollBatch).filter(
@@ -674,6 +716,12 @@ class PayrollService:
             ).all()
             # Filter period-specific deductions if deduction_period matches
             period_deductions = [d for d in deductions if not d.deduction_period or d.deduction_period == period_str]
+
+            # Stamp open-ended deductions with this period so each one is consumed
+            # exactly once instead of being re-applied on every future payroll run.
+            for d in period_deductions:
+                if not d.deduction_period:
+                    d.deduction_period = period_str
 
             # Get approved sales commission for this employee
             sales_commission = commission_map.get(emp_internal_id, Decimal("0"))
@@ -753,7 +801,8 @@ class PayrollService:
 
     def submit_batch(self, batch_id: int, user_id: int) -> schemas.PayrollBatchResponse:
         """Step 5: Submit batch for approval (review & verify done, move to pending_approval)."""
-        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).first()
+        # Lock the batch row to prevent concurrent state transitions
+        batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).with_for_update().first()
         if not batch:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll batch not found")
         if batch.status != "draft":
@@ -1051,6 +1100,17 @@ class SalaryProfileService:
         )
 
     def create_profile(self, profile: schemas.EmployeeSalaryProfileCreate) -> schemas.EmployeeSalaryProfile:
+        employee = self.db.query(Employee).filter(Employee.employee_id == profile.employee_id).first()
+        if not employee:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{profile.employee_id}' not found")
+        existing = self.db.query(EmployeeSalaryProfile).filter(
+            EmployeeSalaryProfile.employee_id == profile.employee_id
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Salary profile already exists for employee '{profile.employee_id}'",
+            )
         db_profile = EmployeeSalaryProfile(**profile.model_dump())
         self.db.add(db_profile)
         self.db.commit()
@@ -1094,8 +1154,14 @@ class SalaryProfileService:
 class PromotionService:
     def __init__(self, db: Session):
         self.db = db
-    
+
+    def _validate_employee(self, employee_id: str) -> None:
+        exists = self.db.query(Employee.id).filter(Employee.employee_id == employee_id).first()
+        if not exists:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{employee_id}' not found")
+
     def create_promotion(self, promotion: schemas.EmployeePromotionCreate) -> EmployeePromotions:
+        self._validate_employee(promotion.employee_id)
         db_promotion = EmployeePromotions(**promotion.model_dump())
         self.db.add(db_promotion)
         self.db.commit()
@@ -1124,6 +1190,7 @@ class PromotionService:
     
     def update_promotion(self, promotion_id: int, promotion: schemas.EmployeePromotionCreate) -> EmployeePromotions:
         db_promotion = self.get_promotion(promotion_id)
+        self._validate_employee(promotion.employee_id)
         for key, value in promotion.model_dump().items():
             setattr(db_promotion, key, value)
         self.db.commit()
@@ -1139,8 +1206,18 @@ class PromotionService:
 class EmployeeAssetService:
     def __init__(self, db: Session):
         self.db = db
-    
+
+    def _validate_refs(self, employee_id: str, asset_id: int) -> None:
+        emp = self.db.query(Employee.id).filter(Employee.employee_id == employee_id).first()
+        if not emp:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{employee_id}' not found")
+        from app.modules.inventory.models import CompanyAssets
+        asset_exists = self.db.query(CompanyAssets.id).filter(CompanyAssets.id == asset_id).first()
+        if not asset_exists:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Asset with id {asset_id} not found")
+
     def create_asset_assignment(self, asset: schemas.EmployeeAssetCreate) -> EmployeesAssets:
+        self._validate_refs(asset.employee_id, asset.asset_id)
         db_asset = EmployeesAssets(**asset.model_dump())
         self.db.add(db_asset)
         self.db.commit()
@@ -1163,6 +1240,7 @@ class EmployeeAssetService:
     
     def update_asset_assignment(self, assignment_id: int, asset: schemas.EmployeeAssetCreate) -> EmployeesAssets:
         db_asset = self.get_asset_assignment(assignment_id)
+        self._validate_refs(asset.employee_id, asset.asset_id)
         for key, value in asset.model_dump().items():
             setattr(db_asset, key, value)
         self.db.commit()

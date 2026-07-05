@@ -260,6 +260,41 @@ def create_payroll(
     return payroll_service.create_payroll(payroll)
 
 
+# NOTE: static /payroll/batches routes MUST be declared before /payroll/{payroll_id};
+# otherwise Starlette matches "batches" as payroll_id and returns 422.
+@router.get("/payroll/batches", response_model=List[schemas.PayrollBatchResponse])
+def list_payroll_batches(
+    payroll_month: Optional[int] = None,
+    payroll_year: Optional[int] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all payroll batches with optional filters."""
+    payroll_service = service.PayrollService(db)
+    filters = schemas.PayrollBatchListFilter(
+        payroll_month=payroll_month,
+        payroll_year=payroll_year,
+        status=status_filter,
+        skip=skip,
+        limit=limit,
+    )
+    return payroll_service.list_batches(filters)
+
+
+@router.get("/payroll/batches/{batch_id}", response_model=schemas.PayrollBatchResponse)
+def get_payroll_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get payroll batch by ID with all payroll records."""
+    payroll_service = service.PayrollService(db)
+    return payroll_service.get_batch(batch_id)
+
+
 @router.get("/payroll/{payroll_id}", response_model=schemas.EmployeePayrollResponse)
 def get_payroll(payroll_id: int, db: Session = Depends(get_db)):
     """Get payroll by ID"""
@@ -323,39 +358,6 @@ def trigger_payroll_run(
     """Step 3: Trigger payroll processing. Generates payroll records for all employees with salary profiles."""
     payroll_service = service.PayrollService(db)
     return payroll_service.trigger_payroll_run(data, current_user.id)
-
-
-@router.get("/payroll/batches", response_model=List[schemas.PayrollBatchResponse])
-def list_payroll_batches(
-    payroll_month: Optional[int] = None,
-    payroll_year: Optional[int] = None,
-    status_filter: Optional[str] = Query(None, alias="status"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100000),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """List all payroll batches with optional filters."""
-    payroll_service = service.PayrollService(db)
-    filters = schemas.PayrollBatchListFilter(
-        payroll_month=payroll_month,
-        payroll_year=payroll_year,
-        status=status_filter,
-        skip=skip,
-        limit=limit,
-    )
-    return payroll_service.list_batches(filters)
-
-
-@router.get("/payroll/batches/{batch_id}", response_model=schemas.PayrollBatchResponse)
-def get_payroll_batch(
-    batch_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Get payroll batch by ID with all payroll records."""
-    payroll_service = service.PayrollService(db)
-    return payroll_service.get_batch(batch_id)
 
 
 @router.post(

@@ -55,9 +55,9 @@ const INITIAL_FORM: EmployeePayrollCreate = {
 
 export default function PayrollPage() {
   const qc = useQueryClient();
-  const canCreate = usePermission("hr", "create");
-  const canUpdate = usePermission("hr", "update");
-  const canDelete = usePermission("hr", "delete");
+  const canCreate = usePermission("payroll", "create");
+  const canUpdate = usePermission("payroll", "update");
+  const canDelete = usePermission("payroll", "delete");
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
 
   const {

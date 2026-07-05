@@ -51,9 +51,9 @@ const INITIAL_FORM: EmployeeSalaryProfileCreate = {
 
 export default function SalaryProfilesPage() {
   const qc = useQueryClient();
-  const canCreate = usePermission("hr", "create");
-  const canUpdate = usePermission("hr", "update");
-  const canDelete = usePermission("hr", "delete");
+  const canCreate = usePermission("salary_profiles", "create");
+  const canUpdate = usePermission("salary_profiles", "update");
+  const canDelete = usePermission("salary_profiles", "delete");
 
   const {
     searchQuery, setSearchQuery,
