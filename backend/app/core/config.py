@@ -27,6 +27,16 @@ class Settings(BaseSettings, AuditMixin):
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = ""
     
+    # AI Chat Agent (OpenAI)
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o"
+    OPENAI_BASE_URL: str = ""  # optional override for the OpenAI-compatible endpoint
+    CHAT_AGENT_MONTHLY_BUDGET_USD: float = 50.0
+    CHAT_AGENT_INPUT_COST_PER_1M: float = 2.50   # gpt-4o input $/1M tokens
+    CHAT_AGENT_OUTPUT_COST_PER_1M: float = 10.00  # gpt-4o output $/1M tokens
+    CHAT_AGENT_MAX_TOOL_ROUNDS: int = 6
+    CHAT_AGENT_HISTORY_MESSAGES: int = 20
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

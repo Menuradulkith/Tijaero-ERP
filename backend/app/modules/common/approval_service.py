@@ -261,6 +261,223 @@ class ApprovalService:
         db.flush()
         return approval
 
+    # ------------------------------------------------------------------
+    # Unified decision handling (shared by REST API and the chat agent)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _parse_approval_for(approval_for: Optional[str]):
+        """Return (approval_type, reference_id, reference_no) from an approval_for string."""
+        if not approval_for:
+            return None, None, None
+        parts = approval_for.split(":")
+        approval_type = parts[0] if len(parts) >= 1 else None
+        reference_id = None
+        if len(parts) >= 2:
+            try:
+                reference_id = int(parts[1])
+            except (ValueError, TypeError):
+                reference_id = None
+        reference_no = parts[2] if len(parts) >= 3 else None
+        return approval_type, reference_id, reference_no
+
+    def required_permission_for(self, approval_for: Optional[str]):
+        """Map an ``approval_for`` string to the specific approve permission tuple."""
+        from app.auth.rbac import Permissions
+
+        approval_type, _, _ = self._parse_approval_for(approval_for)
+        mapping = {
+            "sales_order": Permissions.SO_APPROVAL_APPROVE,
+            "sale_return": Permissions.SALES_RETURN_APPROVAL_APPROVE,
+            "purchase_order": Permissions.PO_APPROVAL_APPROVE,
+            "purchase_return": Permissions.PURCHASE_RETURN_APPROVAL_APPROVE,
+            "item_transfer": Permissions.ITN_APPROVAL_APPROVE,
+            "payment_voucher": Permissions.PAYMENT_APPROVAL_APPROVE,
+            "expense": Permissions.EXPENSE_APPROVAL_APPROVE,
+            "leave": Permissions.LEAVE_APPROVAL_APPROVE,
+            "reimbursement": Permissions.REIMBURSEMENT_APPROVAL_APPROVE,
+            "journal_entry": Permissions.PAYMENT_APPROVAL_APPROVE,
+            "bank_deposit": Permissions.PAYMENT_APPROVAL_APPROVE,
+            "payroll_batch": Permissions.PAYROLL_APPROVAL_APPROVE,
+            "commission_payment": Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE,
+            "commission_approval": Permissions.COMMISSION_APPROVAL_APPROVE,
+        }
+        return mapping.get(approval_type, Permissions.COMMON_UPDATE)
+
+    def can_user_resolve(self, user, approval_for: Optional[str]) -> bool:
+        """
+        Return True if ``user`` may approve/reject the given approval.
+
+        Mirrors the REST dashboard rule exactly: the user needs the specific
+        approve permission for that approval type OR the general
+        ``common:update`` permission.
+        """
+        from app.auth.rbac import Permissions, user_has_permission
+
+        required_perm = self.required_permission_for(approval_for)
+        return user_has_permission(
+            user, required_perm[0], required_perm[1]
+        ) or user_has_permission(
+            user, Permissions.COMMON_UPDATE[0], Permissions.COMMON_UPDATE[1]
+        )
+
+    def resolve_decision(
+        self,
+        db: Session,
+        approval_id: int,
+        user,
+        approve: bool,
+        remarks: Optional[str] = None,
+    ) -> Approvals:
+        """
+        Approve or reject a pending approval and dispatch to the owning module
+        service.
+
+        This is the single source of truth used by BOTH the REST dashboard
+        endpoints and the chat agent, so their behaviour stays identical for
+        every approval type.
+        """
+        # A rejection always requires a reason.
+        if not approve and not remarks:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Rejection reason is required",
+            )
+
+        # Lock the approval row to prevent concurrent approve/reject.
+        approval = (
+            db.query(Approvals)
+            .filter(Approvals.id == approval_id)
+            .with_for_update()
+            .first()
+        )
+        if not approval:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Approval record not found",
+            )
+
+        # Permission: specific approve perm OR common:update (matches dashboard).
+        if not self.can_user_resolve(user, approval.approval_for):
+            required_perm = self.required_permission_for(approval.approval_for)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Permission denied. Required: "
+                    f"{required_perm[0]}:{required_perm[1]} or common:update"
+                ),
+            )
+
+        if approval.status != ApprovalStatus.PENDING.value:
+            action_word = "approve" if approve else "reject"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot {action_word}. Current status: {approval.status}",
+            )
+
+        approval_type, reference_id, _ = self._parse_approval_for(
+            approval.approval_for
+        )
+        if approval_type and reference_id is not None:
+            if approve:
+                self._dispatch_approve(
+                    db, approval, approval_type, reference_id, user, remarks
+                )
+            else:
+                self._dispatch_reject(
+                    db, approval, approval_type, reference_id, user, remarks
+                )
+
+        db.refresh(approval)
+        return approval
+
+    def _dispatch_approve(self, db, approval, approval_type, reference_id, user, remarks):
+        """Route an approval to the owning module service (approve path)."""
+        if approval_type == ApprovalType.SALES_ORDER.value:
+            from app.modules.sales.service import sales_service
+
+            sales_service.approve_invoice(db, reference_id, user.id)
+        elif approval_type == ApprovalType.SALE_RETURN.value:
+            from app.modules.sales.service import sales_service
+
+            sales_service.approve_sale_return(db, reference_id, user.id)
+        elif approval_type == ApprovalType.PURCHASE_RETURN.value:
+            from app.modules.purchasing.service import PurchasingReturnService
+
+            PurchasingReturnService(db).approve_return(
+                reference_id, approve=True, remarks=remarks, user_id=user.id
+            )
+        elif approval_type == ApprovalType.PURCHASE_ORDER.value:
+            from app.modules.purchasing.service import PurchasingOrderService
+
+            PurchasingOrderService(db).approve_order(
+                reference_id, approve=True, remarks=remarks, user_id=user.id
+            )
+        elif approval_type == ApprovalType.ITEM_TRANSFER.value:
+            from app.modules.warehouse.service import ItemTransferNoteService
+
+            ItemTransferNoteService(db).approve_transfer_note(
+                reference_id, user_id=user.id, remarks=remarks
+            )
+        elif approval_type == ApprovalType.REIMBURSEMENT.value:
+            from app.modules.hr.schemas import ReimbursementApprove
+            from app.modules.hr.service import ReimbursementService
+
+            ReimbursementService(db).approve_reimbursement(
+                reference_id, ReimbursementApprove(remarks=remarks), user.id
+            )
+        else:
+            approval.status = ApprovalStatus.APPROVED.value
+            approval.status_changed_by = user.id
+            approval.remark = remarks or f"Approved by user {user.id}"
+            db.commit()
+
+    def _dispatch_reject(self, db, approval, approval_type, reference_id, user, remarks):
+        """Route an approval to the owning module service (reject path)."""
+        if approval_type == ApprovalType.SALE_RETURN.value:
+            from app.modules.sales.service import sales_service
+
+            sales_service.reject_sale_return(db, reference_id, user.id, remarks)
+        elif approval_type == ApprovalType.PURCHASE_RETURN.value:
+            from app.modules.purchasing.service import PurchasingReturnService
+
+            PurchasingReturnService(db).approve_return(
+                reference_id, approve=False, remarks=remarks, user_id=user.id
+            )
+        elif approval_type == ApprovalType.PURCHASE_ORDER.value:
+            from app.modules.purchasing.service import PurchasingOrderService
+
+            PurchasingOrderService(db).approve_order(
+                reference_id, approve=False, remarks=remarks, user_id=user.id
+            )
+        elif approval_type == ApprovalType.ITEM_TRANSFER.value:
+            from app.modules.warehouse.service import ItemTransferNoteService
+
+            ItemTransferNoteService(db).reject_transfer_note(
+                reference_id, user_id=user.id, remarks=remarks
+            )
+        elif approval_type == ApprovalType.REIMBURSEMENT.value:
+            from app.modules.hr.schemas import ReimbursementReject
+            from app.modules.hr.service import ReimbursementService
+
+            ReimbursementService(db).reject_reimbursement(
+                reference_id,
+                ReimbursementReject(rejection_reason=remarks or "Rejected"),
+                user.id,
+            )
+        elif approval_type == ApprovalType.SALES_ORDER.value:
+            from app.modules.sales.service import sales_service
+
+            sales_service.cancel_invoice(db, reference_id, user.id)
+            approval.status = ApprovalStatus.REJECTED.value
+            approval.status_changed_by = user.id
+            approval.remark = remarks
+            db.commit()
+        else:
+            approval.status = ApprovalStatus.REJECTED.value
+            approval.status_changed_by = user.id
+            approval.remark = remarks
+            db.commit()
+
     def get_pending_approvals(
         self,
         db: Session,

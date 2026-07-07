@@ -23,6 +23,7 @@ import {
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import NotificationDropdown from "./NotificationDropdown";
+import TijaeroAIButton from "@/features/chat-agent/TijaeroAIButton";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -137,6 +138,7 @@ export default function Header({
           </Box>
 
           <NotificationDropdown />
+          <TijaeroAIButton />
           <IconButton onClick={handleMenu} sx={{ ml: { xs: 0, sm: 1 } }}>
             <Avatar sx={{ width: 32, height: 32, bgcolor: "primary.main" }}>
               {user?.username?.[0]?.toUpperCase() || "U"}

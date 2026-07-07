@@ -4,6 +4,11 @@ from app.common.audit import AuditLog
 from app.modules.common.models import Approvals, Country, Locations
 from app.common.workflow import WorkflowStep
 from app.modules.attendance.models import Attendance, Leaves
+from app.modules.chat_agent.models import (
+    ChatConversation,
+    ChatMessage,
+    ChatPendingAction,
+)
 from app.modules.customers.models import (
     Customer,
     CustomerAdvancePayments,
