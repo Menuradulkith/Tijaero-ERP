@@ -3,6 +3,8 @@ import { Box, Typography, Tabs, Tab, Paper } from "@mui/material";
 import ProfileSettings from "../components/ProfileSettings";
 import PreferencesSettings from "../components/PreferencesSettings";
 import NotificationsSettings from "../components/NotificationsSettings";
+import EmailTemplatesSettings from "../components/EmailTemplatesSettings";
+import EmailLogsSettings from "../components/EmailLogsSettings";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -52,6 +54,8 @@ export default function SettingsPage() {
           <Tab label="Profile" />
           <Tab label="Preferences" />
           <Tab label="Notifications" />
+          <Tab label="Email Templates" />
+          <Tab label="Email Logs" />
         </Tabs>
 
         <TabPanel value={tabValue} index={0}>
@@ -62,6 +66,12 @@ export default function SettingsPage() {
         </TabPanel>
         <TabPanel value={tabValue} index={2}>
           <NotificationsSettings />
+        </TabPanel>
+        <TabPanel value={tabValue} index={3}>
+          <EmailTemplatesSettings />
+        </TabPanel>
+        <TabPanel value={tabValue} index={4}>
+          <EmailLogsSettings />
         </TabPanel>
       </Paper>
     </Box>

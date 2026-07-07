@@ -5,6 +5,7 @@ import IdleSessionManager from "@/auth/components/IdleSessionManager";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import IconNav from "./IconNav";
+import ChatAgentWidget from "@/features/chat-agent/ChatWidget";
 import { useFormGuardStore } from "@/state/formGuardStore";
 
 const DRAWER_WIDTH = 220;
@@ -86,6 +87,9 @@ export default function MainLayout() {
       >
         <Outlet />
       </Box>
+
+      {/* Floating AI assistant — renders only for users with ai_assistant:view */}
+      <ChatAgentWidget />
     </Box>
   );
 }

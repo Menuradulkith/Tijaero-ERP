@@ -26,7 +26,7 @@ import {
 } from "@mui/material";
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { authApi, passcodeApi, type PasscodeErrorDetail } from "../api";
 
 // ─── PIN input — 6 individual cells ──────────────────────────────────────────
@@ -146,8 +146,16 @@ function PinInput({ value, onChange, shake = false, disabled = false }: PinInput
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const login = useAuthStore((state) => state.login);
   const clearAuth = useAuthStore((state) => state.clearAuth);
+
+  const searchParams = new URLSearchParams(location.search);
+  const redirectParam = searchParams.get("redirect");
+
+  const from = location.state?.from?.pathname
+    ? `${location.state.from.pathname}${location.state.from.search || ""}`
+    : redirectParam || "/dashboard";
 
   // ── Tab state ──────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<0 | 1>(0);
@@ -188,7 +196,7 @@ export default function LoginPage() {
           // Delay so the page has time to mount the dashboard notification
           setTimeout(() => setShowExpiredBanner(true), 600);
         }
-        navigate("/dashboard");
+        navigate(from, { replace: true });
       } catch (error: unknown) {
         clearAuth();
         showErrorToast(handleApiError(error, "Failed to fetch user data"));
@@ -218,7 +226,7 @@ export default function LoginPage() {
         const user = await authApi.getCurrentUser();
         login(data.access_token, user);
         showSuccessToast("Login successful");
-        navigate("/dashboard");
+        navigate(from, { replace: true });
       } catch (error: unknown) {
         clearAuth();
         showErrorToast(handleApiError(error, "Failed to fetch user data"));

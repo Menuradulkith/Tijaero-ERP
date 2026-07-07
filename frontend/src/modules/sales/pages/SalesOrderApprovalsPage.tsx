@@ -58,6 +58,7 @@ import { customersApi } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
 import { salesApi } from "@/modules/sales/api";
 import { commissionsApi } from "@/modules/sales/commission-api";
+import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
 import { useReferenceData, ProductRef } from "@/hooks";
 import { Invoice, InvoiceWithItems } from "@/modules/sales/types";
 
@@ -92,6 +93,7 @@ export default function SalesOrderApprovalsPage() {
     // Dialogs
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
     const [rejectReason, setRejectReason] = useState("");
+    const [authDialogOpen, setAuthDialogOpen] = useState(false);
     const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
     const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
     const [currentItemRemark, setCurrentItemRemark] = useState("");
@@ -200,11 +202,11 @@ export default function SalesOrderApprovalsPage() {
 
     // Approve mutation
     const approveMutation = useCrudMutation({
-        mutationFn: (id: number) => salesApi.approve(id),
+        mutationFn: ({ id, credentials }: { id: number; credentials?: any }) => salesApi.approve(id, credentials),
         invalidateQueryKeys: [["sales-orders-pending"], ["sales"], ["sales-track-list"]],
         successMessage: "Sales order approved successfully",
         errorMessage: "Failed to approve order",
-        onSuccess: (_data, id) => {
+        onSuccess: (_data, { id }) => {
             // Update list by removing approved item
             queryClient.setQueryData<Invoice[]>(["sales-orders-pending"], (prev) =>
                 (prev || []).filter((o) => o.id !== id)
@@ -213,6 +215,7 @@ export default function SalesOrderApprovalsPage() {
             if (selectedOrder?.id === id) {
                 setSelectedOrder(null);
             }
+            setAuthDialogOpen(false);
         },
     });
 
@@ -236,7 +239,7 @@ export default function SalesOrderApprovalsPage() {
         },
     });
 
-    const handleApprove = () => {
+    const handleApprove = async () => {
         if (!selectedOrder) return;
 
         // Check if it's after 6pm (18:00) - Copied logic from PO Approvals
@@ -244,18 +247,16 @@ export default function SalesOrderApprovalsPage() {
         const isAfterHours = currentHour >= 18;
 
         if (isAfterHours) {
-            approveDialog.open(
-                "After-Hours Approval Warning",
-                `It is currently after 6:00 PM (now: ${new Date().toLocaleTimeString()}). Approving orders after business hours is not recommended. Do you want to approve anyway?`,
-                () => approveMutation.mutate(selectedOrder.id)
-            );
-        } else {
-            approveDialog.open(
-                "Approve Sales Order",
-                `Are you sure you want to approve sales order ${selectedOrder.invoice_no}?`,
-                () => approveMutation.mutate(selectedOrder.id)
-            );
+            const confirmed = await approveDialog.confirm({
+                title: "After-Hours Approval Warning",
+                message: `It is currently after 6:00 PM (now: ${new Date().toLocaleTimeString()}). Approving orders after business hours is not recommended. Do you want to approve anyway?`,
+                confirmText: "Approve Anyway",
+                confirmColor: "warning",
+            });
+            if (!confirmed) return;
         }
+
+        setAuthDialogOpen(true);
     };
 
     const handleReject = () => {
@@ -1062,6 +1063,20 @@ export default function SalesOrderApprovalsPage() {
 
             <TConfirmDialog {...approveDialog.dialogProps} />
             <TConfirmDialog {...rejectDialog.dialogProps} />
+
+            <ApproverAuthDialog
+                open={authDialogOpen}
+                onClose={() => setAuthDialogOpen(false)}
+                onSubmit={(username, password) => {
+                    const credentials = { approver_username: username, approver_password: password };
+                    approveMutation.mutate({
+                        id: selectedOrder!.id,
+                        credentials,
+                    });
+                }}
+                loading={approveMutation.isPending}
+                title="Authenticate to Approve"
+            />
         </>
     );
 }

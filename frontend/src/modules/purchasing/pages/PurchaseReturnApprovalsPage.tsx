@@ -55,6 +55,7 @@ import {
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
 import { useReferenceData, ProductRef } from "@/hooks";
+import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
 // OPTIMIZED: Removed productsApi, branchApi imports - using aggregated endpoint
 import { PurchasingReturn, PurchasingReturnWithItems, GoodReceivedNote } from "@/modules/purchasing/types";
 
@@ -79,6 +80,7 @@ export default function PurchaseReturnApprovalsPage() {
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
@@ -172,22 +174,23 @@ export default function PurchaseReturnApprovalsPage() {
 
   // Approve mutation
   const approveMutation = useCrudMutation({
-    mutationFn: (id: number) => purchaseReturnsApi.approve(id, { approve: true }),
+    mutationFn: ({ id, credentials }: { id: number; credentials?: any }) => purchaseReturnsApi.approve(id, { approve: true, credentials }),
     invalidateQueryKeys: [["purchaseReturns"], ["salesStock"]],
     successMessage: "Purchase return approved successfully",
     errorMessage: "Failed to approve return",
-    onSuccess: (_data, id) => {
+    onSuccess: (_data, { id }) => {
       queryClient.setQueryData<PurchasingReturn[]>(["purchaseReturns"], (prev) =>
         (prev || []).map((r) => (r.id === id ? { ...r, status: "approved" as const } : r))
       );
       setSelectedReturn((prev) => (prev && prev.id === id ? { ...prev, status: "approved" as const } : prev));
+      setAuthDialogOpen(false);
     },
   });
 
   // Reject mutation
   const rejectMutation = useCrudMutation({
-    mutationFn: ({ id, remarks }: { id: number; remarks: string }) =>
-      purchaseReturnsApi.approve(id, { approve: false, remarks }),
+    mutationFn: ({ id, remarks, credentials }: { id: number; remarks: string; credentials?: any }) =>
+      purchaseReturnsApi.approve(id, { approve: false, remarks, credentials }),
     invalidateQueryKeys: [["purchaseReturns"], ["salesStock"]],
     successMessage: "Purchase return rejected",
     errorMessage: "Failed to reject return",
@@ -200,18 +203,19 @@ export default function PurchaseReturnApprovalsPage() {
       );
       setRejectDialogOpen(false);
       setRejectReason("");
+      setAuthDialogOpen(false);
     },
   });
 
   const handleApprove = () => {
     if (selectedReturn) {
-      approveMutation.mutate(selectedReturn.id);
+      setAuthDialogOpen(true);
     }
   };
 
   const handleReject = () => {
     if (selectedReturn && rejectReason.trim()) {
-      rejectMutation.mutate({ id: selectedReturn.id, remarks: rejectReason });
+      setAuthDialogOpen(true);
     }
   };
 
@@ -543,6 +547,28 @@ export default function PurchaseReturnApprovalsPage() {
           <Button onClick={() => setRemarksDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      <ApproverAuthDialog
+        open={authDialogOpen}
+        onClose={() => setAuthDialogOpen(false)}
+        onSubmit={(username, password) => {
+          const credentials = { approver_username: username, approver_password: password };
+          if (rejectDialogOpen && rejectReason.trim()) {
+            rejectMutation.mutate({
+              id: selectedReturn!.id,
+              remarks: rejectReason,
+              credentials,
+            });
+          } else {
+            approveMutation.mutate({
+              id: selectedReturn!.id,
+              credentials,
+            });
+          }
+        }}
+        loading={approveMutation.isPending || rejectMutation.isPending}
+        title={rejectDialogOpen ? "Authenticate to Reject" : "Authenticate to Approve"}
+      />
     </Box>
   );
 

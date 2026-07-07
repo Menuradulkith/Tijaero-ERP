@@ -48,6 +48,12 @@ class Permissions:
     DASHBOARD_VIEW = ("dashboard", "view")
 
     # ═══════════════════════════════════════════════════════════════════
+    # AI ASSISTANT (chat agent) — writes are additionally gated by each
+    # underlying tool's own permission at execution time.
+    # ═══════════════════════════════════════════════════════════════════
+    AI_ASSISTANT_VIEW = ("ai_assistant", "view")
+
+    # ═══════════════════════════════════════════════════════════════════
     # SALES — per sub-page
     # ═══════════════════════════════════════════════════════════════════
     SALES_DASHBOARD_VIEW = ("sales_dashboard", "view")

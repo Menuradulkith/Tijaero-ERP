@@ -9,6 +9,7 @@ import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import EmailIcon from "@mui/icons-material/Email";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
@@ -31,6 +32,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -153,6 +155,7 @@ export default function PurchaseReturnsPage() {
 
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [selectedReturnIdForPrint, setSelectedReturnIdForPrint] = useState<number | null>(null);
 
   const handlePrint = (returnId: number) => {
@@ -819,7 +822,17 @@ export default function PurchaseReturnsPage() {
               Next
             </Button>
           ) : selectedReturn && !isCreating && !isEditing ? (
-            <TPrintButton
+            <>
+              <Tooltip title={!canPrintDocument(selectedReturn.status, ["cancelled", "rejected"]) ? `Cannot email: return is ${(selectedReturn.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+                <span>
+                  <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+                    disabled={!canPrintDocument(selectedReturn.status, ["cancelled", "rejected"])}
+                    onClick={() => setEmailDialogOpen(true)}>
+                    Email
+                  </Button>
+                </span>
+              </Tooltip>
+              <TPrintButton
               documentType="purchase-return"
               documentId={selectedReturn.id}
               disabled={!canPrintDocument(selectedReturn.status, ["cancelled", "rejected"])}
@@ -827,6 +840,7 @@ export default function PurchaseReturnsPage() {
               tooltip="Print Purchase Return"
               onClick={() => handlePrint(selectedReturn.id)}
             />
+            </>
           ) : undefined
         }
       />

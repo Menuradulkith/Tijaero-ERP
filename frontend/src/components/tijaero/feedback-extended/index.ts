@@ -26,4 +26,5 @@ export {
   type UseRemarkDialogOptions,
   type UseRemarkDialogReturn
 } from "./TRemarkDialog";
+export { TEmailDialog, type TEmailDialogProps } from "./TEmailDialog";
 

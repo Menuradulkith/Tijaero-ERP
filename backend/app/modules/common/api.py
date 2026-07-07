@@ -265,6 +265,8 @@ def update_approval(
 
 class ApprovalActionRequest(BaseModel):
     remarks: Optional[str] = None
+    approver_username: Optional[str] = None
+    approver_password: Optional[str] = None
 
 
 class ApprovalStatisticsResponse(BaseModel):
@@ -345,6 +347,25 @@ def approve_request(
     """
     from .models import Approvals
 
+    # Custom step-up authentication for approver override
+    if request.approver_username and request.approver_password:
+        from app.auth.service import AuthService
+        from app.core.exceptions import AuthenticationError
+        from app.auth import passcode_service
+
+        try:
+            current_user = passcode_service.verify_passcode_login(
+                db, request.approver_username, request.approver_password, expiry_days=30
+            )
+        except HTTPException:
+            try:
+                current_user = AuthService().authenticate_user(db, request.approver_username, request.approver_password)
+            except AuthenticationError:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid approver credentials"
+                )
+
     # Lock the approval row to prevent concurrent approve/reject
     approval = (
         db.query(Approvals)
@@ -404,75 +425,11 @@ def approve_request(
             detail=f"Permission denied. Required: {required_perm[0]}:{required_perm[1]} or common:update",
         )
 
-    if approval.status != "pending":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot approve. Current status: {approval.status}",
-        )
-
-    # Parse the approval_for to get type and reference
-    if approval.approval_for:
-        parts = approval.approval_for.split(":")
-        if len(parts) >= 2:
-            approval_type = parts[0]
-            reference_id = int(parts[1])
-
-            # Update the source record based on type
-            if approval_type == ApprovalType.SALES_ORDER.value:
-                from app.modules.sales.service import sales_service
-
-                sales_service.approve_invoice(db, reference_id, current_user.id)
-            elif approval_type == ApprovalType.SALE_RETURN.value:
-                from app.modules.sales.service import sales_service
-
-                sales_service.approve_sale_return(db, reference_id, current_user.id)
-            elif approval_type == ApprovalType.PURCHASE_RETURN.value:
-                from app.modules.purchasing.service import PurchasingReturnService
-
-                return_service = PurchasingReturnService(db)
-                return_service.approve_return(
-                    reference_id,
-                    approve=True,
-                    remarks=request.remarks,
-                    user_id=current_user.id,
-                )
-            elif approval_type == ApprovalType.PURCHASE_ORDER.value:
-                from app.modules.purchasing.service import PurchasingOrderService
-
-                po_service = PurchasingOrderService(db)
-                po_service.approve_order(
-                    reference_id,
-                    approve=True,
-                    remarks=request.remarks,
-                    user_id=current_user.id,
-                )
-            elif approval_type == ApprovalType.ITEM_TRANSFER.value:
-                from app.modules.warehouse.service import ItemTransferNoteService
-
-                transfer_service = ItemTransferNoteService(db)
-                transfer_service.approve_transfer_note(
-                    reference_id, user_id=current_user.id, remarks=request.remarks
-                )
-            elif approval_type == ApprovalType.REIMBURSEMENT.value:
-                from app.modules.hr.schemas import ReimbursementApprove
-                from app.modules.hr.service import ReimbursementService
-
-                rmb_service = ReimbursementService(db)
-                rmb_service.approve_reimbursement(
-                    reference_id,
-                    ReimbursementApprove(remarks=request.remarks),
-                    current_user.id,
-                )
-            else:
-                # Generic approval update
-                approval.status = "approved"
-                approval.status_changed_by = current_user.id
-                approval.remark = (
-                    request.remarks or f"Approved by user {current_user.id}"
-                )
-                db.commit()
-
-    db.refresh(approval)
+    # Delegate the status check and module dispatch to the centralized service
+    # so the chat agent and the dashboard behave identically for every type.
+    approval = centralized_approval_service.resolve_decision(
+        db, approval_id, current_user, approve=True, remarks=request.remarks
+    )
     return approval
 
 
@@ -492,6 +449,25 @@ def reject_request(
     Reason/remarks are required for rejection.
     """
     from .models import Approvals
+
+    # Custom step-up authentication for approver override
+    if request.approver_username and request.approver_password:
+        from app.auth.service import AuthService
+        from app.core.exceptions import AuthenticationError
+        from app.auth import passcode_service
+
+        try:
+            current_user = passcode_service.verify_passcode_login(
+                db, request.approver_username, request.approver_password, expiry_days=30
+            )
+        except HTTPException:
+            try:
+                current_user = AuthService().authenticate_user(db, request.approver_username, request.approver_password)
+            except AuthenticationError:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid approver credentials"
+                )
 
     if not request.remarks:
         raise HTTPException(
@@ -558,78 +534,9 @@ def reject_request(
             detail=f"Permission denied. Required: {required_perm[0]}:{required_perm[1]} or common:update",
         )
 
-    if approval.status != "pending":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot reject. Current status: {approval.status}",
-        )
-
-    # Parse the approval_for to get type and reference
-    if approval.approval_for:
-        parts = approval.approval_for.split(":")
-        if len(parts) >= 2:
-            approval_type = parts[0]
-            reference_id = int(parts[1])
-
-            # Update the source record based on type
-            if approval_type == ApprovalType.SALE_RETURN.value:
-                from app.modules.sales.service import sales_service
-
-                sales_service.reject_sale_return(
-                    db, reference_id, current_user.id, request.remarks
-                )
-            elif approval_type == ApprovalType.PURCHASE_RETURN.value:
-                from app.modules.purchasing.service import PurchasingReturnService
-
-                return_service = PurchasingReturnService(db)
-                return_service.approve_return(
-                    reference_id,
-                    approve=False,
-                    remarks=request.remarks,
-                    user_id=current_user.id,
-                )
-            elif approval_type == ApprovalType.PURCHASE_ORDER.value:
-                from app.modules.purchasing.service import PurchasingOrderService
-
-                po_service = PurchasingOrderService(db)
-                po_service.approve_order(
-                    reference_id,
-                    approve=False,
-                    remarks=request.remarks,
-                    user_id=current_user.id,
-                )
-            elif approval_type == ApprovalType.ITEM_TRANSFER.value:
-                from app.modules.warehouse.service import ItemTransferNoteService
-
-                transfer_service = ItemTransferNoteService(db)
-                transfer_service.reject_transfer_note(
-                    reference_id, user_id=current_user.id, remarks=request.remarks
-                )
-            elif approval_type == ApprovalType.REIMBURSEMENT.value:
-                from app.modules.hr.schemas import ReimbursementReject
-                from app.modules.hr.service import ReimbursementService
-
-                rmb_service = ReimbursementService(db)
-                rmb_service.reject_reimbursement(
-                    reference_id,
-                    ReimbursementReject(rejection_reason=request.remarks or "Rejected"),
-                    current_user.id,
-                )
-            elif approval_type == ApprovalType.SALES_ORDER.value:
-                # Cancel the credit sales order
-                from app.modules.sales.service import sales_service
-
-                sales_service.cancel_invoice(db, reference_id, current_user.id)
-                approval.status = "rejected"
-                approval.status_changed_by = current_user.id
-                approval.remark = request.remarks
-                db.commit()
-            else:
-                # Generic rejection
-                approval.status = "rejected"
-                approval.status_changed_by = current_user.id
-                approval.remark = request.remarks
-                db.commit()
-
-    db.refresh(approval)
+    # Delegate the status check and module dispatch to the centralized service
+    # so the chat agent and the dashboard behave identically for every type.
+    approval = centralized_approval_service.resolve_decision(
+        db, approval_id, current_user, approve=False, remarks=request.remarks
+    )
     return approval

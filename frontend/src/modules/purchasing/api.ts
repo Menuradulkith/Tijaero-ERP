@@ -212,7 +212,7 @@ export const purchaseReturnsApi = {
     return response.data;
   },
 
-  approve: async (returnId: number, request: Omit<PurchaseReturnApprovalRequest, 'return_id'>) => {
+  approve: async (returnId: number, request: Omit<PurchaseReturnApprovalRequest, 'return_id'> & { credentials?: any }) => {
     // Get the purchase return to find its approval_id
     const purchaseReturn = await purchaseReturnsApi.getById(returnId);
 
@@ -224,9 +224,9 @@ export const purchaseReturnsApi = {
     const { approvalsApi } = await import('@/modules/common/api');
 
     if (request.approve) {
-      await approvalsApi.approve(purchaseReturn.approval_id, request.remarks);
+      await approvalsApi.approve(purchaseReturn.approval_id, request.remarks, request.credentials);
     } else {
-      await approvalsApi.reject(purchaseReturn.approval_id, request.remarks || 'Rejected');
+      await approvalsApi.reject(purchaseReturn.approval_id, request.remarks || 'Rejected', request.credentials);
     }
 
     // Return the updated purchase return

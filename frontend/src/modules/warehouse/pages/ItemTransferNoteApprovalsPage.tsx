@@ -53,6 +53,7 @@ import {
 
 import { transferNotesApi } from "@/modules/warehouse/api";
 import { approvalsApi, locationsApi, Location } from "@/modules/common/api";
+import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
 import { useReferenceData, ProductRef } from "@/hooks";
 // OPTIMIZED: Removed branchApi, productsApi imports - using aggregated endpoint
 import {
@@ -91,6 +92,7 @@ export default function ItemTransferNoteApprovalsPage() {
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
 
   // OPTIMIZED: Single API call for branches and products (was 2 separate calls)
@@ -208,10 +210,11 @@ export default function ItemTransferNoteApprovalsPage() {
 
   // Approve mutation
   const approveMutation = useMutation({
-    mutationFn: async ({ approvalId }: { approvalId: number; itnId: number }) => approvalsApi.approve(approvalId),
+    mutationFn: async ({ approvalId, itnId, credentials }: { approvalId: number; itnId: number; credentials?: any }) => approvalsApi.approve(approvalId, undefined, credentials),
     onSuccess: async (_data, { itnId }) => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
       showSuccessToast("Transfer note approved successfully");
+      setAuthDialogOpen(false);
       // Refresh the selected ITN
       const updatedITN = await fetchITNDetails(itnId);
       setSelectedITN(updatedITN);
@@ -221,13 +224,14 @@ export default function ItemTransferNoteApprovalsPage() {
 
   // Reject mutation
   const rejectMutation = useMutation({
-    mutationFn: async ({ approvalId, reason }: { approvalId: number; id: number; reason: string }) =>
-      approvalsApi.reject(approvalId, reason),
+    mutationFn: async ({ approvalId, id, reason, credentials }: { approvalId: number; id: number; reason: string; credentials?: any }) =>
+      approvalsApi.reject(approvalId, reason, credentials),
     onSuccess: async (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
       showSuccessToast("Transfer note rejected");
       setRejectDialogOpen(false);
       setRejectReason("");
+      setAuthDialogOpen(false);
       // Refresh the selected ITN
       const updatedITN = await fetchITNDetails(variables.id);
       setSelectedITN(updatedITN);
@@ -258,7 +262,7 @@ export default function ItemTransferNoteApprovalsPage() {
       if (!confirmed) return;
     }
     
-    approveMutation.mutate({ approvalId: selectedITN.approval_id, itnId: selectedITN.id });
+    setAuthDialogOpen(true);
   };
 
   const handleReject = () => {
@@ -267,7 +271,7 @@ export default function ItemTransferNoteApprovalsPage() {
         showErrorToast("Approval record missing for this transfer note");
         return;
       }
-      rejectMutation.mutate({ approvalId: selectedITN.approval_id, id: selectedITN.id, reason: rejectReason });
+      setAuthDialogOpen(true);
     }
   };
 
@@ -611,6 +615,30 @@ export default function ItemTransferNoteApprovalsPage() {
       </Dialog>
       
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      <ApproverAuthDialog
+        open={authDialogOpen}
+        onClose={() => setAuthDialogOpen(false)}
+        onSubmit={(username, password) => {
+          const credentials = { approver_username: username, approver_password: password };
+          if (rejectDialogOpen && rejectReason.trim()) {
+            rejectMutation.mutate({
+              approvalId: selectedITN!.approval_id!,
+              id: selectedITN!.id,
+              reason: rejectReason,
+              credentials,
+            });
+          } else {
+            approveMutation.mutate({
+              approvalId: selectedITN!.approval_id!,
+              itnId: selectedITN!.id,
+              credentials,
+            });
+          }
+        }}
+        loading={approveMutation.isPending || rejectMutation.isPending}
+        title={rejectDialogOpen ? "Authenticate to Reject" : "Authenticate to Approve"}
+      />
     </>
   );
 }
