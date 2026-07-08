@@ -50,6 +50,7 @@ from app.modules.purchasing.models import (
     GoodReceivedItems,
     SupplierPayment,
     SupplierAdvancePayment,
+    SupplierAdvanceApplication,
 )
 
 logger = logging.getLogger(__name__)
@@ -264,23 +265,13 @@ class PurchaseInvoiceService:
             ) from exc
         self.db.refresh(invoice)
 
-        # For credit invoices: update stored left_credit_amount (re-compute from live DB)
+        # For credit invoices: recompute the stored left_credit_amount via the
+        # single authoritative calculator so the value can never diverge
+        # between flows (ERP_STANDARDS F7).
         if payment_type == "credit":
-            max_credit = float(supplier.max_credit_limit or 0)
-            new_outstanding = float(
-                self.db.query(
-                    func.coalesce(func.sum(PurchaseInvoice.balance_due), 0)
-                ).filter(
-                    PurchaseInvoice.supplier_id == data.supplier_id,
-                    PurchaseInvoice.payment_type == "credit",
-                    PurchaseInvoice.status.notin_(["cancelled", "paid"]),
-                ).scalar()
-            )
-            # Re-fetch supplier to avoid stale state after commit
-            supplier = self.db.query(Supplier).filter(Supplier.id == data.supplier_id).first()
-            if supplier:
-                supplier.left_credit_amount = max(0, int(max_credit - new_outstanding))
-                self.db.commit()
+            from app.modules.purchasing.credit_service import SupplierCreditService
+            SupplierCreditService().update_supplier_credit_balance(self.db, data.supplier_id)
+            self.db.commit()
 
         return invoice
 
@@ -479,12 +470,13 @@ class PurchaseInvoiceService:
 
         invoice.status = "cancelled"
         invoice.payment_status = "unpaid"
+        self.db.flush()
 
-        # Restore supplier credit balance when cancelling a credit invoice
+        # Recompute supplier credit via the single authoritative calculator -
+        # the now-cancelled invoice is excluded from exposure automatically.
         if invoice.payment_type == "credit":
-            supplier = self.db.query(Supplier).filter(Supplier.id == invoice.supplier_id).first()
-            if supplier and supplier.left_credit_amount is not None:
-                supplier.left_credit_amount = int(supplier.left_credit_amount) + int(invoice.total_amount or 0)
+            from app.modules.purchasing.credit_service import SupplierCreditService
+            SupplierCreditService().update_supplier_credit_balance(self.db, invoice.supplier_id)
 
         self.db.commit()
         self.db.refresh(invoice)
@@ -609,15 +601,12 @@ class PurchaseInvoiceService:
             invoice.paid_amount = (invoice.paid_amount or Decimal("0")) + alloc.allocated_amount
             invoice.balance_due = invoice.total_amount - invoice.paid_amount
 
-            # Update payment status
+            # Update payment status. Supplier credit is recomputed once, after
+            # the whole payment (and advance application) settles, via the
+            # single authoritative calculator - never incrementally here.
             if invoice.balance_due <= 0:
                 invoice.payment_status = "paid"
                 invoice.status = "paid"
-                # Restore supplier credit when credit invoice is fully paid
-                if invoice.payment_type == "credit":
-                    supplier_obj = self.db.query(Supplier).filter(Supplier.id == invoice.supplier_id).first()
-                    if supplier_obj and supplier_obj.left_credit_amount is not None:
-                        supplier_obj.left_credit_amount = int(supplier_obj.left_credit_amount) + int(invoice.total_amount or 0)
             else:
                 invoice.payment_status = "partial"
                 if invoice.status in ("unpaid",):
@@ -641,9 +630,19 @@ class PurchaseInvoiceService:
 
         # Auto-apply any available supplier advances to outstanding invoices
         try:
-            self._apply_advances_for_supplier(data.supplier_id)
+            self._apply_advances_for_supplier(data.supplier_id, created_by=created_by)
         except Exception as e:
             logger.warning(f"Auto-advance application failed after payment {payment.payment_no}: {e}")
+
+        # Recompute the stored supplier credit via the single authoritative
+        # calculator now that all invoice balances (incl. advance application)
+        # are final - this is the ONLY place credit is recomputed for this flow.
+        try:
+            from app.modules.purchasing.credit_service import SupplierCreditService
+            SupplierCreditService().update_supplier_credit_balance(self.db, data.supplier_id)
+            self.db.commit()
+        except Exception as e:
+            logger.warning(f"Supplier credit recompute failed after payment {payment.payment_no}: {e}")
 
         # For non-credit payments, trigger GL posting immediately
         if is_non_credit:
@@ -656,7 +655,7 @@ class PurchaseInvoiceService:
 
         return payment
 
-    def _apply_advances_for_supplier(self, supplier_id: int) -> None:
+    def _apply_advances_for_supplier(self, supplier_id: int, created_by: Optional[int] = None) -> None:
         """
         Automatically apply available supplier advances to outstanding invoices.
 
@@ -717,6 +716,7 @@ class PurchaseInvoiceService:
             return  # No advances to apply
 
         any_change = False
+        created_applications: List[SupplierAdvanceApplication] = []
         # Apply advances to invoices FIFO
         for inv in invoices:
             if inv.balance_due <= 0:
@@ -739,6 +739,18 @@ class PurchaseInvoiceService:
                     if adv.remaining_amount <= 0:
                         adv.remaining_amount = Decimal("0")
                         adv.is_fully_applied = True
+                    # Record the application so it has an audit trail + GL,
+                    # exactly like the GRN-based auto-apply path.
+                    application = SupplierAdvanceApplication(
+                        advance_id=adv.id,
+                        grn_id=None,
+                        purchase_invoice_id=inv.id,
+                        applied_amount=apply,
+                        application_date=tz.today(),
+                        remarks=f"Auto-applied to invoice {inv.invoice_no}",
+                    )
+                    self.db.add(application)
+                    created_applications.append(application)
                     any_change = True
             # Update invoice status after advance application
             if inv.balance_due <= 0:
@@ -751,6 +763,19 @@ class PurchaseInvoiceService:
                     inv.status = "partially_paid"
 
         if any_change:
+            # Flush so the application rows get their ids before GL posting.
+            self.db.flush()
+            # Post GL for each advance application (Dr Trade Creditors /
+            # Cr Supplier Advances). Non-blocking, mirrors the GRN path.
+            try:
+                from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                gl_service = PurchaseExpensePayrollGL(self.db)
+                for app_record in created_applications:
+                    gl_service.post_advance_application_to_gl(app_record, user_id=created_by or 0)
+            except Exception as gl_err:
+                logger.warning(
+                    f"GL posting for invoice advance applications failed (non-blocking): {gl_err}"
+                )
             self.db.commit()
 
     # ─── GET INVOICEABLE GRNs ──────────────────────────────────────────

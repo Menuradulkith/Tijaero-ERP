@@ -1251,3 +1251,104 @@ class EmployeeAssetService:
         db_asset = self.get_asset_assignment(assignment_id)
         self.db.delete(db_asset)
         self.db.commit()
+
+
+class HRStatisticsService:
+    """Server-side aggregation for the HR dashboard KPI cards.
+
+    Every figure is a database COUNT so the dashboard is accurate regardless of
+    table size, replacing the previous approach of counting capped list
+    responses on the client.
+    """
+
+    # Payroll batches awaiting attention (draft or pending approval).
+    PENDING_BATCH_STATUSES = ("draft", "pending_approval")
+    # Reimbursements not yet actioned.
+    PENDING_REIMBURSEMENT_STATUSES = ("pending", "submitted")
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_statistics(self) -> schemas.HRStatistics:
+        from app.modules.attendance.models import Attendance, Leaves
+        from sqlalchemy import or_
+
+        today = tz.today()
+
+        total_employees = self.db.query(func.count(Employee.id)).scalar() or 0
+
+        # "Present today" mirrors the attendance status derivation
+        # (present or late): checked in, not on leave, and worked or was late.
+        present_today = (
+            self.db.query(func.count(Attendance.id))
+            .filter(
+                Attendance.date == today,
+                Attendance.check_in.isnot(None),
+                func.coalesce(Attendance.leave_mins, 0) == 0,
+                or_(
+                    func.coalesce(Attendance.late_mins, 0) > 0,
+                    func.coalesce(Attendance.work_mins, 0) > 0,
+                ),
+            )
+            .scalar()
+            or 0
+        )
+
+        pending_leaves = (
+            self.db.query(func.count(Leaves.id))
+            .filter(Leaves.status == "pending")
+            .scalar()
+            or 0
+        )
+
+        total_profiles = (
+            self.db.query(func.count(EmployeeSalaryProfile.id)).scalar() or 0
+        )
+
+        pending_batches = (
+            self.db.query(func.count(PayrollBatch.id))
+            .filter(PayrollBatch.status.in_(self.PENDING_BATCH_STATUSES))
+            .scalar()
+            or 0
+        )
+        total_batches = self.db.query(func.count(PayrollBatch.id)).scalar() or 0
+
+        pending_reimbursements = (
+            self.db.query(func.count(Reimbursements.id))
+            .filter(Reimbursements.status.in_(self.PENDING_REIMBURSEMENT_STATUSES))
+            .scalar()
+            or 0
+        )
+        total_reimbursements = (
+            self.db.query(func.count(Reimbursements.id)).scalar() or 0
+        )
+
+        total_deductions = (
+            self.db.query(func.count(SalaryDeductions.id)).scalar() or 0
+        )
+
+        total_promotions = (
+            self.db.query(func.count(EmployeePromotions.id)).scalar() or 0
+        )
+
+        # Active = currently assigned (not revoked).
+        active_assets = (
+            self.db.query(func.count(EmployeesAssets.id))
+            .filter(EmployeesAssets.revoke_assignment == False)  # noqa: E712
+            .scalar()
+            or 0
+        )
+
+        return schemas.HRStatistics(
+            total_employees=total_employees,
+            present_today=present_today,
+            pending_leaves=pending_leaves,
+            total_profiles=total_profiles,
+            pending_batches=pending_batches,
+            total_batches=total_batches,
+            pending_reimbursements=pending_reimbursements,
+            total_reimbursements=total_reimbursements,
+            total_deductions=total_deductions,
+            total_promotions=total_promotions,
+            active_assets=active_assets,
+        )

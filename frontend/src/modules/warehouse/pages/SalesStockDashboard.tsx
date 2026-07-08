@@ -54,7 +54,7 @@ import {
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 // Summary Card Component
 interface SummaryCardProps {
@@ -127,9 +127,16 @@ const StatusChip = ({ status }: { status: string }) => {
     available: { label: "Available", color: "success" },
     reserved: { label: "Reserved", color: "warning" },
     sold: { label: "Sold", color: "info" },
+    returned: { label: "Returned", color: "warning" },
     returned_to_supplier: { label: "Returned to Supplier", color: "info" },
+    returned_non_restockable: {
+      label: "Returned (Non-restockable)",
+      color: "error",
+    },
     return_pending: { label: "Return Pending", color: "warning" },
     transferred: { label: "Transferred", color: "info" },
+    transfer_pending: { label: "Transfer Pending", color: "warning" },
+    in_transit: { label: "In Transit", color: "info" },
     damaged: { label: "Damaged", color: "error" },
   };
 
@@ -147,6 +154,21 @@ const StatusChip = ({ status }: { status: string }) => {
     />
   );
 };
+
+// Selectable status filter options (mirrors backend StockStatus)
+const SALES_STOCK_STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "available", label: "Available" },
+  { value: "reserved", label: "Reserved" },
+  { value: "sold", label: "Sold" },
+  { value: "returned", label: "Returned" },
+  { value: "returned_to_supplier", label: "Returned to Supplier" },
+  { value: "returned_non_restockable", label: "Returned (Non-restockable)" },
+  { value: "return_pending", label: "Return Pending" },
+  { value: "transferred", label: "Transferred" },
+  { value: "transfer_pending", label: "Transfer Pending" },
+  { value: "in_transit", label: "In Transit" },
+  { value: "damaged", label: "Damaged" },
+];
 
 // Stock Details Panel Component
 interface StockDetailsPanelProps {
@@ -537,6 +559,9 @@ export default function SalesStockDashboard() {
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  // Debounced copy of searchQuery — used for the server request so we don't
+  // fire a query on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedBrand, setSelectedBrand] = useState<string>("all");
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
@@ -573,20 +598,41 @@ export default function SalesStockDashboard() {
   const branchResolved =
     defaultBranchCode === undefined || selectedBranch !== "";
 
-  // Fetch sales stock data (still separate as it depends on branch filter)
+  // Server-side paginated + filtered sales stock (branch-scoped KPI summary
+  // travels with the response so the cards reflect true branch totals).
   const {
-    data: salesStockData,
+    data: salesStockResp,
     isLoading: isLoadingStock,
     refetch: refetchStock,
   } = useQuery({
-    queryKey: ["salesStock", selectedBranch],
+    queryKey: [
+      "salesStock",
+      selectedBranch,
+      selectedProduct,
+      selectedStatus,
+      selectedBrand,
+      selectedLocation,
+      debouncedSearch,
+      dateFrom,
+      dateTo,
+      page,
+      rowsPerPage,
+    ],
     queryFn: async () => {
-      const params: { branch_code?: string } = {};
-      if (selectedBranch) {
-        params.branch_code = selectedBranch;
-      }
-      const result = await salesStockApi.getAll(params);
-      return result;
+      const params: Record<string, string | number> = {
+        skip: page * rowsPerPage,
+        limit: rowsPerPage,
+      };
+      if (selectedBranch) params.branch_code = selectedBranch;
+      if (selectedProduct !== "all") params.product_id = Number(selectedProduct);
+      if (selectedStatus !== "all") params.status = selectedStatus;
+      if (selectedBrand !== "all") params.brand_id = Number(selectedBrand);
+      if (selectedLocation !== "all")
+        params.location_id = Number(selectedLocation);
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
+      if (dateFrom) params.date_from = dateFrom;
+      if (dateTo) params.date_to = dateTo;
+      return salesStockApi.getPaginated(params);
     },
     enabled: branchResolved,
     placeholderData: (prev) => prev,
@@ -598,7 +644,9 @@ export default function SalesStockDashboard() {
   const categories = (refData?.categories || []) as Category[];
   const locations = refData?.locations || [];
   const products = (refData?.products || []) as Product[];
-  const salesStock = salesStockData || [];
+  const salesStock = salesStockResp?.items || [];
+  const totalStock = salesStockResp?.total || 0;
+  const summary = salesStockResp?.summary;
 
   // Loading state combines reference data and stock loading
   const isLoadingBranches = isLoadingRefData;
@@ -635,116 +683,37 @@ export default function SalesStockDashboard() {
     return category?.name || "-";
   };
 
-  // Filter stock data
-  const filteredStock = useMemo(() => {
-    let filtered = [...salesStock];
+  // KPI summary is computed server-side and scoped to the selected branch, so
+  // the cards reflect true branch totals rather than the current table page.
+  const summaryStats = {
+    inStock: summary?.in_stock ?? 0,
+    reserved: summary?.reserved ?? 0,
+    soldToday: summary?.sold_today ?? 0,
+    returnedItems: summary?.returned ?? 0,
+  };
 
-    // Search filter (barcode, serial, item code)
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((stock: SalesStock) => {
-        const product = getProduct(stock.product_id);
-        return (
-          stock.barcode?.toLowerCase().includes(query) ||
-          product?.item_code?.toLowerCase().includes(query) ||
-          product?.name?.toLowerCase().includes(query)
-        );
-      });
-    }
+  // Whether any list filter is narrowing the result set (drives the
+  // "try adjusting your filters" empty-state hint).
+  const hasActiveFilters =
+    !!debouncedSearch ||
+    selectedBrand !== "all" ||
+    selectedProduct !== "all" ||
+    selectedStatus !== "all" ||
+    selectedLocation !== "all" ||
+    !!dateFrom ||
+    !!dateTo;
 
-    // Brand filter
-    if (selectedBrand !== "all") {
-      filtered = filtered.filter((stock: SalesStock) => {
-        const product = getProduct(stock.product_id);
-        return (
-          product?.items_brand_id?.toString() === selectedBrand ||
-          (product as any)?.brand_id?.toString() === selectedBrand
-        );
-      });
-    }
+  // Debounce the free-text search before it drives the server query
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 350);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
-    // Product filter
-    if (selectedProduct !== "all") {
-      filtered = filtered.filter((stock: SalesStock) => {
-        return stock.product_id?.toString() === selectedProduct;
-      });
-    }
-
-    // Status filter
-    if (selectedStatus !== "all") {
-      filtered = filtered.filter(
-        (stock: SalesStock) =>
-          stock.status?.toLowerCase() === selectedStatus.toLowerCase(),
-      );
-    }
-
-    // Date range filter
-    if (dateFrom) {
-      filtered = filtered.filter(
-        (stock: SalesStock) => stock.added_date >= dateFrom,
-      );
-    }
-    if (dateTo) {
-      filtered = filtered.filter(
-        (stock: SalesStock) => stock.added_date <= dateTo,
-      );
-    }
-
-    // Location filter - now working with location_name from backend
-    if (selectedLocation !== "all") {
-      filtered = filtered.filter(
-        (stock: SalesStock) =>
-          (stock as any).location_name === selectedLocation,
-      );
-    }
-
-    return filtered;
-  }, [
-    salesStock,
-    searchQuery,
-    selectedBrand,
-    selectedProduct,
-    selectedStatus,
-    dateFrom,
-    dateTo,
-    selectedLocation,
-    products,
-  ]);
-
-  // Calculate summary stats
-  const summaryStats = useMemo(() => {
-    const inStock = filteredStock.filter(
-      (s: SalesStock) =>
-        s.status?.toLowerCase() === "in_stock" ||
-        s.status?.toLowerCase() === "available",
-    ).length;
-    const reserved = filteredStock.filter(
-      (s: SalesStock) => s.status?.toLowerCase() === "reserved",
-    ).length;
-    const soldToday = filteredStock.filter((s: SalesStock) => {
-      if (s.status?.toLowerCase() !== "sold") return false;
-      const today = new Date().toISOString().split("T")[0];
-      return (
-        (s as any).updated_at?.startsWith(today) ||
-        s.added_date?.startsWith(today)
-      );
-    }).length;
-
-    // Returned items calculation (returned_to_supplier + return_pending)
-    const returnedItems = filteredStock.filter(
-      (s: SalesStock) =>
-        s.status?.toLowerCase() === "returned_to_supplier" ||
-        s.status?.toLowerCase() === "return_pending",
-    ).length;
-
-    return { inStock, reserved, soldToday, returnedItems };
-  }, [filteredStock]);
-
-  // Reset page when filters change
+  // Reset to the first page whenever a filter changes
   useEffect(() => {
     setPage(0);
   }, [
-    searchQuery,
+    debouncedSearch,
     selectedBrand,
     selectedProduct,
     selectedStatus,
@@ -757,16 +726,15 @@ export default function SalesStockDashboard() {
   // ─── CSV Export ─────────────────────────────────────────────────────────
   const exportToCSV = async () => {
     try {
-      const branchParam = selectedBranch
-        ? `&branch_code=${selectedBranch}`
-        : "";
-      const statusParam = selectedStatus ? `&status=${selectedStatus}` : "";
-      const productParam = selectedProduct
-        ? `&product_id=${selectedProduct}`
-        : "";
+      // Only send filters that are actually set — the backend treats
+      // product_id as an int and would 422 on the literal "all".
+      const params = new URLSearchParams({ limit: "100000" });
+      if (selectedBranch) params.set("branch_code", selectedBranch);
+      if (selectedStatus !== "all") params.set("status", selectedStatus);
+      if (selectedProduct !== "all") params.set("product_id", selectedProduct);
 
       const response = await apiClient.get<Blob>(
-        `/inventory/sales-stock/export-csv?limit=100000${branchParam}${statusParam}${productParam}`,
+        `/inventory/sales-stock/export-csv?${params.toString()}`,
         {
           responseType: "blob",
         },
@@ -794,12 +762,6 @@ export default function SalesStockDashboard() {
     setDateTo("");
     setSelectedLocation("all");
   };
-
-  // Get paginated data
-  const paginatedStock = filteredStock.slice(
-    page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage,
-  );
 
   return (
     <Box
@@ -838,7 +800,7 @@ export default function SalesStockDashboard() {
             size="small"
             startIcon={<DownloadIcon />}
             onClick={exportToCSV}
-            disabled={filteredStock.length === 0}
+            disabled={totalStock === 0}
           >
             Export CSV
           </Button>
@@ -933,11 +895,11 @@ export default function SalesStockDashboard() {
                 value={
                   locations.find(
                     (location: LocationRef) =>
-                      location.name === selectedLocation,
+                      location.id.toString() === selectedLocation,
                   ) || null
                 }
                 onChange={(_, value: LocationRef | null) =>
-                  setSelectedLocation(value?.name || "all")
+                  setSelectedLocation(value?.id.toString() || "all")
                 }
                 renderInput={(params) => (
                   <TextField
@@ -1026,32 +988,12 @@ export default function SalesStockDashboard() {
             <Grid item xs={12} sm={6} md={4} lg={2}>
               <Autocomplete
                 size="small"
-                options={[
-                  { value: "available", label: "Available" },
-                  { value: "sold", label: "Sold" },
-                  { value: "reserved", label: "Reserved" },
-                  {
-                    value: "returned_to_supplier",
-                    label: "Returned to Supplier",
-                  },
-                  { value: "return_pending", label: "Return Pending" },
-                  { value: "transferred", label: "Transferred" },
-                  { value: "damaged", label: "Damaged" },
-                ]}
+                options={SALES_STOCK_STATUS_OPTIONS}
                 getOptionLabel={(option) => option.label}
                 value={
-                  [
-                    { value: "available", label: "Available" },
-                    { value: "sold", label: "Sold" },
-                    { value: "reserved", label: "Reserved" },
-                    {
-                      value: "returned_to_supplier",
-                      label: "Returned to Supplier",
-                    },
-                    { value: "return_pending", label: "Return Pending" },
-                    { value: "transferred", label: "Transferred" },
-                    { value: "damaged", label: "Damaged" },
-                  ].find((s) => s.value === selectedStatus) || null
+                  SALES_STOCK_STATUS_OPTIONS.find(
+                    (s) => s.value === selectedStatus,
+                  ) || null
                 }
                 onChange={(_, value) =>
                   setSelectedStatus(value?.value || "all")
@@ -1136,7 +1078,7 @@ export default function SalesStockDashboard() {
           }}
         >
           <Typography variant="subtitle1" fontWeight={500}>
-            Stock Items ({filteredStock.length.toLocaleString()})
+            Stock Items ({totalStock.toLocaleString()})
           </Typography>
         </Box>
 
@@ -1152,7 +1094,7 @@ export default function SalesStockDashboard() {
           >
             <CircularProgress />
           </Box>
-        ) : paginatedStock.length === 0 ? (
+        ) : salesStock.length === 0 ? (
           <Box
             sx={{
               flex: 1,
@@ -1166,7 +1108,7 @@ export default function SalesStockDashboard() {
           >
             <PackageIcon sx={{ fontSize: 64, opacity: 0.3 }} />
             <Typography color="text.secondary">No stock items found</Typography>
-            {salesStock.length > 0 && (
+            {hasActiveFilters && (
               <Typography variant="body2" color="text.secondary">
                 Try adjusting your filters
               </Typography>
@@ -1191,7 +1133,7 @@ export default function SalesStockDashboard() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {paginatedStock.map((stock: SalesStock) => {
+                {salesStock.map((stock: SalesStock) => {
                   const product = getProduct(stock.product_id);
                   const brandName = stock.brand_id
                     ? getBrand(stock.brand_id)?.brand_name
@@ -1272,10 +1214,10 @@ export default function SalesStockDashboard() {
         )}
 
         {/* Pagination */}
-        {filteredStock.length > 0 && (
+        {totalStock > 0 && (
           <TablePagination
             component="div"
-            count={filteredStock.length}
+            count={totalStock}
             page={page}
             onPageChange={(_, newPage) => setPage(newPage)}
             rowsPerPage={rowsPerPage}

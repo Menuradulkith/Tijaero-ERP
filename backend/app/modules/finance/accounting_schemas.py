@@ -171,6 +171,7 @@ class JournalEntryListFilter(BaseModel):
     status: Optional[str] = None
     entry_type: Optional[str] = None
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # user-scoped branch list
     fiscal_year: Optional[int] = None
     fiscal_period: Optional[int] = None
     date_from: Optional[date] = None
@@ -251,6 +252,7 @@ class GLListFilter(BaseModel):
     account_type: Optional[str] = None
     transaction_type: Optional[str] = None
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # user-scoped branch list
     fiscal_year: Optional[int] = None
     fiscal_period: Optional[int] = None
     date_from: Optional[date] = None

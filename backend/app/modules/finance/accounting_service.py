@@ -17,6 +17,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from fastapi import HTTPException, status
 from app.core import timezone as tz
+from app.common.audit import log_audit
 
 from .accounting_models import (
     ChartOfAccounts,
@@ -66,11 +67,17 @@ class ChartOfAccountsService:
             created_by=created_by,
         )
         self.db.add(account)
+        self.db.flush()
+        log_audit(
+            self.db, user_id=created_by or 0, action="create",
+            entity_type="chart_of_account", entity_id=account.id,
+            changes={"account_code": account.account_code, "account_type": account.account_type, "normal_balance": account.normal_balance},
+        )
         self.db.commit()
         self.db.refresh(account)
         return account
 
-    def update_account(self, account_id: int, data: schemas.ChartOfAccountUpdate) -> ChartOfAccounts:
+    def update_account(self, account_id: int, data: schemas.ChartOfAccountUpdate, updated_by: int = None) -> ChartOfAccounts:
         account = self.get_account(account_id)
         if account.is_system_account:
             raise HTTPException(
@@ -79,9 +86,37 @@ class ChartOfAccountsService:
             )
 
         update_data = data.model_dump(exclude_none=True)
+
+        # Guard: an account's classification drives the sign of every posted
+        # amount in the trial balance and financial statements. Once it has GL
+        # history, changing account_type/normal_balance would silently restate
+        # prior periods — block it and require a new account instead.
+        classification_changed = (
+            ("account_type" in update_data and update_data["account_type"] != account.account_type)
+            or ("normal_balance" in update_data and update_data["normal_balance"] != account.normal_balance)
+        )
+        if classification_changed:
+            gl_count = self.db.query(func.count(GeneralLedger.id)).filter(
+                GeneralLedger.account_id == account_id
+            ).scalar()
+            if gl_count > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Cannot change account_type/normal_balance for account "
+                        f"'{account.account_code}' with {gl_count} GL entries. "
+                        f"Create a new account instead."
+                    ),
+                )
+
         for key, value in update_data.items():
             setattr(account, key, value)
 
+        log_audit(
+            self.db, user_id=updated_by or 0, action="update",
+            entity_type="chart_of_account", entity_id=account.id,
+            changes=update_data,
+        )
         self.db.commit()
         self.db.refresh(account)
         return account
@@ -153,7 +188,7 @@ class ChartOfAccountsService:
 
         return tree
 
-    def delete_account(self, account_id: int) -> bool:
+    def delete_account(self, account_id: int, deleted_by: int = None) -> bool:
         account = self.get_account(account_id)
         if account.is_system_account:
             raise HTTPException(
@@ -181,6 +216,11 @@ class ChartOfAccountsService:
                 detail=f"Cannot delete account with {child_count} child accounts"
             )
 
+        log_audit(
+            self.db, user_id=deleted_by or 0, action="delete",
+            entity_type="chart_of_account", entity_id=account.id,
+            changes={"account_code": account.account_code},
+        )
         self.db.delete(account)
         self.db.commit()
         return True
@@ -365,6 +405,12 @@ class JournalEntryService:
             query = query.filter(JournalEntry.entry_type == filters.entry_type)
         if filters.branch_code:
             query = query.filter(JournalEntry.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            # Branch-scoped users see their branches plus company-wide (null-branch) entries.
+            query = query.filter(or_(
+                JournalEntry.branch_code.in_(filters.branch_codes),
+                JournalEntry.branch_code.is_(None),
+            ))
         if filters.fiscal_year:
             query = query.filter(JournalEntry.fiscal_year == filters.fiscal_year)
         if filters.fiscal_period:
@@ -407,20 +453,19 @@ class JournalEntryService:
         self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
 
-        # Manual JE requires approval before posting
-        allowed_statuses = ["draft", "approved"]
-        if je.entry_type == "Manual":
+        # Only system-generated "Auto" entries (created internally by integrations,
+        # never through the public API) may post directly from draft. Every
+        # human-facing entry type — Manual, Adjustment, Closing — must go through
+        # submit → approve before it can reach the General Ledger.
+        if je.entry_type == "Auto":
+            allowed_statuses = ["draft", "approved"]
+        else:
             allowed_statuses = ["approved"]
 
         if je.status not in allowed_statuses:
-            if je.entry_type == "Manual":
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Manual journal entries must be approved before posting. Current status: '{je.status}'"
-                )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot post journal entry in '{je.status}' status"
+                detail=f"Journal entry must be approved before posting. Current status: '{je.status}'"
             )
 
         if posting_date:
@@ -462,7 +507,7 @@ class JournalEntryService:
         # Step 6: Update running balances for affected accounts
         try:
             affected_account_ids = list({line.account_id for line in je.lines})
-            gl_service.update_account_balances(affected_account_ids)
+            gl_service.update_account_balances(affected_account_ids, from_date=je.posting_date)
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Balance update warning (non-blocking): {e}")
@@ -555,7 +600,7 @@ class JournalEntryService:
         # Update running balances for affected accounts
         try:
             affected_account_ids = list({line.account_id for line in je.lines})
-            gl_service.update_account_balances(affected_account_ids)
+            gl_service.update_account_balances(affected_account_ids, from_date=rev_date)
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Balance update warning (non-blocking): {e}")
@@ -786,10 +831,16 @@ class GeneralLedgerService:
         self.db.add(gl_entry)
         return gl_entry
 
-    def update_account_balances(self, account_ids: List[int]) -> None:
+    def update_account_balances(self, account_ids: List[int], from_date: Optional[date] = None) -> None:
         """
         Recalculate running balances for GL entries on specified accounts (Step 6).
         Updates the 'balance' column on each GL entry based on account normal_balance.
+
+        When ``from_date`` is supplied the walk is seeded from the last entry
+        strictly before that date and only entries on/after it are recomputed —
+        turning an O(all-history) rewrite on every posting into O(entries in the
+        affected date range). Falls back to a full recompute for an account whose
+        seed entry has no stored balance yet, so first-ever posts stay correct.
         """
         for account_id in account_ids:
             account = self.db.query(ChartOfAccounts).filter(
@@ -798,11 +849,28 @@ class GeneralLedgerService:
             if not account:
                 continue
 
-            entries = self.db.query(GeneralLedger).filter(
-                GeneralLedger.account_id == account_id
-            ).order_by(GeneralLedger.posting_date, GeneralLedger.id).all()
-
             running_balance = Decimal("0")
+            effective_from = from_date
+            if effective_from is not None:
+                prior = self.db.query(GeneralLedger).filter(
+                    GeneralLedger.account_id == account_id,
+                    GeneralLedger.posting_date < effective_from,
+                ).order_by(
+                    GeneralLedger.posting_date.desc(), GeneralLedger.id.desc()
+                ).first()
+                if prior is None or prior.balance is None:
+                    # No usable seed — recompute the whole account.
+                    effective_from = None
+                else:
+                    running_balance = Decimal(str(prior.balance))
+
+            entries_q = self.db.query(GeneralLedger).filter(
+                GeneralLedger.account_id == account_id
+            )
+            if effective_from is not None:
+                entries_q = entries_q.filter(GeneralLedger.posting_date >= effective_from)
+            entries = entries_q.order_by(GeneralLedger.posting_date, GeneralLedger.id).all()
+
             for entry in entries:
                 debit = Decimal(str(entry.debit_amount or 0))
                 credit = Decimal(str(entry.credit_amount or 0))
@@ -837,6 +905,11 @@ class GeneralLedgerService:
             query = query.filter(GeneralLedger.transaction_type == filters.transaction_type)
         if filters.branch_code:
             query = query.filter(GeneralLedger.branch_code == filters.branch_code)
+        elif filters.branch_codes:
+            query = query.filter(or_(
+                GeneralLedger.branch_code.in_(filters.branch_codes),
+                GeneralLedger.branch_code.is_(None),
+            ))
         if filters.fiscal_year:
             query = query.filter(GeneralLedger.fiscal_year == filters.fiscal_year)
         if filters.fiscal_period:
@@ -1591,7 +1664,7 @@ class AccountingPeriodService:
             )
         return period
 
-    def close_period(self, period_id: int, closed_by: int) -> AccountingPeriod:
+    def close_period(self, period_id: int, closed_by: int, force: bool = False) -> AccountingPeriod:
         # Lock row to prevent concurrent status mutation
         self.db.query(AccountingPeriod).filter(AccountingPeriod.id == period_id).with_for_update().first()
         period = self.get_period(period_id)
@@ -1600,14 +1673,31 @@ class AccountingPeriodService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Period is already '{period.status}'"
             )
+
+        # Pre-close reconciliation: never close over unposted JEs or an unbalanced
+        # GL — this is what makes a closed period trustworthy. ``force`` allows an
+        # explicit admin override.
+        if not force:
+            recon = self.run_reconciliation_check(period.fiscal_year, period.period_number)
+            if not recon.is_ready_to_close:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot close period — reconciliation failed: " + "; ".join(recon.errors),
+                )
+
         period.status = "closed"
         period.closed_by = closed_by
         period.closed_at = tz.now()
+        log_audit(
+            self.db, user_id=closed_by or 0, action="close",
+            entity_type="accounting_period", entity_id=period.id,
+            changes={"status": "closed", "fiscal_year": period.fiscal_year, "period_number": period.period_number},
+        )
         self.db.commit()
         self.db.refresh(period)
         return period
 
-    def reopen_period(self, period_id: int) -> AccountingPeriod:
+    def reopen_period(self, period_id: int, reopened_by: int = None) -> AccountingPeriod:
         # Lock row to prevent concurrent status mutation
         self.db.query(AccountingPeriod).filter(AccountingPeriod.id == period_id).with_for_update().first()
         period = self.get_period(period_id)
@@ -1616,6 +1706,11 @@ class AccountingPeriodService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot reopen a locked period"
             )
+        log_audit(
+            self.db, user_id=reopened_by or 0, action="reopen",
+            entity_type="accounting_period", entity_id=period.id,
+            changes={"status": "open", "previous_closed_by": period.closed_by, "fiscal_year": period.fiscal_year, "period_number": period.period_number},
+        )
         period.status = "open"
         period.closed_by = None
         period.closed_at = None
@@ -1623,7 +1718,7 @@ class AccountingPeriodService:
         self.db.refresh(period)
         return period
 
-    def lock_period(self, period_id: int) -> AccountingPeriod:
+    def lock_period(self, period_id: int, locked_by: int = None) -> AccountingPeriod:
         # Lock row to prevent concurrent status mutation
         self.db.query(AccountingPeriod).filter(AccountingPeriod.id == period_id).with_for_update().first()
         period = self.get_period(period_id)
@@ -1633,6 +1728,11 @@ class AccountingPeriodService:
                 detail="Period must be closed before locking"
             )
         period.status = "locked"
+        log_audit(
+            self.db, user_id=locked_by or 0, action="lock",
+            entity_type="accounting_period", entity_id=period.id,
+            changes={"status": "locked", "fiscal_year": period.fiscal_year, "period_number": period.period_number},
+        )
         self.db.commit()
         self.db.refresh(period)
         return period

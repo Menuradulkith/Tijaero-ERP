@@ -29,7 +29,7 @@ class SupplierBase(BaseModel):
     home_contact_number: Optional[str] = None
     mobile_contact_number: str
     credit_days: int
-    max_credit_limit: int
+    max_credit_limit: Decimal
     active: bool = True
     country_id: Optional[int] = None
 
@@ -59,15 +59,15 @@ class SupplierUpdate(BaseModel):
     home_contact_number: Optional[str] = None
     mobile_contact_number: Optional[str] = None
     credit_days: Optional[int] = None
-    max_credit_limit: Optional[int] = None
+    max_credit_limit: Optional[Decimal] = None
     active: Optional[bool] = None
     country_id: Optional[int] = None
 
 class Supplier(SupplierBase, TijaeroBaseSchema):
     id: int
     date_joined: datetime
-    left_credit_amount: Optional[int] = None
-    initial_credit_amount: Optional[int] = None
+    left_credit_amount: Optional[Decimal] = None
+    initial_credit_amount: Optional[Decimal] = None
 
 class PurchasingOrderItemBase(BaseModel):
     product_id: int

@@ -17,7 +17,11 @@ from typing import List, Optional
 from datetime import date
 
 from app.db.session import get_db
-from app.auth.dependencies import get_current_active_user
+from app.auth.dependencies import (
+    get_current_active_user,
+    get_user_branch_filter,
+    validate_branch_access,
+)
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.utils.csv_export import build_csv_response
@@ -55,15 +59,15 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
 # =============================================================================
 
 @router.post("/chart-of-accounts", response_model=schemas.ChartOfAccountResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_CREATE))])
-def create_account(data: schemas.ChartOfAccountCreate, db: Session = Depends(get_db)):
+def create_account(data: schemas.ChartOfAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     """Create a new chart of accounts entry."""
-    return ChartOfAccountsService(db).create_account(data)
+    return ChartOfAccountsService(db).create_account(data, created_by=current_user.id)
 
 
 @router.put("/chart-of-accounts/{account_id}", response_model=schemas.ChartOfAccountResponse, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
-def update_account(account_id: int, data: schemas.ChartOfAccountUpdate, db: Session = Depends(get_db)):
+def update_account(account_id: int, data: schemas.ChartOfAccountUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     """Update a chart of accounts entry."""
-    return ChartOfAccountsService(db).update_account(account_id, data)
+    return ChartOfAccountsService(db).update_account(account_id, data, updated_by=current_user.id)
 
 
 @router.get("/chart-of-accounts", response_model=List[schemas.ChartOfAccountResponse], dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_VIEW))])
@@ -98,9 +102,9 @@ def get_account(account_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/chart-of-accounts/{account_id}", dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_DELETE))])
-def delete_account(account_id: int, db: Session = Depends(get_db)):
+def delete_account(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     """Delete a chart of accounts entry."""
-    ChartOfAccountsService(db).delete_account(account_id)
+    ChartOfAccountsService(db).delete_account(account_id, deleted_by=current_user.id)
     return {"message": "Account deleted successfully"}
 
 
@@ -127,6 +131,12 @@ def create_journal_entry(
     current_user: User = Depends(get_current_active_user),
 ):
     """Create a new journal entry (draft)."""
+    # Entries created through the public API are always Manual and therefore
+    # subject to the submit → approve workflow; only internal integrations may
+    # create Auto/Adjustment/Closing entries that post directly to the GL.
+    data.entry_type = "Manual"
+    if data.branch_code and not validate_branch_access(current_user, data.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {data.branch_code}")
     je = JournalEntryService(db).create_journal_entry(data, created_by=current_user.id)
     return _serialize_je(je)
 
@@ -151,12 +161,16 @@ def list_journal_entries(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """List journal entries with optional filters."""
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
     items, total = JournalEntryService(db).list_journal_entries(schemas.JournalEntryListFilter(
         status=status_filter,
         entry_type=entry_type,
         branch_code=branch_code,
+        branch_codes=user_branches if not branch_code else None,
         fiscal_year=fiscal_year,
         fiscal_period=fiscal_period,
         date_from=date.fromisoformat(date_from) if date_from else None,
@@ -341,14 +355,18 @@ def list_gl_entries(
     skip: int = Query(0, ge=0),
     limit: int = Query(500, ge=1, le=100000),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """List general ledger entries with filters."""
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
     items, total = GeneralLedgerService(db).list_gl_entries(schemas.GLListFilter(
         account_id=account_id,
         account_code=account_code,
         account_type=account_type,
         transaction_type=transaction_type,
         branch_code=branch_code,
+        branch_codes=user_branches if not branch_code else None,
         fiscal_year=fiscal_year,
         fiscal_period=fiscal_period,
         date_from=date.fromisoformat(date_from) if date_from else None,
@@ -608,15 +626,23 @@ def close_period(
 
 
 @router.post("/periods/{period_id}/reopen", response_model=schemas.AccountingPeriodResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
-def reopen_period(period_id: int, db: Session = Depends(get_db)):
+def reopen_period(
+    period_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Reopen a closed accounting period."""
-    return AccountingPeriodService(db).reopen_period(period_id)
+    return AccountingPeriodService(db).reopen_period(period_id, reopened_by=current_user.id)
 
 
 @router.post("/periods/{period_id}/lock", response_model=schemas.AccountingPeriodResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
-def lock_period(period_id: int, db: Session = Depends(get_db)):
+def lock_period(
+    period_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Lock a closed accounting period (permanent)."""
-    return AccountingPeriodService(db).lock_period(period_id)
+    return AccountingPeriodService(db).lock_period(period_id, locked_by=current_user.id)
 
 
 # =============================================================================
@@ -896,14 +922,21 @@ def _serialize_cfs(statement) -> dict:
 def export_journal_entries_csv(
     status_filter: Optional[str] = Query(None, alias="status"),
     fiscal_year: Optional[int] = None,
+    branch_code: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Export journal entries to CSV."""
-    entries = JournalEntryService(db).list_entries(schemas.JournalEntryListFilter(
-        status=status_filter, fiscal_year=fiscal_year, skip=0, limit=100000,
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
+    items, _total = JournalEntryService(db).list_journal_entries(schemas.JournalEntryListFilter(
+        status=status_filter,
+        fiscal_year=fiscal_year,
+        branch_code=branch_code,
+        branch_codes=user_branches if not branch_code else None,
+        skip=0, limit=100000,
     ))
-    items = entries.items if hasattr(entries, 'items') else entries
     return build_csv_response(
         filename="journal_entries",
         headers=["JE No", "Date", "Description", "Status", "Fiscal Year", "Period", "Total Debit", "Total Credit", "Created By"],
@@ -918,12 +951,20 @@ def export_journal_entries_csv(
 def export_general_ledger_csv(
     fiscal_year: Optional[int] = None,
     account_id: Optional[int] = None,
+    branch_code: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Export general ledger entries to CSV."""
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
     items, _total = GeneralLedgerService(db).list_gl_entries(schemas.GLListFilter(
-        fiscal_year=fiscal_year, account_id=account_id, skip=0, limit=100000,
+        fiscal_year=fiscal_year,
+        account_id=account_id,
+        branch_code=branch_code,
+        branch_codes=user_branches if not branch_code else None,
+        skip=0, limit=100000,
     ))
     return build_csv_response(
         filename="general_ledger",

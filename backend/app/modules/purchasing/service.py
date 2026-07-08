@@ -408,7 +408,15 @@ class PurchasingOrderService:
             order.status = PurchaseOrderStatus.APPROVED
         else:
             order.status = PurchaseOrderStatus.REJECTED
-            
+
+        log_audit(
+            self.db,
+            user_id=user_id,
+            action="approve" if approve else "reject",
+            entity_type="purchase_order",
+            entity_id=order.id,
+            changes={"status": str(order.status), "remarks": remarks},
+        )
         self.db.commit()
         self.db.refresh(order)
         return order
@@ -658,6 +666,14 @@ class PurchasingReturnService:
             )
             db_return.approval_id = approval_record.id
         
+        log_audit(
+            self.db,
+            user_id=user_id or 0,
+            action="create",
+            entity_type="purchase_return",
+            entity_id=db_return.id,
+            changes={"return_no": return_no, "require_approval": return_data.require_approval},
+        )
         self.db.commit()
         self.db.refresh(db_return)
 
@@ -767,6 +783,14 @@ class PurchasingReturnService:
                         stock_item.status = StockStatus.AVAILABLE
                         stock_item.purchase_return_id = None
         
+        log_audit(
+            self.db,
+            user_id=user_id,
+            action="approve" if approve else "reject",
+            entity_type="purchase_return",
+            entity_id=return_record.id,
+            changes={"status": str(return_record.status), "remarks": remarks},
+        )
         self.db.commit()
         self.db.refresh(return_record)
 
@@ -1377,7 +1401,7 @@ class SupplierCreditsSettleService:
         self.repo = repository.SupplierCreditsSettleRepository(db)
         self.db = db
     
-    def create(self, settle: schemas.SupplierCreditsSettleCreate) -> models.SupplierCreditsSettle:
+    def create(self, settle: schemas.SupplierCreditsSettleCreate, created_by: Optional[int] = None) -> models.SupplierCreditsSettle:
 
         from app.modules.purchasing.credit_service import SupplierCreditService
 
@@ -1390,6 +1414,14 @@ class SupplierCreditsSettleService:
 
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, settle.suppliers_id)
+        log_audit(
+            self.db,
+            user_id=created_by or 0,
+            action="create",
+            entity_type="credit_settlement",
+            entity_id=created_settle.id,
+            changes={"settle_no": created_settle.supplier_credits_settle_no, "supplier_id": settle.suppliers_id},
+        )
         self.db.commit()
         
         return created_settle
@@ -1576,6 +1608,14 @@ class SupplierCreditsSettleService:
         settle.status = "verified"
         settle.verified_by = verified_by
         settle.verified_date = tz.now()
+        log_audit(
+            self.db,
+            user_id=verified_by or 0,
+            action="verify",
+            entity_type="credit_settlement",
+            entity_id=settle.id,
+            changes={"settle_no": settle.supplier_credits_settle_no, "status": "verified"},
+        )
         self.db.commit()
         self.db.refresh(settle)
         
@@ -1619,6 +1659,14 @@ class SupplierCreditsSettleService:
         settle.status = DocumentStatus.CANCELLED
         settle.verified_by = verified_by
         settle.verified_date = tz.now()
+        log_audit(
+            self.db,
+            user_id=verified_by or 0,
+            action="cancel",
+            entity_type="credit_settlement",
+            entity_id=settle.id,
+            changes={"settle_no": settle.supplier_credits_settle_no, "status": "cancelled"},
+        )
         self.db.commit()
         self.db.refresh(settle)
         
@@ -1726,7 +1774,17 @@ class SupplierPaymentService:
                     detail="Purchase order does not belong to this supplier"
                 )
         
-        return self.repo.create(payment, created_by)
+        created_payment = self.repo.create(payment, created_by)
+        log_audit(
+            self.db,
+            user_id=created_by or 0,
+            action="create",
+            entity_type="supplier_payment",
+            entity_id=created_payment.id,
+            changes={"payment_no": created_payment.payment_no, "amount": str(payment.payment_amount), "supplier_id": payment.supplier_id},
+        )
+        self.db.commit()
+        return created_payment
     
     def get_payment(self, payment_id: int) -> schemas.SupplierPayment:
         payment = self.repo.get_by_id(payment_id)
@@ -1839,6 +1897,16 @@ class SupplierPaymentService:
         
         result = self.repo.verify(payment_id, verified_by)
         
+        log_audit(
+            self.db,
+            user_id=verified_by or 0,
+            action="verify",
+            entity_type="supplier_payment",
+            entity_id=result.id,
+            changes={"payment_no": result.payment_no, "status": "verified"},
+        )
+        self.db.commit()
+
         # ── GL Auto-Posting: Scenario 31 – Supplier Payment Verified ──
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
@@ -1855,7 +1923,7 @@ class SupplierPaymentService:
         
         return result
     
-    def cancel_payment(self, payment_id: int, remarks: str = None) -> models.SupplierPayment:
+    def cancel_payment(self, payment_id: int, remarks: str = None, cancelled_by: Optional[int] = None) -> models.SupplierPayment:
         payment = self.repo.get_by_id(payment_id)
         if not payment:
             raise HTTPException(
@@ -1908,26 +1976,27 @@ class SupplierPaymentService:
                     invoice.payment_status = "unpaid"
                     invoice.status = "unpaid"
 
-                # Re-deduct supplier credit for credit invoices whose credit
-                # was prematurely restored when the payment was created.
-                if invoice.payment_type == "credit" and invoice.status != "paid":
-                    supplier_obj = (
-                        self.db.query(models.Supplier)
-                        .filter(models.Supplier.id == invoice.supplier_id)
-                        .with_for_update()
-                        .first()
-                    )
-                    if supplier_obj and supplier_obj.left_credit_amount is not None:
-                        supplier_obj.left_credit_amount = max(
-                            0,
-                            int(supplier_obj.left_credit_amount) - int(invoice.total_amount or 0),
-                        )
-
             # Delete the allocation records now that they are reversed
             for alloc in allocations:
                 self.db.delete(alloc)
 
-        return self.repo.cancel(payment_id, remarks=remarks)
+            # Recompute supplier credit via the single authoritative calculator
+            # now that all reversed invoice balances are final (no bespoke math).
+            self.db.flush()
+            from app.modules.purchasing.credit_service import SupplierCreditService
+            SupplierCreditService().update_supplier_credit_balance(self.db, payment.supplier_id)
+
+        cancelled_payment = self.repo.cancel(payment_id, remarks=remarks)
+        log_audit(
+            self.db,
+            user_id=cancelled_by or 0,
+            action="cancel",
+            entity_type="supplier_payment",
+            entity_id=payment_id,
+            changes={"remarks": remarks},
+        )
+        self.db.commit()
+        return cancelled_payment
     
     def delete_payment(self, payment_id: int) -> bool:
         payment = self.repo.get_by_id(payment_id)
@@ -2030,6 +2099,16 @@ class SupplierAdvancePaymentService:
             self.db.rollback()
         # ────────────────────────────────────────────────────────────────
         
+        log_audit(
+            self.db,
+            user_id=created_by or 0,
+            action="create",
+            entity_type="supplier_advance",
+            entity_id=advance.id,
+            changes={"advance_no": advance.advance_no, "amount": str(advance.original_amount), "supplier_id": advance.supplier_id},
+        )
+        self.db.commit()
+
         return advance
     
     def get_advance(self, advance_id: int) -> models.SupplierAdvancePayment:
@@ -2165,6 +2244,14 @@ class SupplierAdvancePaymentService:
                 return_date=data.return_date,
                 return_method=data.return_method,
             )
+            log_audit(
+                self.db,
+                user_id=user_id or 0,
+                action="return",
+                entity_type="supplier_advance",
+                entity_id=advance.id,
+                changes={"advance_no": advance.advance_no, "return_amount": str(return_amount)},
+            )
             self.db.commit()
         except Exception as gl_err:
             import logging
@@ -2299,6 +2386,16 @@ class SupplierAdvancePaymentService:
             self.db.rollback()
         # ────────────────────────────────────────────────────────────────
         
+        log_audit(
+            self.db,
+            user_id=created_by or 0,
+            action="apply",
+            entity_type="supplier_advance_application",
+            entity_id=application.id,
+            changes={"advance_id": data.advance_id, "applied_amount": str(data.applied_amount)},
+        )
+        self.db.commit()
+
         return application
     
     def get_applications_by_advance(self, advance_id: int) -> List[schemas.SupplierAdvanceApplication]:

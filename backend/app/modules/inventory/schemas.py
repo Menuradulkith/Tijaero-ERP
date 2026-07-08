@@ -1,6 +1,7 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
+from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
 from app.common.enums import StockStatus, AssetStatus
@@ -39,10 +40,25 @@ class SalesStock(SalesStockBase, TijaeroBaseSchema):
     added_date: datetime
     grn_no: Optional[str] = None  # GRN number from relationship
     location_name: Optional[str] = None  # Location name from GRN
-    cost_price: Optional[float] = None  # Cost price from product
-    selling_price: Optional[float] = None  # Selling price from product
-    minimum_price: Optional[float] = None  # Minimum price from product
-    minimum_selling_price: Optional[float] = None  # Minimum selling price for frontend mapping
+    cost_price: Optional[Decimal] = None  # Cost price from product
+    selling_price: Optional[Decimal] = None  # Selling price from product
+    minimum_price: Optional[Decimal] = None  # Minimum price from product
+    minimum_selling_price: Optional[Decimal] = None  # Minimum selling price for frontend mapping
+
+
+class SalesStockSummary(BaseModel):
+    """Branch-scoped KPI counters for the sales-stock dashboard."""
+    in_stock: int = 0
+    reserved: int = 0
+    sold_today: int = 0
+    returned: int = 0
+
+
+class SalesStockPaginated(BaseModel):
+    """Server-side paginated sales-stock response with a branch-scoped summary."""
+    items: List[SalesStock]
+    total: int
+    summary: SalesStockSummary
 
 
 # Company Assets Schemas - Real table for company-owned items
@@ -72,7 +88,7 @@ class CompanyAsset(CompanyAssetBase, TijaeroBaseSchema):
     product_name: Optional[str] = None
     item_code: Optional[str] = None
     brand_id: Optional[int] = None
-    cost_price: Optional[float] = None
+    cost_price: Optional[Decimal] = None
     grn_no: Optional[str] = None
 
 

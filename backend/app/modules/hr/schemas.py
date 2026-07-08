@@ -311,3 +311,19 @@ class HRListFilter(BaseModel):
     date_to: Optional[date] = None
     skip: int = 0
     limit: int = 100
+
+
+# HR Dashboard Statistics — server-side aggregated counts so KPI cards do not
+# depend on client-side counting of capped list responses.
+class HRStatistics(BaseModel):
+    total_employees: int = 0
+    present_today: int = 0
+    pending_leaves: int = 0
+    total_profiles: int = 0
+    pending_batches: int = 0
+    total_batches: int = 0
+    pending_reimbursements: int = 0
+    total_reimbursements: int = 0
+    total_deductions: int = 0
+    total_promotions: int = 0
+    active_assets: int = 0

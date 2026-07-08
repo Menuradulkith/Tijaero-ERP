@@ -43,8 +43,8 @@ class CardPayment(CardPaymentBase, TijaeroBaseSchema):
     date_time: datetime
 
 class ChequePaymentBase(BaseModel):
-    cheque_number: int
-    branch_code: int
+    cheque_number: str
+    branch_code: str
     from_party: str = Field(alias="from")
     bank: str
     amount: Decimal

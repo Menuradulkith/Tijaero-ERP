@@ -46,6 +46,7 @@ import {
   Employee,
   EmployeeCreate,
   EmployeeUpdate,
+  HRStatistics,
 } from "./types";
 
 // Salary Deductions API
@@ -679,5 +680,13 @@ export const employeesApi = {
 
   delete: async (id: number) => {
     await apiClient.delete(`/employees/${id}`);
+  },
+};
+
+// HR Dashboard Statistics API — server-side aggregated KPI counts
+export const hrStatisticsApi = {
+  getStatistics: async () => {
+    const response = await apiClient.get<HRStatistics>("/hr/statistics");
+    return response.data;
   },
 };

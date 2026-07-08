@@ -3,6 +3,7 @@ from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from datetime import date, datetime
 from app.core import timezone as tz
+from app.common.audit import log_audit
 from . import models, schemas
 
 from app.modules.customers.models import (
@@ -16,12 +17,19 @@ class BankDepositRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, deposit: schemas.BankDepositCreate) -> models.BankDeposits:
+    def create(self, deposit: schemas.BankDepositCreate, created_by: Optional[int] = None) -> models.BankDeposits:
         db_deposit = models.BankDeposits(
             **deposit.model_dump(),
-            created_date=tz.now()
+            created_date=tz.now(),
+            created_by=created_by,
         )
         self.db.add(db_deposit)
+        self.db.flush()
+        log_audit(
+            self.db, user_id=created_by or 0, action="create",
+            entity_type="bank_deposit", entity_id=db_deposit.id,
+            changes={"deposits_amount": str(db_deposit.deposits_amount), "branch_code": db_deposit.branch_code},
+        )
         self.db.commit()
         self.db.refresh(db_deposit)
         return db_deposit
@@ -62,12 +70,19 @@ class CardPaymentRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, payment: schemas.CardPaymentCreate) -> models.CardPayments:
+    def create(self, payment: schemas.CardPaymentCreate, created_by: Optional[int] = None) -> models.CardPayments:
         db_payment = models.CardPayments(
             **payment.model_dump(),
-            date_time=tz.now()
+            date_time=tz.now(),
+            created_by=created_by,
         )
         self.db.add(db_payment)
+        self.db.flush()
+        log_audit(
+            self.db, user_id=created_by or 0, action="create",
+            entity_type="card_payment", entity_id=db_payment.id,
+            changes={"amount": str(db_payment.amount), "card_type": db_payment.card_type},
+        )
         self.db.commit()
         self.db.refresh(db_payment)
         return db_payment
@@ -98,9 +113,15 @@ class ChequePaymentRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, payment: schemas.ChequePaymentCreate) -> models.ChequePayments:
-        db_payment = models.ChequePayments(**payment.model_dump())
+    def create(self, payment: schemas.ChequePaymentCreate, created_by: Optional[int] = None) -> models.ChequePayments:
+        db_payment = models.ChequePayments(**payment.model_dump(), created_by=created_by)
         self.db.add(db_payment)
+        self.db.flush()
+        log_audit(
+            self.db, user_id=created_by or 0, action="create",
+            entity_type="cheque_payment", entity_id=db_payment.id,
+            changes={"amount": str(db_payment.amount), "branch_code": db_payment.branch_code},
+        )
         self.db.commit()
         self.db.refresh(db_payment)
         return db_payment
@@ -143,8 +164,15 @@ class ExpenseRepository:
             created_date=tz.today(),
             status="pending",
             submitted_by=submitted_by,
+            created_by=submitted_by,
         )
         self.db.add(db_expense)
+        self.db.flush()
+        log_audit(
+            self.db, user_id=submitted_by or 0, action="create",
+            entity_type="expense", entity_id=db_expense.id,
+            changes={"expenses_no": db_expense.expenses_no, "expense_amount": str(db_expense.expense_amount), "branch_code": db_expense.branch_code},
+        )
         self.db.commit()
         self.db.refresh(db_expense)
         return db_expense
@@ -221,21 +249,40 @@ class CustomerAdvancePaymentRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, advance: schemas.CustomerAdvancePaymentCreate) -> CustomerAdvancePayments:
+    def create(self, advance: schemas.CustomerAdvancePaymentCreate, created_by: Optional[int] = None) -> CustomerAdvancePayments:
         # Advisory lock to prevent duplicate advance numbers under concurrency
         from sqlalchemy import text
         prefix = f"ADV{tz.today().strftime('%Y%m%d')}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
-        count = self.db.query(func.count(CustomerAdvancePayments.id)).scalar()
-        advance_no = f"{prefix}{count + 1:04d}"
-        
+        # Derive the next sequence from the HIGHEST existing number for this
+        # prefix, not the global row count (which reuses a number after a delete
+        # and would collide with an existing advance for the same day).
+        last = self.db.query(CustomerAdvancePayments.advance_payments_no).filter(
+            CustomerAdvancePayments.advance_payments_no.like(f"{prefix}%")
+        ).order_by(CustomerAdvancePayments.advance_payments_no.desc()).first()
+        if last and last[0] and last[0].startswith(prefix):
+            try:
+                seq = int(last[0][len(prefix):]) + 1
+            except (ValueError, IndexError):
+                seq = 1
+        else:
+            seq = 1
+        advance_no = f"{prefix}{seq:04d}"
+
         db_advance = CustomerAdvancePayments(
             **advance.model_dump(),
             advance_payments_no=advance_no,
             created_date=tz.today(),
-            active=True
+            active=True,
+            created_by=created_by,
         )
         self.db.add(db_advance)
+        self.db.flush()
+        log_audit(
+            self.db, user_id=created_by or 0, action="create",
+            entity_type="customer_advance_payment", entity_id=db_advance.id,
+            changes={"advance_payments_no": advance_no, "payment_amount": str(db_advance.payment_amount), "branch_code": db_advance.branch_code},
+        )
         self.db.commit()
         self.db.refresh(db_advance)
         return db_advance
@@ -255,12 +302,19 @@ class CustomerCreditNoteRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create(self, credit_note: schemas.CustomerCreditNoteCreate) -> CustomerCreditNotes:
+    def create(self, credit_note: schemas.CustomerCreditNoteCreate, created_by: Optional[int] = None) -> CustomerCreditNotes:
         db_credit_note = CustomerCreditNotes(
             **credit_note.model_dump(),
-            date=tz.now()
+            date=tz.now(),
+            created_by=created_by,
         )
         self.db.add(db_credit_note)
+        self.db.flush()
+        log_audit(
+            self.db, user_id=created_by or 0, action="create",
+            entity_type="customer_credit_note", entity_id=db_credit_note.id,
+            changes={"amount": str(db_credit_note.amount), "customer_id": db_credit_note.customer_id},
+        )
         self.db.commit()
         self.db.refresh(db_credit_note)
         return db_credit_note
