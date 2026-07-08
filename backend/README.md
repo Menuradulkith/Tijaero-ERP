@@ -110,6 +110,26 @@ curl -X POST "http://localhost:8000/api/v1/customers/" \
   }'
 ```
 
+## Email Feature Setup
+
+The system includes an integrated email service to send documents (Quotations, Invoices, Purchase Orders, etc.) natively as PDFs via background workers.
+
+To configure and enable the email service:
+
+1. Copy `.env.server` (or your primary environment file) and configure the following SMTP variables:
+   ```env
+   # Email Settings
+   ENABLE_EMAIL_SERVICE=True
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=your_email@gmail.com
+   SMTP_PASSWORD=your_app_password
+   SMTP_FROM_EMAIL=your_email@gmail.com
+   SMTP_FROM_NAME="Tijaero ERP"
+   ```
+2. The `ENABLE_EMAIL_SERVICE` acts as a master toggle. If set to `False`, no emails will be dispatched even if SMTP is configured.
+3. Templates for Subjects and Bodies can be visually configured by an Admin directly within the UI under the **Settings > Email Templates** tab.
+
 ## Testing
 
 ```bash

@@ -51,8 +51,8 @@ export const salesApi = {
   },
 
   // Approve a pending credit invoice
-  approve: async (id: number) => {
-    const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/approve`);
+  approve: async (id: number, credentials?: any) => {
+    const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/approve`, credentials || null);
     return response.data;
   },
 
@@ -200,7 +200,7 @@ export const saleReturnsApi = {
   },
 
   // Workflow endpoints - Use centralized approval API
-  approve: async (id: number) => {
+  approve: async (id: number, remarks?: string, credentials?: any) => {
     // Get the sale return to find its approval_id
     const saleReturn = await saleReturnsApi.getById(id);
 
@@ -210,13 +210,13 @@ export const saleReturnsApi = {
 
     // Use centralized approval API
     const { approvalsApi } = await import('@/modules/common/api');
-    await approvalsApi.approve(saleReturn.approval_id);
+    await approvalsApi.approve(saleReturn.approval_id, remarks, credentials);
 
     // Return the updated sale return
     return saleReturnsApi.getById(id);
   },
 
-  reject: async (id: number, reason?: string) => {
+  reject: async (id: number, reason?: string, credentials?: any) => {
     // Get the sale return to find its approval_id
     const saleReturn = await saleReturnsApi.getById(id);
 
@@ -226,7 +226,7 @@ export const saleReturnsApi = {
 
     // Use centralized approval API
     const { approvalsApi } = await import('@/modules/common/api');
-    await approvalsApi.reject(saleReturn.approval_id, reason || 'Rejected');
+    await approvalsApi.reject(saleReturn.approval_id, reason || 'Rejected', credentials);
 
     // Return the updated sale return
     return saleReturnsApi.getById(id);

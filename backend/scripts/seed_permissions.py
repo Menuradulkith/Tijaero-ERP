@@ -33,6 +33,9 @@ def seed_permissions():
         # ── Dashboard ────────────────────────────────────────────────
         {"name": "view_dashboard", "resource": "dashboard", "action": "view", "description": "View main ERP dashboard"},
 
+        # ═══ AI ASSISTANT ═══
+        {"name": "view_ai_assistant", "resource": "ai_assistant", "action": "view", "description": "Use the AI chat assistant (writes still require each tool's own permission)"},
+
         # ══════════════════════════════════════════════════════════════
         # SALES — per sub-page
         # ══════════════════════════════════════════════════════════════

@@ -244,10 +244,10 @@ class PurchasingOrderService:
                 detail=f"Purchase order with id {order_id} not found"
             )
         
-        if existing_po.status in (PurchaseOrderStatus.PARTIALLY_COMPLETED, PurchaseOrderStatus.COMPLETED):
+        if existing_po.status in (PurchaseOrderStatus.PARTIALLY_COMPLETED, PurchaseOrderStatus.COMPLETED) or existing_po.good_received_notes:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot edit purchase order with status '{existing_po.status}'. Purchase orders that have received goods (GRN created) cannot be edited."
+                detail=f"Cannot edit purchase order. Purchase orders that have received goods (GRN created) cannot be edited."
             )
         
         # Prevent manual status update to 'approved' via generic update endpoint

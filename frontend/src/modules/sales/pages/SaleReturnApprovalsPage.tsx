@@ -59,6 +59,7 @@ import {
 import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { saleReturnsApi, salesApi } from "@/modules/sales/api";
+import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
 import { useReferenceData, ProductRef } from "@/hooks";
 import { SaleReturn, SaleReturnWithItems } from "@/modules/sales/types";
 
@@ -80,6 +81,7 @@ export default function SaleReturnApprovalsPage() {
     // Dialogs
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
     const [rejectReason, setRejectReason] = useState("");
+    const [authDialogOpen, setAuthDialogOpen] = useState(false);
     const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
 
     // Confirm dialogs
@@ -162,22 +164,23 @@ export default function SaleReturnApprovalsPage() {
 
     // Approve mutation
     const approveMutation = useCrudMutation({
-        mutationFn: (id: number) => saleReturnsApi.approve(id),
+        mutationFn: ({ id, credentials }: { id: number; credentials?: any }) => saleReturnsApi.approve(id, undefined, credentials),
         invalidateQueryKeys: [["sale-returns"], ["salesStock"]],
         successMessage: "Sale return approved successfully",
         errorMessage: "Failed to approve return",
-        onSuccess: (_data, id) => {
+        onSuccess: (_data, { id }) => {
             queryClient.setQueryData<SaleReturn[]>(["sale-returns"], (prev) =>
                 (prev || []).map((r) => (r.id === id ? { ...r, status: "approved" as const } : r))
             );
             setSelectedReturn((prev) => (prev && prev.id === id ? { ...prev, status: "approved" as const } : prev));
+            setAuthDialogOpen(false);
         },
     });
 
     // Reject mutation
     const rejectMutation = useCrudMutation({
-        mutationFn: ({ id, remarks }: { id: number; remarks: string }) =>
-            saleReturnsApi.reject(id, remarks),
+        mutationFn: ({ id, remarks, credentials }: { id: number; remarks: string; credentials?: any }) =>
+            saleReturnsApi.reject(id, remarks, credentials),
         invalidateQueryKeys: [["sale-returns"]],
         successMessage: "Sale return rejected",
         errorMessage: "Failed to reject return",
@@ -190,6 +193,7 @@ export default function SaleReturnApprovalsPage() {
             );
             setRejectDialogOpen(false);
             setRejectReason("");
+            setAuthDialogOpen(false);
         },
     });
 
@@ -209,17 +213,13 @@ export default function SaleReturnApprovalsPage() {
 
     const handleApprove = () => {
         if (selectedReturn) {
-            approveConfirm.open(
-                "Approve Sale Return",
-                `Are you sure you want to approve return ${selectedReturn.sale_return_no || `SR-${selectedReturn.id}`}? This action cannot be undone.`,
-                () => approveMutation.mutate(selectedReturn.id)
-            );
+            setAuthDialogOpen(true);
         }
     };
 
     const handleReject = () => {
         if (selectedReturn && rejectReason.trim()) {
-            rejectMutation.mutate({ id: selectedReturn.id, remarks: rejectReason });
+            setAuthDialogOpen(true);
         }
     };
 
@@ -650,6 +650,28 @@ export default function SaleReturnApprovalsPage() {
             )}
             <TConfirmDialog {...approveConfirm.dialogProps} />
             <TConfirmDialog {...processConfirm.dialogProps} />
+
+            <ApproverAuthDialog
+                open={authDialogOpen}
+                onClose={() => setAuthDialogOpen(false)}
+                onSubmit={(username, password) => {
+                    const credentials = { approver_username: username, approver_password: password };
+                    if (rejectDialogOpen && rejectReason.trim()) {
+                        rejectMutation.mutate({
+                            id: selectedReturn!.id,
+                            remarks: rejectReason,
+                            credentials,
+                        });
+                    } else {
+                        approveMutation.mutate({
+                            id: selectedReturn!.id,
+                            credentials,
+                        });
+                    }
+                }}
+                loading={approveMutation.isPending || rejectMutation.isPending}
+                title={rejectDialogOpen ? "Authenticate to Reject" : "Authenticate to Approve"}
+            />
         </>
     );
 }

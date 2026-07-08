@@ -1,7 +1,9 @@
 from app.api.v1 import health
 from app.auth.api import router as auth_router
 from app.modules.branches.api import router as branches_router
+from app.modules.chat_agent.api import router as chat_agent_router
 from app.modules.common.api import router as common_router
+from app.modules.communication.api import router as communication_router
 from app.modules.customers.api import router as customers_router
 from app.modules.customers.commission_api import router as commissions_router
 from app.modules.employees.api import router as employees_router
@@ -60,7 +62,9 @@ api_router.include_router(reporting_router)
 api_router.include_router(settings_router)
 api_router.include_router(notifications_router)
 api_router.include_router(common_router)
+api_router.include_router(communication_router, prefix="/communication", tags=["communication"])
 api_router.include_router(employees_router, prefix="/employees", tags=["employees"])
 api_router.include_router(branches_router)
+api_router.include_router(chat_agent_router)
 
 api_router.include_router(health.router, prefix="/health", tags=["health"])

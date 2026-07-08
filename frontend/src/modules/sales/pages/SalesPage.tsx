@@ -17,6 +17,7 @@ import {
     showSuccessToast,
     SortOption,
     TConfirmDialog,
+    TEmailDialog,
     TPrintButton,
     TPrintPreviewDialog,
     TStatusChip,
@@ -44,6 +45,7 @@ import {
     Delete as DeleteIcon,
     FileDownload as DownloadIcon,
     Edit as EditIcon,
+    Email as EmailIcon,
     MenuBook as MenuBookIcon,
     AttachMoney as MoneyIcon,
     Percent as PercentIcon,
@@ -255,6 +257,7 @@ export default function SalesPage() {
   const [selectedInvoiceForView, setSelectedInvoiceForView] =
     useState<Invoice | null>(null);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [selectedItemForPrint, setSelectedItemForPrint] =
     useState<Invoice | null>(null);
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
@@ -2061,6 +2064,15 @@ export default function SalesPage() {
         >
           Edit
         </Button>
+        <Tooltip title={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"]) ? `Cannot email: invoice is ${(state.selectedItem.approval_status || "").replace(/_/g, " ")}` : "Send via Email"}>
+          <span>
+            <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+              disabled={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"])}
+              onClick={() => setEmailDialogOpen(true)}>
+              Email
+            </Button>
+          </span>
+        </Tooltip>
         <TPrintButton
           documentType="invoice"
           documentId={state.selectedItem.id}
@@ -5506,6 +5518,16 @@ export default function SalesPage() {
           documentType="invoice"
           documentId={selectedItemForPrint.id}
           title={`Print Invoice: ${selectedItemForPrint.invoice_no}`}
+        />
+      )}
+
+      {/* Email Dialog */}
+      {state.selectedItem && (
+        <TEmailDialog
+          open={emailDialogOpen}
+          onClose={() => setEmailDialogOpen(false)}
+          documentType="invoice"
+          documentId={state.selectedItem.id}
         />
       )}
     </>

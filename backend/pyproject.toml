@@ -26,6 +26,7 @@ orjson = "^3.9.0"
 weasyprint = "^61.2"
 pydyf = ">=0.10.0,<0.11"
 playwright = "^1.42.0"
+openai = "^2.44.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

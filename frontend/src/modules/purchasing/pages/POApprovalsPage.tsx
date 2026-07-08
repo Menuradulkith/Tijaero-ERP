@@ -58,6 +58,7 @@ import {
 
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import { approvalsApi } from "@/modules/common/api";
+import ApproverAuthDialog from "../components/ApproverAuthDialog";
 import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed individual imports for productsApi, branchApi - using aggregated endpoint
 import { PurchasingOrder, PurchasingOrderWithItems, Supplier } from "@/modules/purchasing/types";
@@ -90,6 +91,7 @@ export default function POApprovalsPage() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
 
   // Item remark modal
   const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
@@ -203,8 +205,8 @@ export default function POApprovalsPage() {
 
   // Approve mutation
   const approveMutation = useCrudMutation({
-    mutationFn: ({ approvalId }: { approvalId: number; poId: number }) =>
-      approvalsApi.approve(approvalId),
+    mutationFn: ({ approvalId, credentials }: { approvalId: number; poId: number; credentials?: any }) =>
+      approvalsApi.approve(approvalId, undefined, credentials),
     invalidateQueryKeys: [["purchase-orders"], ["purchaseOrders"]],
     successMessage: "Purchase order approved successfully",
     errorMessage: "Failed to approve order",
@@ -290,7 +292,22 @@ export default function POApprovalsPage() {
       return;
     }
 
-    approveMutation.mutate({ approvalId: selectedOrder.approval_id, poId: selectedOrder.id });
+    // Instead of immediately mutating, open the step-up auth dialog
+    setAuthDialogOpen(true);
+  };
+
+  const handleAuthSubmit = (username: string, password: string) => {
+    if (!selectedOrder || !selectedOrder.approval_id) return;
+    approveMutation.mutate(
+      { 
+        approvalId: selectedOrder.approval_id, 
+        poId: selectedOrder.id, 
+        credentials: { approver_username: username, approver_password: password } 
+      },
+      {
+        onSuccess: () => setAuthDialogOpen(false),
+      }
+    );
   };
 
   const handleReject = () => {
@@ -615,7 +632,7 @@ export default function POApprovalsPage() {
             onClick={handleReject}
             disabled={!rejectReason.trim() || rejectMutation.isPending}
           >
-            Reject Order
+            {rejectMutation.isPending ? "Rejecting..." : "Reject Order"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -685,6 +702,13 @@ export default function POApprovalsPage() {
       {/* Confirm Dialogs */}
       <TConfirmDialog {...confirmDialog.dialogProps} />
       <TConfirmDialog {...creditWarningDialog.dialogProps} confirmColor="warning" />
+
+      <ApproverAuthDialog
+        open={authDialogOpen}
+        onClose={() => setAuthDialogOpen(false)}
+        onSubmit={handleAuthSubmit}
+        loading={approveMutation.isPending}
+      />
     </>
   );
 }

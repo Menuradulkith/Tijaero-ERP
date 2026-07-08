@@ -13,6 +13,7 @@ import DownloadIcon from "@mui/icons-material/FileDownload";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import EmailIcon from "@mui/icons-material/Email";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import DeleteIcon from "@mui/icons-material/Delete";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
@@ -23,6 +24,7 @@ import {
     Button,
     Checkbox,
     Chip,
+    Divider,
     IconButton,
     InputAdornment,
     MenuItem,
@@ -57,6 +59,7 @@ import {
     TConfirmDialog,
     TPrintButton,
     TPrintPreviewDialog,
+    TEmailDialog,
     TStatusChip,
     TSteps,
     canPrintDocument,
@@ -186,9 +189,10 @@ export default function SaleReturnsPage() {
     const [invoiceItems, setInvoiceItems] = useState<InvoiceWithItems["items"] | null>(null);
     const [selectedCandidates, setSelectedCandidates] = useState<Set<number>>(new Set());
 
-    // Print Dialog State
+    // Print/Email Dialog State
     const [printDialogOpen, setPrintDialogOpen] = useState(false);
-    const [selectedReturnForPrint, setSelectedReturnForPrint] = useState<SaleReturn | null>(null);
+    const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+    const [selectedReturnForPrint, setSelectedReturnForPrint] = useState<SaleReturn | undefined>(undefined);
 
     const {
         searchQuery,
@@ -736,17 +740,29 @@ export default function SaleReturnsPage() {
                             Next
                         </Button>
                     ) : selectedReturn && !isCreating && !isEditing ? (
-                        <TPrintButton
-                            documentType="credit-note"
-                            documentId={selectedReturn.id}
-                            disabled={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"])}
-                            disabledReason={`Cannot print: return is ${(selectedReturn.status || "").replace(/_/g, " ")}`}
-                            tooltip="Print Credit Note"
-                            onClick={() => {
-                                setSelectedReturnForPrint(selectedReturn);
-                                setPrintDialogOpen(true);
-                            }}
-                        />
+                        <>
+                            <Tooltip title={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"]) ? `Cannot email: return is ${(selectedReturn.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+                                <span>
+                                    <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
+                                        disabled={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"])}
+                                        onClick={() => setEmailDialogOpen(true)}>
+                                        Email
+                                    </Button>
+                                </span>
+                            </Tooltip>
+                            <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                            <TPrintButton
+                                documentType="credit-note"
+                                documentId={selectedReturn.id}
+                                disabled={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"])}
+                                disabledReason={`Cannot print: return is ${(selectedReturn.status || "").replace(/_/g, " ")}`}
+                                tooltip="Print Credit Note"
+                                onClick={() => {
+                                    setSelectedReturnForPrint(selectedReturn);
+                                    setPrintDialogOpen(true);
+                                }}
+                            />
+                        </>
                     ) : undefined
                 }
             />
@@ -879,13 +895,13 @@ export default function SaleReturnsPage() {
                                                 <Typography variant="caption" color="text.secondary">Return Reason</Typography>
                                                 <Typography variant="body2" fontWeight={500}>
                                                     {RETURN_REASON_OPTIONS.find(r => r.value === selectedReturn.return_reason)?.label || selectedReturn.return_reason || "-"}
-                                        </Typography>
-                                    </Box>
-                                    <Box>
-                                        <Typography variant="caption" color="text.secondary">Refund Method</Typography>
-                                        <Typography variant="body2" fontWeight={500}>
-                                            {PAYMENT_OPTIONS.find(p => p.value === selectedReturn.payment_method)?.label || selectedReturn.payment_method}
-                                        </Typography>
+                                                </Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Refund Method</Typography>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    {PAYMENT_OPTIONS.find(p => p.value === selectedReturn.payment_method)?.label || selectedReturn.payment_method}
+                                                </Typography>
                                             </Box>
                                         </FormSection>
 
@@ -943,8 +959,6 @@ export default function SaleReturnsPage() {
                                         )}
                                     </>
                                 )}
-
-
                             </>
                         )}
 
@@ -1291,39 +1305,51 @@ export default function SaleReturnsPage() {
             <MasterDetailLayout
                 title="Sale Returns"
                 headerActions={
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<DownloadIcon />}
-                    onClick={handleExportCSV}
-                    disabled={filteredReturns.length === 0}
-                    sx={{ mr: 1 }}
-                  >
-                    Export CSV
-                  </Button>
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<DownloadIcon />}
+                        onClick={handleExportCSV}
+                        disabled={filteredReturns.length === 0}
+                        sx={{ mr: 1 }}
+                    >
+                        Export CSV
+                    </Button>
                 }
                 onRefresh={() => {
-                  queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
-                  queryClient.invalidateQueries({ queryKey: ["sales"] });
+                    queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
+                    queryClient.invalidateQueries({ queryKey: ["sales"] });
                 }}
                 isLoading={isLoading}
                 masterPanel={masterPanel}
                 detailPanel={detailPanel}
             />
+
+            {/* Confirm Dialogs */}
             <TConfirmDialog {...confirmDialog.dialogProps} />
             <TConfirmDialog {...deleteDialog2.dialogProps} confirmText="Delete" confirmColor="error" />
-            
+
             {/* Print Preview Dialog */}
             {selectedReturnForPrint && (
                 <TPrintPreviewDialog
                     open={printDialogOpen}
                     onClose={() => {
                         setPrintDialogOpen(false);
-                        setSelectedReturnForPrint(null);
+                        setSelectedReturnForPrint(undefined);
                     }}
                     documentType="credit-note"
                     documentId={selectedReturnForPrint.id}
                     title={`Print Credit Note: ${selectedReturnForPrint.sale_return_no}`}
+                />
+            )}
+
+            {/* Email Dialog */}
+            {selectedReturn && (
+                <TEmailDialog
+                    open={emailDialogOpen}
+                    onClose={() => setEmailDialogOpen(false)}
+                    documentType="sales-return"
+                    documentId={selectedReturn.id}
                 />
             )}
         </>

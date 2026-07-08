@@ -199,10 +199,12 @@ class PurchasingOrderRepository:
     def delete(self, order_id: int) -> bool:
         db_order = self.get_by_id(order_id)
         if db_order:
-            # Check if order is approved or completed — those cannot be deleted
-            order_status = (db_order.status or "").lower()
-            if order_status in ("approved", "completed"):
-                raise ValueError(f"Cannot delete purchase order with status '{db_order.status}'")
+            # Cannot delete if GRN is created or supplier payments are made
+            if db_order.good_received_notes:
+                raise ValueError("Cannot delete purchase order because Goods Received Note (GRN) has already been created.")
+            
+            if db_order.payments:
+                raise ValueError("Cannot delete purchase order because Supplier Payments have already been made.")
             
             # Get PO item IDs for cascading
             po_item_ids = [
