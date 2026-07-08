@@ -131,8 +131,8 @@ class ChequePayments(Base, AuditMixin):
     __tablename__ = "cheque_payments"
 
     id = Column(Integer, primary_key=True, index=True)
-    cheque_number = Column(Numeric(10, 0), nullable=False)
-    branch_code = Column(Integer, nullable=False)
+    cheque_number = Column(String(50), nullable=False)
+    branch_code = Column(String(200), nullable=False)
     from_party = Column(String(50), nullable=False, name="from")
     bank = Column(String(20), nullable=False)
     amount = Column(Numeric(60, 2), nullable=False)

@@ -213,8 +213,8 @@ def create_finance_demo_data(db: Session, customers):
         cheque_date = datetime.now() - timedelta(days=random.randint(0, 30))
         deposit_date = cheque_date + timedelta(days=random.randint(1, 7))
         cheque = ChequePayments(
-            cheque_number=random.randint(100000, 999999),
-            branch_code=random.randint(1001, 1005),
+            cheque_number=str(random.randint(100000, 999999)),
+            branch_code=str(random.randint(1001, 1005)),
             from_party=random.choice(parties),
             bank=random.choice(banks),
             amount=Decimal(random.uniform(500, 15000)).quantize(Decimal("0.01")),

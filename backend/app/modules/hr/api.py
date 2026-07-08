@@ -23,6 +23,14 @@ router = APIRouter(
 )
 
 
+# HR Dashboard Statistics
+@router.get("/statistics", response_model=schemas.HRStatistics)
+def get_hr_statistics(db: Session = Depends(get_db)):
+    """Server-side aggregated KPI counts for the HR dashboard."""
+    stats_service = service.HRStatisticsService(db)
+    return stats_service.get_statistics()
+
+
 # Salary Deductions Endpoints
 @router.post(
     "/deductions",

@@ -37,16 +37,10 @@ import { TPageHeader, TStatCard, TStatusChip, TChip } from "@/components/tijaero
 import { KpiSparkCard } from "@/components/dashboard";
 import {
   payrollBatchApi,
-  salaryProfilesApi,
-  promotionsApi,
   reimbursementsApi,
-  salaryDeductionsApi,
-  employeeAssetsApi,
-  employeesApi,
-  attendanceApi,
-  leavesApi,
+  hrStatisticsApi,
 } from "@/modules/hr/api";
-import type { PayrollBatch, Reimbursement } from "@/modules/hr/types";
+import type { Reimbursement } from "@/modules/hr/types";
 
 // ─── Recent Item Component ──────────────────────────────────────────────────
 
@@ -80,100 +74,37 @@ function RecentItem({ primary, secondary, status, icon, onClick }: RecentItemPro
 export default function HRDashboard() {
   const navigate = useNavigate();
 
-  // Data queries
+  // Server-side aggregated KPI counts — accurate regardless of table size.
+  const { data: statsData } = useQuery({
+    queryKey: ["hr-statistics"],
+    queryFn: () => hrStatisticsApi.getStatistics(),
+    refetchOnMount: "always",
+  });
+
+  // Recent lists for the panels — the list endpoints return newest-first, so
+  // fetching the latest 5 is enough (totals come from the statistics endpoint).
   const { data: batches, isLoading: batchesLoading } = useQuery({
-    queryKey: ["payroll-batches"],
-    queryFn: () => payrollBatchApi.getAll({ limit: 1000 }),
-  });
-
-  const { data: profiles, isLoading: profilesLoading } = useQuery({
-    queryKey: ["salary-profiles-count"],
-    queryFn: () => salaryProfilesApi.getAll(),
-    refetchOnMount: "always",
-  });
-
-  const { data: promotions, isLoading: promotionsLoading } = useQuery({
-    queryKey: ["promotions-count"],
-    queryFn: () => promotionsApi.getAll({ limit: 1000 }),
-    refetchOnMount: "always",
+    queryKey: ["hr-recent-batches"],
+    queryFn: () => payrollBatchApi.getAll({ limit: 5 }),
   });
 
   const { data: reimbursements, isLoading: reimbursementsLoading } = useQuery({
-    queryKey: ["reimbursements-count"],
-    queryFn: () => reimbursementsApi.getAll({ limit: 500 }),
-    refetchOnMount: "always",
+    queryKey: ["hr-recent-reimbursements"],
+    queryFn: () => reimbursementsApi.getAll({ limit: 5 }),
   });
 
-  const { data: deductions, isLoading: deductionsLoading } = useQuery({
-    queryKey: ["deductions-count"],
-    queryFn: () => salaryDeductionsApi.getAll({ limit: 1000 }),
-    refetchOnMount: "always",
-  });
-
-  const { data: assets, isLoading: assetsLoading } = useQuery({
-    queryKey: ["assets-count"],
-    queryFn: () => employeeAssetsApi.getAll({ limit: 1000 }),
-    refetchOnMount: "always",
-  });
-
-  const { data: hrEmployees } = useQuery({
-    queryKey: ["hr-employees-count"],
-    queryFn: () => employeesApi.getAll({ limit: 500 }),
-    refetchOnMount: "always",
-  });
-
-  const today = new Date().toISOString().split("T")[0];
-  const { data: todayAttendance } = useQuery({
-    queryKey: ["attendance-today", today],
-    queryFn: () => attendanceApi.getAll({ date_from: today, date_to: today, limit: 500 }),
-    refetchOnMount: "always",
-  });
-
-  const { data: pendingLeaves } = useQuery({
-    queryKey: ["leaves-pending-count"],
-    queryFn: () => leavesApi.getAll({ status: "pending", limit: 200 }),
-  });
-
-  // Stats
-  const stats = useMemo(() => {
-    const totalProfiles = profiles?.length || 0;
-    const pendingBatches = (batches || []).filter(
-      (b: PayrollBatch) => b.status === "pending_approval" || b.status === "draft"
-    ).length;
-    const pendingReimbursements = (reimbursements || []).filter(
-      (r: Reimbursement) => r.status === "pending" || r.status === "submitted"
-    ).length;
-    const totalDeductions = deductions?.length || 0;
-    const totalPromotions = promotions?.length || 0;
-    const activeAssets = (assets || []).filter((a: any) => !a.revoke_assignment).length;
-    const totalEmployees = hrEmployees?.length || 0;
-    const presentToday = (todayAttendance || []).filter(
-      (a) => a.status === "present" || a.status === "late"
-    ).length;
-    const pendingLeavesCount = pendingLeaves?.length || 0;
-
-    return {
-      totalProfiles,
-      pendingBatches,
-      pendingReimbursements,
-      totalDeductions,
-      totalPromotions,
-      activeAssets,
-      totalEmployees,
-      presentToday,
-      pendingLeavesCount,
-    };
-  }, [
-    batches,
-    profiles,
-    reimbursements,
-    deductions,
-    promotions,
-    assets,
-    hrEmployees,
-    todayAttendance,
-    pendingLeaves,
-  ]);
+  // KPI values mapped to the stable keys used by the cards below.
+  const stats = {
+    totalEmployees: statsData?.total_employees ?? 0,
+    presentToday: statsData?.present_today ?? 0,
+    pendingLeavesCount: statsData?.pending_leaves ?? 0,
+    totalProfiles: statsData?.total_profiles ?? 0,
+    pendingBatches: statsData?.pending_batches ?? 0,
+    pendingReimbursements: statsData?.pending_reimbursements ?? 0,
+    totalDeductions: statsData?.total_deductions ?? 0,
+    totalPromotions: statsData?.total_promotions ?? 0,
+    activeAssets: statsData?.active_assets ?? 0,
+  };
 
   // Recent payroll batches
   const recentBatches = useMemo(() => {
@@ -306,7 +237,7 @@ export default function HRDashboard() {
                 Recent Payroll Batches
               </Typography>
               <TChip
-                label={`${batches?.length || 0} total`}
+                label={`${statsData?.total_batches ?? 0} total`}
                 size="small"
                 color="primary"
                 variant="outlined"
@@ -348,7 +279,7 @@ export default function HRDashboard() {
                 Recent Reimbursements
               </Typography>
               <TChip
-                label={`${reimbursements?.length || 0} total`}
+                label={`${statsData?.total_reimbursements ?? 0} total`}
                 size="small"
                 color="info"
                 variant="outlined"

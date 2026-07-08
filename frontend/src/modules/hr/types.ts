@@ -563,3 +563,18 @@ export interface EmployeeCreate {
 export interface EmployeeUpdate {
   employee_id?: string;
 }
+
+// HR Dashboard Statistics — server-side aggregated counts
+export interface HRStatistics {
+  total_employees: number;
+  present_today: number;
+  pending_leaves: number;
+  total_profiles: number;
+  pending_batches: number;
+  total_batches: number;
+  pending_reimbursements: number;
+  total_reimbursements: number;
+  total_deductions: number;
+  total_promotions: number;
+  active_assets: number;
+}

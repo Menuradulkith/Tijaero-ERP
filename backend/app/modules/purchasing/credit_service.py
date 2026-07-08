@@ -61,6 +61,44 @@ class SupplierCreditService:
         return (tz.today() - due_date).days
     
     
+    def calculate_available_credit(
+        self, db: Session, supplier_id: int, exclude_po_id: Optional[int] = None
+    ) -> Decimal:
+        """SINGLE source of truth for a supplier's available credit.
+
+        available_credit = max_credit_limit - total_credit_exposure
+
+        where total_credit_exposure combines every credit liability channel:
+          * outstanding_payable - old PO/GRN credit system, net of settlements,
+            invoice payments and approved returns
+          * pending_credits     - draft / pending / approved credit POs not yet
+            received (optionally excluding one PO being approved)
+          * invoice_outstanding - new PurchaseInvoice credit system balance_due
+
+        Every read (reports) and every write (the persisted
+        ``supplier.left_credit_amount``) MUST go through this method so the
+        number can never diverge between flows (ERP_STANDARDS F7 - one
+        calculator per document).
+        """
+        supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+        if not supplier:
+            return Decimal("0")
+
+        max_credit = Decimal(str(supplier.max_credit_limit or 0))
+        outstanding = Decimal(str(self._calculate_outstanding_payable(db, supplier_id)))
+        pending = Decimal(str(self._calculate_pending_credits(db, supplier_id, exclude_po_id=exclude_po_id)))
+        invoice_outstanding = Decimal(str(
+            db.query(func.coalesce(func.sum(PurchaseInvoice.balance_due), 0)).filter(
+                PurchaseInvoice.supplier_id == supplier_id,
+                PurchaseInvoice.payment_type == "credit",
+                PurchaseInvoice.status.notin_(["cancelled", "paid"]),
+                PurchaseInvoice.payment_status.in_(["unpaid", "partial"]),
+            ).scalar() or 0
+        ))
+
+        available = max_credit - (outstanding + pending + invoice_outstanding)
+        return available if available > 0 else Decimal("0")
+
     def get_supplier_credit_status(self, db: Session, supplier_id: int, exclude_po_id: Optional[int] = None) -> Dict[str, Any]:
 
         supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
@@ -90,7 +128,8 @@ class SupplierCreditService:
         unpaid_grns = self._get_unpaid_grns(db, supplier_id, supplier.credit_days)
         credit_purchase_orders = self._get_credit_purchase_orders(db, supplier_id, supplier.credit_days)
         max_credit = float(supplier.max_credit_limit or 0)
-        computed_left_credit = max(0.0, max_credit - total_exposure)
+        # SINGLE source of truth - same calculator used to persist the value.
+        computed_left_credit = float(self.calculate_available_credit(db, supplier_id, exclude_po_id=exclude_po_id))
         
         return {
             "supplier_id": supplier_id,
@@ -175,9 +214,11 @@ class SupplierCreditService:
         )
 
         # ── Compute left_credit_amount dynamically ─────────────────────
-        # Don't rely on the stored field; calculate from max_credit_limit - outstanding credit
+        # SINGLE source of truth for available credit (same calculator used to
+        # persist supplier.left_credit_amount) so the number is consistent
+        # across the credit-status and payments views.
         max_credit = float(supplier.max_credit_limit or 0)
-        computed_left_credit = max(0.0, max_credit - combined_credit_outstanding)
+        computed_left_credit = float(self.calculate_available_credit(db, supplier_id))
 
         # Combine all POs for unified view
         all_purchase_orders = []
@@ -978,8 +1019,12 @@ class SupplierCreditService:
         if not supplier:
             return
         
-        outstanding = self._calculate_outstanding_payable(db, supplier_id)
-        supplier.left_credit_amount = int(supplier.max_credit_limit - outstanding)
+        # SINGLE authoritative calculator - every flow that changes a
+        # supplier's credit exposure calls this method (never bespoke math),
+        # so the stored value can no longer diverge between flows (F7).
+        available = self.calculate_available_credit(db, supplier_id)
+        # Store the full-precision Decimal (F1) - no lossy int() truncation.
+        supplier.left_credit_amount = available.quantize(Decimal("0.01"))
         db.flush()
     
     def create_credit_settlement(

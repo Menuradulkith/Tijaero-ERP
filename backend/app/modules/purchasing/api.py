@@ -197,7 +197,6 @@ def _enrich_single_purchase_order_with_user_fields(
     "/statistics",
     response_model=Dict[str, Any],
     summary="Get Purchasing Statistics",
-    dependencies=[Depends(require_permission(*Permissions.PURCHASING_DASHBOARD_VIEW))],
 )
 def get_purchasing_statistics(
     db: Session = Depends(get_db),
@@ -222,7 +221,6 @@ def get_purchasing_statistics(
     "/suppliers",
     response_model=schemas.Supplier,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_CREATE))],
 )
 def create_supplier(
     supplier: schemas.SupplierCreate,
@@ -237,7 +235,6 @@ def create_supplier(
 @router.get(
     "/suppliers/{supplier_id}",
     response_model=schemas.Supplier,
-    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
 )
 def get_supplier(
     supplier_id: int,
@@ -252,7 +249,6 @@ def get_supplier(
 @router.get(
     "/suppliers",
     response_model=List[schemas.Supplier],
-    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
 )
 def list_suppliers(
     active: Optional[bool] = None,
@@ -279,7 +275,6 @@ def list_suppliers(
 @router.patch(
     "/suppliers/{supplier_id}",
     response_model=schemas.Supplier,
-    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_UPDATE))],
 )
 def update_supplier(
     supplier_id: int,
@@ -294,7 +289,6 @@ def update_supplier(
 @router.delete(
     "/suppliers/{supplier_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_DELETE))],
 )
 def delete_supplier(
     supplier_id: int,
@@ -527,6 +521,11 @@ def create_purchase_return(
         require_permission(*Permissions.PURCHASE_RETURN_CREATE)
     ),
 ):
+    if not validate_branch_access(current_user, return_data.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {return_data.branch_code}",
+        )
     return_service = service.PurchasingReturnService(db)
     return return_service.create_return(return_data, user_id=current_user.id)
 
@@ -834,13 +833,19 @@ def get_grn_items_by_po(po_id: int, db: Session = Depends(get_db)):
     "/credit-settlements",
     response_model=schemas.SupplierCreditsSettle,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_CREATE))],
 )
 def create_credit_settlement(
-    settle: schemas.SupplierCreditsSettleCreate, db: Session = Depends(get_db)
+    settle: schemas.SupplierCreditsSettleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_CREATE)),
 ):
+    if not validate_branch_access(current_user, settle.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {settle.branch_code}",
+        )
     settle_service = service.SupplierCreditsSettleService(db)
-    return settle_service.create(settle)
+    return settle_service.create(settle, created_by=current_user.id)
 
 
 @router.get(
@@ -1059,13 +1064,19 @@ def get_grn_payment_history(grn_id: int, db: Session = Depends(get_db)):
     "/supplier-payments",
     response_model=schemas.SupplierPayment,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_CREATE))],
 )
 def create_supplier_payment(
-    payment: schemas.SupplierPaymentCreate, db: Session = Depends(get_db)
+    payment: schemas.SupplierPaymentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_CREATE)),
 ):
+    if not validate_branch_access(current_user, payment.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {payment.branch_code}",
+        )
     payment_service = service.SupplierPaymentService(db)
-    return payment_service.create_payment(payment)
+    return payment_service.create_payment(payment, created_by=current_user.id)
 
 
 @router.get(
@@ -1143,17 +1154,18 @@ def verify_supplier_payment(
 @router.post(
     "/supplier-payments/{payment_id}/cancel",
     response_model=schemas.SupplierPayment,
-    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE))],
 )
 def cancel_supplier_payment(
     payment_id: int,
     payload: schemas.SupplierPaymentCancel = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE)),
 ):
     payment_service = service.SupplierPaymentService(db)
     return payment_service.cancel_payment(
         payment_id,
         remarks=payload.remarks if payload else None,
+        cancelled_by=current_user.id,
     )
 
 
@@ -1188,7 +1200,6 @@ def get_supplier_payments(
 
 @router.get(
     "/eligible-advance-pos",
-    dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW))],
 )
 def get_eligible_advance_pos(
     db: Session = Depends(get_db),
@@ -1296,6 +1307,11 @@ def create_supplier_advance(
     Use this when paying a supplier before receiving goods/services.
     The advance will be tracked and can later be applied against GRNs.
     """
+    if not validate_branch_access(current_user, data.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {data.branch_code}",
+        )
     advance_service = service.SupplierAdvancePaymentService(db)
     return advance_service.create_advance(data, created_by=current_user.id)
 
@@ -1494,9 +1510,29 @@ def export_po_csv(
     branch_codes: Optional[List[str]] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    pos = service.purchasing_service.get_all_purchasing_orders(
-        db, skip, limit, branch_codes
+    # Enforce branch-based access control on the export.
+    # Regular users can only export their allowed branches; superusers
+    # (user_branches is None) may export any/all branches.
+    if branch_codes:
+        if user_branches is not None:
+            invalid = [b for b in branch_codes if b not in user_branches]
+            if invalid:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Access denied to branch(es): {', '.join(invalid)}",
+                )
+        effective_branches = branch_codes
+    else:
+        effective_branches = user_branches
+    order_service = service.PurchasingOrderService(db)
+    pos = order_service.list_orders(
+        schemas.PurchaseOrderListFilter(
+            branch_codes=effective_branches,
+            skip=skip,
+            limit=limit,
+        )
     )
     output = io.StringIO()
     writer = csv.writer(output)
@@ -1515,6 +1551,13 @@ def export_po_csv(
         ]
     )
     for order in pos:
+        total_amount = sum(
+            (item.quantity or 0) * (item.unit_price or 0)
+            for item in (order.items or [])
+        )
+        paid_amount = sum(
+            (payment.payment_amount or 0) for payment in (order.payments or [])
+        )
         writer.writerow(
             [
                 order.purchasing_order_no or "",
@@ -1523,8 +1566,8 @@ def export_po_csv(
                 order.payment_method or "",
                 order.status or "",
                 order.remarks or "",
-                order.total_amount or 0,
-                order.paid_amount or 0,
+                total_amount,
+                paid_amount,
                 (
                     order.created_at.isoformat()
                     if getattr(order, "created_at", None)

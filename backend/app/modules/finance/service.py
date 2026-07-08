@@ -19,8 +19,8 @@ class BankDepositService:
     def __init__(self, db: Session):
         self.repo = repository.BankDepositRepository(db)
     
-    def create_deposit(self, deposit: schemas.BankDepositCreate) -> models.BankDeposits:
-        return self.repo.create(deposit)
+    def create_deposit(self, deposit: schemas.BankDepositCreate, created_by: int = None) -> models.BankDeposits:
+        return self.repo.create(deposit, created_by=created_by)
     
     def get_deposit(self, deposit_id: int) -> models.BankDeposits:
         deposit = self.repo.get_by_id(deposit_id)
@@ -34,7 +34,7 @@ class BankDepositService:
     def list_deposits(self, filters: schemas.PaymentListFilter) -> List[models.BankDeposits]:
         return self.repo.get_all(filters)
     
-    def verify_deposit(self, deposit_id: int) -> models.BankDeposits:
+    def verify_deposit(self, deposit_id: int, user_id: int = 0) -> models.BankDeposits:
         deposit = self.repo.verify(deposit_id)
         if not deposit:
             raise HTTPException(
@@ -42,14 +42,23 @@ class BankDepositService:
                 detail=f"Bank deposit with id {deposit_id} not found"
             )
 
+        log_audit(
+            self.repo.db, user_id=user_id or 0, action="verify",
+            entity_type="bank_deposit", entity_id=deposit.id,
+            changes={"verified": True},
+        )
+        self.repo.db.commit()
+
         # ── GL Hook: Post bank deposit to GL ──
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
             gl_svc = PurchaseExpensePayrollGL(self.repo.db)
-            gl_svc.post_bank_deposit_to_gl(deposit, user_id=0)
+            gl_svc.post_bank_deposit_to_gl(deposit, user_id=user_id)
+            self.repo.db.commit()
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Bank deposit GL posting failed: {e}")
+            self.repo.db.rollback()
 
         return deposit
 
@@ -57,8 +66,8 @@ class CardPaymentService:
     def __init__(self, db: Session):
         self.repo = repository.CardPaymentRepository(db)
     
-    def create_payment(self, payment: schemas.CardPaymentCreate) -> models.CardPayments:
-        return self.repo.create(payment)
+    def create_payment(self, payment: schemas.CardPaymentCreate, created_by: int = None) -> models.CardPayments:
+        return self.repo.create(payment, created_by=created_by)
     
     def get_payment(self, payment_id: int) -> models.CardPayments:
         payment = self.repo.get_by_id(payment_id)
@@ -76,8 +85,8 @@ class ChequePaymentService:
     def __init__(self, db: Session):
         self.repo = repository.ChequePaymentRepository(db)
     
-    def create_payment(self, payment: schemas.ChequePaymentCreate) -> models.ChequePayments:
-        return self.repo.create(payment)
+    def create_payment(self, payment: schemas.ChequePaymentCreate, created_by: int = None) -> models.ChequePayments:
+        return self.repo.create(payment, created_by=created_by)
     
     def get_payment(self, payment_id: int) -> models.ChequePayments:
         payment = self.repo.get_by_id(payment_id)
@@ -268,7 +277,7 @@ class CustomerAdvancePaymentService:
                     detail=f"An advance payment already exists for this proforma invoice."
                 )
 
-        db_advance = self.repo.create(advance)
+        db_advance = self.repo.create(advance, created_by=user_id)
         
         # ── GL Auto-Posting: Customer Advance Receipt (Gap B2) ───────────
         try:
@@ -281,6 +290,7 @@ class CustomerAdvancePaymentService:
             logging.getLogger(__name__).warning(
                 f"GL posting for customer advance {db_advance.advance_payments_no} failed (non-blocking): {gl_err}"
             )
+            self.db.rollback()
         # ─────────────────────────────────────────────────────────────────
         
         return db_advance
@@ -318,8 +328,8 @@ class CustomerCreditNoteService:
         self.repo = repository.CustomerCreditNoteRepository(db)
         self.db = db
     
-    def create_credit_note(self, credit_note: schemas.CustomerCreditNoteCreate) -> CustomerCreditNotes:
-        db_note = self.repo.create(credit_note)
+    def create_credit_note(self, credit_note: schemas.CustomerCreditNoteCreate, user_id: int = 0) -> CustomerCreditNotes:
+        db_note = self.repo.create(credit_note, created_by=user_id)
 
         # ── GL Auto-Posting: Customer Credit Note Issued ──
         # Dr 4030 Sales Returns          (reduces revenue)
@@ -364,7 +374,7 @@ class CustomerCreditNoteService:
                             },
                         ],
                         branch_code=getattr(db_note, "branch_code", None),
-                        user_id=0,
+                        user_id=user_id,
                         je_prefix="JE-CCN",
                         transaction_type="Sales",
                         reference_type="CustomerCreditNote",
@@ -400,33 +410,33 @@ class CustomerCreditNoteService:
             query = query.filter(CustomerCreditNotes.customer_id == customer_id)
         return query.order_by(CustomerCreditNotes.date.desc()).all()
     
-    def get_customer_credit_balance(self, customer_id: int) -> float:
+    def get_customer_credit_balance(self, customer_id: int) -> Decimal:
         """
         Calculate customer's available credit note balance.
-        Total credit issued minus credit already redeemed.
+        Total credit issued minus credit already redeemed (money kept as Decimal, F1).
         """
-        from sqlalchemy import func, or_
+        from sqlalchemy import func
         from app.modules.sales.models import Invoice
-        
+
         db = self.repo.db
-        
+
         # Sum of all credit notes issued to customer
         total_credit_issued = db.query(
             func.coalesce(func.sum(CustomerCreditNotes.amount), 0)
         ).filter(
             CustomerCreditNotes.customer_id == customer_id
         ).scalar() or 0
-        
-        # Sum of credit notes already redeemed in invoices
+
+        # Sum of credit notes already redeemed on active (non-voided) invoices
         total_credit_redeemed = db.query(
             func.coalesce(func.sum(Invoice.credit_note_amount), 0)
         ).filter(
             Invoice.customer_id == customer_id,
             Invoice.status == True
         ).scalar() or 0
-        
-        available_balance = float(total_credit_issued) - float(total_credit_redeemed)
-        return max(0, available_balance)
+
+        available_balance = Decimal(str(total_credit_issued)) - Decimal(str(total_credit_redeemed))
+        return available_balance if available_balance > 0 else Decimal("0")
 
 
 class CashbookService:
@@ -808,7 +818,7 @@ class PettyCashService:
 
     # ── 1. OPEN Petty Cash Fund ──────────────────────────────────────────
 
-    def open_fund(self, data: schemas.PettyCashFundCreate) -> models.PettyCash:
+    def open_fund(self, data: schemas.PettyCashFundCreate, user_id: int = None) -> models.PettyCash:
         """
         Open a new petty cash fund at a branch.
         Sets opening_balance = current_balance, status = 'active'.
@@ -847,7 +857,7 @@ class PettyCashService:
             reference_type="PettyCashFund",
             reference_id=fund.id,
             reference_no=fund.petty_cash_no,
-            user_id=data.opened_by or 0,
+            user_id=user_id or data.opened_by or 0,
         )
 
         self.db.commit()
@@ -856,7 +866,7 @@ class PettyCashService:
 
     # ── 2. RECORD Petty Cash Expense ─────────────────────────────────────
 
-    def record_expense(self, data: schemas.PettyCashExpenseCreate) -> models.PettyCashTransaction:
+    def record_expense(self, data: schemas.PettyCashExpenseCreate, user_id: int = None) -> models.PettyCashTransaction:
         """
         Record petty cash expense. Deducts from fund's current_balance.
         GL: Dr 5xxx Expense / Cr 1030 Petty Cash
@@ -917,7 +927,7 @@ class PettyCashService:
             reference_type="PettyCashTransaction",
             reference_id=txn.id,
             reference_no=txn.transaction_no,
-            user_id=data.recorded_by or 0,
+            user_id=user_id or data.recorded_by or 0,
             entry_date=txn.transaction_date,
         )
 
@@ -927,7 +937,7 @@ class PettyCashService:
 
     # ── 3. REPLENISH Petty Cash Fund ─────────────────────────────────────
 
-    def replenish_fund(self, data: schemas.PettyCashReplenishCreate) -> models.PettyCashTransaction:
+    def replenish_fund(self, data: schemas.PettyCashReplenishCreate, user_id: int = None) -> models.PettyCashTransaction:
         """
         Replenish petty cash fund. Adds to fund's current_balance.
         GL: Dr 1030 Petty Cash / Cr 1020 Bank Account
@@ -975,7 +985,7 @@ class PettyCashService:
             reference_type="PettyCashTransaction",
             reference_id=txn.id,
             reference_no=txn.transaction_no,
-            user_id=data.recorded_by or 0,
+            user_id=user_id or data.recorded_by or 0,
             entry_date=txn.transaction_date,
         )
 
@@ -986,7 +996,7 @@ class PettyCashService:
     # ── 4. CLOSE / RECONCILE Petty Cash Fund ─────────────────────────────
 
     def reconcile_and_close(
-        self, fund_id: int, data: schemas.PettyCashReconcileRequest
+        self, fund_id: int, data: schemas.PettyCashReconcileRequest, user_id: int = None
     ) -> schemas.PettyCashReconcileResponse:
         """
         Close and reconcile a petty cash fund.
@@ -1029,7 +1039,7 @@ class PettyCashService:
                 reference_type="PettyCashFund",
                 reference_id=fund.id,
                 reference_no=fund.petty_cash_no,
-                user_id=data.closed_by or 0,
+                user_id=user_id or data.closed_by or 0,
             )
 
         # If there's a shortage, post the discrepancy to miscellaneous expense
@@ -1045,7 +1055,7 @@ class PettyCashService:
                 reference_type="PettyCashFund",
                 reference_id=fund.id,
                 reference_no=fund.petty_cash_no,
-                user_id=data.closed_by or 0,
+                user_id=user_id or data.closed_by or 0,
             )
         elif discrepancy > 0:
             # Surplus — credit goes to other income
@@ -1060,7 +1070,7 @@ class PettyCashService:
                 reference_type="PettyCashFund",
                 reference_id=fund.id,
                 reference_no=fund.petty_cash_no,
-                user_id=data.closed_by or 0,
+                user_id=user_id or data.closed_by or 0,
             )
 
         self.db.commit()

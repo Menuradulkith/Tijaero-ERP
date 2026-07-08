@@ -474,6 +474,7 @@ class PurchaseExpensePayrollGL:
         Dr 1210 Inventory / Cr 2020 Supplier Advances
         """
         from app.modules.purchasing.models import GoodReceivedNote
+        from app.modules.purchasing.invoice_models import PurchaseInvoice
 
         marker = f"AdvApp ID: {application.id}"
         if self._check_already_posted(application.id, marker):
@@ -483,29 +484,50 @@ class PurchaseExpensePayrollGL:
         if amount <= 0:
             return None
 
-        grn = self.db.query(GoodReceivedNote).filter(
-            GoodReceivedNote.id == application.grn_id
-        ).first()
-        grn_no = grn.good_received_no if grn else "N/A"
-        branch_code = grn.branch_code if grn else None
+        if application.grn_id:
+            # Advance applied at goods-receipt time -> funds inventory.
+            #   Dr 1210 Inventory / Cr 2020 Supplier Advances
+            grn = self.db.query(GoodReceivedNote).filter(
+                GoodReceivedNote.id == application.grn_id
+            ).first()
+            grn_no = grn.good_received_no if grn else "N/A"
+            branch_code = grn.branch_code if grn else None
+            debit_account = ACCT_FINISHED_GOODS
+            debit_desc = f"Advance applied to inventory - GRN {grn_no}"
+            credit_desc = f"Advance consumed - GRN {grn_no}"
+            ref_no = grn_no
+            marker_ref = f"GRN: {grn_no}"
+        else:
+            # Advance applied against a supplier bill -> settles the payable.
+            #   Dr 2010 Trade Creditors / Cr 2020 Supplier Advances
+            invoice = self.db.query(PurchaseInvoice).filter(
+                PurchaseInvoice.id == application.purchase_invoice_id
+            ).first()
+            inv_no = invoice.invoice_no if invoice else "N/A"
+            branch_code = invoice.branch_code if invoice else None
+            debit_account = ACCT_TRADE_CREDITORS
+            debit_desc = f"Advance applied to payable - Invoice {inv_no}"
+            credit_desc = f"Advance consumed - Invoice {inv_no}"
+            ref_no = inv_no
+            marker_ref = f"Invoice: {inv_no}"
 
         lines = [
             {
-                "account_code": ACCT_FINISHED_GOODS,
+                "account_code": debit_account,
                 "debit": amount,
                 "credit": Decimal("0"),
-                "description": f"Advance applied to inventory - GRN {grn_no}",
+                "description": debit_desc,
             },
             {
                 "account_code": ACCT_SUPPLIER_ADVANCES,
                 "debit": Decimal("0"),
                 "credit": amount,
-                "description": f"Advance consumed - GRN {grn_no}",
+                "description": credit_desc,
             },
         ]
 
         description = (
-            f"Auto GL - Advance Application | GRN: {grn_no} | "
+            f"Auto GL - Advance Application | {marker_ref} | "
             f"Amount: {amount} | AdvApp ID: {application.id}"
         )
 
@@ -519,7 +541,7 @@ class PurchaseExpensePayrollGL:
             transaction_type="Purchase",
             reference_type="AdvanceApplication",
             reference_id=application.id,
-            reference_no=grn_no,
+            reference_no=ref_no,
         )
 
         if je:

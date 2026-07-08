@@ -150,7 +150,7 @@ class Invoice(InvoiceBase):
 
         # Map cheque payment details
         if hasattr(obj, 'cheque_payment') and obj.cheque_payment:
-            instance.cheque_number = str(int(obj.cheque_payment.cheque_number)) if obj.cheque_payment.cheque_number is not None else None
+            instance.cheque_number = str(obj.cheque_payment.cheque_number) if obj.cheque_payment.cheque_number is not None else None
             instance.cheque_bank = obj.cheque_payment.bank
             instance.cheque_date = obj.cheque_payment.cheque_date
         

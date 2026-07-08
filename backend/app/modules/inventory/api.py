@@ -202,14 +202,68 @@ def get_all_sales_stock(
     )
 
 
+@router.get(
+    "/sales-stock/paginated",
+    response_model=schemas.SalesStockPaginated,
+    dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))],
+)
+def get_paginated_sales_stock(
+    branch_code: Optional[str] = None,
+    product_id: Optional[int] = None,
+    stock_status: Optional[str] = Query(None, alias="status"),
+    search: Optional[str] = None,
+    brand_id: Optional[int] = None,
+    location_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """Server-side paginated + filtered sales stock, with branch-scoped KPI summary."""
+    if branch_code:
+        if user_branches is not None and branch_code not in user_branches:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {branch_code}",
+            )
+
+    sales_stock_service = service.SalesStockService(db)
+    return sales_stock_service.get_paginated(
+        branch_code=branch_code,
+        branch_codes=user_branches,
+        product_id=product_id,
+        status=stock_status,
+        search=search,
+        brand_id=brand_id,
+        location_id=location_id,
+        date_from=date_from,
+        date_to=date_to,
+        skip=skip,
+        limit=limit,
+    )
+
+
 @router.post(
     "/sales-stock",
     response_model=schemas.SalesStock,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_CREATE))],
 )
-def create_sales_stock(item: schemas.SalesStockCreate, db: Session = Depends(get_db)):
+def create_sales_stock(
+    item: schemas.SalesStockCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Create a sales stock item from GRN"""
+    # Branch isolation: users may only create stock in branches they can access
+    if not validate_branch_access(current_user, item.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {item.branch_code}",
+        )
     sales_stock_service = service.SalesStockService(db)
     try:
         return sales_stock_service.create(item)
@@ -266,19 +320,28 @@ def get_sales_stock_by_barcode(barcode: str, db: Session = Depends(get_db)):
 def update_sales_stock_status(
     id: int,
     status: str = Query(
-        ..., description="New status: available, sold, reserved, returned"
+        ..., description="New status: available, reserved or damaged"
     ),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    """Update sales stock item status"""
+    """Update sales stock item status (manual transitions only, audited)."""
     sales_stock_service = service.SalesStockService(db)
-    item = sales_stock_service.update_status(id, status)
+    try:
+        item = sales_stock_service.update_status(
+            id, status, user_id=current_user.id, allowed_branches=user_branches
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     if not item:
         raise HTTPException(status_code=404, detail="Sales stock item not found")
     return item
 
 
-@router.get("/sales-stock/{id}/tracking", dependencies=[Depends(require_permission(*Permissions.WAREHOUSE_SALES_TRACK_VIEW))])
+@router.get("/sales-stock/{id}/tracking", dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
 def get_sales_stock_tracking(
     id: int,
     db: Session = Depends(get_db),
@@ -329,9 +392,17 @@ def get_all_company_assets(
     dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_CREATE))],
 )
 def create_company_asset(
-    item: schemas.CompanyAssetCreate, db: Session = Depends(get_db)
+    item: schemas.CompanyAssetCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Create a company asset from GRN"""
+    # Branch isolation: users may only create assets in branches they can access
+    if not validate_branch_access(current_user, item.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {item.branch_code}",
+        )
     company_asset_service = service.CompanyAssetService(db)
     try:
         return company_asset_service.create(item)
@@ -391,10 +462,19 @@ def update_company_asset_status(
         ..., description="New status: available, in_use, retired, disposed"
     ),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    """Update company asset status"""
+    """Update company asset status (manual transitions only, audited)."""
     company_asset_service = service.CompanyAssetService(db)
-    item = company_asset_service.update_status(id, status)
+    try:
+        item = company_asset_service.update_status(
+            id, status, user_id=current_user.id, allowed_branches=user_branches
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     if not item:
         raise HTTPException(status_code=404, detail="Company asset not found")
     return item

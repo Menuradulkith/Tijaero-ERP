@@ -60,7 +60,7 @@ def create_bank_deposit(
     if not validate_branch_access(current_user, deposit.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {deposit.branch_code}")
     deposit_service = service.BankDepositService(db)
-    return deposit_service.create_deposit(deposit)
+    return deposit_service.create_deposit(deposit, created_by=current_user.id)
 
 @router.get("/bank-deposits/{deposit_id}", response_model=schemas.BankDeposit, dependencies=[Depends(require_permission(*Permissions.BANK_DEPOSIT_VIEW))])
 def get_bank_deposit(
@@ -69,7 +69,10 @@ def get_bank_deposit(
     current_user: User = Depends(get_current_active_user),
 ):
     deposit_service = service.BankDepositService(db)
-    return deposit_service.get_deposit(deposit_id)
+    deposit = deposit_service.get_deposit(deposit_id)
+    if not validate_branch_access(current_user, deposit.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {deposit.branch_code}")
+    return deposit
 
 @router.get("/bank-deposits", response_model=List[schemas.BankDeposit], dependencies=[Depends(require_permission(*Permissions.BANK_DEPOSIT_VIEW))])
 def list_bank_deposits(
@@ -102,7 +105,10 @@ def verify_bank_deposit(
     current_user: User = Depends(get_current_active_user),
 ):
     deposit_service = service.BankDepositService(db)
-    return deposit_service.verify_deposit(deposit_id)
+    existing = deposit_service.get_deposit(deposit_id)
+    if not validate_branch_access(current_user, existing.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {existing.branch_code}")
+    return deposit_service.verify_deposit(deposit_id, user_id=current_user.id)
 
 # =============================================================================
 # CARD PAYMENTS
@@ -117,7 +123,7 @@ def create_card_payment(
     if not validate_branch_access(current_user, payment.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {payment.branch_code}")
     payment_service = service.CardPaymentService(db)
-    return payment_service.create_payment(payment)
+    return payment_service.create_payment(payment, created_by=current_user.id)
 
 @router.get("/card-payments/{payment_id}", response_model=schemas.CardPayment, dependencies=[Depends(require_permission(*Permissions.CARD_PAYMENT_VIEW))])
 def get_card_payment(
@@ -163,7 +169,7 @@ def create_cheque_payment(
     if not validate_branch_access(current_user, payment.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {payment.branch_code}")
     payment_service = service.ChequePaymentService(db)
-    return payment_service.create_payment(payment)
+    return payment_service.create_payment(payment, created_by=current_user.id)
 
 @router.get("/cheque-payments/{payment_id}", response_model=schemas.ChequePayment, dependencies=[Depends(require_permission(*Permissions.CHEQUE_PAYMENT_VIEW))])
 def get_cheque_payment(
@@ -172,7 +178,10 @@ def get_cheque_payment(
     current_user: User = Depends(get_current_active_user),
 ):
     payment_service = service.ChequePaymentService(db)
-    return payment_service.get_payment(payment_id)
+    payment = payment_service.get_payment(payment_id)
+    if not validate_branch_access(current_user, payment.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {payment.branch_code}")
+    return payment
 
 @router.get("/cheque-payments", response_model=List[schemas.ChequePayment], dependencies=[Depends(require_permission(*Permissions.CHEQUE_PAYMENT_VIEW))])
 def list_cheque_payments(
@@ -243,7 +252,10 @@ def get_cash_payment(
     current_user: User = Depends(get_current_active_user),
 ):
     payment_service = service.CashPaymentService(db)
-    return payment_service.get_payment(payment_id)
+    payment = payment_service.get_payment(payment_id)
+    if not validate_branch_access(current_user, payment.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {payment.branch_code}")
+    return payment
 
 @router.get("/cash-payments", response_model=List[schemas.CashPaymentResponse], dependencies=[Depends(require_permission(*Permissions.CASH_PAYMENT_VIEW))])
 def list_cash_payments(
@@ -280,7 +292,7 @@ def create_expense(
 ):
     if expense.branch_code and not validate_branch_access(current_user, expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {expense.branch_code}")
-    return service.ExpenseService(db).create_expense(expense)
+    return service.ExpenseService(db).create_expense(expense, submitted_by=current_user.id)
 
 @router.put("/expenses/{expense_id}", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_UPDATE))])
 def update_expense(
@@ -297,7 +309,10 @@ def get_expense(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return service.ExpenseService(db).get_expense(expense_id)
+    expense = service.ExpenseService(db).get_expense(expense_id)
+    if not validate_branch_access(current_user, expense.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {expense.branch_code}")
+    return expense
 
 @router.get("/expenses", dependencies=[Depends(require_permission(*Permissions.EXPENSE_VIEW))])
 def list_expenses(
@@ -329,7 +344,11 @@ def delete_expense(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    service.ExpenseService(db).delete_expense(expense_id)
+    svc = service.ExpenseService(db)
+    _expense = svc.get_expense(expense_id)
+    if not validate_branch_access(current_user, _expense.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
+    svc.delete_expense(expense_id)
     return {"message": "Expense deleted successfully"}
 
 @router.post("/expenses/{expense_id}/submit", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_UPDATE))])
@@ -338,7 +357,11 @@ def submit_expense(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return service.ExpenseService(db).submit_expense(expense_id, submitted_by=current_user.id)
+    svc = service.ExpenseService(db)
+    _expense = svc.get_expense(expense_id)
+    if not validate_branch_access(current_user, _expense.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
+    return svc.submit_expense(expense_id, submitted_by=current_user.id)
 
 @router.post("/expenses/{expense_id}/approve", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_APPROVAL_APPROVE))])
 def approve_expense(
@@ -347,7 +370,11 @@ def approve_expense(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return service.ExpenseService(db).approve_expense(expense_id, approved_by=current_user.id, remarks=data.remarks if data else None)
+    svc = service.ExpenseService(db)
+    _expense = svc.get_expense(expense_id)
+    if not validate_branch_access(current_user, _expense.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
+    return svc.approve_expense(expense_id, approved_by=current_user.id, remarks=data.remarks if data else None)
 
 @router.post("/expenses/{expense_id}/reject", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_APPROVAL_APPROVE))])
 def reject_expense(
@@ -356,7 +383,11 @@ def reject_expense(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return service.ExpenseService(db).reject_expense(expense_id, rejected_by=current_user.id, rejection_reason=data.rejection_reason)
+    svc = service.ExpenseService(db)
+    _expense = svc.get_expense(expense_id)
+    if not validate_branch_access(current_user, _expense.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
+    return svc.reject_expense(expense_id, rejected_by=current_user.id, rejection_reason=data.rejection_reason)
 
 @router.post("/expenses/{expense_id}/process-payment", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_UPDATE))])
 def process_expense_payment(
@@ -365,7 +396,11 @@ def process_expense_payment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return service.ExpenseService(db).process_payment(expense_id, data, processed_by=current_user.id)
+    svc = service.ExpenseService(db)
+    _expense = svc.get_expense(expense_id)
+    if not validate_branch_access(current_user, _expense.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
+    return svc.process_payment(expense_id, data, processed_by=current_user.id)
 
 @router.post("/expenses/{expense_id}/record", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_UPDATE))])
 def record_expense(
@@ -374,7 +409,11 @@ def record_expense(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return service.ExpenseService(db).record_expense(expense_id, data)
+    svc = service.ExpenseService(db)
+    _expense = svc.get_expense(expense_id)
+    if not validate_branch_access(current_user, _expense.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
+    return svc.record_expense(expense_id, data)
 
 # =============================================================================
 # ADVANCE PAYMENTS
@@ -398,7 +437,10 @@ def get_advance_payment(
     current_user: User = Depends(get_current_active_user),
 ):
     advance_service = service.CustomerAdvancePaymentService(db)
-    return advance_service.get_advance_payment(advance_id)
+    advance = advance_service.get_advance_payment(advance_id)
+    if not validate_branch_access(current_user, advance.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {advance.branch_code}")
+    return advance
 
 @router.get("/customers/{customer_id}/advance-payments", response_model=List[schemas.CustomerAdvancePayment], dependencies=[Depends(require_permission(*Permissions.CUSTOMER_ADVANCE_VIEW))])
 def get_customer_advances(
@@ -436,7 +478,7 @@ def create_credit_note(
     current_user: User = Depends(get_current_active_user),
 ):
     credit_note_service = service.CustomerCreditNoteService(db)
-    return credit_note_service.create_credit_note(credit_note)
+    return credit_note_service.create_credit_note(credit_note, user_id=current_user.id)
 
 @router.get("/credit-notes/{credit_note_id}", response_model=schemas.CustomerCreditNote, dependencies=[Depends(require_permission(*Permissions.CREDIT_NOTE_VIEW))])
 def get_credit_note(
@@ -557,7 +599,7 @@ def open_petty_cash_fund(
     """Step 1: Open a new petty cash fund at a branch"""
     if data.branch_code and not validate_branch_access(current_user, data.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {data.branch_code}")
-    return service.PettyCashService(db).open_fund(data)
+    return service.PettyCashService(db).open_fund(data, user_id=current_user.id)
 
 
 @router.get("/petty-cash/funds", response_model=List[schemas.PettyCashFundResponse], dependencies=[Depends(require_permission(*Permissions.CASHBOOK_VIEW))])
@@ -592,7 +634,10 @@ def get_petty_cash_fund(
     current_user: User = Depends(get_current_active_user),
 ):
     """Get a petty cash fund by ID"""
-    return service.PettyCashService(db).get_fund(fund_id)
+    fund = service.PettyCashService(db).get_fund(fund_id)
+    if not validate_branch_access(current_user, fund.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {fund.branch_code}")
+    return fund
 
 
 @router.get("/petty-cash/funds/{fund_id}/details", response_model=schemas.PettyCashFundWithTransactions, dependencies=[Depends(require_permission(*Permissions.CASHBOOK_VIEW))])
@@ -622,7 +667,7 @@ def record_petty_cash_expense(
     current_user: User = Depends(get_current_active_user),
 ):
     """Step 2: Record a petty cash expense (deducts from fund)"""
-    return service.PettyCashService(db).record_expense(data)
+    return service.PettyCashService(db).record_expense(data, user_id=current_user.id)
 
 
 @router.post("/petty-cash/replenishments", response_model=schemas.PettyCashTransactionResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CASHBOOK_CREATE))])
@@ -632,7 +677,7 @@ def replenish_petty_cash(
     current_user: User = Depends(get_current_active_user),
 ):
     """Step 3: Replenish a petty cash fund (adds to fund)"""
-    return service.PettyCashService(db).replenish_fund(data)
+    return service.PettyCashService(db).replenish_fund(data, user_id=current_user.id)
 
 
 @router.post("/petty-cash/funds/{fund_id}/reconcile", response_model=schemas.PettyCashReconcileResponse, dependencies=[Depends(require_permission(*Permissions.CASHBOOK_UPDATE))])
@@ -643,7 +688,7 @@ def reconcile_petty_cash(
     current_user: User = Depends(get_current_active_user),
 ):
     """Step 4: Close and reconcile a petty cash fund"""
-    return service.PettyCashService(db).reconcile_and_close(fund_id, data)
+    return service.PettyCashService(db).reconcile_and_close(fund_id, data, user_id=current_user.id)
 
 
 @router.get("/petty-cash/funds/{fund_id}/transactions", response_model=List[schemas.PettyCashTransactionResponse], dependencies=[Depends(require_permission(*Permissions.CASHBOOK_VIEW))])
@@ -668,12 +713,14 @@ def export_cashbook_csv(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Export cashbook entries to CSV."""
+    scoped_branch = _enforce_branch_scope(branch_code, user_branches)
     cashbook_svc = service.CashbookService(db)
     filters = schemas.CashbookFilter(
-        branch_code=branch_code,
+        branch_code=scoped_branch,
+        branch_codes=_scoped_branch_codes(user_branches),
         date_from=date_from,
         date_to=date_to,
     )
@@ -694,12 +741,16 @@ def export_expenses_csv(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Export expenses to CSV."""
+    scoped_branch = _enforce_branch_scope(branch_code, user_branches)
+    scoped_codes = _scoped_branch_codes(user_branches)
     query = db.query(models.Expenses)
-    if branch_code:
-        query = query.filter(models.Expenses.branch_code == branch_code)
+    if scoped_branch:
+        query = query.filter(models.Expenses.branch_code == scoped_branch)
+    elif scoped_codes:
+        query = query.filter(models.Expenses.branch_code.in_(scoped_codes))
     if date_from:
         query = query.filter(models.Expenses.created_date >= date_from)
     if date_to:
@@ -720,12 +771,16 @@ def export_expenses_csv(
 def export_bank_deposits_csv(
     branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Export bank deposits to CSV."""
+    scoped_branch = _enforce_branch_scope(branch_code, user_branches)
+    scoped_codes = _scoped_branch_codes(user_branches)
     query = db.query(models.BankDeposits)
-    if branch_code:
-        query = query.filter(models.BankDeposits.branch_code == branch_code)
+    if scoped_branch:
+        query = query.filter(models.BankDeposits.branch_code == scoped_branch)
+    elif scoped_codes:
+        query = query.filter(models.BankDeposits.branch_code.in_(scoped_codes))
     query = query.order_by(models.BankDeposits.deposits_date.desc())
     rows = query.limit(100000).all()
     return build_csv_response(

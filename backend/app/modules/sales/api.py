@@ -20,7 +20,6 @@ router = APIRouter()
     "/available-products",
     response_model=List[Dict[str, Any]],
     summary="Get Products Available in Sales Stock",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_available_products(
     db: Session = Depends(get_db),
@@ -35,7 +34,6 @@ def get_available_products(
     "/statistics",
     response_model=Dict[str, Any],
     summary="Get Sales Statistics",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_sales_statistics(
     db: Session = Depends(get_db),
@@ -64,7 +62,6 @@ def get_sales_statistics(
     "/list",
     response_model=Dict[str, Any],
     summary="Get Paginated Sales Orders with Filters",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_paginated_invoices(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
@@ -110,7 +107,6 @@ def get_paginated_invoices(
     "/",
     response_model=List[schemas.Invoice],
     summary="List All Sales Orders",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def list_invoices(
     skip: int = Query(0, ge=0),
@@ -127,7 +123,6 @@ def list_invoices(
     "/search",
     response_model=List[schemas.Invoice],
     summary="Search Sales Orders",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def search_invoices(
     q: str = Query(..., min_length=1),
@@ -145,7 +140,6 @@ def search_invoices(
     "/pending-approval",
     response_model=List[schemas.Invoice],
     summary="Get Pending Approval Invoices",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_pending_approval_invoices(
     skip: int = Query(0, ge=0),
@@ -162,7 +156,6 @@ def get_pending_approval_invoices(
     "/by-customer/{customer_id}",
     response_model=List[schemas.Invoice],
     summary="Get Invoices by Customer",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_invoices_by_customer(
     customer_id: int,
@@ -182,7 +175,6 @@ def get_invoices_by_customer(
     "/customer/{customer_id}/recent",
     response_model=List[schemas.InvoiceWithItems],
     summary="Get Recent Sales for Customer",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_recent_customer_sales(
     customer_id: int,
@@ -201,7 +193,6 @@ def get_recent_customer_sales(
     "/{invoice_id}",
     response_model=schemas.InvoiceWithItems,
     summary="Get Sales Order by ID",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_invoice(
     invoice_id: int,
@@ -217,7 +208,6 @@ def get_invoice(
     response_model=schemas.InvoiceWithItems,
     status_code=status.HTTP_201_CREATED,
     summary="Create Sales Order",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_CREATE))],
 )
 def create_invoice(
     invoice: schemas.InvoiceCreate,
@@ -246,7 +236,6 @@ def create_invoice(
     "/{invoice_id}",
     response_model=schemas.InvoiceWithItems,
     summary="Update Sales Order",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_UPDATE))],
 )
 def update_invoice(
     invoice_id: int,
@@ -264,7 +253,6 @@ def update_invoice(
     "/{invoice_id}",
     status_code=status.HTTP_200_OK,
     summary="Delete Sales Order",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_DELETE))],
 )
 def delete_invoice(
     invoice_id: int,
@@ -272,7 +260,7 @@ def delete_invoice(
     current_user: User = Depends(require_permission(*Permissions.SALES_ORDER_DELETE)),
 ):
     """Delete a sales order/invoice."""
-    return service.sales_service.delete_invoice(db, invoice_id)
+    return service.sales_service.delete_invoice(db, invoice_id, current_user.id)
 
 
 # Sale Return Endpoints
@@ -280,7 +268,6 @@ def delete_invoice(
     "/returns/list",
     response_model=Dict[str, Any],
     summary="Get Paginated Sale Returns with Filters",
-    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_VIEW))],
 )
 def get_paginated_sale_returns(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
@@ -314,7 +301,6 @@ def get_paginated_sale_returns(
     "/returns/",
     response_model=List[schemas.SaleReturn],
     summary="List All Sale Returns",
-    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_VIEW))],
 )
 def list_sale_returns(
     skip: int = Query(0, ge=0),
@@ -331,7 +317,6 @@ def list_sale_returns(
     "/returns/by-invoice/{invoice_id}",
     response_model=List[schemas.SaleReturn],
     summary="Get Sale Returns by Invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_VIEW))],
 )
 def get_returns_by_invoice(
     invoice_id: int,
@@ -348,7 +333,6 @@ def get_returns_by_invoice(
     "/returns/{return_id}",
     response_model=schemas.SaleReturnWithItems,
     summary="Get Sale Return by ID",
-    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_VIEW))],
 )
 def get_sale_return(
     return_id: int,
@@ -364,7 +348,6 @@ def get_sale_return(
     response_model=schemas.SaleReturn,
     status_code=status.HTTP_201_CREATED,
     summary="Create Sale Return",
-    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_CREATE))],
 )
 def create_sale_return(
     sale_return: schemas.SaleReturnCreate,
@@ -393,7 +376,6 @@ def create_sale_return(
     "/returns/{return_id}",
     status_code=status.HTTP_200_OK,
     summary="Delete Sale Return",
-    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_DELETE))],
 )
 def delete_sale_return(
     return_id: int,
@@ -412,7 +394,6 @@ def delete_sale_return(
     "/returns/{return_id}/process",
     response_model=schemas.SaleReturnProcessResponse,
     summary="Process Sale Return",
-    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_APPROVAL_APPROVE))],
 )
 def process_sale_return(
     return_id: int,
@@ -431,7 +412,6 @@ def process_sale_return(
 @router.get(
     "/returns/statistics",
     summary="Get Sale Return Statistics",
-    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_VIEW))],
 )
 def get_return_statistics(
     db: Session = Depends(get_db),
@@ -450,7 +430,6 @@ def get_return_statistics(
     "/{invoice_id}/approve",
     response_model=schemas.InvoiceWithItems,
     summary="Approve Sales Order",
-    dependencies=[Depends(require_permission(*Permissions.SO_APPROVAL_APPROVE))],
 )
 def approve_invoice(
     invoice_id: int,
@@ -468,7 +447,6 @@ def approve_invoice(
     "/{invoice_id}/complete",
     response_model=schemas.InvoiceWithItems,
     summary="Complete Sales Order",
-    dependencies=[Depends(require_permission(*Permissions.SO_APPROVAL_APPROVE))],
 )
 def complete_invoice(
     invoice_id: int,
@@ -486,7 +464,6 @@ def complete_invoice(
     "/{invoice_id}/cancel",
     response_model=schemas.InvoiceWithItems,
     summary="Cancel Sales Order",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_DELETE))],
 )
 def cancel_invoice(
     invoice_id: int,
@@ -505,7 +482,6 @@ def cancel_invoice(
     response_model=schemas.SaleReturn,
     status_code=status.HTTP_201_CREATED,
     summary="Return Entire Invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_RETURN_CREATE))],
 )
 def return_full_invoice(
     invoice_id: int,
@@ -537,7 +513,6 @@ def return_full_invoice(
     "/{invoice_id}/settle-payment",
     response_model=schemas.CreditPaymentResponse,
     summary="Settle Credit Payment",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_UPDATE))],
 )
 def settle_credit_payment(
     invoice_id: int,
@@ -560,7 +535,6 @@ def settle_credit_payment(
     "/{invoice_id}/payment-history",
     response_model=List[schemas.InvoicePaymentHistory],
     summary="Get Invoice Payment History",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_invoice_payment_history(
     invoice_id: int,
@@ -578,7 +552,6 @@ def get_invoice_payment_history(
     "/bank-transfers/pending",
     response_model=List[schemas.PendingBankTransfer],
     summary="Get Pending Bank Transfers",
-    dependencies=[Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_VIEW))],
 )
 def get_pending_bank_transfers(
     branch_code: Optional[str] = Query(None),
@@ -596,7 +569,6 @@ def get_pending_bank_transfers(
     "/{invoice_id}/bank-transfer/confirm",
     response_model=schemas.BankTransferConfirmResponse,
     summary="Confirm/Reject Bank Transfer",
-    dependencies=[Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE))],
 )
 def confirm_bank_transfer(
     invoice_id: int,
@@ -618,7 +590,6 @@ def confirm_bank_transfer(
     "/{invoice_id}/bank-transfer/verify",
     response_model=schemas.BankTransferConfirmResponse,
     summary="Verify Bank Transfer",
-    dependencies=[Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE))],
 )
 def verify_bank_transfer(
     invoice_id: int,
@@ -635,7 +606,6 @@ def verify_bank_transfer(
     "/{invoice_id}/bank-transfer/reject",
     response_model=schemas.BankTransferConfirmResponse,
     summary="Reject Bank Transfer",
-    dependencies=[Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE))],
 )
 def reject_bank_transfer(
     invoice_id: int,
@@ -655,7 +625,6 @@ def reject_bank_transfer(
     "/credit-settlement/{transaction_id}/bank-transfer/verify",
     response_model=schemas.BankTransferConfirmResponse,
     summary="Verify Credit Settlement Bank Transfer",
-    dependencies=[Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE))],
 )
 def verify_credit_settlement_bank_transfer(
     transaction_id: int,
@@ -672,7 +641,6 @@ def verify_credit_settlement_bank_transfer(
     "/credit-settlement/{transaction_id}/bank-transfer/reject",
     response_model=schemas.BankTransferConfirmResponse,
     summary="Reject Credit Settlement Bank Transfer",
-    dependencies=[Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE))],
 )
 def reject_credit_settlement_bank_transfer(
     transaction_id: int,
@@ -696,7 +664,6 @@ def reject_credit_settlement_bank_transfer(
     "/settings/payment-cards",
     response_model=List[schemas.PaymentCard],
     summary="List All Payment Cards",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def list_payment_cards(
     active_only: bool = Query(False, description="Filter active cards only"),
@@ -711,7 +678,6 @@ def list_payment_cards(
     "/settings/payment-cards/{card_id}",
     response_model=schemas.PaymentCard,
     summary="Get Payment Card",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_payment_card(
     card_id: int,
@@ -727,7 +693,6 @@ def get_payment_card(
     response_model=schemas.PaymentCard,
     status_code=status.HTTP_201_CREATED,
     summary="Create Payment Card",
-    dependencies=[Depends(require_permission(*Permissions.SALES_SETTINGS_UPDATE))],
 )
 def create_payment_card(
     card_data: schemas.PaymentCardCreate,
@@ -742,7 +707,6 @@ def create_payment_card(
     "/settings/payment-cards/{card_id}",
     response_model=schemas.PaymentCard,
     summary="Update Payment Card",
-    dependencies=[Depends(require_permission(*Permissions.SALES_SETTINGS_UPDATE))],
 )
 def update_payment_card(
     card_id: int,
@@ -758,7 +722,6 @@ def update_payment_card(
     "/settings/payment-cards/{card_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete Payment Card",
-    dependencies=[Depends(require_permission(*Permissions.SALES_SETTINGS_UPDATE))],
 )
 def delete_payment_card(
     card_id: int,
@@ -779,7 +742,6 @@ def delete_payment_card(
     "/{invoice_id}/gl-entries",
     response_model=List[Dict[str, Any]],
     summary="Get GL Entries for Invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_invoice_gl_entries(
     invoice_id: int,
@@ -797,7 +759,6 @@ def get_invoice_gl_entries(
     "/{invoice_id}/journal-entries",
     response_model=List[Dict[str, Any]],
     summary="Get Journal Entries for Invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_invoice_journal_entries(
     invoice_id: int,
@@ -815,7 +776,6 @@ def get_invoice_journal_entries(
     "/{invoice_id}/gl-status",
     response_model=Dict[str, Any],
     summary="Get GL Posting Status for Invoice",
-    dependencies=[Depends(require_permission(*Permissions.SALES_ORDER_VIEW))],
 )
 def get_invoice_gl_status(
     invoice_id: int,
@@ -833,7 +793,6 @@ def get_invoice_gl_status(
     "/{invoice_id}/post-to-gl",
     response_model=Dict[str, Any],
     summary="Manually Post Invoice to GL",
-    dependencies=[Depends(require_permission(*Permissions.SO_APPROVAL_APPROVE))],
 )
 def manually_post_invoice_to_gl(
     invoice_id: int,
@@ -880,8 +839,23 @@ def export_sales_csv(
     branch_codes: Optional[List[str]] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_ORDER_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    invoices = service.sales_service.get_all_invoices(db, skip, limit, branch_codes)
+    # Enforce branch-based access control on the export.
+    # Regular users can only export their allowed branches; superusers
+    # (user_branches is None) may export any/all branches.
+    if branch_codes:
+        if user_branches is not None:
+            invalid = [b for b in branch_codes if b not in user_branches]
+            if invalid:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Access denied to branch(es): {', '.join(invalid)}",
+                )
+        effective_branches = branch_codes
+    else:
+        effective_branches = user_branches
+    invoices = service.sales_service.get_all_invoices(db, skip, limit, effective_branches)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(

@@ -71,9 +71,11 @@ class Supplier(Base, AuditMixin):
     home_contact_number = Column(String(12))
     mobile_contact_number = Column(String(12), nullable=False)
     credit_days = Column(Integer, nullable=False)
-    max_credit_limit = Column(Integer, nullable=False)
-    left_credit_amount = Column(Integer)
-    initial_credit_amount = Column(Integer)
+    # Money columns use Numeric so cents are preserved (ERP_STANDARDS F1);
+    # they were historically Integer, which truncated fractional currency.
+    max_credit_limit = Column(Numeric(18, 2), nullable=False)
+    left_credit_amount = Column(Numeric(18, 2))
+    initial_credit_amount = Column(Numeric(18, 2))
     active = Column(Boolean, nullable=False)
     country_id = Column(Integer, ForeignKey("country.id"))
 
@@ -285,14 +287,20 @@ class SupplierAdvancePayment(Base, AuditMixin):
 
 class SupplierAdvanceApplication(Base, AuditMixin):
     """
-    Supplier Advance Application - Records application of advance payment against GRN.
-    Each application reduces the advance remaining balance and settles the corresponding GRN.
+    Supplier Advance Application - Records application of an advance payment
+    against a GRN (goods receipt) OR a Purchase Invoice (supplier bill).
+    Each application reduces the advance remaining balance and settles the
+    corresponding GRN / invoice. Exactly one of grn_id / purchase_invoice_id
+    is set.
     """
     __tablename__ = "supplier_advance_application"
     
     id = Column(Integer, primary_key=True, index=True)
     advance_id = Column(Integer, ForeignKey("supplier_advance_payment.id", ondelete="CASCADE"), nullable=False, index=True)
-    grn_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False, index=True)
+    # An advance may be applied against a GRN (goods receipt) OR against a
+    # PurchaseInvoice (supplier bill). Exactly one of these is set.
+    grn_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=True, index=True)
+    purchase_invoice_id = Column(Integer, ForeignKey("purchase_invoices.id"), nullable=True, index=True)
     applied_amount = Column(Numeric(18, 2), nullable=False)  # Amount applied from advance
     application_date = Column(Date, nullable=False)
     remarks = Column(Text)

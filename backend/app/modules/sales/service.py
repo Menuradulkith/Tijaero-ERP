@@ -919,6 +919,10 @@ class SalesService:
         
         # Server-side sequential invoice number generation
         invoice_dict['invoice_no'] = self._get_next_invoice_number(db)
+        # Back-fill the request object so downstream payment/voucher records
+        # (built from invoice_data.invoice_no) reference the real number instead
+        # of the None the client sent.
+        invoice_data.invoice_no = invoice_dict['invoice_no']
         
         invoice_dict['created_date'] = tz.today()
         invoice_dict['created_date_time'] = tz.now()
@@ -1047,17 +1051,22 @@ class SalesService:
         
         # Handle cheque payment
         if payment_method == "cheque" and cheque_number:
+            from app.modules.customers.models import Customer as _Customer
+            _cheque_customer = db.query(_Customer).filter(
+                _Customer.id == invoice_data.customer_id
+            ).first()
             cheque_payment = ChequePayments(
-                cheque_number=int(cheque_number) if cheque_number else 0,
-                branch_code=0,  # Will be updated
-                from_party=card_holder_name or "Customer",
+                cheque_number=str(cheque_number).strip(),
+                branch_code=invoice_data.branch_code,
+                from_party=((_cheque_customer.customer_name if _cheque_customer else None)
+                            or card_holder_name or "Customer")[:50],
                 bank=cheque_bank or "",
                 amount=invoice_data.cheque_amount or 0,
                 cheque_date=invoice_dict['cheque_date'],
                 deposit_date=tz.today(),
                 remark=invoice_data.remarks or "",
                 payment_for="Sales Invoice",
-                invoice_no=invoice_data.invoice_no
+                invoice_no=invoice_dict['invoice_no']
             )
             db.add(cheque_payment)
             db.flush()
@@ -1556,11 +1565,77 @@ class SalesService:
         db.commit()
         return repository.sales_repository.get_by_id(db, invoice.id)
     
+    def _assert_branch_access(self, db: Session, user_id: Optional[int], branch_code: Optional[str]) -> None:
+        """Block an operational mutation when the acting user has no access to
+        the target branch. Superusers (and unresolved/system callers) pass.
+        Mirrors the API-layer ``validate_branch_access`` so the same rule
+        applies to REST and chat-agent callers alike."""
+        if not user_id or not branch_code:
+            return
+        from app.auth.models import User
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user or user.is_superuser:
+            return
+        allowed = {b.branch_code for b in user.branches}
+        if branch_code not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {branch_code}",
+            )
+
+    def _recompute_invoice_totals(self, db: Session, invoice) -> None:
+        """Recompute subtotal / tax / grand_total / balance_due from the
+        invoice's current line items, mirroring the create_invoice pricing
+        pipeline but reusing the header's existing tax rate, coupon, discount,
+        voucher, credit-note and service-charge amounts (InvoiceUpdate never
+        changes those). Runs in the caller's transaction (no commit)."""
+        rows = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice.id).all()
+        # line_total is already net of each line's own item discount.
+        gross_subtotal = sum((Decimal(str(r.line_total or 0)) for r in rows), Decimal("0"))
+
+        tax_rate = Decimal(str(invoice.tax_rate or 0))
+        if invoice.is_tax_invoice and tax_rate > 0:
+            net_subtotal = (gross_subtotal / (Decimal("1") + tax_rate / Decimal("100"))).quantize(Decimal("0.01"))
+        else:
+            net_subtotal = gross_subtotal.quantize(Decimal("0.01"))
+
+        coupon_amount = Decimal(str(getattr(invoice, "cupon_amount", 0) or 0))
+        after_coupon = (net_subtotal - coupon_amount).quantize(Decimal("0.01"))
+
+        discount_percent = Decimal(str(invoice.discount_percent or 0))
+        if discount_percent > 0:
+            calculated_discount = (after_coupon * discount_percent / Decimal("100")).quantize(Decimal("0.01"))
+        else:
+            calculated_discount = Decimal(str(invoice.discount_amount or 0)).quantize(Decimal("0.01"))
+        final_net = (after_coupon - calculated_discount).quantize(Decimal("0.01"))
+        if final_net < 0:
+            final_net = Decimal("0.00")
+
+        tax_amount = (final_net * tax_rate / Decimal("100")).quantize(Decimal("0.01")) if tax_rate > 0 else Decimal("0.00")
+        after_tax = (final_net + tax_amount).quantize(Decimal("0.01"))
+
+        voucher_amount = Decimal(str(invoice.gift_voucher_amount or 0))
+        credit_note_amount = Decimal(str(invoice.credit_note_amount or 0))
+        service_charge_amount = Decimal(str(invoice.service_charge_amount or 0))
+        grand_total = (after_tax - voucher_amount - credit_note_amount + service_charge_amount).quantize(Decimal("0.01"))
+        if grand_total < 0:
+            grand_total = Decimal("0.00")
+
+        invoice.subtotal = float(final_net)
+        invoice.discount_amount = float(calculated_discount)
+        invoice.tax_amount = float(tax_amount)
+        invoice.grand_total = float(grand_total)
+        paid = Decimal(str(invoice.paid_amount or 0))
+        invoice.balance_due = float((grand_total - paid).quantize(Decimal("0.01")))
+
     def update_invoice(self, db: Session, invoice_id: int, invoice_data: schemas.InvoiceUpdate, user_id: int):
         # Lock the invoice row to prevent concurrent edits / double-approval
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
         if not invoice:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+        
+        # Branch isolation: a user may only edit invoices in their own branch(es).
+        self._assert_branch_access(db, user_id, invoice.branch_code)
         
         # ── Validate customer is active (if customer is being changed) ──
         update_data_raw = invoice_data.model_dump(exclude_unset=True, exclude={'items'})
@@ -1608,6 +1683,19 @@ class SalesService:
         
         # Handle items update if provided
         if invoice_data.items is not None:
+            # A completed/approved invoice has posted GL entries, recorded
+            # payments and possibly sale returns tied to its current lines.
+            # Silently swapping items would desync the GL and inventory, so
+            # editing items is blocked once posted — cancel the order or raise
+            # a sale return instead.
+            if invoice.approval_status in [DocumentStatus.COMPLETED, DocumentStatus.APPROVED]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Items cannot be changed on a completed or approved invoice. "
+                        "Cancel the order or create a sale return instead."
+                    ),
+                )
             # First, restore stock for existing items (lock rows to prevent concurrent modification)
             existing_items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
             for item in existing_items:
@@ -1691,6 +1779,12 @@ class SalesService:
         
         for field, value in update_data.items():
             setattr(invoice, field, value)
+        
+        # Items changed → keep the header (subtotal/tax/grand_total/balance_due)
+        # in lock-step with the new lines so it never drifts from their sum.
+        if invoice_data.items is not None:
+            db.flush()
+            self._recompute_invoice_totals(db, invoice)
         
         db.commit()
         db.refresh(invoice)
@@ -1861,8 +1955,11 @@ class SalesService:
             else:
                 commission.status = "cancelled"
 
-    def delete_invoice(self, db: Session, invoice_id: int):
+    def delete_invoice(self, db: Session, invoice_id: int, user_id: Optional[int] = None):
         invoice = self.get_invoice(db, invoice_id)
+        
+        # Branch isolation: only delete invoices in the user's own branch(es).
+        self._assert_branch_access(db, user_id, invoice.branch_code)
         
         # Completed/approved invoices have payments, GL postings and possibly
         # sale returns hanging off them — they must never be hard-deleted.
@@ -2045,6 +2142,9 @@ class SalesService:
         if not invoice:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
 
+        # Branch isolation: only act on invoices in the user's own branch(es).
+        self._assert_branch_access(db, user_id, invoice.branch_code)
+
         if invoice.approval_status == DocumentStatus.COMPLETED:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -2116,6 +2216,9 @@ class SalesService:
         # ── Validate branch is active ──
         from app.common.branch_validation import validate_branch_is_active
         validate_branch_is_active(db, sale_return_data.branch_code)
+
+        # Branch isolation: only create returns in the user's own branch(es).
+        self._assert_branch_access(db, user_id, sale_return_data.branch_code)
 
         # Get and validate the original invoice
         invoice = db.query(Invoice).filter(Invoice.id == sale_return_data.invoice_id).first()
@@ -2577,28 +2680,30 @@ class SalesService:
         # Process each return item
         for item in sale_return.items:
             if item.restockable and item.condition == 'good':
-                # Restore stock to available - lock the row first
+                # Restore the physical unit to AVAILABLE. Prefer the linked
+                # stock id, then fall back to the barcode, so a restockable
+                # item is never silently left un-restocked.
+                stock = None
                 if item.sales_stock_id:
                     stock = db.query(SalesStock).filter(
                         SalesStock.id == item.sales_stock_id
                     ).with_for_update().first()
-                    if stock and stock.status == StockStatus.SOLD:
-                        stock.status = StockStatus.AVAILABLE
-                        stock.is_active = True
-                        stock.returned_date = tz.now()
-                        item.restocked = True
-                        items_restocked += item.quantity
-                elif item.barcode:
-                    # Try to find the stock by barcode - lock the row first
+                if (stock is None or stock.status != StockStatus.SOLD) and item.barcode:
                     stock = db.query(SalesStock).filter(
                         SalesStock.barcode == item.barcode
                     ).with_for_update().first()
-                    if stock and stock.status == StockStatus.SOLD:
-                        stock.status = StockStatus.AVAILABLE
-                        stock.is_active = True
-                        stock.returned_date = tz.now()
-                        item.restocked = True
-                        items_restocked += item.quantity
+                if stock and stock.status == StockStatus.SOLD:
+                    stock.status = StockStatus.AVAILABLE
+                    stock.is_active = True
+                    stock.returned_date = tz.now()
+                    item.restocked = True
+                    items_restocked += item.quantity
+                else:
+                    logger.warning(
+                        "Sale return %s: restockable item %s (barcode=%s, stock_id=%s) "
+                        "could not be matched to a SOLD stock unit; not restocked.",
+                        sale_return.sale_return_no, item.id, item.barcode, item.sales_stock_id,
+                    )
             else:
                 # Non-restockable items → save to company assets
                 from app.modules.inventory.models import CompanyAssets
@@ -2891,6 +2996,9 @@ class SalesService:
                 detail=f"Invoice with id {payment_data.invoice_id} not found"
             )
         
+        # Branch isolation: only settle payments for invoices in the user's branch(es).
+        self._assert_branch_access(db, user_id, invoice.branch_code)
+        
         # Validate it's a credit invoice
         if (invoice.payment_method or '').lower() != 'credit' and (invoice.credit_amount or 0) <= 0:
             raise HTTPException(
@@ -2957,9 +3065,9 @@ class SalesService:
         # Handle cheque payment
         if payment_method == "cheque":
             cheque_payment = ChequePayments(
-                cheque_number=int(payment_data.cheque_number) if payment_data.cheque_number else 0,
-                branch_code=0,
-                from_party=invoice.customer.customer_name,
+                cheque_number=str(payment_data.cheque_number).strip() if payment_data.cheque_number else "",
+                branch_code=invoice.branch_code,
+                from_party=(invoice.customer.customer_name or "Customer")[:50],
                 bank=payment_data.cheque_bank or "",
                 amount=payment_data.payment_amount,
                 cheque_date=payment_data.cheque_date or payment_data.payment_date,

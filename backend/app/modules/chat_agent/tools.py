@@ -718,7 +718,9 @@ def _x_update_stock_status(db: Session, user: User, args: Dict) -> Dict:
     item = db.query(SalesStock).filter(SalesStock.barcode == args["barcode"]).first()
     if not item:
         raise ToolError(f"No stock item with barcode '{args['barcode']}'.")
-    updated = SalesStockService(db).update_status(item.id, (args["new_status"] or "").lower())
+    updated = SalesStockService(db).update_status(
+        item.id, (args["new_status"] or "").lower(), user_id=user.id
+    )
     status_val = updated.status.value if hasattr(updated.status, "value") else str(updated.status)
     return {
         "stock_id": updated.id,
@@ -820,7 +822,9 @@ def _x_update_company_asset_status(db: Session, user: User, args: Dict) -> Dict:
 
     item = _find_company_asset(db, args)
     _check_entity_branch(user, item.branch_code, "company asset")
-    updated = CompanyAssetService(db).update_status(item.id, (args["new_status"] or "").lower())
+    updated = CompanyAssetService(db).update_status(
+        item.id, (args["new_status"] or "").lower(), user_id=user.id
+    )
     status_val = updated.status.value if hasattr(updated.status, "value") else str(updated.status)
     return {
         "asset_id": updated.id,
@@ -2101,7 +2105,7 @@ def _x_create_bank_deposit(db: Session, user: User, args: Dict) -> Dict:
         invoice_no=args.get("invoice_no"),
         user_id=user.id,
     )
-    dep = fsvc.BankDepositService(db).create_deposit(payload)
+    dep = fsvc.BankDepositService(db).create_deposit(payload, created_by=user.id)
     return {
         "deposit_id": dep.id,
         "summary": (
@@ -2128,7 +2132,7 @@ def _v_verify_bank_deposit(db: Session, user: User, args: Dict) -> Dict:
 def _x_verify_bank_deposit(db: Session, user: User, args: Dict) -> Dict:
     from app.modules.finance import service as fsvc
 
-    dep = fsvc.BankDepositService(db).verify_deposit(int(args["deposit_id"]))
+    dep = fsvc.BankDepositService(db).verify_deposit(int(args["deposit_id"]), user_id=user.id)
     return {
         "deposit_id": dep.id,
         "verified": bool(dep.verified),

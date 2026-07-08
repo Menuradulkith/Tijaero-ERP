@@ -13,6 +13,7 @@ import {
   MinimumPriceCreate,
   SalesStock,
   SalesStockCreate,
+  SalesStockPaginated,
   StockTrackingEvent,
   CompanyAsset,
   CompanyAssetCreate,
@@ -161,6 +162,25 @@ export const minimumPriceApi = {
 export const salesStockApi = {
   getAll: async (params?: { branch_code?: string; product_id?: number; status?: string }) => {
     const response = await apiClient.get<SalesStock[]>("/inventory/sales-stock", { params });
+    return response.data;
+  },
+
+  getPaginated: async (params?: {
+    branch_code?: string;
+    product_id?: number;
+    status?: string;
+    search?: string;
+    brand_id?: number;
+    location_id?: number;
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<SalesStockPaginated>(
+      "/inventory/sales-stock/paginated",
+      { params }
+    );
     return response.data;
   },
 

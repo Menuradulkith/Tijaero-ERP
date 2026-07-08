@@ -134,15 +134,18 @@ export interface MinimumPriceCreate {
 }
 
 // Sales Stock Types - items available for sale
-export type SalesStockStatus = 
-  | "available" 
-  | "sold" 
-  | "reserved" 
-  | "in_transit" 
-  | "transfer_pending" 
-  | "returned_to_supplier" 
-  | "return_pending" 
-  | "transferred" 
+// Mirrors backend StockStatus (app/common/enums.py)
+export type SalesStockStatus =
+  | "available"
+  | "sold"
+  | "reserved"
+  | "returned"
+  | "returned_to_supplier"
+  | "returned_non_restockable"
+  | "return_pending"
+  | "transferred"
+  | "transfer_pending"
+  | "in_transit"
   | "damaged";
 
 export interface SalesStock {
@@ -178,6 +181,21 @@ export interface SalesStockCreate {
   purchasing_order_items_id: number;
   warranty_month?: string;  // From PO item or entered in GRN
   status?: string;
+}
+
+// Branch-scoped KPI counters returned alongside the paginated list
+export interface SalesStockSummary {
+  in_stock: number;
+  reserved: number;
+  sold_today: number;
+  returned: number;
+}
+
+// Server-side paginated sales-stock response
+export interface SalesStockPaginated {
+  items: SalesStock[];
+  total: number;
+  summary: SalesStockSummary;
 }
 
 // Extra context for a tracking event
