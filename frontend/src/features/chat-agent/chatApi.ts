@@ -1,10 +1,22 @@
 /** Chat Agent — REST calls (non-streaming) via the shared axios client. */
 import apiClient from "@/api/client";
-import type { ActionResolveResponse, ConversationSummary } from "./types";
+import type {
+  ActionResolveResponse,
+  ConversationDetail,
+  ConversationSummary,
+} from "./types";
 
 export const chatAgentApi = {
   listConversations: async () => {
     const res = await apiClient.get<ConversationSummary[]>("/chat-agent/conversations");
+    return res.data;
+  },
+
+  getConversation: async (id: number) => {
+    const res = await apiClient.get<ConversationDetail>(
+      `/chat-agent/conversations/${id}`,
+      { headers: { "X-Hide-Error-Toast": "1" } },
+    );
     return res.data;
   },
 

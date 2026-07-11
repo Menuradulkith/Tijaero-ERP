@@ -30,12 +30,15 @@ import HighlightOffIcon from "@mui/icons-material/HighlightOff";
 import BuildCircleOutlinedIcon from "@mui/icons-material/BuildCircleOutlined";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useNavigate } from "react-router-dom";
 
 import { usePermission } from "@/auth/permissions";
+import { useFormGuardStore } from "@/state/formGuardStore";
+import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { chatAgentApi } from "./chatApi";
 import { useChatStream } from "./useChatStream";
 import { useChatAgentUi } from "./chatAgentStore";
-import type { ChatEntry, PendingAction } from "./types";
+import type { ChatEntry, ConversationMessage, PendingAction } from "./types";
 
 let entrySeq = 0;
 const nextId = () => `e${++entrySeq}`;
@@ -253,14 +256,72 @@ function ActionCard({
 
 export default function ChatAgentWidget() {
   const canUse = usePermission("ai_assistant", "view");
+  const navigate = useNavigate();
   const open = useChatAgentUi((s) => s.open);
   const setOpen = useChatAgentUi((s) => s.setOpen);
+  const conversationId = useChatAgentUi((s) => s.conversationId);
+  const setConversationId = useChatAgentUi((s) => s.setConversationId);
   const [entries, setEntries] = useState<ChatEntry[]>([]);
-  const [conversationId, setConversationId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const { send, stop, isStreaming } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);
   const streamEntryId = useRef<string | null>(null);
+  const hydratedRef = useRef<number | null>(null);
+
+  const isDirty = useFormGuardStore((s) => s.isDirty);
+  const executeDiscard = useFormGuardStore((s) => s.executeDiscard);
+  const discardDialog = useConfirmDialog();
+
+  // Resume the persisted conversation's transcript the first time the widget
+  // opens (or after a reload), so the visible history matches what the server
+  // already remembers for this conversation.
+  useEffect(() => {
+    if (!open || conversationId == null) return;
+    if (hydratedRef.current === conversationId || entries.length > 0) return;
+    hydratedRef.current = conversationId;
+    let cancelled = false;
+    void chatAgentApi
+      .getConversation(conversationId)
+      .then((detail) => {
+        if (cancelled) return;
+        setEntries(
+          detail.messages.map((m: ConversationMessage) => ({
+            id: nextId(),
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: m.content,
+          })),
+        );
+      })
+      .catch(() => {
+        // Stale/deleted conversation — start fresh silently.
+        setConversationId(null);
+        hydratedRef.current = null;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, conversationId, entries.length, setConversationId]);
+
+  // Navigate on the agent's request, honoring the global unsaved-changes guard
+  // exactly like the sidebar does.
+  const guardedNavigate = useCallback(
+    async (route: string, label: string) => {
+      if (isDirty) {
+        const confirmed = await discardDialog.confirm({
+          title: "Discard Changes",
+          message: `You have unsaved changes. Discard them and open ${label}?`,
+          confirmText: "Discard",
+          cancelText: "Keep Editing",
+          type: "warning",
+          confirmColor: "warning",
+        });
+        if (!confirmed) return;
+        executeDiscard();
+      }
+      navigate(route);
+    },
+    [isDirty, discardDialog, executeDiscard, navigate],
+  );
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -309,6 +370,13 @@ export default function ChatAgentWidget() {
               { id: nextId(), role: "info", content: "", action: ev.action },
             ]);
             break;
+          case "navigate":
+            setEntries((prev) => [
+              ...prev,
+              { id: nextId(), role: "info", content: `🧭 Opening ${ev.label}…` },
+            ]);
+            void guardedNavigate(ev.route, ev.label);
+            break;
           case "error":
             setEntries((prev) => [
               ...prev,
@@ -325,7 +393,7 @@ export default function ChatAgentWidget() {
         streamEntryId.current = null;
       },
     });
-  }, [draft, isStreaming, conversationId, send, patchEntry]);
+  }, [draft, isStreaming, conversationId, send, patchEntry, setConversationId, guardedNavigate]);
 
   const handleActionResolved = useCallback(
     (entryId: string, updated: PendingAction, summary: string) => {
@@ -351,8 +419,9 @@ export default function ChatAgentWidget() {
     stop();
     setEntries([]);
     setConversationId(null);
+    hydratedRef.current = null;
     streamEntryId.current = null;
-  }, [stop]);
+  }, [stop, setConversationId]);
 
   if (!canUse) return null;
 
@@ -511,6 +580,7 @@ export default function ChatAgentWidget() {
           </Stack>
         </Paper>
       )}
+      <TConfirmDialog {...discardDialog.dialogProps} />
     </>
   );
 }

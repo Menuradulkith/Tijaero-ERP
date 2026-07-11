@@ -26,6 +26,7 @@ export type StreamEvent =
   | { type: "token"; content: string }
   | { type: "tool_call"; name: string; is_write: boolean }
   | { type: "pending_action"; action: PendingAction }
+  | { type: "navigate"; route: string; label: string }
   | { type: "done"; message_id: number; conversation_id: number; usage: ChatUsage }
   | { type: "error"; message: string };
 
@@ -46,6 +47,20 @@ export interface ConversationSummary {
   title: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface ConversationMessage {
+  id: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  tool_name?: string | null;
+  created_at?: string;
+}
+
+export interface ConversationDetail {
+  conversation: ConversationSummary;
+  messages: ConversationMessage[];
+  pending_actions: PendingAction[];
 }
 
 export interface ActionResolveResponse {

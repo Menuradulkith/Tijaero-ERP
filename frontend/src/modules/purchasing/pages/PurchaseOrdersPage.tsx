@@ -43,7 +43,7 @@ import {
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 // Import tijaero components
 import {
     ActionToolbar,
@@ -169,6 +169,7 @@ const resetFormFromOrder = (
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((s) => s.user);
 
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
@@ -511,17 +512,39 @@ export default function PurchaseOrdersPage() {
     return Number.isFinite(parsedId) ? parsedId : null;
   }, [location.state]);
 
-  // Auto-select first item when data loads
+  // Auto-select first item when data loads, or the ?focus=<id> deep-link
+  // target (used by the AI assistant to open a specific PO).
+  const focusHandled = useRef(false);
   useEffect(() => {
+    if (isCreating || filteredOrders.length === 0) return;
+    const focusId = Number(searchParams.get("focus"));
+    if (focusId && !focusHandled.current) {
+      const target = filteredOrders.find((o) => o.id === focusId);
+      if (target) {
+        focusHandled.current = true;
+        handleSelectOrderWithItems(target);
+        const next = new URLSearchParams(searchParams);
+        next.delete("focus");
+        setSearchParams(next, { replace: true });
+        return;
+      }
+    }
     if (
-      filteredOrders.length > 0 &&
       !selectedOrder &&
-      !isCreating &&
-      approvalNavTargetId == null
+      approvalNavTargetId == null &&
+      !searchParams.get("focus")
     ) {
       handleSelectOrderWithItems(filteredOrders[0]);
     }
-  }, [filteredOrders, selectedOrder, isCreating, approvalNavTargetId, handleSelectOrderWithItems]);
+  }, [
+    filteredOrders,
+    selectedOrder,
+    isCreating,
+    approvalNavTargetId,
+    handleSelectOrderWithItems,
+    searchParams,
+    setSearchParams,
+  ]);
 
   // Handle navigation state from Quotation page (auto-select PO created from quotation)
   const navStateHandled = useRef(false);

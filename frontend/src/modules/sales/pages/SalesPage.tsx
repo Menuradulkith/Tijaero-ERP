@@ -91,7 +91,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { paymentCardsApi, salesApi } from "../api";
 import { commissionsApi, commissionPaymentsApi } from "../commission-api";
 import { quotationApi } from "../quotation-api";
@@ -219,6 +219,7 @@ const emptyInvoiceForm: Partial<InvoiceCreate> = {
 export default function SalesPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Line items state (separate from main form for complex management)
   const [lineItems, setLineItems] = useState<ItemFormData[]>([]);
@@ -685,16 +686,27 @@ export default function SalesPage() {
     filterStatus,
   ]);
 
-  // Auto-select first item when data loads
+  // Auto-select first item when data loads, or the ?focus=<id> deep-link
+  // target (used by the AI assistant to open a specific sales order).
+  const focusHandled = useRef(false);
   useEffect(() => {
-    if (
-      filteredInvoices.length > 0 &&
-      !state.selectedItem &&
-      !state.isCreating
-    ) {
+    if (state.isCreating || filteredInvoices.length === 0) return;
+    const focusId = Number(searchParams.get("focus"));
+    if (focusId && !focusHandled.current) {
+      const target = filteredInvoices.find((inv) => inv.id === focusId);
+      if (target) {
+        focusHandled.current = true;
+        state.setSelectedItem(target);
+        const next = new URLSearchParams(searchParams);
+        next.delete("focus");
+        setSearchParams(next, { replace: true });
+        return;
+      }
+    }
+    if (!state.selectedItem && !searchParams.get("focus")) {
       state.setSelectedItem(filteredInvoices[0]);
     }
-  }, [filteredInvoices, state.selectedItem, state.isCreating]);
+  }, [filteredInvoices, state.selectedItem, state.isCreating, searchParams, setSearchParams]);
 
   // Handle navigation state from Proforma page (auto-select Sales Order created from proforma)
   const navStateHandled = useRef(false);

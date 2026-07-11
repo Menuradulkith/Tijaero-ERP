@@ -2443,6 +2443,171 @@ def _x_resolve_approval(db: Session, user: User, args: Dict) -> Dict:
     }
 
 
+# ─── page navigation (client-executed intent) ─────────────────────────────
+#
+# Navigation runs in the browser, not the server. This tool returns a
+# ``_navigation`` intent that the SSE layer forwards to the frontend, which
+# calls react-router's ``navigate()``. It is NOT a write tool (no DB change,
+# no approval card) — the model calls it and the page changes silently.
+#
+# Permissions MUST mirror the frontend ``ProtectedRoute`` guards so the agent
+# never routes a user to a page their RBAC blocks (which would otherwise render
+# the "Permission Denied" screen). Enforcement is per-page, in the handler.
+
+# page key -> (route, (resource, action))
+NAV_PAGES: Dict[str, Tuple[str, Tuple[str, str]]] = {
+    "dashboard": ("/dashboard", ("dashboard", "view")),
+    # sales
+    "sales_orders": ("/sales/orders", ("sales_orders", "view")),
+    "quotations": ("/sales/quotations", ("quotations", "view")),
+    "sales_returns": ("/sales/returns", ("sales_returns", "view")),
+    "sales_dashboard": ("/sales/dashboard", ("sales_dashboard", "view")),
+    "customers": ("/sales/customers", ("customers", "view")),
+    "so_approvals": ("/sales/approvals/so-approvals", ("so_approvals", "view")),
+    "sales_return_approvals": (
+        "/sales/approvals/return-approvals",
+        ("sales_return_approvals", "view"),
+    ),
+    # purchasing
+    "purchasing_dashboard": ("/purchasing", ("purchasing_dashboard", "view")),
+    "suppliers": ("/purchasing/suppliers", ("suppliers", "view")),
+    "purchase_orders": ("/purchasing/orders", ("purchase_orders", "view")),
+    "grn": ("/purchasing/grn", ("grn", "view")),
+    "purchase_invoices": ("/purchasing/invoices", ("purchase_orders", "view")),
+    "purchase_returns": ("/purchasing/returns", ("purchase_returns", "view")),
+    "po_approvals": ("/purchasing/approvals/po-approvals", ("po_approvals", "view")),
+    # finance
+    "finance_dashboard": ("/finance", ("finance_dashboard", "view")),
+    "cashbook": ("/finance/cashbook", ("cashbook", "view")),
+    "expenses": ("/finance/expenses", ("expenses", "view")),
+    "bank_deposits": ("/finance/bank-deposits", ("bank_deposits", "view")),
+    "journal_entries": ("/finance/journal-entries", ("journal_entries", "view")),
+    "general_ledger": ("/finance/general-ledger", ("general_ledger", "view")),
+    "chart_of_accounts": ("/finance/chart-of-accounts", ("chart_of_accounts", "view")),
+    "expense_approvals": (
+        "/finance/approvals/expense-approvals",
+        ("expense_approvals", "view"),
+    ),
+    "payment_approvals": (
+        "/finance/approvals/payment-approvals",
+        ("payment_approvals", "view"),
+    ),
+}
+
+# record_type -> {page, model (module, class), branch_attr}
+# Deep links land on the record's list page with ``?focus=<id>`` so the page
+# can open/highlight it; existence + branch access are validated first.
+_DEEP_LINKS: Dict[str, Dict[str, Any]] = {
+    "purchase_order": {
+        "page": "purchase_orders",
+        "model": ("app.modules.purchasing.models", "PurchasingOrder"),
+        "branch_attr": "branch_code",
+    },
+    "supplier": {
+        "page": "suppliers",
+        "model": ("app.modules.purchasing.models", "Supplier"),
+        "branch_attr": None,
+    },
+    "sales_order": {
+        "page": "sales_orders",
+        "model": ("app.modules.sales.models", "Invoice"),
+        "branch_attr": "branch_code",
+    },
+    "sale_return": {
+        "page": "sales_returns",
+        "model": ("app.modules.sales.models", "SaleReturn"),
+        "branch_attr": "branch_code",
+    },
+    "customer": {
+        "page": "customers",
+        "model": ("app.modules.customers.models", "Customer"),
+        "branch_attr": None,
+    },
+    "expense": {
+        "page": "expenses",
+        "model": ("app.modules.finance.models", "Expenses"),
+        "branch_attr": "branch_code",
+    },
+    "bank_deposit": {
+        "page": "bank_deposits",
+        "model": ("app.modules.finance.models", "BankDeposits"),
+        "branch_attr": "branch_code",
+    },
+    "journal_entry": {
+        "page": "journal_entries",
+        "model": ("app.modules.finance.accounting_models", "JournalEntry"),
+        "branch_attr": "branch_code",
+    },
+}
+
+
+def _nav_check_permission(user: User, page: str) -> Tuple[str, Tuple[str, str]]:
+    route, (resource, action) = NAV_PAGES[page]
+    if not user_has_permission(user, resource, action):
+        raise ToolError(
+            f"You don't have permission to open the "
+            f"{page.replace('_', ' ')} page ({resource}:{action})."
+        )
+    return route, (resource, action)
+
+
+def _t_navigate(db: Session, user: User, args: Dict) -> Any:
+    import importlib
+
+    record_type = (args.get("record_type") or "").strip()
+    record_id = args.get("record_id")
+
+    if record_type:
+        spec = _DEEP_LINKS.get(record_type)
+        if not spec:
+            raise ToolError(
+                f"Unknown record_type '{record_type}'. Supported: "
+                f"{', '.join(sorted(_DEEP_LINKS))}."
+            )
+        if record_id is None:
+            raise ToolError(
+                f"record_id is required to open a specific {record_type.replace('_', ' ')}."
+            )
+        page = spec["page"]
+        route, _ = _nav_check_permission(user, page)
+        module_path, class_name = spec["model"]
+        model = getattr(importlib.import_module(module_path), class_name)
+        entity = db.query(model).filter(model.id == int(record_id)).first()
+        if not entity:
+            raise ToolError(
+                f"No {record_type.replace('_', ' ')} found with id {record_id}."
+            )
+        branch_attr = spec.get("branch_attr")
+        if branch_attr:
+            _check_entity_branch(
+                user, getattr(entity, branch_attr, None), record_type.replace("_", " ")
+            )
+        target = f"{route}?focus={int(record_id)}"
+        label = f"{record_type.replace('_', ' ')} #{int(record_id)}"
+    else:
+        page = (args.get("page") or "").strip()
+        if not page:
+            raise ToolError(
+                "Provide a page, or a record_type + record_id to open a specific record."
+            )
+        if page not in NAV_PAGES:
+            raise ToolError(
+                f"Unknown page '{page}'. Supported pages: {', '.join(sorted(NAV_PAGES))}."
+            )
+        target, _ = _nav_check_permission(user, page)
+        label = page.replace("_", " ")
+
+    return {
+        "navigated": True,
+        "route": target,
+        "label": label,
+        "summary": f"Opening {label}.",
+        # Transport signal consumed by the SSE layer, then stripped before the
+        # result is handed back to the model.
+        "_navigation": {"route": target, "label": label},
+    }
+
+
 @dataclass
 class ToolSpec:
     name: str
@@ -3365,6 +3530,43 @@ TOOLS: List[ToolSpec] = [
         is_write=True,
         execute=_x_resolve_approval,
         permission_check=_can_use_general_approvals,
+    ),
+    # ── navigation (client-executed, no DB, no approval) ──
+    ToolSpec(
+        name="navigate_to_page",
+        description=(
+            "Navigate the user's browser to a page (client-side routing). Use ONLY when the user "
+            "clearly wants to move — e.g. 'go to', 'open', 'take me to', 'show me the ... page', or "
+            "'open purchase order 4501'. Do NOT call this just to answer a data question. "
+            "For a specific record, pass record_type + record_id (a deep link). "
+            "Navigation happens automatically and silently once you call this — the user does NOT "
+            "confirm it, so only call it on an explicit navigation request. If the user lacks "
+            "permission for the target, this returns an error instead of navigating."
+        ),
+        parameters=_params(
+            {
+                "page": {
+                    "type": "string",
+                    "description": (
+                        "Target page key. One of: " + ", ".join(sorted(NAV_PAGES)) + "."
+                    ),
+                },
+                "record_type": {
+                    "type": "string",
+                    "description": (
+                        "For a deep link to one record. One of: "
+                        + ", ".join(sorted(_DEEP_LINKS))
+                        + ". Requires record_id."
+                    ),
+                },
+                "record_id": {
+                    "type": "integer",
+                    "description": "Id of the record to open (required when record_type is set).",
+                },
+            }
+        ),
+        permission=Permissions.AI_ASSISTANT_VIEW,
+        handler=_t_navigate,
     ),
 ]
 

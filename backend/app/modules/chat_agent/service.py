@@ -43,6 +43,36 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_RESULT_CHARS = 6000
 
 
+def _friendly_llm_error(exc: Exception) -> str:
+    """Translate an OpenAI/transport exception into a clear, non-leaky message
+    for the end user. Falls back to a generic message for unknown errors."""
+    status = getattr(exc, "status_code", None)
+    code = None
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        code = (body.get("error") or {}).get("code") if isinstance(body.get("error"), dict) else body.get("code")
+    text = str(exc).lower()
+
+    if code == "insufficient_quota" or "insufficient_quota" in text or "exceeded your current quota" in text:
+        return (
+            "The AI assistant is temporarily unavailable: the OpenAI account has run out of "
+            "quota/credit. Please ask your administrator to check the OpenAI plan and billing."
+        )
+    if status == 429 or "rate limit" in text:
+        return (
+            "The AI assistant is busy right now (rate limited by OpenAI). "
+            "Please wait a few seconds and try again."
+        )
+    if status == 401 or "authentication" in text or "invalid_api_key" in text or code == "invalid_api_key":
+        return (
+            "The AI assistant is misconfigured: the OpenAI API key was rejected. "
+            "Please ask your administrator to verify OPENAI_API_KEY."
+        )
+    if status in (500, 502, 503) or "overloaded" in text or "service unavailable" in text:
+        return "OpenAI is temporarily unavailable. Please try again in a moment."
+    return "The AI assistant hit an unexpected error. Please try again; if it persists, contact your administrator."
+
+
 def _sse(payload: Dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -182,7 +212,11 @@ class ChatAgentService:
                     },
                 }
             result = spec.handler(self.db, self.user, args)
-            return {"result": json_ready(result)}
+            nav = result.pop("_navigation", None) if isinstance(result, dict) else None
+            payload: Dict[str, Any] = {"result": json_ready(result)}
+            if nav:
+                payload["_navigation"] = json_ready(nav)
+            return payload
         except ToolError as exc:
             self.db.rollback()
             return {"error": str(exc)}
@@ -360,6 +394,15 @@ class ChatAgentService:
                         pending = payload.pop("_pending_action", None)
                         if pending:
                             yield _sse({"type": "pending_action", "action": pending})
+                        nav = payload.pop("_navigation", None)
+                        if nav:
+                            yield _sse(
+                                {
+                                    "type": "navigate",
+                                    "route": nav["route"],
+                                    "label": nav["label"],
+                                }
+                            )
                         messages.append(
                             {
                                 "role": "tool",
@@ -412,7 +455,7 @@ class ChatAgentService:
         except Exception as exc:  # noqa: BLE001
             logger.error("Chat agent stream failed: %s", exc, exc_info=True)
             self.db.rollback()
-            yield _sse({"type": "error", "message": f"Assistant error: {exc}"})
+            yield _sse({"type": "error", "message": _friendly_llm_error(exc)})
 
     # ─── pending action resolution ─────────────────────────────────────
     def resolve_action(self, action_id: int, approve: bool) -> models.ChatPendingAction:
