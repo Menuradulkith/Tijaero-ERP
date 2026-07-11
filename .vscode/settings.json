@@ -1,2 +1,6 @@
 {
+    // The active .env lives in the backend folder, not the workspace root
+    "python.envFile": "${workspaceFolder}/backend/.env",
+    // Inject those variables (DATABASE_URL, SECRET_KEY, OPENAI_API_KEY, ...) into integrated terminals
+    "python.terminal.useEnvFile": true
 }

@@ -334,9 +334,14 @@ class DebtorsService:
     ) -> Dict:
         """Record a payment against an invoice"""
         
+        # SELECT ... FOR UPDATE on the invoice row to serialize concurrent
+        # payments. Without this lock two simultaneous payments can each read
+        # the same outstanding balance, both pass the check below, and together
+        # over-apply beyond what is owed. Holding the row lock makes the
+        # outstanding-balance check and the paid_amount update atomic.
         invoice = db.query(Invoice).filter(
             and_(Invoice.id == invoice_id, Invoice.customer_id == customer_id)
-        ).first()
+        ).with_for_update().first()
         
         if not invoice:
             raise ValueError("Invalid invoice or customer")
