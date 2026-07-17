@@ -227,7 +227,14 @@ class ItemTransferNoteService:
         
         # Get product name and cost price
         product_name = stock_item.product.name if stock_item.product else None
-        cost_price = stock_item.product.cost_price if stock_item.product else None
+        cost_price = None
+        if stock_item.product:
+            active_tiers = [t for t in stock_item.product.price_tiers if t.is_active] if hasattr(stock_item.product, "price_tiers") else []
+            if active_tiers:
+                latest_tier = max(active_tiers, key=lambda x: x.created_at or x.id)
+                cost_price = latest_tier.cost_price
+            else:
+                cost_price = stock_item.product.cost_price
         
         return schemas.BarcodeValidationResponse(
             valid=True,

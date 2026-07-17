@@ -67,6 +67,38 @@ export interface Product {
   added_date: string;
   created_at: string;
   updated_at: string;
+  price_tiers: PriceTier[];
+}
+
+export interface PriceTier {
+  id: number;
+  product_id: number;
+  cost_price: number;
+  minimum_selling_price: number;
+  selling_price: number;
+  website_price?: number;
+  remark?: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PriceTierCreate {
+  cost_price: number;
+  minimum_selling_price: number;
+  selling_price: number;
+  website_price?: number;
+  remark?: string;
+  is_active?: boolean;
+}
+
+export interface PriceTierUpdate {
+  cost_price?: number;
+  minimum_selling_price?: number;
+  selling_price?: number;
+  website_price?: number;
+  remark?: string;
+  is_active?: boolean;
 }
 
 export interface MinimumPrice {

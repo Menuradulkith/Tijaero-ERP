@@ -138,6 +138,9 @@ class InvoiceItems(Base, AuditMixin):
     sales_stock_id = Column(Integer, ForeignKey("sales_stock.id"), nullable=True)
     barcode = Column(String(200), nullable=True)  # Store barcode for reference
     
+    # Price tier link — nullable for rows created before this feature
+    price_tier_id = Column(Integer, ForeignKey("product_price_tiers.id"), nullable=True, index=True)
+    
     # Tax at item level (inherits from product or override)
     tax_rate = Column(Numeric(5, 2), nullable=False, default=0)
     tax_amount = Column(Numeric(60, 2), nullable=False, default=0)
@@ -152,6 +155,7 @@ class InvoiceItems(Base, AuditMixin):
 
     invoice = relationship("Invoice", back_populates="items")
     product = relationship("Product", back_populates="invoice_items")
+    price_tier = relationship("ProductPriceTier", back_populates="invoice_items")
     sales_stock = relationship("SalesStock", backref="invoice_items")
     barcodes = relationship("InvoiceItemsBarcode", back_populates="invoice_item")
     sale_return_items = relationship("SaleReturnItems", back_populates="invoice_item")

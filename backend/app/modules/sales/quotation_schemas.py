@@ -59,6 +59,8 @@ class SalesQuoteItemBase(BaseModel):
     discount_percent: float = Field(default=0, ge=0, le=100)
     tax_rate: float = Field(default=0, ge=0, le=100)
     remark: Optional[str] = None
+    # Optional price tier — when set, selling/min prices come from the tier
+    price_tier_id: Optional[int] = None
 
 
 class SalesQuoteItemCreate(SalesQuoteItemBase):
@@ -82,6 +84,7 @@ class SalesQuoteItemUpdate(BaseModel):
     discount_percent: Optional[float] = Field(None, ge=0, le=100)
     tax_rate: Optional[float] = Field(None, ge=0, le=100)
     remark: Optional[str] = None
+    price_tier_id: Optional[int] = None
 
 
 class SalesQuoteItem(TijaeroBaseSchema):

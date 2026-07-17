@@ -193,6 +193,7 @@ interface ItemFormData {
   added_date?: string; // Store when item was added
   discount_percent?: number; // Individual item discount percentage
   discount_amount?: number; // Calculated discount amount
+  price_tier_id?: number; // Price tier id from stock item
 }
 
 // Initial form data
@@ -1665,6 +1666,7 @@ export default function SalesPage() {
         barcode: stockItem.barcode,
         product_name: stockItem.product_name ?? productObj?.name ?? "",
         branch_code: stockItem.branch_code,
+        price_tier_id: (stockItem as any).price_tier_id,
       };
       setLineItems((prev) => [...prev, newItem]);
       setValidatedBarcodes((prev) => [...prev, stockItem.barcode]);
@@ -1787,6 +1789,7 @@ export default function SalesPage() {
                       barcode: barcode.trim(),
                       product_name: productName || item.product_name,
                       branch_code: stockItem.branch_code,
+                      price_tier_id: stockItem.price_tier_id,
                     }
                   : item,
               ),
@@ -1824,6 +1827,7 @@ export default function SalesPage() {
           product_name: productName,
           branch_code:
             stockItem.branch_code || state.formData.branch_code || "",
+          price_tier_id: stockItem.price_tier_id,
         };
         setLineItems((prev) => [...prev, newItem]);
         setValidatedBarcodes((prev) => [...prev, barcode.trim()]);

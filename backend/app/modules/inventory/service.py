@@ -271,6 +271,13 @@ class SalesStockService:
                 latest_min_price = max(item.product.minimum_prices, key=lambda x: x.created_date)
                 minimum_price = latest_min_price.minimum_price if latest_min_price else None
 
+            # Get active price tier
+            active_tier = None
+            if item.product and hasattr(item.product, "price_tiers"):
+                active_tiers = [t for t in item.product.price_tiers if t.is_active]
+                if active_tiers:
+                    active_tier = max(active_tiers, key=lambda x: x.created_at or x.id)
+
             item_dict = {
                 "id": item.id,
                 "product_id": item.product_id,
@@ -286,10 +293,11 @@ class SalesStockService:
                 "updated_at": updated_at,
                 "grn_no": item.good_received_note.good_received_no if item.good_received_note else None,
                 "location_name": locations_map.get(location_id_to_use) if location_id_to_use else None,
-                "cost_price": item.product.cost_price if item.product else None,
-                "selling_price": item.product.selling_price if item.product else None,
-                "minimum_price": minimum_price,
-                "minimum_selling_price": minimum_price,
+                "cost_price": active_tier.cost_price if active_tier else (item.product.cost_price if item.product else None),
+                "selling_price": active_tier.selling_price if active_tier else (item.product.selling_price if item.product else None),
+                "minimum_price": active_tier.minimum_selling_price if active_tier else minimum_price,
+                "minimum_selling_price": active_tier.minimum_selling_price if active_tier else minimum_price,
+                "price_tier_id": active_tier.id if active_tier else None,
                 # Add product details directly
                 "product_name": item.product.name if item.product else None,
                 "item_code": item.product.item_code if item.product else None,

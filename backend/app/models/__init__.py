@@ -97,6 +97,7 @@ from app.modules.warehouse.models import (
     ItemTransferNoteItems,
 )
 from app.modules.communication.models import EmailTemplate, EmailLog
+from app.modules.products.price_tier_models import ProductPriceTier
 
 __all__ = [
     "User",
@@ -142,4 +143,5 @@ __all__ = [
     "GLPostingFailure",
     "EmailTemplate",
     "EmailLog",
+    "ProductPriceTier",
 ]

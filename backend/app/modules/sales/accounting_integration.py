@@ -71,7 +71,7 @@ from app.modules.finance.accounting_models import (
 )
 from app.modules.sales.models import Invoice, InvoiceItems, SaleReturn, SaleReturnItems
 from app.modules.inventory.models import SalesStock
-from app.modules.products.models import Product
+from app.modules.products.models import Product, ProductPriceTier
 from app.modules.finance.gl_posting_service import GLPostingService
 
 logger = logging.getLogger(__name__)
@@ -427,11 +427,26 @@ class SalesAccountingIntegration:
 
         total_cost = Decimal("0")
         for item in items:
-            product = self.db.query(Product).filter(
-                Product.id == item.product_id
-            ).first()
-            if product and product.cost_price:
-                item_cost = Decimal(str(product.cost_price)) * Decimal(str(item.quantity))
+            cost_to_use = None
+            
+            # Try to get cost from the selected price tier first
+            if item.price_tier_id:
+                tier = self.db.query(ProductPriceTier).filter(
+                    ProductPriceTier.id == item.price_tier_id
+                ).first()
+                if tier and tier.cost_price is not None:
+                    cost_to_use = tier.cost_price
+            
+            # Fallback to legacy product cost_price
+            if cost_to_use is None:
+                product = self.db.query(Product).filter(
+                    Product.id == item.product_id
+                ).first()
+                if product and product.cost_price is not None:
+                    cost_to_use = product.cost_price
+
+            if cost_to_use is not None:
+                item_cost = Decimal(str(cost_to_use)) * Decimal(str(item.quantity))
                 total_cost += item_cost
 
         if total_cost <= 0:
