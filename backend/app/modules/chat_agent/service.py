@@ -260,6 +260,41 @@ class ChatAgentService:
                 return client.chat.completions.create(**kwargs)
             raise
 
+    # ─── content moderation ───────────────────────────────────────────
+    def _moderate_input(self, client, text: str) -> Optional[str]:
+        """Screen a user message against content policy.
+
+        Returns a short reason (flagged category names, for logging) when the
+        message should be blocked, or ``None`` to allow it. Uses OpenAI's free
+        moderation endpoint. Fails OPEN — any error (endpoint unsupported by an
+        OpenAI-compatible base URL, network, quota) logs a warning and allows
+        the message, so a moderation hiccup never bricks the assistant.
+        """
+        if not settings.CHAT_AGENT_MODERATION_ENABLED:
+            return None
+        if not (text or "").strip():
+            return None
+        try:
+            resp = client.moderations.create(
+                model=settings.CHAT_AGENT_MODERATION_MODEL,
+                input=text,
+            )
+            result = resp.results[0]
+            if not result.flagged:
+                return None
+            try:
+                categories = result.categories.model_dump()
+            except AttributeError:  # older SDK returns a plain dict
+                categories = dict(result.categories or {})
+            flagged = [name for name, hit in categories.items() if hit]
+            return ", ".join(flagged) or "content policy"
+        except Exception as exc:  # noqa: BLE001 — moderation must never hard-fail chat
+            logger.warning(
+                "Chat moderation check failed (allowing message, user=%s): %s",
+                self.user.id, exc,
+            )
+            return None
+
     # ─── main streaming loop ───────────────────────────────────
     def stream_chat(
         self, conversation_id: Optional[int], message: str
@@ -318,6 +353,45 @@ class ChatAgentService:
             api_key=llm["api_key"],
             base_url=llm["base_url"],
         )
+
+        # ── Content moderation (pre-flight) ──
+        # Screen the user message before spending any tokens or touching tools.
+        # A flagged message is refused as a normal assistant turn (visible in the
+        # transcript) and the expensive tool-calling loop is skipped entirely.
+        flagged = self._moderate_input(client, message)
+        if flagged:
+            logger.info(
+                "Chat message blocked by moderation (user=%s, categories=%s)",
+                self.user.id, flagged,
+            )
+            refusal = (
+                "I can't help with that request. Please keep messages professional "
+                "and related to your work in TijaeroERP."
+            )
+            yield _sse({"type": "token", "content": refusal})
+            assistant_msg = models.ChatMessage(
+                conversation_id=convo.id,
+                role="assistant",
+                content=refusal,
+                created_by=self.user.id,
+            )
+            self.db.add(assistant_msg)
+            self.db.commit()
+            yield _sse(
+                {
+                    "type": "done",
+                    "message_id": assistant_msg.id,
+                    "conversation_id": convo.id,
+                    "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "cost_usd": 0.0,
+                        "month_spend_usd": round(spend, 4),
+                        "monthly_budget_usd": settings.CHAT_AGENT_MONTHLY_BUDGET_USD,
+                    },
+                }
+            )
+            return
 
         total_prompt = total_completion = 0
         final_text_parts: List[str] = []

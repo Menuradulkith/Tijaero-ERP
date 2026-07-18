@@ -477,6 +477,26 @@ class JournalEntryService:
         # Validate period is open
         self._validate_period_open(je.fiscal_year, je.fiscal_period)
 
+        # Defensive double-entry check at the actual posting boundary. Auto
+        # entries post straight from draft without going through
+        # validate_journal_entry, so this is the last line of defence against
+        # writing an unbalanced set of rows into the General Ledger.
+        if not je.lines:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Journal entry has no lines to post",
+            )
+        total_debit = sum((Decimal(str(line.debit_amount or 0)) for line in je.lines), Decimal("0"))
+        total_credit = sum((Decimal(str(line.credit_amount or 0)) for line in je.lines), Decimal("0"))
+        if total_debit.quantize(Decimal("0.01")) != total_credit.quantize(Decimal("0.01")):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Journal entry is not balanced: debits {total_debit} "
+                    f"!= credits {total_credit}"
+                ),
+            )
+
         # Create GL entries from JE lines
         gl_service = GeneralLedgerService(self.db)
         for line in je.lines:

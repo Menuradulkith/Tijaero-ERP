@@ -7,6 +7,7 @@
  */
 
 import apiClient from "@/api/client";
+import { usePermission } from "@/auth/permissions";
 import { fmtLKR } from "@/components/tijaero";
 import { KpiSparkCard } from "@/components/dashboard";
 import { LocationRef, REFERENCE_DATA_PRESETS, useReferenceData } from "@/hooks";
@@ -555,6 +556,9 @@ const StockDetailsPanel = ({
 
 // Main Component
 export default function SalesStockDashboard() {
+  // Whether the current user may see cost/buying price
+  const canViewCost = usePermission("cost_price", "view");
+
   // Filter States
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
@@ -1128,7 +1132,9 @@ export default function SalesStockDashboard() {
                   <TableCell>Status</TableCell>
                   <TableCell>GRN No</TableCell>
                   <TableCell>Received Date</TableCell>
-                  <TableCell align="right">Cost Price (Rs.)</TableCell>
+                  {canViewCost && (
+                    <TableCell align="right">Cost Price (Rs.)</TableCell>
+                  )}
                   <TableCell align="right">Selling Price (Rs.)</TableCell>
                 </TableRow>
               </TableHead>
@@ -1197,9 +1203,11 @@ export default function SalesStockDashboard() {
                       <TableCell>
                         {format(parseISO(stock.added_date), "dd MMM yyyy")}
                       </TableCell>
-                      <TableCell align="right">
-                        {stock.cost_price ? fmtLKR(stock.cost_price) : "-"}
-                      </TableCell>
+                      {canViewCost && (
+                        <TableCell align="right">
+                          {stock.cost_price ? fmtLKR(stock.cost_price) : "-"}
+                        </TableCell>
+                      )}
                       <TableCell align="right">
                         {stock.selling_price
                           ? fmtLKR(stock.selling_price)

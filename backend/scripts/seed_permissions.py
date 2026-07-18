@@ -320,6 +320,8 @@ def seed_permissions():
         {"name": "create_sales_stock", "resource": "sales_stock", "action": "create", "description": "Create sales stock entries"},
         {"name": "update_sales_stock", "resource": "sales_stock", "action": "update", "description": "Update sales stock entries"},
         {"name": "delete_sales_stock", "resource": "sales_stock", "action": "delete", "description": "Delete sales stock entries"},
+        # Cost price visibility (cross-cutting — controls whether buying/cost price is shown)
+        {"name": "view_cost_price", "resource": "cost_price", "action": "view", "description": "View cost/buying price on stock and asset dashboards"},
         # Sales Track (Warehouse)
         {"name": "view_warehouse_sales_track", "resource": "warehouse_sales_track", "action": "view", "description": "View warehouse sales tracking"},
         # Item Transfer Notes
@@ -472,7 +474,7 @@ def seed_permissions():
                 "view_sales_track",
                 # Cross-module view access
                 "view_products", "view_categories", "view_brands",
-                "view_sales_stock",
+                "view_sales_stock", "view_cost_price",
                 "view_reporting_dashboard", "view_reporting_sales", "generate_reporting_sales",
                 "view_dashboard",
             ),
@@ -507,7 +509,10 @@ def seed_permissions():
                 # Cross-module view access
                 "view_products", "view_categories", "view_brands",
                 "view_finance_dashboard",
-                "view_sales_stock",
+                # GRN distributes received items into sales_stock & company_assets
+                "view_sales_stock", "create_sales_stock",
+                "view_company_assets", "create_company_assets",
+                "view_cost_price",
                 "view_reporting_dashboard", "view_reporting_inventory", "generate_reporting_inventory",
                 "view_dashboard",
             ),
@@ -521,6 +526,9 @@ def seed_permissions():
                 "view_purchase_orders", "create_purchase_orders",
                 "view_grn", "create_grn",
                 "view_purchase_returns", "create_purchase_returns",
+                # GRN distributes received items into sales_stock & company_assets
+                "view_sales_stock", "create_sales_stock",
+                "view_company_assets", "create_company_assets",
                 "view_products", "view_categories", "view_brands",
                 "view_dashboard",
             ),
@@ -628,6 +636,7 @@ def seed_permissions():
                 "view_brands", "create_brands", "update_brands", "delete_brands",
                 # Warehouse
                 "view_sales_stock", "create_sales_stock", "update_sales_stock",
+                "view_cost_price",
                 "view_warehouse_sales_track",
                 "view_item_transfer_notes", "create_item_transfer_notes", "update_item_transfer_notes",
                 "view_itn_approvals", "approve_itn_approvals",
@@ -688,7 +697,7 @@ def seed_permissions():
                 # Inventory (view only)
                 "view_products", "view_categories", "view_brands",
                 # Warehouse (view + approve)
-                "view_sales_stock",
+                "view_sales_stock", "view_cost_price",
                 "view_warehouse_sales_track",
                 "view_item_transfer_notes",
                 "view_itn_approvals", "approve_itn_approvals",

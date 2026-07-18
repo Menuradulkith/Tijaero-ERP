@@ -652,6 +652,17 @@ class PurchaseInvoiceService:
                 gl_helper.post_supplier_payment_to_gl(payment, created_by or 0)
             except Exception as e:
                 logger.warning(f"GL posting failed for payment {payment.payment_no}: {e}")
+                from app.modules.finance.gl_posting_service import record_gl_commit_failure
+                record_gl_commit_failure(
+                    self.db,
+                    reference_type="SupplierPayment",
+                    reference_id=payment.id,
+                    reference_no=payment.payment_no,
+                    transaction_type="Payment",
+                    description=f"Supplier payment GL posting failed ({payment.payment_no})",
+                    error=e,
+                    user_id=created_by or 0,
+                )
 
         return payment
 
@@ -775,6 +786,18 @@ class PurchaseInvoiceService:
             except Exception as gl_err:
                 logger.warning(
                     f"GL posting for invoice advance applications failed (non-blocking): {gl_err}"
+                )
+                # Loop-level failure for this supplier's advance applications;
+                # distinct reference_type marks it as a batch-level record.
+                from app.modules.finance.gl_posting_service import record_gl_commit_failure
+                record_gl_commit_failure(
+                    self.db,
+                    reference_type="AdvanceApplicationBatch",
+                    reference_id=supplier_id,
+                    transaction_type="Purchase",
+                    description=f"Invoice advance-application GL failed for supplier {supplier_id}",
+                    error=gl_err,
+                    user_id=created_by or 0,
                 )
             self.db.commit()
 

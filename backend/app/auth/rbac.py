@@ -35,6 +35,31 @@ def require_permission(resource: str, action: str):
     return permission_checker
 
 
+def require_any_permission(*permissions):
+    """Dependency factory that passes if the user holds ANY of the given
+    (resource, action) permission tuples.
+
+    Useful for endpoints shared across workflows — e.g. the GRN barcode
+    uniqueness check queries sales_stock / company_assets, so it must accept
+    users who hold GRN permissions in addition to those resources' own view
+    permission.
+    """
+
+    def permission_checker(current_user: User = Depends(get_current_active_user)):
+        if any(
+            user_has_permission(current_user, resource, action)
+            for resource, action in permissions
+        ):
+            return current_user
+        required = " OR ".join(f"{r}:{a}" for r, a in permissions)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied. Required one of: {required}",
+        )
+
+    return permission_checker
+
+
 class Permissions:
     """
     Central permission registry for the entire ERP.
@@ -302,6 +327,10 @@ class Permissions:
     SALES_STOCK_CREATE = ("sales_stock", "create")
     SALES_STOCK_UPDATE = ("sales_stock", "update")
     SALES_STOCK_DELETE = ("sales_stock", "delete")
+    # Cross-cutting: reveals cost/buying price on stock & asset views.
+    # Gated separately so cost visibility can be restricted independently
+    # of the ability to view/manage the underlying records.
+    COST_PRICE_VIEW = ("cost_price", "view")
     WAREHOUSE_SALES_TRACK_VIEW = ("warehouse_sales_track", "view")
     ITN_VIEW = ("item_transfer_notes", "view")
     ITN_CREATE = ("item_transfer_notes", "create")

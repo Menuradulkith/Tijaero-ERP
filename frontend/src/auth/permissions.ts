@@ -312,6 +312,8 @@ export const PERMISSIONS = {
   SALES_STOCK_CREATE: { resource: "sales_stock", action: "create" },
   SALES_STOCK_UPDATE: { resource: "sales_stock", action: "update" },
   SALES_STOCK_DELETE: { resource: "sales_stock", action: "delete" },
+  // Cost price visibility (cross-cutting — controls whether cost/buying price is shown)
+  COST_PRICE_VIEW: { resource: "cost_price", action: "view" },
   // Sales Track (Warehouse)
   WAREHOUSE_SALES_TRACK_VIEW: { resource: "warehouse_sales_track", action: "view" },
   // Item Transfer Notes

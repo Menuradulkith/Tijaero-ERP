@@ -269,6 +269,49 @@ class GLPostingService:
         finally:
             s.close()
 
+    def record_post_commit_failure(
+        self,
+        *,
+        reference_type: str,
+        reference_id: int,
+        error_message: str,
+        reference_no: Optional[str] = None,
+        source_module: str = "finance",
+        transaction_type: Optional[str] = None,
+        marker: Optional[str] = None,
+        entry_date: Optional[date] = None,
+        branch_code: Optional[str] = None,
+        description: Optional[str] = None,
+        lines: Optional[List[Dict[str, Any]]] = None,
+        user_id: Optional[int] = None,
+    ) -> Optional[int]:
+        """Durably record a GL posting failure whose journal entry was built and
+        flushed by :meth:`post` but whose *outer commit* then failed.
+
+        :meth:`post` records the failures it detects itself (missing account,
+        imbalance, in-flush exception) and never raises, so a failure of the
+        caller's subsequent ``commit()`` — which leaves the source document
+        persisted with no journal entry — is the one gap it cannot see. Calling
+        this from a GL-hook ``except`` branch turns that otherwise-silent ledger
+        drift into a visible, retryable ``gl_posting_failures`` row. Uses an
+        independent session, so it survives the caller's rollback.
+        """
+        return self._record_failure(
+            reference_type=reference_type,
+            reference_id=reference_id,
+            reference_no=reference_no,
+            source_module=source_module,
+            transaction_type=transaction_type,
+            posting_marker=marker,
+            entry_date=entry_date,
+            branch_code=branch_code,
+            description=description,
+            lines=lines or [],
+            error_code="commit_failed",
+            error_message=error_message,
+            user_id=user_id,
+        )
+
     # ─── Main entry point ─────────────────────────────────────────────────
     def post(
         self,
@@ -653,3 +696,32 @@ class GLPostingService:
 def get_gl_posting_service(db: Session) -> GLPostingService:
     """Factory helper for dependency injection."""
     return GLPostingService(db)
+
+
+def record_gl_commit_failure(db, *, reference_type: str, reference_id: int, error, **kwargs) -> None:
+    """Best-effort durable record of a GL hook whose *outer commit* failed.
+
+    Shared by every module that follows the "commit source, then post GL,
+    then commit GL" hook pattern. ``GLPostingService.post`` records the
+    problems it detects itself and never raises, so the one gap is a failure
+    of the caller's subsequent ``commit()`` — which leaves the source document
+    saved with no journal entry and nothing to flag it. Call this from the
+    hook's ``except`` branch (after rollback) to turn that otherwise-silent
+    ledger drift into a visible, retryable ``gl_posting_failures`` row.
+
+    Never raises: recording the drift must not mask the business operation
+    that already succeeded. ``kwargs`` are forwarded to
+    :meth:`GLPostingService.record_post_commit_failure` (reference_no,
+    transaction_type, marker, entry_date, branch_code, description, user_id).
+    """
+    try:
+        GLPostingService(db).record_post_commit_failure(
+            reference_type=reference_type,
+            reference_id=reference_id,
+            error_message=str(error),
+            **kwargs,
+        )
+    except Exception:  # pragma: no cover - best-effort logging path
+        logger.exception(
+            "Failed to record GL commit-failure for %s#%s", reference_type, reference_id
+        )

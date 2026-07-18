@@ -209,9 +209,13 @@ class SalesAccountingIntegration:
             je_prefix="JE-SALE",
             source_module="sales",
             marker=marker,
-            # The public post_* methods already guard with _check_already_posted,
-            # so we avoid a redundant duplicate query here.
-            idempotent=False,
+            # Advisory-lock idempotency: serialises concurrent posts of the same
+            # (reference_type, reference_id, marker) so a double-click / retry /
+            # concurrent approve cannot double-post revenue/COGS. The lock-free
+            # _check_already_posted fast-path in the callers cannot close that
+            # race on its own (two callers both pass the check under READ
+            # COMMITTED, and idx_gl_reference is not unique).
+            idempotent=True,
             record_failure=True,
         )
         if result.failed:
@@ -342,25 +346,26 @@ class SalesAccountingIntegration:
                 "description": f"{'Credit' if is_credit else 'Cash'} sale revenue - {invoice.invoice_no}",
             })
 
-        # If coupon was applied, credit the coupon liability/discount account
-        # Coupon is a reduction in revenue but still owed to customer as a discount
-        if coupon_amount > 0:
-            lines.append({
-                "account_code": ACCT_COUPON_LIABILITY,  # Liability for coupon owed
-                "debit": Decimal("0"),
-                "credit": coupon_amount,
-                "description": f"Coupon applied on {invoice.invoice_no}",
-            })
+        # NOTE: No coupon line here. The coupon is already excluded from
+        # `revenue_amount` (= subtotal - discount - coupon) AND grossed up as a
+        # contra-revenue in post_discount_to_gl (Dr 5160 / Cr revenue for
+        # discount + coupon). Crediting a coupon liability here as well
+        # double-counts it and unbalances the entry — credits would exceed the
+        # cash debit by the coupon amount, tripping the imbalance guard so the
+        # whole revenue posting fails.
 
-        # If credit note was applied, record as revenue adjustment  
+        # If a credit note was redeemed, the customer paid part of the invoice
+        # with their stored credit. SETTLE (debit) the Customer Credit Notes
+        # liability that was raised when the note was issued — do NOT credit
+        # revenue. Revenue is already recognised in full via `revenue_amount`;
+        # the note only changes HOW the customer paid, and the tender/cash debit
+        # is correspondingly lower, so debiting the liability balances the entry.
         if credit_note_amount > 0:
-            # Credit note reduces what customer pays but goods are still delivered
-            # The credit note liability was already recorded when the return was processed
             lines.append({
-                "account_code": revenue_account,
-                "debit": Decimal("0"),
-                "credit": credit_note_amount,
-                "description": f"Credit note applied - {invoice.invoice_no}",
+                "account_code": ACCT_CREDIT_NOTES,
+                "debit": credit_note_amount,
+                "credit": Decimal("0"),
+                "description": f"Credit note redeemed - {invoice.invoice_no}",
             })
 
         # --- CREDIT: Tax ---
@@ -619,6 +624,39 @@ class SalesAccountingIntegration:
             "description": f"Refund ({refund_method or 'original method'}) for return {sale_return.sale_return_no}",
         })
 
+        # ── COGS / inventory reversal for goods that returned to sellable stock ──
+        # The original sale posted Dr 5010 COGS / Cr 1210 Inventory; reverse it
+        # for the units that were actually restocked. Only good-condition,
+        # restockable units (item.restocked set True by process_sale_return before
+        # this hook runs) belong back in inventory — damaged/non-restockable units
+        # were routed to Company Assets and must NOT inflate inventory here.
+        # Without this, returned goods' cost stayed in COGS permanently and
+        # inventory was understated (gross-margin misstatement).
+        restocked_cost = Decimal("0")
+        for ri in (sale_return.items or []):
+            if not getattr(ri, "restocked", False):
+                continue
+            product = (
+                self.db.query(Product).filter(Product.id == ri.product_id).first()
+                if ri.product_id else None
+            )
+            if product and product.cost_price:
+                qty = Decimal(str(getattr(ri, "quantity", 1) or 1))
+                restocked_cost += Decimal(str(product.cost_price)) * qty
+        if restocked_cost > 0:
+            lines.append({
+                "account_code": ACCT_FINISHED_GOODS,
+                "debit": restocked_cost,
+                "credit": Decimal("0"),
+                "description": f"Inventory restored on return {sale_return.sale_return_no}",
+            })
+            lines.append({
+                "account_code": ACCT_COGS,
+                "debit": Decimal("0"),
+                "credit": restocked_cost,
+                "description": f"COGS reversed on return {sale_return.sale_return_no}",
+            })
+
         description = (
             f"Auto GL - Sale Return | Return: {sale_return.sale_return_no} | "
             f"Invoice: {invoice.invoice_no} | Refund: {total_refund} | "
@@ -797,14 +835,6 @@ class SalesAccountingIntegration:
     # GIFT VOUCHER GL POSTINGS
     # ═══════════════════════════════════════════════════════════════════════
 
-    def _check_gv_already_posted(self, marker: str) -> bool:
-        """Check if a gift-voucher GL entry with this marker already exists."""
-        existing = self.db.query(JournalEntry).filter(
-            JournalEntry.description.like(f"%{marker}%"),
-            JournalEntry.entry_type == "Auto",
-        ).first()
-        return existing is not None
-
     def post_gift_voucher_sale_to_gl(self, voucher, user_id: int) -> Optional[JournalEntry]:
         """
         Post gift voucher sale to GL.
@@ -814,7 +844,7 @@ class SalesAccountingIntegration:
         Called when a gift voucher is created/sold.
         """
         marker = f"GiftVoucherSale ID: {voucher.id}"
-        if self._check_gv_already_posted(marker):
+        if self._check_already_posted(voucher.id, reference_type="GiftVoucherSale"):
             return None
 
         amount = Decimal(str(voucher.amount or 0))
@@ -871,7 +901,7 @@ class SalesAccountingIntegration:
         Called when a gift voucher is refunded to customer.
         """
         marker = f"GiftVoucherRefund ID: {voucher.id}"
-        if self._check_gv_already_posted(marker):
+        if self._check_already_posted(voucher.id, reference_type="GiftVoucherRefund"):
             return None
 
         if refund_amount <= 0:
@@ -927,7 +957,7 @@ class SalesAccountingIntegration:
         Called when a gift voucher expires with unspent balance.
         """
         marker = f"GiftVoucherExpiry ID: {voucher.id}"
-        if self._check_gv_already_posted(marker):
+        if self._check_already_posted(voucher.id, reference_type="GiftVoucherExpiry"):
             return None
 
         remaining = Decimal(str(voucher.balance or voucher.amount or 0))

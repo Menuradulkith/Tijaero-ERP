@@ -14,6 +14,10 @@ from app.modules.customers.models import (
     CustomerCreditNotes,
 )
 from app.modules.sales.models import Invoice
+from app.modules.finance.gl_posting_service import (
+    record_gl_commit_failure as _record_gl_commit_failure,
+)
+
 
 class BankDepositService:
     def __init__(self, db: Session):
@@ -35,12 +39,18 @@ class BankDepositService:
         return self.repo.get_all(filters)
     
     def verify_deposit(self, deposit_id: int, user_id: int = 0) -> models.BankDeposits:
-        deposit = self.repo.verify(deposit_id)
+        deposit, newly_verified = self.repo.verify(deposit_id, user_id=user_id)
         if not deposit:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Bank deposit with id {deposit_id} not found"
             )
+
+        # Idempotent: if the deposit was already verified, the GL entry was
+        # posted on the first verify. Returning here prevents a repeated
+        # PATCH /verify from posting the same cash-out to the ledger again.
+        if not newly_verified:
+            return deposit
 
         log_audit(
             self.repo.db, user_id=user_id or 0, action="verify",
@@ -59,6 +69,18 @@ class BankDepositService:
             import logging
             logging.getLogger(__name__).warning(f"Bank deposit GL posting failed: {e}")
             self.repo.db.rollback()
+            _record_gl_commit_failure(
+                self.repo.db,
+                reference_type="BankDeposit",
+                reference_id=deposit.id,
+                reference_no=deposit.invoice_no,
+                transaction_type="Payment",
+                entry_date=getattr(deposit, "created_date", None),
+                branch_code=deposit.branch_code,
+                description=f"Bank deposit GL commit failed (deposit #{deposit.id})",
+                error=e,
+                user_id=user_id,
+            )
 
         return deposit
 
@@ -214,6 +236,18 @@ class ExpenseService:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for expense {expense.expenses_no} failed (non-blocking): {gl_err}")
             self.db.rollback()
+            _record_gl_commit_failure(
+                self.db,
+                reference_type="Expense",
+                reference_id=expense.id,
+                reference_no=expense.expenses_no,
+                transaction_type="Expense",
+                entry_date=expense.payment_date,
+                branch_code=expense.branch_code,
+                description=f"Expense payment GL commit failed ({expense.expenses_no})",
+                error=gl_err,
+                user_id=processed_by,
+            )
         # ────────────────────────────────────────────────────────────────
         
         return expense
@@ -291,8 +325,20 @@ class CustomerAdvancePaymentService:
                 f"GL posting for customer advance {db_advance.advance_payments_no} failed (non-blocking): {gl_err}"
             )
             self.db.rollback()
+            _record_gl_commit_failure(
+                self.db,
+                reference_type="CustomerAdvance",
+                reference_id=db_advance.id,
+                reference_no=db_advance.advance_payments_no,
+                transaction_type="Receipt",
+                entry_date=getattr(db_advance, "created_date", None),
+                branch_code=getattr(db_advance, "branch_code", None),
+                description=f"Customer advance GL commit failed ({db_advance.advance_payments_no})",
+                error=gl_err,
+                user_id=user_id,
+            )
         # ─────────────────────────────────────────────────────────────────
-        
+
         return db_advance
     
     def get_advance_payment(self, advance_id: int) -> CustomerAdvancePayments:
@@ -388,6 +434,17 @@ class CustomerCreditNoteService:
                 f"GL posting for credit note {db_note.id} failed (non-blocking): {gl_err}"
             )
             self.db.rollback()
+            _record_gl_commit_failure(
+                self.db,
+                reference_type="CustomerCreditNote",
+                reference_id=db_note.id,
+                reference_no=f"CN-{db_note.id}",
+                transaction_type="Sales",
+                branch_code=getattr(db_note, "branch_code", None),
+                description=f"Customer credit note GL commit failed (CN #{db_note.id})",
+                error=gl_err,
+                user_id=user_id,
+            )
 
         return db_note
     
