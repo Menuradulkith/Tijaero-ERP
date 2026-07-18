@@ -66,6 +66,7 @@ export interface ProductRef {
   model?: string;
   website_price?: number;
   minimum_price?: number;
+  price_tiers?: any[];
 }
 
 export interface CountryRef {

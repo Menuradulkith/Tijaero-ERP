@@ -67,26 +67,27 @@ class PurchasingOrderRepository:
         self.db = db
     
     def get_next_po_number(self, branch_code: str = "HQ") -> str:
-        """Generate next PO number: PO-BranchCode-YYYY-XXXXX with advisory lock"""
-        year = tz.year()
+        """Generate next PO number: PO-BranchCode-YYXXXXXX with advisory lock"""
+        year_yy = str(tz.year())[-2:]
         branch = branch_code or "HQ"
-        prefix = f"PO-{branch}-{year}"
+        prefix = f"PO-{branch}-{year_yy}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             self.db.query(models.PurchasingOrder)
-            .filter(models.PurchasingOrder.purchasing_order_no.like(f"{prefix}-%"))
+            .filter(models.PurchasingOrder.purchasing_order_no.like(f"{prefix}%"))
             .order_by(models.PurchasingOrder.id.desc())
             .first()
         )
         if last:
             try:
-                last_seq = int(last.purchasing_order_no.split("-")[-1])
+                last_part = last.purchasing_order_no.split("-")[-1]
+                last_seq = int(last_part[2:])
                 next_seq = last_seq + 1
             except (ValueError, IndexError):
                 next_seq = 1
         else:
             next_seq = 1
-        return f"{prefix}-{next_seq:05d}"
+        return f"{prefix}{next_seq:06d}"
     
     def create(self, order: schemas.PurchasingOrderCreate, initial_status: str = "pending") -> models.PurchasingOrder:
         order_data = order.model_dump(exclude={'items'})
@@ -247,29 +248,30 @@ class PurchasingReturnRepository:
         self.db = db
     
     def get_next_return_number(self, branch_code: str = None) -> str:
-        """Generate next Purchase Return number: PRN-{BranchCode}-YYYY-XXXXX with advisory lock"""
-        year = tz.year()
+        """Generate next Purchase Return number: PRN-BranchCode-YYXXXXXX with advisory lock"""
+        year_yy = str(tz.year())[-2:]
         
         # Extract branch code with default
         branch_code = branch_code or "HQ"
         
-        prefix = f"PRN-{branch_code}-{year}"
+        prefix = f"PRN-{branch_code}-{year_yy}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             self.db.query(models.PurchasingReturn)
-            .filter(models.PurchasingReturn.purchasing_return_no.like(f"{prefix}-%"))
+            .filter(models.PurchasingReturn.purchasing_return_no.like(f"{prefix}%"))
             .order_by(models.PurchasingReturn.id.desc())
             .first()
         )
         if last:
             try:
-                last_seq = int(last.purchasing_return_no.split("-")[-1])
+                last_part = last.purchasing_return_no.split("-")[-1]
+                last_seq = int(last_part[2:])
                 next_seq = last_seq + 1
             except (ValueError, IndexError):
                 next_seq = 1
         else:
             next_seq = 1
-        return f"{prefix}-{next_seq:05d}"
+        return f"{prefix}{next_seq:06d}"
     
     def create(self, return_data: schemas.PurchasingReturnCreate) -> models.PurchasingReturn:
         return_dict = return_data.model_dump(exclude={'items'})
@@ -311,26 +313,27 @@ class GoodReceivedNoteRepository:
         self.db = db
     
     def get_next_grn_number(self, branch_code: str = "HQ") -> str:
-        """Generate next GRN number: GRN-BranchCode-YYYY-XXXXX with advisory lock"""
-        year = tz.year()
+        """Generate next GRN number: GRN-BranchCode-YYXXXXXX with advisory lock"""
+        year_yy = str(tz.year())[-2:]
         branch = branch_code or "HQ"
-        prefix = f"GRN-{branch}-{year}"
+        prefix = f"GRN-{branch}-{year_yy}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             self.db.query(models.GoodReceivedNote)
-            .filter(models.GoodReceivedNote.good_received_no.like(f"{prefix}-%"))
+            .filter(models.GoodReceivedNote.good_received_no.like(f"{prefix}%"))
             .order_by(models.GoodReceivedNote.id.desc())
             .first()
         )
         if last:
             try:
-                last_seq = int(last.good_received_no.split("-")[-1])
+                last_part = last.good_received_no.split("-")[-1]
+                last_seq = int(last_part[2:])
                 next_seq = last_seq + 1
             except (ValueError, IndexError):
                 next_seq = 1
         else:
             next_seq = 1
-        return f"{prefix}-{next_seq:05d}"
+        return f"{prefix}{next_seq:06d}"
     
     def create(self, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
         grn_data = grn.model_dump()

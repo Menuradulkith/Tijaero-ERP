@@ -1001,7 +1001,8 @@ class SalesQuoteService:
                 created_date=now,
                 is_price_estimate=orig_item.is_price_estimate,
                 description=orig_item.description,
-                remark=orig_item.remark
+                remark=orig_item.remark,
+                price_tier_id=orig_item.price_tier_id
             )
             new_quote.items.append(new_item)
         
@@ -1028,7 +1029,8 @@ class SalesQuoteService:
             is_price_estimate=item_data.is_price_estimate or False,
             description=item_data.description,
             remark=item_data.remark,
-            discount_percentage=item_data.discount_percent
+            discount_percentage=item_data.discount_percent,
+            price_tier_id=item_data.price_tier_id
         )
         
         return item

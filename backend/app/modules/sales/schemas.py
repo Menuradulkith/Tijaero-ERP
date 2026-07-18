@@ -11,6 +11,10 @@ class InvoiceItemBase(BaseModel):
     barcode: Optional[str] = None
     discount_percent: Optional[float] = Field(default=0, ge=0, le=100)
     discount_amount: Optional[float] = Field(default=0, ge=0)
+    # Optional link to a ProductPriceTier; when provided the service uses
+    # the tier's prices and the selling_price / minimum_selling_price fields
+    # above are still accepted (allowing the rep to pass them for validation).
+    price_tier_id: Optional[int] = None
 
 class InvoiceItemCreate(InvoiceItemBase):
     pass

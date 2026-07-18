@@ -188,18 +188,18 @@ class SalesQuoteRepository:
         self, db: Session, quote_type: str, branch_code: str
     ) -> str:
         """Generate next quote number"""
-        year = tz.year()
+        year_yy = str(tz.year())[-2:]
         prefix_type = "QT" if quote_type == QuoteType.QUOTATION.value else "PI"
         
         # Extract branch code with default
         branch_code = branch_code or "HQ"
         
         # Advisory lock to prevent race conditions on sequence generation
-        lock_key = f"{prefix_type}-{branch_code}-{year}"
+        lock_key = f"{prefix_type}-{branch_code}-{year_yy}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": lock_key})
         
         # Get the last quote number for this type, branch and year
-        pattern = f"{prefix_type}-{branch_code}-{year}-%"
+        pattern = f"{prefix_type}-{branch_code}-{year_yy}%"
         last_quote = (
             db.query(SalesQuote)
             .filter(SalesQuote.quote_no.like(pattern))
@@ -210,14 +210,15 @@ class SalesQuoteRepository:
         if last_quote:
             # Extract the sequence number
             try:
-                last_seq = int(last_quote.quote_no.split("-")[-1])
+                last_part = last_quote.quote_no.split("-")[-1]
+                last_seq = int(last_part[2:])
                 next_seq = last_seq + 1
             except (ValueError, IndexError):
                 next_seq = 1
         else:
             next_seq = 1
 
-        return f"{prefix_type}-{branch_code}-{year}-{next_seq:05d}"
+        return f"{prefix_type}-{branch_code}-{year_yy}{next_seq:06d}"
 
     def get_next_revision_number(self, db: Session, parent_quote_id: int) -> int:
         """Get next revision number for a quote"""

@@ -162,5 +162,9 @@ class SalesQuoteItem(Base, AuditMixin):
     item_status = Column(String(30), nullable=False, default="pending")  # pending, completed, cancelled, partial
     converted_qty = Column(Integer, nullable=False, default=0)  # how many units have been converted to SO
 
+    # Price tier link — nullable for rows created before this feature
+    price_tier_id = Column(Integer, ForeignKey("product_price_tiers.id"), nullable=True, index=True)
+
     quote = relationship("SalesQuote", back_populates="items")
     product = relationship("Product", backref="sales_quote_items")
+    price_tier = relationship("ProductPriceTier", back_populates="quote_items")

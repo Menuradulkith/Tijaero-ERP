@@ -76,17 +76,22 @@ import {
   ItemTransferNoteWithItems,
 } from "@/modules/warehouse/types";
 
-const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
-  const fullPrefix = `${prefix}-${year}-`;
+  const yy = String(year).slice(-2);
+  const actualBranch = branchCode || "HQ";
+  const fullPrefix = `${prefix}-${actualBranch}-${yy}`;
   let maxSeq = 0;
   for (const item of existing) {
     if (item.no?.startsWith(fullPrefix)) {
-      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
-      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      const lastPart = item.no.split("-").pop() || "";
+      if (lastPart.length > 2) {
+        const seq = parseInt(lastPart.slice(2), 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      }
     }
   }
-  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+  return `${fullPrefix}${String(maxSeq + 1).padStart(6, '0')}`;
 };
 
 const SORT_OPTIONS: SortOption[] = [
@@ -400,9 +405,9 @@ export default function ItemTransferNotesPage() {
     enabled: branchResolved && filterBranch !== null,
   });
 
-  const nextITNNumber = useMemo(() =>
-    getNextNumber('ITN', (transferNotes || []).map((t: any) => ({ no: t.item_transfer_note }))),
-  [transferNotes]);
+  const nextITNNumber = useMemo(() => 
+    getNextNumber('ITN', (transferNotes || []).map((t: any) => ({ no: t.item_transfer_note })), formData.branch_code), 
+  [transferNotes, formData.branch_code]);
 
   const filteredITNs = useMemo(() => {
     if (!transferNotes) return [];

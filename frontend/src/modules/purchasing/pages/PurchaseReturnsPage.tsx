@@ -89,17 +89,22 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 
 /** Preview next sequential number using same format as backend */
-const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
-  const fullPrefix = `${prefix}-${year}-`;
+  const yy = String(year).slice(-2);
+  const actualBranch = branchCode || "HQ";
+  const fullPrefix = `${prefix}-${actualBranch}-${yy}`;
   let maxSeq = 0;
   for (const item of existing) {
     if (item.no?.startsWith(fullPrefix)) {
-      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
-      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      const lastPart = item.no.split("-").pop() || "";
+      if (lastPart.length > 2) {
+        const seq = parseInt(lastPart.slice(2), 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      }
     }
   }
-  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+  return `${fullPrefix}${String(maxSeq + 1).padStart(6, '0')}`;
 };
 
 const FORM_STEPS = ["Return Information", "Return Items"];
@@ -319,9 +324,9 @@ export default function PurchaseReturnsPage() {
     enabled: branchResolved,
   });
 
-  const nextReturnNumber = useMemo(() =>
-    getNextNumber('RET', (returns || []).map((r: any) => ({ no: r.purchasing_return_no }))),
-  [returns]);
+  const nextReturnNumber = useMemo(() => 
+    getNextNumber('PRN', (returns || []).map((r: any) => ({ no: r.purchasing_return_no })), formData.branch_code), 
+  [returns, formData.branch_code]);
 
   const { data: grns } = useQuery({
     queryKey: ["goodReceivedNotes"],

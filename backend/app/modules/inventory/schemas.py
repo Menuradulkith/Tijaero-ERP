@@ -40,10 +40,11 @@ class SalesStock(SalesStockBase, TijaeroBaseSchema):
     added_date: datetime
     grn_no: Optional[str] = None  # GRN number from relationship
     location_name: Optional[str] = None  # Location name from GRN
-    cost_price: Optional[Decimal] = None  # Cost price from product
-    selling_price: Optional[Decimal] = None  # Selling price from product
-    minimum_price: Optional[Decimal] = None  # Minimum price from product
+    cost_price: Optional[Decimal] = None  # Cost price from product/tier
+    selling_price: Optional[Decimal] = None  # Selling price from product/tier
+    minimum_price: Optional[Decimal] = None  # Minimum price from product/tier
     minimum_selling_price: Optional[Decimal] = None  # Minimum selling price for frontend mapping
+    price_tier_id: Optional[int] = None  # Active price tier ID
 
 
 class SalesStockSummary(BaseModel):

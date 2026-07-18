@@ -52,6 +52,7 @@ class Product(Base, AuditMixin):
     brand = relationship("ItemsBrand", back_populates="products")
     invoice_items = relationship("InvoiceItems", back_populates="product")
     minimum_prices = relationship("MinimumPrice", back_populates="product", cascade="all, delete-orphan")
+    price_tiers = relationship("ProductPriceTier", back_populates="product", cascade="all, delete-orphan", order_by="ProductPriceTier.id")
     purchasing_order_items = relationship("PurchasingOrderItems", back_populates="product")
     purchasing_return_items = relationship("PurchasingReturnItems", back_populates="product")
     cs_job_items = relationship("CSJobItem", back_populates="product")

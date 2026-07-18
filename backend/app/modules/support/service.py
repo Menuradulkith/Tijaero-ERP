@@ -13,29 +13,30 @@ class CustomerSupportService:
         self.db = db
     
     def _get_next_ticket_number(self, branch_code: str = None) -> str:
-        """Generate next Support Ticket number: TKT-{BranchCode}-YYYY-XXXXX with advisory lock"""
-        year = tz.year()
+        """Generate next Support Ticket number: TKT-BranchCode-YYXXXXXX with advisory lock"""
+        year_yy = str(tz.year())[-2:]
         
         # Extract branch code with default
         branch_code = branch_code or "HQ"
         
-        prefix = f"TKT-{branch_code}-{year}"
+        prefix = f"TKT-{branch_code}-{year_yy}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             self.db.query(CustomerSupport)
-            .filter(CustomerSupport.job_number.like(f"{prefix}-%"))
+            .filter(CustomerSupport.job_number.like(f"{prefix}%"))
             .order_by(CustomerSupport.id.desc())
             .first()
         )
         if last:
             try:
-                last_seq = int(last.job_number.split("-")[-1])
+                last_part = last.job_number.split("-")[-1]
+                last_seq = int(last_part[2:])
                 next_seq = last_seq + 1
             except (ValueError, IndexError):
                 next_seq = 1
         else:
             next_seq = 1
-        return f"{prefix}-{next_seq:05d}"
+        return f"{prefix}{next_seq:06d}"
     
     def create_support_ticket(self, ticket: schemas.CustomerSupportCreate) -> CustomerSupport:
         # Extract branch code with default

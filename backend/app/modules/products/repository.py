@@ -40,6 +40,26 @@ class ProductRepository:
         db.add(db_product)
         db.commit()
         db.refresh(db_product)
+        
+        # Seed a default price tier for the new product
+        from app.modules.products.price_tier_models import ProductPriceTier
+        default_tier = ProductPriceTier(
+            product_id=db_product.id,
+            cost_price=db_product.cost_price,
+            minimum_selling_price=db_product.selling_price if db_product.selling_price is not None else db_product.cost_price,
+            selling_price=db_product.selling_price if db_product.selling_price is not None else db_product.cost_price,
+            website_price=db_product.website_price,
+            remark="Default",
+            is_active=True,
+            created_at=tz.now(),
+            updated_at=tz.now(),
+            created_by=created_by,
+            updated_by=created_by,
+        )
+        db.add(default_tier)
+        db.commit()
+        db.refresh(db_product)
+        
         return db_product
     
     def update(self, db: Session, product_id: int, product: ProductUpdate, updated_by: int) -> Optional[Product]:

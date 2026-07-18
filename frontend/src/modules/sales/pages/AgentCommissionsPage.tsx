@@ -61,7 +61,7 @@ export default function AgentCommissionsPage() {
   );
 
   const [filterAgent, setFilterAgent] = useState<number | "">("");
-  const [filterStatus, setFilterStatus] = useState<string>("");
+  const [filterStatus, setFilterStatus] = useState<string>("approved");
 
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [payingCommission, setPayingCommission] = useState<CustomerAgentCommissionWithDetails | null>(null);
@@ -92,16 +92,15 @@ export default function AgentCommissionsPage() {
 
   const totalPending = commissions
     .filter((c) => c.status === "pending" || c.status === "approved")
-    .reduce((s, c) => s + (c.commission_amount ?? 0), 0);
+    .reduce((s, c) => s + (Number(c.commission_amount ?? 0) - Number(c.total_paid ?? 0)), 0);
   const totalPaid = commissions
-    .filter((c) => c.status === "paid")
-    .reduce((s, c) => s + (c.commission_amount ?? 0), 0);
+    .reduce((s, c) => s + Number(c.total_paid ?? 0), 0);
 
   const handleOpenPay = (commission: CustomerAgentCommissionWithDetails) => {
     setPayingCommission(commission);
     setPayMethod("Cash");
     setPayReference("");
-    setPayAmountOverride(null);
+    setPayAmountOverride(Number(commission.commission_amount ?? 0) - Number(commission.total_paid ?? 0));
     setPayError("");
     setPayDialogOpen(true);
   };
@@ -119,9 +118,20 @@ export default function AgentCommissionsPage() {
     }
   };
 
+  const handleDecline = async (commission: CustomerAgentCommissionWithDetails) => {
+    if (!window.confirm(`Are you sure you want to decline the commission for Invoice ${commission.invoice_no || commission.invoice_id}?`)) return;
+    try {
+      await commissionsApi.decline(commission.id);
+      showSuccessToast("Commission declined successfully.");
+      queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
+    } catch (err: any) {
+      showErrorToast(handleApiError(err, "Decline failed"));
+    }
+  };
+
   const handlePay = async () => {
     if (!payingCommission) return;
-    const maxAmount = payingCommission.commission_amount ?? 0;
+    const maxAmount = Number(payingCommission.commission_amount ?? 0) - Number(payingCommission.total_paid ?? 0);
     const requested = payAmountOverride !== null ? payAmountOverride : maxAmount;
     if (requested <= 0) {
       setPayError("Payment amount must be greater than zero.");
@@ -275,6 +285,7 @@ export default function AgentCommissionsPage() {
               <TableCell align="right">Invoice Amount</TableCell>
               <TableCell align="right">Rate</TableCell>
               <TableCell align="right">Commission</TableCell>
+              <TableCell align="right">Remaining</TableCell>
               <TableCell>Date</TableCell>
               <TableCell align="center">Status</TableCell>
               {(canPay || canApprove) && <TableCell align="center">Action</TableCell>}
@@ -302,24 +313,33 @@ export default function AgentCommissionsPage() {
                     </Typography>
                   </TableCell>
                   <TableCell>{c.agent_name || `Agent #${c.customer_agent_id}`}</TableCell>
-                  <TableCell>{c.customer_name || "�"}</TableCell>
+                  <TableCell>{c.customer_name || ""}</TableCell>
                   <TableCell align="right">Rs. {fmtAmount(c.invoice_amount ?? 0)}</TableCell>
                   <TableCell align="right">
-                    {c.commission_rate ? `${c.commission_rate}%` : "�"}
+                    {c.commission_rate ? `${c.commission_rate}%` : ""}
                   </TableCell>
                   <TableCell align="right">
                     <Typography
                       fontWeight="medium"
-                      color={c.status === "pending" ? "warning.main" : "success.main"}
+                      color="text.primary"
                       variant="body2"
                     >
-                      Rs. {fmtAmount(c.commission_amount ?? 0)}
+                      Rs. {fmtAmount(Number(c.commission_amount ?? 0))}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography
+                      fontWeight="medium"
+                      color={c.status === "pending" || c.status === "approved" ? "warning.main" : "success.main"}
+                      variant="body2"
+                    >
+                      Rs. {fmtAmount(Number(c.commission_amount ?? 0) - Number(c.total_paid ?? 0))}
                     </Typography>
                   </TableCell>
                   <TableCell>
                     {(c as any).created_at
                       ? new Date((c as any).created_at).toLocaleDateString()
-                      : "�"}
+                      : ""}
                   </TableCell>
                   <TableCell align="center">
                     <Chip
@@ -339,28 +359,52 @@ export default function AgentCommissionsPage() {
                     <TableCell align="center">
                       {c.status === "pending" ? (
                         canApprove ? (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="primary"
-                            disabled={approvingId === c.id}
-                            onClick={() => handleApprove(c)}
-                          >
-                            {approvingId === c.id ? "Approving\u2026" : "Approve"}
-                          </Button>
+                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="primary"
+                              disabled={approvingId === c.id}
+                              onClick={() => handleApprove(c)}
+                            >
+                              {approvingId === c.id ? "Approving\u2026" : "Approve"}
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="error"
+                              onClick={() => handleDecline(c)}
+                            >
+                              Decline
+                            </Button>
+                          </Box>
                         ) : (
                           <Typography variant="caption" color="warning.main">Awaiting approval</Typography>
                         )
                       ) : c.status === "approved" ? (
                         canPay ? (
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="success"
-                            onClick={() => handleOpenPay(c)}
-                          >
-                            Pay
-                          </Button>
+                          (Number(c.commission_amount ?? 0) - Number(c.total_paid ?? 0) > 0) ? (
+                            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="success"
+                                onClick={() => handleOpenPay(c)}
+                              >
+                                Pay
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="error"
+                                onClick={() => handleDecline(c)}
+                              >
+                                Decline
+                              </Button>
+                            </Box>
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">Verification Pending</Typography>
+                          )
                         ) : (
                           <Typography variant="caption" color="text.disabled">\u2014</Typography>
                         )
@@ -375,6 +419,24 @@ export default function AgentCommissionsPage() {
               ))
             )}
           </TableBody>
+          {commissions.length > 0 && (
+            <TableHead>
+              <TableRow sx={{ bgcolor: "grey.50" }}>
+                <TableCell colSpan={3} align="right"><Typography variant="subtitle2">Total</Typography></TableCell>
+                <TableCell align="right">
+                  <Typography variant="subtitle2">Rs. {fmtAmount(commissions.reduce((s, c) => s + Number(c.invoice_amount ?? 0), 0))}</Typography>
+                </TableCell>
+                <TableCell></TableCell>
+                <TableCell align="right">
+                  <Typography variant="subtitle2">Rs. {fmtAmount(commissions.reduce((s, c) => s + Number(c.commission_amount ?? 0), 0))}</Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="subtitle2">Rs. {fmtAmount(commissions.reduce((s, c) => s + (Number(c.commission_amount ?? 0) - Number(c.total_paid ?? 0)), 0))}</Typography>
+                </TableCell>
+                <TableCell colSpan={canPay || canApprove ? 3 : 2}></TableCell>
+              </TableRow>
+            </TableHead>
+          )}
         </Table>
       </Paper>
 
@@ -406,12 +468,12 @@ export default function AgentCommissionsPage() {
                 size="small"
                 label="Payment Amount"
                 type="number"
-                value={payAmountOverride !== null ? payAmountOverride : (payingCommission.commission_amount ?? 0)}
+                value={payAmountOverride !== null ? payAmountOverride : (Number(payingCommission.commission_amount ?? 0) - Number(payingCommission.total_paid ?? 0))}
                 onChange={(e) => setPayAmountOverride(parseFloat(e.target.value) || 0)}
                 fullWidth
-                inputProps={{ min: 0, max: payingCommission.commission_amount ?? 0, step: 0.01 }}
+                inputProps={{ min: 0, max: Number(payingCommission.commission_amount ?? 0) - Number(payingCommission.total_paid ?? 0), step: 0.01 }}
                 InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-                helperText={`Commission amount: Rs. ${fmtAmount(payingCommission.commission_amount ?? 0)} \u2014 partial payments allowed, cannot exceed this.`}
+                helperText={`Remaining amount: Rs. ${fmtAmount(Number(payingCommission.commission_amount ?? 0) - Number(payingCommission.total_paid ?? 0))} \u2014 partial payments allowed, cannot exceed this.`}
               />
 
               <TextField

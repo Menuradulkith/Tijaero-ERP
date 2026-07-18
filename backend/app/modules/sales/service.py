@@ -23,51 +23,54 @@ logger = logging.getLogger(__name__)
 customer_credit_service = CustomerCreditService()
 
 class SalesService:
-    def _get_next_invoice_number(self, db: Session) -> str:
-        """Generate next Invoice number: INV-YYYY-XXXXX with advisory lock"""
-        year = tz.year()
-        prefix = f"INV-{year}"
+    def _get_next_invoice_number(self, db: Session, branch_code: str = None) -> str:
+        """Generate next Invoice number: INV-BranchCode-YYXXXXXX with advisory lock"""
+        year_yy = str(tz.year())[-2:]
+        branch_code = branch_code or "HQ"
+        prefix = f"INV-{branch_code}-{year_yy}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             db.query(Invoice)
-            .filter(Invoice.invoice_no.like(f"{prefix}-%"))
+            .filter(Invoice.invoice_no.like(f"{prefix}%"))
             .order_by(Invoice.id.desc())
             .first()
         )
         if last:
             try:
-                last_seq = int(last.invoice_no.split("-")[-1])
+                last_part = last.invoice_no.split("-")[-1]
+                last_seq = int(last_part[2:])
                 next_seq = last_seq + 1
             except (ValueError, IndexError):
                 next_seq = 1
         else:
             next_seq = 1
-        return f"{prefix}-{next_seq:05d}"
+        return f"{prefix}{next_seq:06d}"
     
     def _get_next_sale_return_number(self, db: Session, branch_code: str = None) -> str:
-        """Generate next Sale Return number: SRN-{BranchCode}-YYYY-XXXXX with advisory lock"""
-        year = tz.year()
+        """Generate next Sale Return number: SRN-BranchCode-YYXXXXXX with advisory lock"""
+        year_yy = str(tz.year())[-2:]
         
         # Extract branch code with default
         branch_code = branch_code or "HQ"
         
-        prefix = f"SRN-{branch_code}-{year}"
+        prefix = f"SRN-{branch_code}-{year_yy}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             db.query(SaleReturn)
-            .filter(SaleReturn.sale_return_no.like(f"{prefix}-%"))
+            .filter(SaleReturn.sale_return_no.like(f"{prefix}%"))
             .order_by(SaleReturn.id.desc())
             .first()
         )
         if last:
             try:
-                last_seq = int(last.sale_return_no.split("-")[-1])
+                last_part = last.sale_return_no.split("-")[-1]
+                last_seq = int(last_part[2:])
                 next_seq = last_seq + 1
             except (ValueError, IndexError):
                 next_seq = 1
         else:
             next_seq = 1
-        return f"{prefix}-{next_seq:05d}"
+        return f"{prefix}{next_seq:06d}"
     
     def get_all_invoices(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
         return repository.sales_repository.get_all(db, skip, limit, branch_codes)
@@ -930,7 +933,7 @@ class SalesService:
         invoice_dict['created_by'] = user_id
         
         # Server-side sequential invoice number generation
-        invoice_dict['invoice_no'] = self._get_next_invoice_number(db)
+        invoice_dict['invoice_no'] = self._get_next_invoice_number(db, invoice_data.branch_code)
         # Back-fill the request object so downstream payment/voucher records
         # (built from invoice_data.invoice_no) reference the real number instead
         # of the None the client sent.

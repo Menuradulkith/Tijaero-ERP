@@ -485,7 +485,8 @@ class SupplierAdvancePaymentListFilter(BaseModel):
 
 class SupplierAdvanceApplicationBase(BaseModel):
     advance_id: int
-    grn_id: int
+    grn_id: Optional[int] = None
+    purchase_invoice_id: Optional[int] = None
     applied_amount: Decimal
     application_date: date
     remarks: Optional[str] = None
@@ -502,6 +503,7 @@ class SupplierAdvanceApplication(SupplierAdvanceApplicationBase, TijaeroBaseSche
     
     # Loaded from relationships
     grn_no: Optional[str] = None
+    purchase_invoice_no: Optional[str] = None
     advance_no: Optional[str] = None
 
 

@@ -41,31 +41,43 @@ export default function MainLayout() {
   const effectiveDrawerWidth = isMobile || !sidebarCollapsed ? DRAWER_WIDTH : 0;
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100dvh", width: "100%" }}>
+    <Box sx={{ 
+      display: "flex", 
+      minHeight: "100dvh", 
+      width: "100%",
+      "@media print": {
+        display: "block",
+        height: "auto",
+        minHeight: "auto",
+        overflow: "visible"
+      }
+    }}>
       <IdleSessionManager />
 
-      {/* Icon navigation rail on far left */}
-      <IconNav
-        width={ICON_NAV_WIDTH}
-        sidebarOpen={!sidebarCollapsed}
-        onToggleSidebar={handleSidebarCollapse}
-      />
+      <Box className="no-print" sx={{ "@media print": { display: "none" } }}>
+        {/* Icon navigation rail on far left */}
+        <IconNav
+          width={ICON_NAV_WIDTH}
+          sidebarOpen={!sidebarCollapsed}
+          onToggleSidebar={handleSidebarCollapse}
+        />
 
-      <Header
-        onMenuClick={handleDrawerToggle}
-        drawerWidth={effectiveDrawerWidth}
-        iconNavWidth={ICON_NAV_WIDTH}
-      />
+        <Header
+          onMenuClick={handleDrawerToggle}
+          drawerWidth={effectiveDrawerWidth}
+          iconNavWidth={ICON_NAV_WIDTH}
+        />
 
-      {/* Sidebar is fixed position, rendered outside flex flow */}
-      <Sidebar
-        drawerWidth={DRAWER_WIDTH}
-        mobileOpen={mobileOpen}
-        onDrawerToggle={handleDrawerToggle}
-        isMobile={isMobile}
-        iconNavWidth={ICON_NAV_WIDTH}
-        collapsed={!isMobile && sidebarCollapsed}
-      />
+        {/* Sidebar is fixed position, rendered outside flex flow */}
+        <Sidebar
+          drawerWidth={DRAWER_WIDTH}
+          mobileOpen={mobileOpen}
+          onDrawerToggle={handleDrawerToggle}
+          isMobile={isMobile}
+          iconNavWidth={ICON_NAV_WIDTH}
+          collapsed={!isMobile && sidebarCollapsed}
+        />
+      </Box>
 
       <Box
         component="main"
@@ -83,13 +95,24 @@ export default function MainLayout() {
           overflow: "auto",
           display: "flex",
           flexDirection: "column",
+          "@media print": {
+            ml: 0,
+            mt: 0,
+            p: 0,
+            height: "auto",
+            overflow: "visible",
+            display: "block",
+            bgcolor: "white",
+          },
         }}
       >
         <Outlet />
       </Box>
 
       {/* Floating AI assistant — renders only for users with ai_assistant:view */}
-      <ChatAgentWidget />
+      <Box className="no-print" sx={{ "@media print": { display: "none" } }}>
+        <ChatAgentWidget />
+      </Box>
     </Box>
   );
 }

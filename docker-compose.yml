@@ -45,6 +45,9 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
       TZ: Asia/Colombo
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      CHAT_AGENT_MONTHLY_BUDGET_USD: ${CHAT_AGENT_MONTHLY_BUDGET_USD:-10.0}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

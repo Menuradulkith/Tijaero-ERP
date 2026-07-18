@@ -150,6 +150,21 @@ def approve_commission(
     return commission_service.approve_commission(db, commission_id, current_user.id)
 
 
+@router.post(
+    "/{commission_id}/decline",
+    response_model=schemas.CustomerAgentCommission,
+    summary="Decline Commission",
+    description="Decline a pending or approved commission",
+    dependencies=[Depends(require_permission(*Permissions.COMMISSION_APPROVAL_APPROVE))],
+)
+def decline_commission(
+    commission_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.COMMISSION_APPROVAL_APPROVE)),
+):
+    return commission_service.decline_commission(db, commission_id, current_user.id)
+
+
 @router.delete(
     "/{commission_id}",
     status_code=status.HTTP_200_OK,

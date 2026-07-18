@@ -17,6 +17,7 @@ from app.modules.inventory.api import router as inventory_router
 from app.modules.notifications.api import router as notifications_router
 from app.modules.permissions.api import router as permissions_router
 from app.modules.products.api import router as products_router
+from app.modules.products.price_tier_api import router as price_tier_router
 from app.modules.purchasing.api import router as purchasing_router
 from app.modules.purchasing.invoice_api import router as purchase_invoice_router
 from app.modules.reporting.api import router as reporting_router
@@ -43,6 +44,7 @@ api_router.include_router(
 api_router.include_router(customers_router, prefix="/customers", tags=["customers"])
 api_router.include_router(inventory_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(products_router, prefix="/inventory", tags=["inventory"])
+api_router.include_router(price_tier_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(sales_router, prefix="/sales", tags=["sales"])
 api_router.include_router(
     quotation_router, prefix="/sales/quotes", tags=["sales-quotes"]

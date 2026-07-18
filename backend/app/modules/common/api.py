@@ -72,6 +72,7 @@ def get_reference_data(
         products = (
             db.query(Product)
             .options(joinedload(Product.minimum_prices))
+            .options(joinedload(Product.price_tiers))
             .filter(Product.active == True)
             .limit(products_limit)
             .all()
@@ -98,6 +99,17 @@ def get_reference_data(
                 "description": p.description,
                 "model": p.model,
                 "website_price": float(p.website_price) if p.website_price is not None else None,
+                "price_tiers": [
+                    {
+                        "id": t.id,
+                        "cost_price": float(t.cost_price),
+                        "minimum_selling_price": float(t.minimum_selling_price),
+                        "selling_price": float(t.selling_price),
+                        "website_price": float(t.website_price) if t.website_price else None,
+                        "remark": t.remark,
+                        "is_active": t.is_active
+                    } for t in getattr(p, "price_tiers", []) if t.is_active
+                ],
                 "image_url": p.image_url,
             })
 

@@ -144,3 +144,96 @@ export interface QuickStats {
     net_profit: number;
   };
 }
+
+// ── Branch Daily Summary ──────────────────────────────────────────────────────
+
+export interface BranchOption {
+  branch_code: string;
+  branch_name: string;
+}
+
+export interface BranchDailySummary {
+  branch_code: string;
+  branch_name: string;
+  start_date: string;
+  end_date: string;
+  sales: {
+    invoice_count: number;
+    cash: number;
+    card: number;
+    bank_transfer: number;
+    credit: number;
+    cheque: number;
+    other: number;
+    total_gross: number;
+    details: Array<{
+      invoice_no: string;
+      total: number;
+      cash: number;
+      card: number;
+      bank: number;
+      credit: number;
+      cheque: number;
+    }>;
+  };
+  returns: {
+    total_refunds: number;
+    details: Array<{
+      return_no: string;
+      total_refund: number;
+    }>;
+  };
+  net_sales: number;
+  purchasing: {
+    po_count: number;
+    total_value: number;
+    by_status: Record<string, number>;
+    details: Array<{
+      po_no: string;
+      status: string;
+      value: number;
+    }>;
+  };
+  cash_banking: {
+    total_banked: number;
+    banking_details: Array<{
+      time: string;
+      amount: number;
+    }>;
+    money_in: number;
+    inflow_details: Array<{
+      time: string;
+      type: string;
+      source_table: string;
+      source_id: number;
+      amount: number;
+    }>;
+    money_out: number;
+    outflow_details: Array<{
+      time: string;
+      type: string;
+      source_table: string;
+      source_id: number;
+      amount: number;
+    }>;
+    cash_in_hand_eod: number;
+    petty_cash_balance: number;
+  };
+  expenses: {
+    total: number;
+    details: Array<{
+      expense_no: string;
+      type: string;
+      vendor: string;
+      amount: number;
+    }>;
+  };
+  vouchers: {
+    total: number;
+    details: Array<{
+      voucher_no: string;
+      type: string;
+      amount: number;
+    }>;
+  };
+}

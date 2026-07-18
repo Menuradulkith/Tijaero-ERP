@@ -190,14 +190,19 @@ class SalesCommissionService:
             
             # B. Calculate Total Sales Cost (COGS)
             # Query: SUM(invoice_items.quantity × products.cost_price)
+            from app.modules.products.price_tier_models import ProductPriceTier
             cogs_query = self.db.query(
                 func.coalesce(
-                    func.sum(InvoiceItems.quantity * Product.cost_price), 0
+                    func.sum(
+                        InvoiceItems.quantity * func.coalesce(ProductPriceTier.cost_price, Product.cost_price)
+                    ), 0
                 ).label("total_cogs")
             ).join(
                 Invoice, InvoiceItems.invoice_id == Invoice.id
             ).join(
                 Product, InvoiceItems.product_id == Product.id
+            ).outerjoin(
+                ProductPriceTier, InvoiceItems.price_tier_id == ProductPriceTier.id
             ).filter(
                 Invoice.branch_code == branch_code,
                 Invoice.created_date >= start_date,

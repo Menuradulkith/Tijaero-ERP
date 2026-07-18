@@ -13,7 +13,7 @@ This migration:
 
 Exactly one of ``grn_id`` / ``purchase_invoice_id`` is populated per row.
 
-Revision ID: s41_advance_application_invoice_link
+Revision ID: s41_adv_app_inv_link
 Revises: s40_cheque_identifier_types
 Create Date: 2026-07-07
 """
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "s41_advance_application_invoice_link"
+revision = "s41_adv_app_inv_link"
 down_revision = "s40_cheque_identifier_types"
 branch_labels = None
 depends_on = None
