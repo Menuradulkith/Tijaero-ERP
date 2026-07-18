@@ -103,17 +103,22 @@ const SORT_OPTIONS: SortOption[] = [
 const FORM_STEPS = ["Order Information", "Order Items"];
 
 /** Preview the next sequential number using the same format as the backend */
-const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
-  const fullPrefix = `${prefix}-${year}-`;
+  const yy = String(year).slice(-2);
+  const actualBranch = branchCode || "MAIN";
+  const fullPrefix = `${prefix}-${actualBranch}-${yy}`;
   let maxSeq = 0;
   for (const item of existing) {
     if (item.no?.startsWith(fullPrefix)) {
-      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
-      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      const lastPart = item.no.split("-").pop() || "";
+      if (lastPart.length > 2) {
+        const seq = parseInt(lastPart.slice(2), 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      }
     }
   }
-  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, "0")}`;
+  return `${fullPrefix}${String(maxSeq + 1).padStart(6, "0")}`;
 };
 
 // Extended form type to include editable status fields
@@ -415,7 +420,7 @@ export default function PurchaseOrdersPage() {
     enabled: branchResolved,
   });
 
-  const nextPONumber = useMemo(() => getNextNumber('PO', (orders || []).map((o: PurchasingOrder) => ({ no: o.purchasing_order_no }))), [orders]);
+  const nextPONumber = useMemo(() => getNextNumber('PO', (orders || []).map((o: PurchasingOrder) => ({ no: o.purchasing_order_no })), formData.branch_code), [orders, formData.branch_code]);
 
   // Check daily PO limit for a branch
   const checkDailyLimit = useCallback(

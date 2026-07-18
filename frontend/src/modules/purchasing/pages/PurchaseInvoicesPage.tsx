@@ -167,16 +167,23 @@ export default function PurchaseInvoicesPage() {
     [handleCancelBase],
   );
 
+  // Ref to hold pending nav-state fill values until isCreating is confirmed true
+  const pendingNavFillRef = useRef<{ supplier_id: number; branch_code: string } | null>(null);
+
+  // Reference data
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
+  const branches = filteredBranches || [];
+
   const handleNewOrder = useCallback(async () => {
     const result = await handleNewBase();
+    if (defaultBranchCode) {
+      setFormData((prev) => ({ ...prev, branch_code: defaultBranchCode }));
+    }
     setSelectedGRNs([]);
     setInvoiceableGRNs([]);
     setCreditPeriod("");
     return result;
-  }, [handleNewBase]);
-
-  // Ref to hold pending nav-state fill values until isCreating is confirmed true
-  const pendingNavFillRef = useRef<{ supplier_id: number; branch_code: string } | null>(null);
+  }, [handleNewBase, setFormData, defaultBranchCode]);
 
   // Fetch suppliers
   const canViewSuppliers = hasPermission(user, "suppliers", "view");
@@ -185,10 +192,6 @@ export default function PurchaseInvoicesPage() {
     queryFn: () => suppliersApi.getAll(),
     enabled: canViewSuppliers,
   });
-
-  // Reference data
-  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
-  const branches = filteredBranches || [];
 
   // Auto-default branch filter
   useEffect(() => {

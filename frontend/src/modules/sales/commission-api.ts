@@ -65,6 +65,13 @@ export const commissionsApi = {
     return response.data;
   },
 
+  decline: async (id: number) => {
+    const response = await apiClient.post<CustomerAgentCommission>(
+      `/customers/commissions/${id}/decline`
+    );
+    return response.data;
+  },
+
   delete: async (id: number) => {
     await apiClient.delete(`/customers/commissions/${id}`);
   },

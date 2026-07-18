@@ -24,29 +24,30 @@ class ItemTransferNoteService:
         self.db = db
     
     def _get_next_itn_number(self, branch_code: str = None) -> str:
-        """Generate next ITN number: ITN-{BranchCode}-YYYY-XXXXX with advisory lock"""
-        year = tz.year()
+        """Generate next ITN number: ITN-BranchCode-YYXXXXXX with advisory lock"""
+        year_yy = str(tz.year())[-2:]
         
         # Extract branch code with default
         branch_code = branch_code or "HQ"
         
-        prefix = f"ITN-{branch_code}-{year}"
+        prefix = f"ITN-{branch_code}-{year_yy}"
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
         last = (
             self.db.query(ItemTransferNote)
-            .filter(ItemTransferNote.item_transfer_note.like(f"{prefix}-%"))
+            .filter(ItemTransferNote.item_transfer_note.like(f"{prefix}%"))
             .order_by(ItemTransferNote.id.desc())
             .first()
         )
         if last:
             try:
-                last_seq = int(last.item_transfer_note.split("-")[-1])
+                last_part = last.item_transfer_note.split("-")[-1]
+                last_seq = int(last_part[2:])
                 next_seq = last_seq + 1
             except (ValueError, IndexError):
                 next_seq = 1
         else:
             next_seq = 1
-        return f"{prefix}-{next_seq:05d}"
+        return f"{prefix}{next_seq:06d}"
     
     def create_transfer_note(
         self,

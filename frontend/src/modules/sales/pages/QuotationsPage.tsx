@@ -244,7 +244,7 @@ export default function QuotationsPage() {
     formData,
     setFormData,
     handleSelectItem: handleSelectQuote,
-    handleNew: handleNewQuote,
+    handleNew: handleNewQuoteBase,
     handleCancel: baseHandleCancel,
     handleStartEdit,
     markAsSaved,
@@ -270,6 +270,16 @@ export default function QuotationsPage() {
   const products = refData?.products || [];
   const branches = filteredBranches || [];
   const customers = refData?.customers || [];
+
+  const handleNewQuote = useCallback(() => {
+    handleNewQuoteBase();
+    if (defaultBranchCode) {
+      setFormData((prev) => ({
+        ...prev,
+        branch_code: defaultBranchCode,
+      }));
+    }
+  }, [handleNewQuoteBase, setFormData, defaultBranchCode]);
 
   // Fetch all customers to filter customer agents (is_customer_agent=true)
   const { data: allCustomers } = useQuery({
@@ -1329,7 +1339,7 @@ export default function QuotationsPage() {
           isEditing={isEditing}
           isCreating={isCreating}
           hasSelection={!!selectedQuote}
-          onAdd={handleCreateNew}
+          onAdd={handleNewQuote}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onSave={handleSave}

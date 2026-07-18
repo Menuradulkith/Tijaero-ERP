@@ -98,17 +98,22 @@ import { quotationApi } from "../quotation-api";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate, PaymentCard } from "../types";
 
-const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
-  const fullPrefix = `${prefix}-${year}-`;
+  const yy = String(year).slice(-2);
+  const actualBranch = branchCode || "MAIN";
+  const fullPrefix = `${prefix}-${actualBranch}-${yy}`;
   let maxSeq = 0;
   for (const item of existing) {
     if (item.no?.startsWith(fullPrefix)) {
-      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
-      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      const lastPart = item.no.split("-").pop() || "";
+      if (lastPart.length > 2) {
+        const seq = parseInt(lastPart.slice(2), 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      }
     }
   }
-  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, "0")}`;
+  return `${fullPrefix}${String(maxSeq + 1).padStart(6, "0")}`;
 };
 
 export const getPaymentMethodsDisplay = (invoice: any) => {
@@ -378,11 +383,39 @@ export default function SalesPage() {
   const updateSplitRow = (id: string, update: Partial<SplitPaymentRow>) =>
     setSplitPayments((prev) => prev.map((r) => r.id === id ? { ...r, ...update } : r));
 
-  const removeSplitRow = (id: string) =>
-    setSplitPayments((prev) => prev.filter((r) => r.id !== id));
+  const removeSplitRow = (id: string) => {
+    setSplitPayments((prev) => {
+      const idx = prev.findIndex((r) => r.id === id);
+      if (idx === -1) return prev;
+      const removedAmount = prev[idx].amount || 0;
+      const next = prev.filter((r) => r.id !== id);
+      if (next.length > 0) {
+        next[0] = { ...next[0], amount: (next[0].amount || 0) + removedAmount };
+      }
+      return next;
+    });
+  };
 
   const addSplitRow = () =>
     setSplitPayments((prev) => [...prev, makeSplitRow("cash", 0)]);
+
+  const handlePaymentAmountChange = (changedId: string, newAmount: number) => {
+    setSplitPayments((prev) => {
+      const idx = prev.findIndex((r) => r.id === changedId);
+      if (idx === -1) return prev;
+
+      const oldAmount = prev[idx].amount || 0;
+      const diff = newAmount - oldAmount;
+      const next = [...prev];
+      next[idx] = { ...next[idx], amount: newAmount };
+
+      // Auto-adjust the first row if we are not editing the first row
+      if (idx !== 0 && next[0]) {
+        next[0] = { ...next[0], amount: Math.max(0, (next[0].amount || 0) - diff) };
+      }
+      return next;
+    });
+  };
 
   // Filter states
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -441,8 +474,9 @@ export default function SalesPage() {
       getNextNumber(
         "INV",
         (invoices || []).map((inv: any) => ({ no: inv.invoice_no })),
+        state.formData.branch_code
       ),
-    [invoices],
+    [invoices, state.formData.branch_code],
   );
 
   // Fetch customers separately (has complex operations like credit check)
@@ -626,11 +660,26 @@ export default function SalesPage() {
       invoiceDiscount, finalNet,
       taxAmount, afterTax,
       totalVoucherPayment, afterVoucher,
-      appliedCreditNote, afterCreditNote,
+    appliedCreditNote, afterCreditNote,
       serviceCharge, grandTotal,
     };
   };
 
+  const prevGrandTotalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const currentTotal = calcOrderTotals().grandTotal;
+    if (prevGrandTotalRef.current !== null && currentTotal !== prevGrandTotalRef.current) {
+      const diff = currentTotal - prevGrandTotalRef.current;
+      setSplitPayments((prev) => {
+        if (prev.length === 0) return prev;
+        const next = [...prev];
+        next[0] = { ...next[0], amount: Math.max(0, (next[0].amount || 0) + diff) };
+        return next;
+      });
+    }
+    prevGrandTotalRef.current = currentTotal;
+  }, [lineItems, discountType, discountValue, taxRate, taxMode, appliedVouchers, creditNoteAmount, selectedPaymentCard, splitPayments]);
   // Filter and sort invoices
   const filteredInvoices = useMemo(() => {
     if (!invoices) return [];
@@ -4524,7 +4573,7 @@ export default function SalesPage() {
                   <TextField
                     size="small" type="number" label="Amount (Rs.)"
                     value={row.amount}
-                    onChange={(e) => updateSplitRow(row.id, { amount: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) => handlePaymentAmountChange(row.id, parseFloat(e.target.value) || 0)}
                     sx={{ width: 160 }}
                     inputProps={{ min: 0, step: 0.01 }}
                   />
@@ -4697,25 +4746,9 @@ export default function SalesPage() {
                   <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                     <Typography variant="body2" color="text.secondary">Remaining:</Typography>
                     <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "error.main"}>
-                      {remaining > 0.01 ? `Rs. ${fmtLKR(remaining)}` : remaining < -0.01 ? `- Rs. ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✓ Fully paid"}
+                      {remaining > 0.01 ? `Rs. ${fmtLKR(remaining)}` : remaining < -0.01 ? `- Rs. ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✔ Fully paid"}
                     </Typography>
                   </Box>
-                  {!isBalanced && (
-                    <Button
-                      size="small" variant="text" color="primary" sx={{ mt: 0.5, p: 0 }}
-                      onClick={() => {
-                        if (splitPayments.length === 1) {
-                          updateSplitRow(splitPayments[0].id, { amount: grandTotal });
-                        } else {
-                          const lastRow = splitPayments[splitPayments.length - 1];
-                          const otherTotal = splitPayments.slice(0, -1).reduce((s, p) => s + (p.amount || 0), 0);
-                          updateSplitRow(lastRow.id, { amount: Math.max(0, grandTotal - otherTotal) });
-                        }
-                      }}
-                    >
-                      Auto-fill remaining to last row
-                    </Button>
-                  )}
                 </Box>
               );
             })()}
