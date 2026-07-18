@@ -361,7 +361,7 @@ function BranchCard({ data }: { data: BranchDailySummary }) {
         mb: 3,
         borderRadius: 2,
         boxShadow: "0 2px 8px rgba(0,0,0,.08)",
-        "@media print": { breakInside: "avoid", mb: 2, boxShadow: "none" },
+        "@media print": { mb: 2, boxShadow: "none" },
       }}
     >
       <Box sx={{ bgcolor: "primary.main", px: 3, py: 1.5, borderRadius: "8px 8px 0 0" }}>
