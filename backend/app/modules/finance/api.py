@@ -120,8 +120,9 @@ def create_card_payment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    if not validate_branch_access(current_user, payment.branch_code):
-        raise HTTPException(status_code=403, detail=f"Access denied to branch: {payment.branch_code}")
+    # Card payments carry no branch_code (not on the schema or the model), so
+    # there is no branch to validate here — attempting to read payment.branch_code
+    # previously raised AttributeError on every create.
     payment_service = service.CardPaymentService(db)
     return payment_service.create_payment(payment, created_by=current_user.id)
 
@@ -761,7 +762,7 @@ def export_expenses_csv(
         filename="expenses",
         headers=["Expense No", "Category", "Amount", "Method", "Status", "Date", "Remarks", "Branch"],
         rows=[
-            [r.expenses_no, r.category, r.expense_amount, r.expenses_method, r.status, r.created_date, r.remarks, r.branch_code]
+            [r.expenses_no, r.expense_category, r.expense_amount, r.expenses_method, r.status, r.created_date, r.remarks, r.branch_code]
             for r in rows
         ],
     )
@@ -781,13 +782,13 @@ def export_bank_deposits_csv(
         query = query.filter(models.BankDeposits.branch_code == scoped_branch)
     elif scoped_codes:
         query = query.filter(models.BankDeposits.branch_code.in_(scoped_codes))
-    query = query.order_by(models.BankDeposits.deposits_date.desc())
+    query = query.order_by(models.BankDeposits.created_date.desc())
     rows = query.limit(100000).all()
     return build_csv_response(
         filename="bank_deposits",
         headers=["Deposit No", "Date", "Amount", "Bank", "Reference", "Verified", "Branch"],
         rows=[
-            [r.deposits_no, r.deposits_date, r.deposits_amount, r.bank_name, r.reference_no, r.is_verified, r.branch_code]
+            [r.id, r.created_date, r.deposits_amount, r.bank_name, r.invoice_no, r.verified, r.branch_code]
             for r in rows
         ],
     )

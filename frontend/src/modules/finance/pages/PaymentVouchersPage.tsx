@@ -7,7 +7,6 @@ import { usePermission } from "@/auth/permissions";
 import {
   EmptyState,
   showErrorToast,
-  showSuccessToast,
   TCurrency,
   TDate,
   TStatusChip,
@@ -18,6 +17,7 @@ import {
   Receipt as ReceiptIcon,
 } from "@mui/icons-material";
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -38,12 +38,10 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useMemo, useState } from "react";
 
 export default function PaymentVouchersPage() {
-  const queryClient = useQueryClient();
   const canCreate = usePermission("payment_voucher", "create");
   const { filteredBranches } = useReferenceData();
 
@@ -73,43 +71,24 @@ export default function PaymentVouchersPage() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [paymentDate, setPaymentDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
-  // Mock data - Replace with actual API calls
-  const mockVouchers = [
-    {
-      id: 1,
-      voucher_no: "PV001",
-      branch_code: "MAIN",
-      payee_name: "Office Supplies Ltd",
-      amount: 5000,
-      status: "pending",
-      created_date: "2024-01-15",
-      category: "supplies",
-      created_by: "admin",
-    },
-    {
-      id: 2,
-      voucher_no: "PV002",
-      branch_code: "BRANCH1",
-      payee_name: "Maintenance Services",
-      amount: 8500,
-      status: "approved",
-      created_date: "2024-01-14",
-      category: "maintenance",
-      created_by: "admin",
-    },
-    {
-      id: 3,
-      voucher_no: "PV003",
-      branch_code: "MAIN",
-      payee_name: "Utilities Provider",
-      amount: 12000,
-      status: "paid",
-      created_date: "2024-01-13",
-      category: "utilities",
-      created_by: "admin",
-      paid_date: "2024-01-13",
-    },
-  ];
+  // Payment Vouchers has no backend yet (no model / API / migration). This
+  // screen is a placeholder: it must NOT show fabricated rows or pretend that
+  // create/approve/reject/pay succeeded. Keep the list empty until the API
+  // exists, and surface the not-implemented state to the user (banner below).
+  const NOT_IMPLEMENTED_MSG =
+    "Payment Vouchers isn't available yet — this screen is a placeholder and nothing was saved.";
+  const mockVouchers: Array<{
+    id: number;
+    voucher_no: string;
+    branch_code: string;
+    payee_name: string;
+    amount: number;
+    status: string;
+    created_date: string;
+    category: string;
+    created_by: string;
+    paid_date?: string;
+  }> = [];
 
   // Filter vouchers
   const filteredVouchers = useMemo(() => {
@@ -139,90 +118,24 @@ export default function PaymentVouchersPage() {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      // TODO: Call API to create voucher
-      showSuccessToast("Payment voucher created successfully");
-      setFormData({
-        branch_code: filteredBranches[0]?.branch_code || "MAIN",
-        payee_name: "",
-        amount: 0,
-        payment_date: format(new Date(), "yyyy-MM-dd"),
-        description: "",
-        category: "general",
-      });
-      setShowCreateDialog(false);
-      queryClient.invalidateQueries({ queryKey: ["payment-vouchers"] });
-    } catch (error: any) {
-      showErrorToast(error.response?.data?.detail || "Failed to create voucher");
-    } finally {
-      setIsSubmitting(false);
-    }
+    // No backend — do not fake success.
+    showErrorToast(NOT_IMPLEMENTED_MSG);
+    setShowCreateDialog(false);
   };
 
   const handleApproveVoucher = async () => {
-    if (!selectedVoucherId) return;
-
-    setIsSubmitting(true);
-    try {
-      // TODO: Call API to approve voucher
-      showSuccessToast("Voucher approved successfully");
-      setApprovalNotes("");
-      setShowApproveDialog(false);
-      queryClient.invalidateQueries({ queryKey: ["payment-vouchers"] });
-      queryClient.invalidateQueries({
-        queryKey: ["payment-voucher", selectedVoucherId],
-      });
-    } catch (error: any) {
-      showErrorToast(
-        error.response?.data?.detail || "Failed to approve voucher"
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
+    showErrorToast(NOT_IMPLEMENTED_MSG);
+    setShowApproveDialog(false);
   };
 
   const handleRejectVoucher = async () => {
-    if (!selectedVoucherId || !rejectionReason) {
-      showErrorToast("Rejection reason is required");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      // TODO: Call API to reject voucher
-      showSuccessToast("Voucher rejected successfully");
-      setRejectionReason("");
-      setShowRejectDialog(false);
-      queryClient.invalidateQueries({ queryKey: ["payment-vouchers"] });
-      queryClient.invalidateQueries({
-        queryKey: ["payment-voucher", selectedVoucherId],
-      });
-    } catch (error: any) {
-      showErrorToast(error.response?.data?.detail || "Failed to reject voucher");
-    } finally {
-      setIsSubmitting(false);
-    }
+    showErrorToast(NOT_IMPLEMENTED_MSG);
+    setShowRejectDialog(false);
   };
 
   const handlePayVoucher = async () => {
-    if (!selectedVoucherId) return;
-
-    setIsSubmitting(true);
-    try {
-      // TODO: Call API to pay voucher
-      showSuccessToast("Payment recorded successfully");
-      setPaymentDate(format(new Date(), "yyyy-MM-dd"));
-      setShowPayDialog(false);
-      queryClient.invalidateQueries({ queryKey: ["payment-vouchers"] });
-      queryClient.invalidateQueries({
-        queryKey: ["payment-voucher", selectedVoucherId],
-      });
-    } catch (error: any) {
-      showErrorToast(error.response?.data?.detail || "Failed to record payment");
-    } finally {
-      setIsSubmitting(false);
-    }
+    showErrorToast(NOT_IMPLEMENTED_MSG);
+    setShowPayDialog(false);
   };
 
   // Empty state
@@ -249,8 +162,13 @@ export default function PaymentVouchersPage() {
           )}
         </Box>
 
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Payment Vouchers is not yet implemented. This screen is a placeholder —
+          no vouchers are stored and the actions here do not save anything.
+        </Alert>
+
         <EmptyState
-          message="No payment vouchers yet. Create your first voucher to get started."
+          message="Payment Vouchers is not available yet."
           icon={<ReceiptIcon sx={{ fontSize: 64 }} />}
         />
 
@@ -384,6 +302,11 @@ export default function PaymentVouchersPage() {
           </Button>
         )}
       </Box>
+
+      <Alert severity="info" sx={{ mb: 3 }}>
+        Payment Vouchers is not yet implemented. This screen is a placeholder —
+        no vouchers are stored and the actions here do not save anything.
+      </Alert>
 
       <Grid container spacing={3}>
         {/* Left: Vouchers List */}

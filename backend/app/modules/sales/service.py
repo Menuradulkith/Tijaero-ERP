@@ -6,6 +6,7 @@ from app.modules.sales import repository, schemas
 from app.modules.sales.models import Invoice, InvoiceItems, InvoiceItemsBarcode, SaleReturn, SaleReturnItems
 from app.modules.inventory.models import SalesStock
 from app.modules.finance.models import ChequePayments, CardPayments, BankDeposits
+from app.modules.finance.gl_posting_service import record_gl_commit_failure
 from app.modules.customers.credit_service import CustomerCreditService
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.core import timezone as tz
@@ -711,16 +712,27 @@ class SalesService:
             invoice_discount_percent = (discount_amount_input / after_coupon * 100)
         
         # Validate all products are available in sales stock before creating invoice
+        from app.modules.products.repository import minimum_price_repository
         for item_data in invoice_data.items:
             self.validate_product_availability(db, item_data.product_id, item_data.quantity)
-            
+
+            # Server-authoritative minimum price. NEVER trust the client-supplied
+            # item_data.minimum_selling_price — look the floor up from the
+            # MinimumPrice table so a tampered payload (e.g. min=0) cannot sell
+            # below the configured floor. No configured floor => no lower bound.
+            _min_row = minimum_price_repository.get_current_for_product(db, item_data.product_id)
+            min_price = Decimal(str(_min_row.minimum_price)) if _min_row else Decimal("0")
+            # Reflect the true floor on the item so downstream storage/display
+            # records the authoritative value rather than the client's.
+            item_data.minimum_selling_price = float(min_price)
+
             # Validate selling price is not below minimum price
-            if item_data.selling_price < item_data.minimum_selling_price:
+            if Decimal(str(item_data.selling_price)) < min_price:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Selling price ({item_data.selling_price}) cannot be less than minimum price ({item_data.minimum_selling_price}) for product ID {item_data.product_id}"
+                    detail=f"Selling price ({item_data.selling_price}) cannot be less than minimum price ({min_price}) for product ID {item_data.product_id}"
                 )
-            
+
             # Validate effective price after ALL discounts (item + coupon + invoice) is not below minimum price
             item_discount_percent = Decimal(str(getattr(item_data, 'discount_percent', 0) or 0))
             
@@ -737,10 +749,10 @@ class SalesService:
             # Step 3: Apply invoice discount (proportionally)
             effective_price = price_after_coupon * (Decimal('1') - invoice_discount_percent / Decimal('100'))
             
-            if effective_price < Decimal(str(item_data.minimum_selling_price)):
+            if effective_price < min_price:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Effective price after all discounts ({float(effective_price):.2f}) cannot be less than minimum price ({item_data.minimum_selling_price}) for product ID {item_data.product_id}"
+                    detail=f"Effective price after all discounts ({float(effective_price):.2f}) cannot be less than minimum price ({min_price}) for product ID {item_data.product_id}"
                 )
         
         # Extract payment details before creating invoice dict
@@ -1021,7 +1033,22 @@ class SalesService:
             invoice_dict['balance_due'] = float(amount_after_voucher)
             invoice_dict['payment_status'] = PaymentStatus.UNPAID
         else:
-            # Cash/Card/Cheque - auto-approved and fully paid
+            # Cash/Card/Cheque - auto-approved and fully paid.
+            # Reconcile the tendered amount against the net grand total before
+            # marking PAID. `grand_total` here is already net of voucher/credit
+            # note/advance, so cash+card+cheque tendered must cover it (cash may
+            # exceed it → change). Without this a client could post e.g.
+            # cash_amount=10 on a 1000 invoice and have it recorded fully paid.
+            payment_tolerance = Decimal("0.05")
+            if immediate_payment + payment_tolerance < grand_total:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Insufficient payment: tendered amount "
+                        f"({float(immediate_payment):.2f}) does not cover the invoice "
+                        f"total ({float(grand_total):.2f})."
+                    ),
+                )
             invoice_dict['approval'] = True
             invoice_dict['approval_status'] = DocumentStatus.COMPLETED
             invoice_dict['paid_amount'] = float(grand_total)  # Full grand total is paid (voucher + payment method)
@@ -1527,6 +1554,17 @@ class SalesService:
                 import logging
                 logging.getLogger(__name__).error(
                     f"GL posting failed for invoice {invoice.invoice_no}: {e}"
+                )
+                record_gl_commit_failure(
+                    db,
+                    reference_type="Invoice",
+                    reference_id=invoice.id,
+                    reference_no=invoice.invoice_no,
+                    branch_code=invoice.branch_code,
+                    transaction_type="Sale",
+                    description=f"Sale GL posting failed ({invoice.invoice_no})",
+                    error=e,
+                    user_id=user_id,
                 )
         
         # =================================================================
@@ -2088,6 +2126,17 @@ class SalesService:
             logging.getLogger(__name__).error(
                 f"GL posting failed for approved credit invoice {invoice.invoice_no}: {e}"
             )
+            record_gl_commit_failure(
+                db,
+                reference_type="Invoice",
+                reference_id=invoice.id,
+                reference_no=invoice.invoice_no,
+                branch_code=invoice.branch_code,
+                transaction_type="Sale",
+                description=f"Credit-sale GL posting failed on approval ({invoice.invoice_no})",
+                error=e,
+                user_id=user_id,
+            )
         
         db.commit()
         return repository.sales_repository.get_by_id(db, invoice.id)
@@ -2128,6 +2177,17 @@ class SalesService:
             import logging
             logging.getLogger(__name__).error(
                 f"GL posting failed for completed invoice {invoice.invoice_no}: {e}"
+            )
+            record_gl_commit_failure(
+                db,
+                reference_type="Invoice",
+                reference_id=invoice.id,
+                reference_no=invoice.invoice_no,
+                branch_code=invoice.branch_code,
+                transaction_type="Sale",
+                description=f"Sale GL posting failed on completion ({invoice.invoice_no})",
+                error=e,
+                user_id=user_id,
             )
         
         db.commit()
@@ -2848,6 +2908,17 @@ class SalesService:
             logging.getLogger(__name__).error(
                 f"GL posting failed for sale return {sale_return.sale_return_no}: {e}"
             )
+            record_gl_commit_failure(
+                db,
+                reference_type="SaleReturn",
+                reference_id=sale_return.id,
+                reference_no=sale_return.sale_return_no,
+                branch_code=sale_return.branch_code,
+                transaction_type="Sale",
+                description=f"Sale return GL posting failed ({sale_return.sale_return_no})",
+                error=e,
+                user_id=user_id,
+            )
 
         # Cashbook hook: cash/bank/cheque refunds move real money out of the
         # till — mirror the GL credit (1010/1020) so the day-end cashbook ↔ GL
@@ -3478,6 +3549,17 @@ class SalesService:
                 import logging
                 logging.getLogger(__name__).error(
                     f"GL posting failed for verified bank transfer {invoice.invoice_no}: {e}"
+                )
+                record_gl_commit_failure(
+                    db,
+                    reference_type="Invoice",
+                    reference_id=invoice.id,
+                    reference_no=invoice.invoice_no,
+                    branch_code=invoice.branch_code,
+                    transaction_type="Sale",
+                    description=f"Sale GL posting failed on bank-transfer verify ({invoice.invoice_no})",
+                    error=e,
+                    user_id=user_id,
                 )
             
             db.commit()

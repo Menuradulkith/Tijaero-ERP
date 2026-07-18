@@ -30,6 +30,7 @@ from app.auth.dependencies import get_user_branch_codes, validate_branch_access
 from app.auth.models import User
 from app.auth.rbac import Permissions, user_has_permission
 from app.core import timezone as tz
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,29 @@ def _fmt_money(v: Any) -> str:
         return f"Rs. {float(v or 0):,.2f}"
     except (TypeError, ValueError):
         return str(v)
+
+
+def _validate_money_amount(value: Any, field: str) -> Decimal:
+    """Validate a monetary amount supplied by the LLM for a financial write.
+
+    Rejects non-numeric, non-positive, and absurdly large values (a
+    defence-in-depth ceiling against a hallucinated / injection-induced amount
+    getting onto a confirmation card). Returns the parsed Decimal.
+    """
+    try:
+        amount = Decimal(str(value))
+    except (TypeError, ValueError, ArithmeticError):
+        raise ToolError(f"{field} must be a valid number.")
+    if amount <= 0:
+        raise ToolError(f"{field} must be greater than zero.")
+    ceiling = Decimal(str(settings.CHAT_AGENT_MAX_WRITE_AMOUNT))
+    if amount > ceiling:
+        raise ToolError(
+            f"{field} ({_fmt_money(amount)}) exceeds the maximum allowed for an "
+            f"AI-proposed action ({_fmt_money(ceiling)}). Enter this transaction "
+            f"directly in the ERP if it is genuinely this large."
+        )
+    return amount
 
 
 # ─── branch scoping helpers ────────────────────────────────────────────────
@@ -1976,6 +2000,7 @@ def _v_create_expense(db: Session, user: User, args: Dict) -> Dict:
     for f in ("expense_category", "expenses_method", "expense_amount", "branch_code"):
         if not args.get(f):
             raise ToolError(f"{f} is required.")
+    _validate_money_amount(args["expense_amount"], "expense_amount")
     branch = args["branch_code"]
     if not validate_branch_access(user, branch):
         raise ToolError(f"You don't have access to branch '{branch}'.")
@@ -2081,6 +2106,7 @@ def _x_approve_expense(db: Session, user: User, args: Dict) -> Dict:
 def _v_create_bank_deposit(db: Session, user: User, args: Dict) -> Dict:
     if not args.get("deposits_amount") or not args.get("branch_code"):
         raise ToolError("deposits_amount and branch_code are required.")
+    _validate_money_amount(args["deposits_amount"], "deposits_amount")
     branch = args["branch_code"]
     if not validate_branch_access(user, branch):
         raise ToolError(f"You don't have access to branch '{branch}'.")

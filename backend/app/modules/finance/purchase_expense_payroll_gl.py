@@ -102,6 +102,8 @@ ACCT_SALARIES_EXPENSE = "5110"
 ACCT_COMMISSION_EXPENSE = "5150"
 ACCT_EPF_EMPLOYER_EXPENSE = "5210"
 ACCT_ETF_EMPLOYER_EXPENSE = "5220"
+ACCT_CUSTOMER_CREDIT_NOTES = "2530"  # Liability — credit notes owed back to customers
+ACCT_SALES_RETURNS = "4030"          # Contra-revenue — sales returns
 
 # Expense category → COA account code mapping
 EXPENSE_CATEGORY_MAP = {
@@ -214,6 +216,8 @@ class PurchaseExpensePayrollGL:
         reference_type: str = "PO",
         reference_id: Optional[int] = None,
         reference_no: Optional[str] = None,
+        marker: Optional[str] = None,
+        idempotent: bool = True,
     ) -> Optional[JournalEntry]:
         """
         Build + post a balanced JE through the central :class:`GLPostingService`.
@@ -223,6 +227,14 @@ class PurchaseExpensePayrollGL:
         failure* (never a silent skip), sub-cent rounding posted to the dedicated
         ``5900 Rounding Difference`` account, closed-period blocking, and durable
         failure recording for later retry.
+
+        Idempotency: posting runs through ``GLPostingService`` with
+        ``idempotent=True`` so an advisory lock + re-check serialises concurrent
+        posts of the *same* source document (the lock-free ``_check_already_posted``
+        fast-path in the public methods cannot, by itself, close that race). Pass
+        ``marker`` for documents that legitimately produce more than one JE per
+        ``(reference_type, reference_id)`` — e.g. several customer advances applied
+        to one invoice — so those are told apart instead of wrongly deduplicated.
         """
         result = self._gl.post(
             reference_type=reference_type,
@@ -236,8 +248,8 @@ class PurchaseExpensePayrollGL:
             transaction_type=transaction_type,
             je_prefix=je_prefix,
             source_module="purchasing",
-            # Public post_* methods already guard with _check_already_posted.
-            idempotent=False,
+            marker=marker,
+            idempotent=idempotent,
             record_failure=True,
         )
         if result.failed:
@@ -462,6 +474,10 @@ class PurchaseExpensePayrollGL:
             reference_type="SupplierAdvanceReturn",
             reference_id=advance.id,
             reference_no=advance.advance_no,
+            # No return-record id to key on and partial returns of one advance
+            # are allowed, so cannot dedup on (type, advance_id) — keep the
+            # pre-existing non-idempotent behaviour for this flow only.
+            idempotent=False,
         )
 
         if je:
@@ -1435,6 +1451,9 @@ class PurchaseExpensePayrollGL:
             reference_type="CustomerAdvanceApplication",
             reference_id=invoice.id,
             reference_no=invoice.invoice_no,
+            # Many advances can apply to one invoice → key idempotency on the
+            # advance-specific marker, not just (type, invoice_id).
+            marker=marker,
         )
 
         if je:
@@ -1500,6 +1519,8 @@ class PurchaseExpensePayrollGL:
             reference_type="CustomerAdvanceApplicationReversal",
             reference_id=invoice.id,
             reference_no=invoice.invoice_no,
+            # One reversal per (invoice, advance) pair → distinguish by marker.
+            marker=marker,
         )
 
         if je:

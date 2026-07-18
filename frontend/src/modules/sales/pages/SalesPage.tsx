@@ -3868,8 +3868,20 @@ export default function SalesPage() {
             </Paper>
           </Box>
 
+          {/* When editing an existing order, financial fields are locked: the
+              backend update only accepts line-item changes, so showing editable
+              payment/discount/tax/coupon/voucher controls would silently discard
+              those changes. Surface that clearly and hide the controls. */}
+          {state.isEditing && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Editing an order updates its line items only. Payment method,
+              discounts, tax, coupons and gift vouchers can’t be changed after an
+              order is created — those sections are hidden while editing.
+            </Alert>
+          )}
+
           {/* Coupon/Discount Code Section - After adding items */}
-          {lineItems.length > 0 && (
+          {lineItems.length > 0 && !state.isEditing && (
             <Paper
               variant="outlined"
               sx={{
@@ -3992,7 +4004,7 @@ export default function SalesPage() {
           )}
 
           {/* Invoice Discount & Tax Section */}
-          {lineItems.length > 0 && (
+          {lineItems.length > 0 && !state.isEditing && (
             <Paper
               variant="outlined"
               sx={{
@@ -4176,7 +4188,7 @@ export default function SalesPage() {
           )}
 
           {/* Gift Voucher Payment Section - After adding items */}
-          {lineItems.length > 0 && (
+          {lineItems.length > 0 && !state.isEditing && (
             <Paper
               variant="outlined"
               sx={{
@@ -4390,6 +4402,7 @@ export default function SalesPage() {
 
           {/* Credit Note Payment Section */}
           {lineItems.length > 0 &&
+            !state.isEditing &&
             selectedCustomerId &&
             selectedCustomerId > 0 && (
               <Paper
@@ -4497,8 +4510,24 @@ export default function SalesPage() {
       {/* Step 3: Payment Details */}
       {formStep === 1 && (
         <>
-          {/* Split Payment UI */}
-          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          {state.isEditing && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Payment details can’t be changed when editing an existing order —
+              only line items are updated.
+            </Alert>
+          )}
+          {/* Split Payment UI — inert while editing so payment changes can't be
+              made (the update only persists line items). */}
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 2,
+              mb: 2,
+              ...(state.isEditing
+                ? { pointerEvents: "none", opacity: 0.6 }
+                : {}),
+            }}
+          >
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
               <Typography variant="h6" fontWeight="bold">Payment Details</Typography>
               <Button

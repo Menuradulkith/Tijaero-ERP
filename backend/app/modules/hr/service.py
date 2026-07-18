@@ -12,6 +12,7 @@ from app.modules.employees.models import Employee
 from app.modules.employees.models import EmployeePayroll, EmployeeSalaryProfile, EmployeePromotions, EmployeesAssets
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.common.enums import DocumentStatus, PaymentStatus
+from app.modules.finance.gl_posting_service import record_gl_commit_failure
 
 # Salary Deductions Service
 class SalaryDeductionService:
@@ -351,6 +352,16 @@ class ReimbursementService:
                 f"GL posting for reimbursement {r.reimbursement_no} failed (non-blocking): {gl_err}"
             )
             self.db.rollback()
+            record_gl_commit_failure(
+                self.db,
+                reference_type="Reimbursement",
+                reference_id=r.id,
+                reference_no=r.reimbursement_no,
+                transaction_type="Payment",
+                description=f"Reimbursement GL commit failed ({r.reimbursement_no})",
+                error=gl_err,
+                user_id=user_id,
+            )
         # ─────────────────────────────────────────────────────────────────
         
         return self._to_response(r)
@@ -922,6 +933,16 @@ class PayrollService:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for payroll batch {batch.batch_no} failed (non-blocking): {gl_err}")
             self.db.rollback()
+            record_gl_commit_failure(
+                self.db,
+                reference_type="PayrollBatch",
+                reference_id=batch.id,
+                reference_no=batch.batch_no,
+                transaction_type="Payroll",
+                description=f"Payroll batch GL commit failed ({batch.batch_no})",
+                error=gl_err,
+                user_id=user_id,
+            )
         # ────────────────────────────────────────────────────────────────
         
         return self._batch_to_response(batch, include_records=True)
@@ -1029,6 +1050,16 @@ class PayrollService:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for statutory payment batch {batch.batch_no} failed (non-blocking): {gl_err}")
             self.db.rollback()
+            record_gl_commit_failure(
+                self.db,
+                reference_type="StatutoryPayment",
+                reference_id=batch.id,
+                reference_no=batch.batch_no,
+                transaction_type="Payroll",
+                description=f"Statutory payment GL commit failed ({batch.batch_no})",
+                error=gl_err,
+                user_id=user_id,
+            )
         # ────────────────────────────────────────────────────────────────
         
         return self._batch_to_response(batch, include_records=True)

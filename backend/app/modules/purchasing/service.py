@@ -10,6 +10,7 @@ from app.core import timezone as tz
 from app.common.audit import log_audit
 from app.common.enums import PurchaseOrderStatus, DocumentStatus, StockStatus
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
+from app.modules.finance.gl_posting_service import record_gl_commit_failure
 
 DAILY_PO_LIMIT_PER_BRANCH = 5
 
@@ -694,6 +695,15 @@ class PurchasingReturnService:
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Purchase return GL posting failed: {e}")
+                record_gl_commit_failure(
+                    self.db,
+                    reference_type="PurchaseReturn",
+                    reference_id=db_return.id,
+                    reference_no=getattr(db_return, "purchasing_return_no", None),
+                    transaction_type="Purchase",
+                    description=f"Purchase return GL posting failed (#{db_return.id})",
+                    error=e,
+                )
 
             # ── Cashbook Hook: Record purchase return as money-in ──
             self._ensure_cashbook_entry_for_purchase_return(db_return)
@@ -803,6 +813,16 @@ class PurchasingReturnService:
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Purchase return GL posting failed: {e}")
+                record_gl_commit_failure(
+                    self.db,
+                    reference_type="PurchaseReturn",
+                    reference_id=return_record.id,
+                    reference_no=getattr(return_record, "purchasing_return_no", None),
+                    transaction_type="Purchase",
+                    description=f"Purchase return GL posting failed (#{return_record.id})",
+                    error=e,
+                    user_id=user_id,
+                )
 
             # ── Cashbook Hook: Record purchase return as money-in ──
             self._ensure_cashbook_entry_for_purchase_return(return_record)
@@ -1082,6 +1102,16 @@ class GoodReceivedNoteService:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for GRN {created_grn.good_received_no} failed (non-blocking): {gl_err}")
             self.db.rollback()
+            record_gl_commit_failure(
+                self.db,
+                reference_type="GRN",
+                reference_id=created_grn.id,
+                reference_no=created_grn.good_received_no,
+                transaction_type="Purchase",
+                description=f"GRN GL commit failed ({created_grn.good_received_no})",
+                error=gl_err,
+                user_id=actor_user_id or 0,
+            )
         # ────────────────────────────────────────────────────────────────
         
         return created_grn
@@ -1190,6 +1220,18 @@ class GoodReceivedNoteService:
             except Exception as gl_adv_err:
                 logging.getLogger(__name__).warning(
                     f"GL posting for auto advance applications on GRN {grn.good_received_no} failed (non-blocking): {gl_adv_err}"
+                )
+                # Loop-level failure — key the record on the GRN (individual
+                # application ids are not reliably known at this point).
+                record_gl_commit_failure(
+                    self.db,
+                    reference_type="AdvanceApplication",
+                    reference_id=grn.id,
+                    reference_no=grn.good_received_no,
+                    transaction_type="Purchase",
+                    description=f"Auto advance-application GL failed on GRN {grn.good_received_no}",
+                    error=gl_adv_err,
+                    user_id=created_by or 0,
                 )
 
         return applied_total
@@ -1629,6 +1671,16 @@ class SupplierCreditsSettleService:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for credit settlement {settle.supplier_credits_settle_no} failed (non-blocking): {gl_err}")
             self.db.rollback()
+            record_gl_commit_failure(
+                self.db,
+                reference_type="CreditSettle",
+                reference_id=settle.id,
+                reference_no=settle.supplier_credits_settle_no,
+                transaction_type="Payment",
+                description=f"Credit settlement GL commit failed ({settle.supplier_credits_settle_no})",
+                error=gl_err,
+                user_id=verified_by or 0,
+            )
         # ────────────────────────────────────────────────────────────────
         
         return settle
@@ -1917,6 +1969,16 @@ class SupplierPaymentService:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for supplier payment {result.payment_no} failed (non-blocking): {gl_err}")
             self.db.rollback()
+            record_gl_commit_failure(
+                self.db,
+                reference_type="SupplierPayment",
+                reference_id=result.id,
+                reference_no=result.payment_no,
+                transaction_type="Payment",
+                description=f"Supplier payment GL commit failed ({result.payment_no})",
+                error=gl_err,
+                user_id=verified_by,
+            )
         # ────────────────────────────────────────────────────────────────
 
         self._ensure_cashbook_entry_for_verified_payment(result)
@@ -2097,6 +2159,16 @@ class SupplierAdvancePaymentService:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for advance {advance.advance_no} failed (non-blocking): {gl_err}")
             self.db.rollback()
+            record_gl_commit_failure(
+                self.db,
+                reference_type="SupplierAdvance",
+                reference_id=advance.id,
+                reference_no=advance.advance_no,
+                transaction_type="Payment",
+                description=f"Supplier advance GL commit failed ({advance.advance_no})",
+                error=gl_err,
+                user_id=created_by or 0,
+            )
         # ────────────────────────────────────────────────────────────────
         
         log_audit(
@@ -2259,6 +2331,16 @@ class SupplierAdvancePaymentService:
                 f"GL posting for advance return {advance.advance_no} failed (non-blocking): {gl_err}"
             )
             self.db.rollback()
+            record_gl_commit_failure(
+                self.db,
+                reference_type="SupplierAdvanceReturn",
+                reference_id=advance.id,
+                reference_no=advance.advance_no,
+                transaction_type="Payment",
+                description=f"Supplier advance return GL commit failed ({advance.advance_no})",
+                error=gl_err,
+                user_id=user_id or 0,
+            )
             # Re-apply the data change without GL
             advance.returned_amount = D(str(float(advance.returned_amount)))
             advance.remaining_amount = D(str(max(0.0, remaining - return_amount)))
@@ -2384,6 +2466,15 @@ class SupplierAdvancePaymentService:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for advance application failed (non-blocking): {gl_err}")
             self.db.rollback()
+            record_gl_commit_failure(
+                self.db,
+                reference_type="AdvanceApplication",
+                reference_id=application.id,
+                transaction_type="Purchase",
+                description=f"Advance-application GL commit failed (#{application.id})",
+                error=gl_err,
+                user_id=created_by or 0,
+            )
         # ────────────────────────────────────────────────────────────────
         
         log_audit(

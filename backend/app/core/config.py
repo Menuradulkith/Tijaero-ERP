@@ -36,6 +36,17 @@ class Settings(BaseSettings, AuditMixin):
     CHAT_AGENT_OUTPUT_COST_PER_1M: float = 10.00  # gpt-4o output $/1M tokens
     CHAT_AGENT_MAX_TOOL_ROUNDS: int = 6
     CHAT_AGENT_HISTORY_MESSAGES: int = 20
+    # Content moderation: screen each user message through OpenAI's (free)
+    # moderation endpoint before it reaches the model/tool loop. Fails OPEN
+    # (allows the message, logs a warning) if the check itself errors, so a
+    # moderation outage never disables the assistant.
+    CHAT_AGENT_MODERATION_ENABLED: bool = True
+    CHAT_AGENT_MODERATION_MODEL: str = "omni-moderation-latest"
+    # Sanity ceiling on the monetary amount of any AI-proposed financial write
+    # (expense, bank deposit, …). A defence-in-depth guard against a
+    # hallucinated or injection-induced absurd amount slipping past the human
+    # confirmation card. Does not affect the normal REST API.
+    CHAT_AGENT_MAX_WRITE_AMOUNT: float = 100_000_000.0
     
     class Config:
         env_file = ".env"

@@ -8,7 +8,12 @@ from app.auth.dependencies import (
     validate_branch_access,
 )
 from app.auth.models import User
-from app.auth.rbac import Permissions, require_permission
+from app.auth.rbac import (
+    Permissions,
+    require_any_permission,
+    require_permission,
+    user_has_permission,
+)
 from app.db.session import get_db
 from app.modules.inventory import schemas, service
 from app.modules.products import service as products_service
@@ -49,6 +54,9 @@ def export_sales_stock_csv(
 
     if limit:
         items = items[:limit]
+
+    # Cost price is sensitive — only expose it to users with cost_price:view
+    can_view_cost = user_has_permission(current_user, *Permissions.COST_PRICE_VIEW)
 
     # Pre-fetch products, brands, and categories to avoid N+1 issues but keep it simple here by resolving them
     # For a perfect optimized export, fetching these through joins in service is better,
@@ -107,6 +115,8 @@ def export_sales_stock_csv(
         cost = (
             item.get("cost_price", "") if is_dict else getattr(item, "cost_price", "")
         )
+        if not can_view_cost:
+            cost = ""
         sell = (
             item.get("selling_price", "")
             if is_dict
@@ -194,12 +204,18 @@ def get_all_sales_stock(
             )
 
     sales_stock_service = service.SalesStockService(db)
-    return sales_stock_service.get_all(
+    items = sales_stock_service.get_all(
         branch_code=branch_code,
         branch_codes=user_branches,  # Pass list of allowed branches for filtering
         product_id=product_id,
         status=stock_status,
     )
+    # Hide cost price from users without cost_price:view
+    if not user_has_permission(current_user, *Permissions.COST_PRICE_VIEW):
+        for it in items:
+            if isinstance(it, dict):
+                it["cost_price"] = None
+    return items
 
 
 @router.get(
@@ -231,7 +247,7 @@ def get_paginated_sales_stock(
             )
 
     sales_stock_service = service.SalesStockService(db)
-    return sales_stock_service.get_paginated(
+    result = sales_stock_service.get_paginated(
         branch_code=branch_code,
         branch_codes=user_branches,
         product_id=product_id,
@@ -244,6 +260,12 @@ def get_paginated_sales_stock(
         skip=skip,
         limit=limit,
     )
+    # Hide cost price from users without cost_price:view
+    if not user_has_permission(current_user, *Permissions.COST_PRICE_VIEW):
+        for it in result.get("items", []):
+            if isinstance(it, dict):
+                it["cost_price"] = None
+    return result
 
 
 @router.post(
@@ -271,7 +293,7 @@ def create_sales_stock(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/sales-stock/check-barcode/{barcode}", dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
+@router.get("/sales-stock/check-barcode/{barcode}", dependencies=[Depends(require_any_permission(Permissions.SALES_STOCK_VIEW, Permissions.GRN_CREATE))])
 def check_barcode_exists(barcode: str, db: Session = Depends(get_db)):
     """Check if a barcode already exists in sales_stock table"""
     sales_stock_service = service.SalesStockService(db)
@@ -410,7 +432,7 @@ def create_company_asset(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/company-assets/check-barcode/{barcode}", dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_VIEW))])
+@router.get("/company-assets/check-barcode/{barcode}", dependencies=[Depends(require_any_permission(Permissions.COMPANY_ASSET_VIEW, Permissions.GRN_CREATE))])
 def check_company_asset_barcode_exists(barcode: str, db: Session = Depends(get_db)):
     """Check if a barcode already exists in company_assets table"""
     company_asset_service = service.CompanyAssetService(db)

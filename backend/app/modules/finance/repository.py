@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from datetime import date, datetime
 from app.core import timezone as tz
 from app.common.audit import log_audit
@@ -55,16 +55,30 @@ class BankDepositRepository:
         
         return query.order_by(models.BankDeposits.created_date.desc()).offset(filters.skip).limit(filters.limit).all()
     
-    def verify(self, deposit_id: int) -> Optional[models.BankDeposits]:
-        # SELECT FOR UPDATE to prevent double-verification race condition
+    def verify(self, deposit_id: int, user_id: Optional[int] = None) -> Tuple[Optional[models.BankDeposits], bool]:
+        """Idempotently mark a deposit verified.
+
+        Returns ``(deposit, newly_verified)``. ``newly_verified`` is False when
+        the deposit does not exist or was already verified — in which case the
+        caller must NOT (re-)post it to the GL. The ``SELECT FOR UPDATE`` row
+        lock plus the ``verified`` guard together make a concurrent double-verify
+        safe: the second caller blocks, then sees ``verified`` already True and
+        posts nothing.
+        """
         deposit = self.db.query(models.BankDeposits).filter(
             models.BankDeposits.id == deposit_id
         ).with_for_update().first()
-        if deposit:
-            deposit.verified = True
-            self.db.commit()
-            self.db.refresh(deposit)
-        return deposit
+        if not deposit:
+            return None, False
+        if deposit.verified:
+            return deposit, False
+        deposit.verified = True
+        deposit.status = "confirmed"
+        deposit.confirmed_by = user_id
+        deposit.confirmed_date = tz.now()
+        self.db.commit()
+        self.db.refresh(deposit)
+        return deposit, True
 
 class CardPaymentRepository:
     def __init__(self, db: Session):
