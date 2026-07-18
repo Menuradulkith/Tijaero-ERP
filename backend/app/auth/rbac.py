@@ -355,6 +355,8 @@ class Permissions:
     REPORTING_WAREHOUSE_GENERATE = ("reporting_warehouse", "generate")
     REPORTING_SUPPORT_VIEW = ("reporting_support", "view")
     REPORTING_SUPPORT_GENERATE = ("reporting_support", "generate")
+    REPORTING_BRANCH_SUMMARY_VIEW = ("reporting_branch_summary", "view")
+    REPORTING_BRANCH_SUMMARY_GENERATE = ("reporting_branch_summary", "generate")
 
     # ═══════════════════════════════════════════════════════════════════
     # ADMINISTRATION

@@ -369,7 +369,7 @@ class SalesAccountingIntegration:
                 "account_code": ACCT_VAT_PAYABLE,
                 "debit": Decimal("0"),
                 "credit": tax_amount,
-                "description": f"Tax on sale {invoice.invoice_no}",
+                "description": f"Tax on sale {invoice.invoice_no} (Sales Amount: {revenue_amount})",
             })
 
         # --- Service Charge (already included in grand_total for card payments) ---
@@ -625,7 +625,7 @@ class SalesAccountingIntegration:
                 "account_code": ACCT_VAT_PAYABLE,
                 "debit": tax_refund,
                 "credit": Decimal("0"),
-                "description": f"Tax reversed on return {sale_return.sale_return_no}",
+                "description": f"Tax reversed on return {sale_return.sale_return_no} (Return Amount: {revenue_reversal})",
             })
         lines.append({
             "account_code": credit_account,

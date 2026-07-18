@@ -14,9 +14,17 @@ import {
   People as HRIcon,
   Warehouse as WarehouseIcon,
   SupportAgent as SupportIcon,
+  Storefront as BranchIcon,
 } from "@mui/icons-material";
 
 const reportModules = [
+  {
+    title: "Branch Daily Summary",
+    description: "Per-branch sales, POs, cash in hand & banking report",
+    icon: <BranchIcon sx={{ fontSize: 48 }} />,
+    path: "/reporting/branch-summary",
+    color: "#00695c",
+  },
   {
     title: "Sales Reports",
     description: "Sales analytics, top products, revenue trends",

@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from app.db.session import get_db
 from app.reporting import sales_reports, inventory_reports, financial_reports
 from app.reporting.document_reports import get_document_report_service
+from app.reporting import branch_summary_reports
+from app.auth.rbac import Permissions, require_permission
 
 router = APIRouter()
 
@@ -119,3 +121,47 @@ def get_payroll_report(
         custom_remarks=custom_remarks
     )
 
+
+# ─── Branch Daily Summary ─────────────────────────────────────────────────────
+
+@router.get(
+    "/branches",
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_BRANCH_SUMMARY_VIEW))],
+)
+def list_branches(db: Session = Depends(get_db)):
+    """Return all active branches for the branch-selector dropdown."""
+    return branch_summary_reports.get_branch_list(db)
+
+
+@router.get(
+    "/branch-summary",
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_BRANCH_SUMMARY_GENERATE))],
+)
+def branch_daily_summary(
+    report_date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    branch_codes: Optional[str] = Query(
+        None,
+        description="Comma-separated branch codes. Omit for all active branches.",
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Branch Daily Account Summary report.
+    Returns one object per branch containing sales, returns, POs, banking and
+    cash-in-hand figures for the specified date.
+    """
+    from datetime import date as date_type
+    try:
+        parsed_date = date_type.fromisoformat(report_date)
+    except ValueError:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid date format '{report_date}'. Use YYYY-MM-DD.",
+        )
+
+    codes: Optional[List[str]] = None
+    if branch_codes:
+        codes = [c.strip() for c in branch_codes.split(",") if c.strip()]
+
+    return branch_summary_reports.get_branch_daily_summary(db, parsed_date, codes)

@@ -7,6 +7,7 @@ import InventoryReportPage from "./pages/InventoryReportPage";
 import HRReportPage from "./pages/HRReportPage";
 import WarehouseReportPage from "./pages/WarehouseReportPage";
 import SupportReportPage from "./pages/SupportReportPage";
+import BranchSummaryPage from "./pages/BranchSummaryPage";
 
 export default function ReportingRoutes() {
   return (
@@ -18,6 +19,7 @@ export default function ReportingRoutes() {
       <Route path="hr" element={<ProtectedRoute resource="reporting_hr" action="view"><HRReportPage /></ProtectedRoute>} />
       <Route path="warehouse" element={<ProtectedRoute resource="reporting_warehouse" action="view"><WarehouseReportPage /></ProtectedRoute>} />
       <Route path="support" element={<ProtectedRoute resource="reporting_support" action="view"><SupportReportPage /></ProtectedRoute>} />
+      <Route path="branch-summary" element={<ProtectedRoute resource="reporting_branch_summary" action="view"><BranchSummaryPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );
