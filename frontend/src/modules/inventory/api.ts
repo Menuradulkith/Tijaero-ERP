@@ -17,6 +17,9 @@ import {
   StockTrackingEvent,
   CompanyAsset,
   CompanyAssetCreate,
+  PriceTier,
+  PriceTierCreate,
+  PriceTierUpdate,
 } from "./types";
 
 export const productsApi = {
@@ -287,5 +290,53 @@ export const companyAssetsApi = {
       { params: { status } }
     );
     return response.data;
+  },
+};
+
+// ── Price Tiers API ─────────────────────────────────────────────────────────
+export const priceTiersApi = {
+  /** List all price tiers for a product. Pass activeOnly=true for dropdowns. */
+  list: async (productId: number, activeOnly = false): Promise<PriceTier[]> => {
+    const response = await apiClient.get<PriceTier[]>(
+      `/inventory/products/${productId}/price-tiers`,
+      { params: { active_only: activeOnly } }
+    );
+    return response.data;
+  },
+
+  get: async (productId: number, tierId: number): Promise<PriceTier> => {
+    const response = await apiClient.get<PriceTier>(
+      `/inventory/products/${productId}/price-tiers/${tierId}`
+    );
+    return response.data;
+  },
+
+  create: async (productId: number, data: PriceTierCreate): Promise<PriceTier> => {
+    const response = await apiClient.post<PriceTier>(
+      `/inventory/products/${productId}/price-tiers`,
+      data
+    );
+    return response.data;
+  },
+
+  update: async (productId: number, tierId: number, data: PriceTierUpdate): Promise<PriceTier> => {
+    const response = await apiClient.put<PriceTier>(
+      `/inventory/products/${productId}/price-tiers/${tierId}`,
+      data
+    );
+    return response.data;
+  },
+
+  toggle: async (productId: number, tierId: number, isActive: boolean): Promise<PriceTier> => {
+    const response = await apiClient.patch<PriceTier>(
+      `/inventory/products/${productId}/price-tiers/${tierId}/toggle`,
+      null,
+      { params: { is_active: isActive } }
+    );
+    return response.data;
+  },
+
+  delete: async (productId: number, tierId: number): Promise<void> => {
+    await apiClient.delete(`/inventory/products/${productId}/price-tiers/${tierId}`);
   },
 };

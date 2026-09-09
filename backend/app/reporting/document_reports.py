@@ -8,6 +8,7 @@ import app.models  # Ensures all relationships are resolving correctly
 from app.auth.models import Branch
 from app.core import timezone as tz
 from app.modules.common.models import Locations
+from app.modules.customers.commission_models import CustomerAgentCommission
 from app.modules.customers.models import Customer, CustomerGiftVoucher, VoucherUsage
 from app.modules.employees.models import (
     Employee,
@@ -597,6 +598,12 @@ class DocumentReportService:
         customer = self._get_customer_info(invoice.customer_id)
         branch = self._get_branch_info(invoice.branch_code)
 
+        # Fetch agent commission amount
+        commission = self.db.query(CustomerAgentCommission).filter(
+            CustomerAgentCommission.invoice_id == invoice.id
+        ).first()
+        agent_commission_amount = commission.commission_amount if commission else 0
+
         item_arrangement = OrderedDict()
 
         for item in invoice.items:
@@ -653,19 +660,17 @@ class DocumentReportService:
                 "pageType":       'TAX INVOICE' if invoice.is_tax_invoice else '',
                 "invoiceNo":      invoice.invoice_no,
                 "soNo":           invoice.credit_payment_id if invoice.credit_payment_id else '',
-                # "ourVatNumber":   '', # Added by the template logic based on page type
                 "date":           invoice.created_date.strftime("%d %b %Y") if invoice.created_date else "",
                 "time":           invoice.created_at.strftime("%I:%M %p") if invoice.created_at else "",
-                "terms":          '', # self._get_credit_terms(invoice.credit_payment_id) if invoice.credit_payment_id else '',
-                "ourRefPoNo":     '', #TODO NEED TO CHECK WHAT IS THIS
-                "ourRefPoDate":   '', #TODO NEED TO CHECK WHAT IS THIS
-                "repCode":        invoice.customer_agent_id or '',
-                "sysCode":        self._generate_syscode_from_amount(invoice.paid_amount or 0),
+                "terms":          '', 
+                "ourRefPoNo":     '', 
+                "ourRefPoDate":   '', 
+                "repCode":        invoice.customer_agent_id or invoice.sale_rep_id or '',
+                "sysCode":        self._generate_syscode_from_amount(agent_commission_amount),
                 "customerCode":   invoice.customer_id or '',
                 "customerName":   customer.get("customer_name", ""),
                 "customerAddress": f"{customer.get('customer_address', '') + ' ' + customer.get('email', '')}".strip(),
                 "customerContact": f"{customer.get('mobile_number', '') + '  ' + customer.get('land_number', '')}".strip(),
-                "chequeNumber":   '', #TODO
                 "chequeBankName": '', #TODO
                 "chequeAmount":   invoice.cheque_amount or '',
                 "chequeDate":     invoice.cheque_date.strftime("%d %b %Y") if invoice.cheque_date else '',

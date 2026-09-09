@@ -166,14 +166,14 @@ export default function CommissionApprovalsPage() {
   });
 
   const rejectMutation = useCrudMutation({
-    mutationFn: (id: number) => commissionsApi.delete(id),
+    mutationFn: (id: number) => commissionsApi.decline(id),
     invalidateQueryKeys: [
       ["commission-approvals"],
       ["agent-commissions"],
       ["agent-commission-summaries"],
     ],
-    successMessage: "Commission rejected (deleted)",
-    errorMessage: "Failed to reject commission",
+    successMessage: "Commission declined",
+    errorMessage: "Failed to decline commission",
     onSuccess: () => {
       setSelectedCommission(null);
     },
@@ -206,8 +206,8 @@ export default function CommissionApprovalsPage() {
     if (!selectedCommission) return;
 
     rejectDialog.open(
-      "Reject Commission",
-      `Are you sure you want to reject this commission? This will delete the commission record and cannot be undone.`,
+      "Decline Commission",
+      `Are you sure you want to decline this commission? This will set its status to cancelled.`,
       () => rejectMutation.mutate(selectedCommission.id)
     );
   }, [selectedCommission, rejectMutation, rejectDialog]);
@@ -447,17 +447,17 @@ export default function CommissionApprovalsPage() {
               Approve
             </Button>
           )}
-          {canDelete && (
-            <Button
-              variant="outlined"
-              color="error"
-              startIcon={<CancelIcon />}
-              onClick={handleReject}
-              disabled={rejectMutation.isPending}
-            >
-              Reject / Delete
-            </Button>
-          )}
+            {canApprove && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<CancelIcon />}
+                onClick={handleReject}
+                disabled={rejectMutation.isPending}
+              >
+                Decline
+              </Button>
+            )}
         </Box>
       )}
 
@@ -508,7 +508,7 @@ export default function CommissionApprovalsPage() {
             </FormSection>
 
             {/* Commission Details */}
-            <FormSection title="Commission Details" columns={3}>
+            <FormSection title="Commission Details" columns={2}>
               <TextField
                 label="Commission Type"
                 size="small"
@@ -532,6 +532,18 @@ export default function CommissionApprovalsPage() {
                   "& .MuiInputBase-input": {
                     fontWeight: 700,
                     color: "primary.main",
+                  },
+                }}
+              />
+              <TextField
+                label="Remaining Amount"
+                size="small"
+                value={`Rs. ${fmtLKR(Number(selectedCommission.commission_amount) - Number(selectedCommission.total_paid || 0))}`}
+                disabled
+                sx={{
+                  "& .MuiInputBase-input": {
+                    fontWeight: 700,
+                    color: "warning.main",
                   },
                 }}
               />

@@ -204,6 +204,34 @@ class CommissionService:
         }
         return commission_repository.update_commission(db, commission_id, update_data)
 
+    def decline_commission(
+        self,
+        db: Session,
+        commission_id: int,
+        declined_by: int,
+    ) -> CustomerAgentCommission:
+        """Decline/Cancel a pending or approved commission"""
+        commission = db.query(CustomerAgentCommission).filter(
+            CustomerAgentCommission.id == commission_id
+        ).with_for_update().first()
+        
+        if not commission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Commission with id {commission_id} not found"
+            )
+
+        if commission.status not in ("pending", "approved"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Commission is '{commission.status}', only pending or approved commissions can be declined"
+            )
+
+        update_data = {
+            "status": "cancelled",
+        }
+        return commission_repository.update_commission(db, commission_id, update_data)
+
     def delete_commission(self, db: Session, commission_id: int) -> dict:
         """Delete a pending commission"""
         # Lock the commission row to prevent concurrent delete/approve race

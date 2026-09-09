@@ -463,3 +463,54 @@ def get_journal_entry_report(
         show_signatures=show_signatures,
         custom_remarks=custom_remarks,
     )
+
+
+# ─── Branch Daily Summary ─────────────────────────────────────────────────────
+
+@router.get(
+    "/branches",
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_BRANCH_SUMMARY_VIEW))],
+)
+def list_branches(db: Session = Depends(get_db)):
+    """Return all active branches for the branch-selector dropdown."""
+    from app.reporting import branch_summary_reports
+    return branch_summary_reports.get_branch_list(db)
+
+
+@router.get(
+    "/branch-summary",
+    dependencies=[Depends(require_permission(*Permissions.REPORTING_BRANCH_SUMMARY_GENERATE))],
+)
+def branch_daily_summary(
+    start_date: str = Query(..., description="Start date in YYYY-MM-DD format"),
+    end_date: str = Query(..., description="End date in YYYY-MM-DD format"),
+    branch_codes: Optional[str] = Query(
+        None,
+        description="Comma-separated branch codes. Omit for all active branches.",
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Branch Daily Account Summary.
+    Returns one object per branch with sales, returns, POs, banking and
+    cash-in-hand figures for the specified date range.
+    """
+    from datetime import date as date_type
+    from app.reporting import branch_summary_reports
+
+    try:
+        parsed_start = date_type.fromisoformat(start_date)
+        parsed_end = date_type.fromisoformat(end_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid date format. Use YYYY-MM-DD.",
+        )
+
+    b_codes = None
+    if branch_codes:
+        b_codes = [code.strip() for code in branch_codes.split(",") if code.strip()]
+
+    return branch_summary_reports.get_branch_daily_summary(
+        db, parsed_start, parsed_end, b_codes
+    )

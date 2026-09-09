@@ -83,17 +83,22 @@ import {
     SaleReturnWithItems,
 } from "../types";
 
-const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
-  const fullPrefix = `${prefix}-${year}-`;
+  const yy = String(year).slice(-2);
+  const actualBranch = branchCode || "MAIN";
+  const fullPrefix = `${prefix}-${actualBranch}-${yy}`;
   let maxSeq = 0;
   for (const item of existing) {
     if (item.no?.startsWith(fullPrefix)) {
-      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
-      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      const lastPart = item.no.split("-").pop() || "";
+      if (lastPart.length > 2) {
+        const seq = parseInt(lastPart.slice(2), 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      }
     }
   }
-  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+  return `${fullPrefix}${String(maxSeq + 1).padStart(6, '0')}`;
 };
 
 const SORT_OPTIONS: SortOption[] = [
@@ -324,8 +329,8 @@ export default function SaleReturnsPage() {
     });
 
     const nextSRNumber = useMemo(() =>
-        getNextNumber('SR', (returns || []).map((r: any) => ({ no: r.sale_return_no }))),
-    [returns]);
+        getNextNumber('SRN', (returns || []).map((r: any) => ({ no: r.sale_return_no })), formData.branch_code),
+        [returns, formData.branch_code]);
 
     // Only fetch invoices when user is creating/editing (for the Autocomplete dropdown)
     const { data: invoices } = useQuery({

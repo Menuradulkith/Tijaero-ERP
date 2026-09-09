@@ -7,7 +7,7 @@ must be Decimal). Widen all three to Numeric(18,2) so fractional currency is
 preserved end-to-end.
 
 Revision ID: s42_supplier_credit_numeric
-Revises: s41_advance_application_invoice_link
+Revises: s41_adv_app_inv_link
 Create Date: 2026-07-07
 """
 from alembic import op
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "s42_supplier_credit_numeric"
-down_revision = "s41_advance_application_invoice_link"
+down_revision = "s41_adv_app_inv_link"
 branch_labels = None
 depends_on = None
 

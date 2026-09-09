@@ -125,6 +125,7 @@ interface ItemFormData {
   description?: string;
   discount_percent: number;
   tax_rate: number;
+  price_tier_id?: number;
 }
 
 // Initial form data
@@ -243,7 +244,7 @@ export default function QuotationsPage() {
     formData,
     setFormData,
     handleSelectItem: handleSelectQuote,
-    handleNew: handleNewQuote,
+    handleNew: handleNewQuoteBase,
     handleCancel: baseHandleCancel,
     handleStartEdit,
     markAsSaved,
@@ -269,6 +270,16 @@ export default function QuotationsPage() {
   const products = refData?.products || [];
   const branches = filteredBranches || [];
   const customers = refData?.customers || [];
+
+  const handleNewQuote = useCallback(() => {
+    handleNewQuoteBase();
+    if (defaultBranchCode) {
+      setFormData((prev) => ({
+        ...prev,
+        branch_code: defaultBranchCode,
+      }));
+    }
+  }, [handleNewQuoteBase, setFormData, defaultBranchCode]);
 
   // Fetch all customers to filter customer agents (is_customer_agent=true)
   const { data: allCustomers } = useQuery({
@@ -1045,6 +1056,7 @@ export default function QuotationsPage() {
       is_price_estimate: item.is_price_estimate,
       description: item.description,
       discount_percent: item.discount_percent || 0,
+      price_tier_id: item.price_tier_id,
     }));
 
     if (isCreating) {
@@ -1092,6 +1104,7 @@ export default function QuotationsPage() {
           is_price_estimate: formData.quote_type === "quotation",
           discount_percent: 0,
           tax_rate: 0,
+          price_tier_id: undefined,
         },
       ]
     );
@@ -1100,7 +1113,7 @@ export default function QuotationsPage() {
   // Update line item
   const handleUpdateLineItem = async (index: number, field: keyof ItemFormData, value: unknown) => {
     // For non-product fields, update immediately
-    if (field !== "product_id") {
+    if (field !== "product_id" && field !== "price_tier_id") {
       setLineItemsDirty(true);
       setLineItems(prev => {
         const updated = [...prev];
@@ -1111,17 +1124,57 @@ export default function QuotationsPage() {
       return;
     }
 
+    if (field === "price_tier_id") {
+      setLineItemsDirty(true);
+      const tierId = value as number;
+      setLineItems(prev => {
+        const updated = [...prev];
+        updated[index].price_tier_id = tierId;
+        
+        const product = products?.find(p => p.id === updated[index].product_id);
+        const tier = product?.price_tiers?.find(t => t.id === tierId);
+        
+        if (tier) {
+          updated[index].selling_price = tier.selling_price;
+          updated[index].min_price = tier.minimum_selling_price;
+          updated[index].minimum_selling_price = tier.minimum_selling_price;
+        }
+        return updated;
+      });
+      return;
+    }
+
     // For product selection, fetch minimum price from MinimumPrice table
     if (field === "product_id" && value) {
       setLineItemsDirty(true);
       const product = products?.find((p) => p.id === value);
       if (product) {
-        // First update with product selected and selling_price from the product catalogue
+        const activeTiers = product.price_tiers?.filter(t => t.is_active) || [];
+        const defaultTier = activeTiers.find(t => t.remark === 'Default') || activeTiers[0];
+
+        if (defaultTier) {
+          setLineItems(prev => {
+            const updated = [...prev];
+            updated[index] = {
+              ...updated[index],
+              product_id: value as number,
+              price_tier_id: defaultTier.id,
+              selling_price: defaultTier.selling_price,
+              min_price: defaultTier.minimum_selling_price,
+              minimum_selling_price: defaultTier.minimum_selling_price,
+            } as ItemFormData;
+            return updated;
+          });
+          return;
+        }
+
+        // Fallback to older mechanism
         setLineItems(prev => {
           const updated = [...prev];
           updated[index] = {
             ...updated[index],
             product_id: value as number,
+            price_tier_id: undefined,
             selling_price: product.selling_price || 0,
           } as ItemFormData;
           return updated;
@@ -1286,7 +1339,7 @@ export default function QuotationsPage() {
           isEditing={isEditing}
           isCreating={isCreating}
           hasSelection={!!selectedQuote}
-          onAdd={handleCreateNew}
+          onAdd={handleNewQuote}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onSave={handleSave}
@@ -1894,25 +1947,49 @@ export default function QuotationsPage() {
                     {lineItems.map((item, index) => (
                       <TableRow key={index}>
                         <TableCell>
-                          <Autocomplete
-                            options={[...(products || [])].sort((a, b) => a.name.localeCompare(b.name))}
-                            getOptionLabel={(option) => `${option.item_code} - ${option.name}`}
-                            filterOptions={(options, { inputValue }) => {
-                              const q = inputValue.toLowerCase();
-                              return options.filter(
-                                (o) =>
-                                  o.name.toLowerCase().includes(q) ||
-                                  o.item_code.toLowerCase().includes(q)
-                              );
-                            }}
-                            value={products?.find((p) => p.id === item.product_id) || null}
-                            onChange={(_, newValue) =>
-                              handleUpdateLineItem(index, "product_id", newValue?.id || 0)
-                            }
-                            renderInput={(params) => (
-                              <TextField {...params} size="small" placeholder="Search by name or code" />
-                            )}
-                          />
+                          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                            <Autocomplete
+                              options={[...(products || [])].sort((a, b) => a.name.localeCompare(b.name))}
+                              getOptionLabel={(option) => `${option.item_code} - ${option.name}`}
+                              filterOptions={(options, { inputValue }) => {
+                                const q = inputValue.toLowerCase();
+                                return options.filter(
+                                  (o) =>
+                                    o.name.toLowerCase().includes(q) ||
+                                    o.item_code.toLowerCase().includes(q)
+                                );
+                              }}
+                              value={products?.find((p) => p.id === item.product_id) || null}
+                              onChange={(_, newValue) =>
+                                handleUpdateLineItem(index, "product_id", newValue?.id || 0)
+                              }
+                              renderInput={(params) => (
+                                <TextField {...params} size="small" placeholder="Search by name or code" />
+                              )}
+                            />
+                            {(() => {
+                              const p = products?.find((p) => p.id === item.product_id);
+                              const activeTiers = p?.price_tiers?.filter(t => t.is_active) || [];
+                              if (activeTiers.length > 0) {
+                                return (
+                                  <Autocomplete
+                                    options={activeTiers}
+                                    getOptionLabel={(option) =>
+                                      `${option.remark || "Unnamed Tier"} - Rs. ${option.selling_price}`
+                                    }
+                                    value={activeTiers.find((t) => t.id === item.price_tier_id) || null}
+                                    onChange={(_, newValue) =>
+                                      handleUpdateLineItem(index, "price_tier_id", newValue?.id || undefined)
+                                    }
+                                    renderInput={(params) => (
+                                      <TextField {...params} size="small" placeholder="Select Price Tier" />
+                                    )}
+                                  />
+                                );
+                              }
+                              return null;
+                            })()}
+                          </Box>
                         </TableCell>
                         <TableCell align="right">
                           <TextField

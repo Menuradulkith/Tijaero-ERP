@@ -48,6 +48,7 @@ import {
   import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { brandsApi, categoriesApi, minimumPriceApi, productsApi } from "../api";
+import PriceTierManager from "../components/PriceTierManager";
 import {
     Brand,
     BrandCreate,
@@ -146,9 +147,9 @@ export default function ProductsPage({
   }, [view, hideTabs, activeTab]);
 
   // Permissions
-  const canCreate = usePermission("inventory", "create");
-  const canUpdate = usePermission("inventory", "update");
-  const canDelete = usePermission("inventory", "delete");
+  const canCreate = usePermission("products", "create");
+  const canUpdate = usePermission("products", "update");
+  const canDelete = usePermission("products", "delete");
 
   // Confirm dialog - unified for all tabs
   const confirmDialog = useConfirmDialog();
@@ -1601,6 +1602,18 @@ export default function ProductsPage({
                   )
                 )}
               </FormSection>
+
+              {/* ── Price Tiers ───────────────────────────────────────────── */}
+              {productState.selectedItem && (
+                <FormSection title="Price Tiers">
+                  <Box sx={{ gridColumn: "1 / -1" }}>
+                    <PriceTierManager
+                      productId={productState.selectedItem.id}
+                      canEdit={canUpdate}
+                    />
+                  </Box>
+                </FormSection>
+              )}
 
               <FormSection title="Status">
                 <Box

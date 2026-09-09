@@ -14,6 +14,7 @@ import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
@@ -87,6 +88,7 @@ import {
     PurchasingOrderWithItems,
     Supplier,
 } from "@/modules/purchasing/types";
+import PriceTierManager from "@/modules/inventory/components/PriceTierManager";
 
 import { useAuthStore } from "@/state/authStore";
 import { hasPermission } from "@/auth/permissions";
@@ -101,17 +103,22 @@ const SORT_OPTIONS: SortOption[] = [
 const FORM_STEPS = ["Order Information", "Order Items"];
 
 /** Preview the next sequential number using the same format as the backend */
-const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
-  const fullPrefix = `${prefix}-${year}-`;
+  const yy = String(year).slice(-2);
+  const actualBranch = branchCode || "MAIN";
+  const fullPrefix = `${prefix}-${actualBranch}-${yy}`;
   let maxSeq = 0;
   for (const item of existing) {
     if (item.no?.startsWith(fullPrefix)) {
-      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
-      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      const lastPart = item.no.split("-").pop() || "";
+      if (lastPart.length > 2) {
+        const seq = parseInt(lastPart.slice(2), 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      }
     }
   }
-  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, "0")}`;
+  return `${fullPrefix}${String(maxSeq + 1).padStart(6, "0")}`;
 };
 
 // Extended form type to include editable status fields
@@ -139,6 +146,7 @@ const INITIAL_FORM_DATA: PurchaseOrderFormData = {
 
 interface OrderLineItem extends PurchasingOrderItemCreate {
   _id: string;
+  price_tier_id?: number;
 }
 
 const resetFormFromOrder = (
@@ -173,6 +181,7 @@ export default function PurchaseOrdersPage() {
   const user = useAuthStore((s) => s.user);
 
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
+  const [tierManagerProductId, setTierManagerProductId] = useState<number | null>(null);
   const [formStep, setFormStep] = useState(0);
 
   // Confirm dialog for unsaved changes and delete actions
@@ -412,7 +421,7 @@ export default function PurchaseOrdersPage() {
     enabled: branchResolved,
   });
 
-  const nextPONumber = useMemo(() => getNextNumber('PO', (orders || []).map((o: PurchasingOrder) => ({ no: o.purchasing_order_no }))), [orders]);
+  const nextPONumber = useMemo(() => getNextNumber('PO', (orders || []).map((o: PurchasingOrder) => ({ no: o.purchasing_order_no })), formData.branch_code), [orders, formData.branch_code]);
 
   // Check daily PO limit for a branch
   const checkDailyLimit = useCallback(
@@ -1782,41 +1791,92 @@ export default function PurchaseOrdersPage() {
                             >
                               <TableCell>
                                 {isEditing || isCreating ? (
-                                  <Autocomplete
-                                    size="small"
-                                    options={products || []}
-                                    getOptionLabel={(option: any) =>
-                                      option.name || ""
-                                    }
-                                    value={
-                                      products?.find(
-                                        (p: any) => p.id === item.product_id,
-                                      ) || null
-                                    }
-                                    onChange={(_, newValue: any) => {
-                                      // Set product_id and automatically populate unit_price from cost_price
-                                      const updatedItems = lineItems.map(
-                                        (lineItem) =>
-                                          lineItem._id === item._id
-                                            ? {
-                                                ...lineItem,
-                                                product_id: newValue?.id || 0,
-                                                unit_price:
-                                                  newValue?.cost_price || 0,
-                                              }
-                                            : lineItem,
-                                      );
-                                      setLineItems(updatedItems);
-                                    }}
-                                    renderInput={(params) => (
-                                      <TextField
-                                        {...params}
-                                        placeholder="Select Product"
+                                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                                    <Box sx={{ display: "flex", gap: 1 }}>
+                                      <Autocomplete
                                         size="small"
+                                        options={products || []}
+                                        getOptionLabel={(option: any) =>
+                                          option.name || ""
+                                        }
+                                        value={
+                                          products?.find(
+                                            (p: any) => p.id === item.product_id,
+                                          ) || null
+                                        }
+                                        onChange={(_, newValue: any) => {
+                                          const activeTiers = newValue?.price_tiers?.filter((t: any) => t.is_active) || [];
+                                          const defaultTier = activeTiers.find((t: any) => t.remark === 'Default') || activeTiers[0];
+
+                                          const updatedItems = lineItems.map(
+                                            (lineItem) =>
+                                              lineItem._id === item._id
+                                                ? {
+                                                    ...lineItem,
+                                                    product_id: newValue?.id || 0,
+                                                    price_tier_id: defaultTier?.id || undefined,
+                                                    unit_price:
+                                                      defaultTier?.cost_price || newValue?.cost_price || 0,
+                                                  }
+                                                : lineItem,
+                                          );
+                                          setLineItems(updatedItems);
+                                        }}
+                                        renderInput={(params) => (
+                                          <TextField
+                                            {...params}
+                                            placeholder="Select Product"
+                                            size="small"
+                                          />
+                                        )}
+                                        sx={{ minWidth: 180, flexGrow: 1 }}
                                       />
-                                    )}
-                                    sx={{ minWidth: 180 }}
-                                  />
+                                      {item.product_id ? (
+                                        <Tooltip title="Manage Price Tiers">
+                                          <IconButton
+                                            size="small"
+                                            color="primary"
+                                            onClick={() => setTierManagerProductId(item.product_id)}
+                                          >
+                                            <EditIcon />
+                                          </IconButton>
+                                        </Tooltip>
+                                      ) : null}
+                                    </Box>
+                                    {(() => {
+                                      const p: any = products?.find((p: any) => p.id === item.product_id);
+                                      const activeTiers = p?.price_tiers?.filter((t: any) => t.is_active) || [];
+                                      if (activeTiers.length > 0) {
+                                        return (
+                                          <Autocomplete
+                                            size="small"
+                                            options={activeTiers}
+                                            getOptionLabel={(option: any) =>
+                                              `${option.remark || "Unnamed Tier"} - Rs. ${option.cost_price}`
+                                            }
+                                            value={activeTiers.find((t: any) => t.id === item.price_tier_id) || null}
+                                            onChange={(_, newValue: any) => {
+                                              const updatedItems = lineItems.map(
+                                                (lineItem) =>
+                                                  lineItem._id === item._id
+                                                    ? {
+                                                        ...lineItem,
+                                                        price_tier_id: newValue?.id || undefined,
+                                                        unit_price: newValue?.cost_price || p.cost_price || 0,
+                                                      }
+                                                    : lineItem,
+                                              );
+                                              setLineItems(updatedItems);
+                                            }}
+                                            renderInput={(params) => (
+                                              <TextField {...params} size="small" placeholder="Select Price Tier" />
+                                            )}
+                                          />
+                                        );
+                                      }
+                                      return null;
+                                    })()}
+                                  </Box>
                                 ) : (
                                   getProductName(item.product_id)
                                 )}
@@ -2062,6 +2122,27 @@ export default function PurchaseOrdersPage() {
           >
             OK
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Inline Price Tier Manager Dialog */}
+      <Dialog
+        open={tierManagerProductId !== null}
+        onClose={() => setTierManagerProductId(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Manage Price Tiers</DialogTitle>
+        <DialogContent dividers>
+          {tierManagerProductId && (
+            <PriceTierManager
+              productId={tierManagerProductId}
+              canEdit={hasPermission(user, "products", "update")}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTierManagerProductId(null)}>Done</Button>
         </DialogActions>
       </Dialog>
 

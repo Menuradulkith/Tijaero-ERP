@@ -20,7 +20,7 @@ from app.modules.sales.models import Invoice, InvoiceItems
 from app.modules.support.models import CustomerSupport, WarrantyClaims
 from app.modules.warehouse.models import ItemReceiveNote, ItemTransferNote
 from sqlalchemy import and_, desc, extract, func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from . import schemas
 
@@ -296,14 +296,23 @@ class ReportingService:
         self, request: schemas.InventoryReportRequest
     ) -> schemas.InventoryReportResponse:
         """Generate inventory report"""
-        query = self.db.query(Product).filter(Product.active == True)
+        query = self.db.query(Product).options(joinedload(Product.price_tiers)).filter(Product.active == True)
 
         if request.category:
             query = query.filter(Product.category_id == request.category)
 
         products = query.all()
         total_products = len(products)
-        total_stock_value = sum([float(p.cost_price) for p in products])
+        
+        # Helper to get the correct cost price for a product
+        def get_product_cost(p: Product) -> float:
+            active_tiers = [t for t in p.price_tiers if t.is_active] if hasattr(p, "price_tiers") else []
+            if active_tiers:
+                latest_tier = max(active_tiers, key=lambda x: x.created_at or x.id)
+                return float(latest_tier.cost_price)
+            return float(p.cost_price) if p.cost_price is not None else 0.0
+
+        total_stock_value = sum([get_product_cost(p) for p in products])
 
         # Low stock items: products whose count of AVAILABLE (unsold) stock units
         # is at or below the low-stock threshold. Driven by real SalesStock data.
@@ -323,7 +332,7 @@ class ReportingService:
             {
                 "product_name": p.name,
                 "item_code": p.item_code,
-                "cost_price": float(p.cost_price),
+                "cost_price": get_product_cost(p),
                 "available_quantity": int(available_counts.get(p.id, 0)),
             }
             for p in products

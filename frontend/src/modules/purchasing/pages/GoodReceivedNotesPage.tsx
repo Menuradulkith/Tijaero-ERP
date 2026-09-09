@@ -119,17 +119,22 @@ interface Location {
 }
 
 /** Preview next sequential number using same format as backend */
-const getNextNumber = (prefix: string, existing: { no: string }[]): string => {
+const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
-  const fullPrefix = `${prefix}-${year}-`;
+  const yy = String(year).slice(-2);
+  const actualBranch = branchCode || "HQ";
+  const fullPrefix = `${prefix}-${actualBranch}-${yy}`;
   let maxSeq = 0;
   for (const item of existing) {
     if (item.no?.startsWith(fullPrefix)) {
-      const seq = parseInt(item.no.slice(fullPrefix.length), 10);
-      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      const lastPart = item.no.split("-").pop() || "";
+      if (lastPart.length > 2) {
+        const seq = parseInt(lastPart.slice(2), 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      }
     }
   }
-  return `${prefix}-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
+  return `${fullPrefix}${String(maxSeq + 1).padStart(6, '0')}`;
 };
 
 const INITIAL_FORM_DATA: GoodReceivedNoteCreate = {
@@ -403,9 +408,9 @@ export default function GoodReceivedNotesPage() {
     enabled: branchResolved,
   });
 
-  const nextGRNNumber = useMemo(() =>
-    getNextNumber('GRN', (grns || []).map((g: GoodReceivedNote) => ({ no: g.good_received_no }))),
-  [grns]);
+  const nextGRNNumber = useMemo(() => 
+    getNextNumber('GRN', (grns || []).map((g: GoodReceivedNote) => ({ no: g.good_received_no })), formData.branch_code), 
+  [grns, formData.branch_code]);
 
   const { data: purchaseOrders } = useQuery({
     queryKey: ["purchaseOrders"],

@@ -1,8 +1,9 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import date, datetime
 
 from app.common.base_schemas import TijaeroBaseSchema
+from app.modules.products.price_tier_schemas import PriceTierOut
 
 class CategoryBase(BaseModel):
     name: str = Field(..., max_length=255)
@@ -83,6 +84,7 @@ class Product(ProductBase, TijaeroBaseSchema):
     added_date: datetime
     created_at: datetime
     updated_at: datetime
+    price_tiers: List[PriceTierOut] = []
 
 class ProductWithDetails(Product):
     category: Optional[Category] = None
