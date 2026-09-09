@@ -83,7 +83,7 @@ services:
         gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --timeout 120 --graceful-timeout 30 --access-logfile - --error-logfile -
       "
 
-  # Frontend
+  # # Frontend
   frontend:
     build:
       context: ./frontend
