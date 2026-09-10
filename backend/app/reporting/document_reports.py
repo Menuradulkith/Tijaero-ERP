@@ -65,25 +65,25 @@ class DocumentReportService:
             settings = self.db.query(Settings).first()
             if settings:
                 return {
-                    "name": settings.company_name or "UNITY SYSTEMS",
+                    "name": settings.company_name or "TIJAEROERP",
                     "tagline": "Solutions",
                     "logo": logo,
                     "address": settings.company_address
-                    or "Ground Floor, Unity Plaza, Galle Road, Colombo 04.",
+                    or "Ground Floor, Galle Road, Colombo 04.",
                     "phone": settings.company_telephone_number or "0112081667",
                     "fax": settings.company_fax_number or "0112081667",
-                    "email": settings.company_email or "info@unitysystems.lk",
+                    "email": settings.company_email or "info@tijaeroerp.com",
                 }
         except Exception:
             self.db.rollback()
         return {
-            "name": "UNITY SYSTEMS",
+            "name": "TIJAEROERP",
             "tagline": "Solutions",
             "logo": logo,
-            "address": "Ground Floor, Unity Plaza, Galle Road, Colombo 04.",
+            "address": "Ground Floor, Galle Road, Colombo 04.",
             "phone": "0112081667",
             "fax": "0112081667",
-            "email": "info@unitysystems.lk",
+            "email": "info@tijaeroerp.com",
         }
 
     def _get_branch_info(self, branch_code: str) -> dict:

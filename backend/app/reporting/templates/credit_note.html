@@ -60,8 +60,8 @@
     {% if options.show_header %}
     <div class="header">
         <div class="company">
-            <img src="{{ company.logo }}" class="logo" alt="Unity Systems">
-            <div class="addr">{{ company.address | default('Ground Floor, Unity Plaza, Galle Road, Colombo 04.') }}<br>Tel / Fax: {{ company.phone | default('0112081667') }} &nbsp;|&nbsp; E-mail: {{ company.email | default('info@unitysystems.lk') }}</div>
+            <img src="{{ company.logo }}" class="logo" alt="TijaeroERP">
+            <div class="addr">{{ company.address | default('Ground Floor, Galle Road, Colombo 04.') }}<br>Tel / Fax: {{ company.phone | default('0112081667') }} &nbsp;|&nbsp; E-mail: {{ company.email | default('info@tijaeroerp.com') }}</div>
         </div>
     </div>
     {% endif %}
@@ -172,7 +172,7 @@
     {% endif %}
 
     <div class="footer">
-        <span>{{ company.name | default('UNITY SYSTEMS') }} &mdash; CREDIT NOTE</span>
+        <span>{{ company.name | default('TIJAEROERP') }} &mdash; CREDIT NOTE</span>
         <span>Generated: {{ generated_at }} | Ref: {{ credit_note.sale_return_no }}</span>
     </div>
 </div>
