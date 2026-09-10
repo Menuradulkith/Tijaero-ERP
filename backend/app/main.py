@@ -267,6 +267,15 @@ def root():
     return {"message": "ERP API", "version": settings.VERSION}
 
 
+@app.get("/debug-headers")
+def debug_headers(request: Request):
+    return {
+        "scheme": request.url.scheme,
+        "client": request.client,
+        "headers": dict(request.headers),
+    }
+
+
 # Railway (and most PaaS) terminate TLS at the edge and proxy to this
 # container over plain HTTP, signalling the original scheme via
 # X-Forwarded-Proto. Without this, Starlette's trailing-slash redirects
