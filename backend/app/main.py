@@ -265,3 +265,13 @@ async def general_exception_handler(request: Request, exc: Exception):
 @app.get("/")
 def root():
     return {"message": "ERP API", "version": settings.VERSION}
+
+
+# Railway (and most PaaS) terminate TLS at the edge and proxy to this
+# container over plain HTTP, signalling the original scheme via
+# X-Forwarded-Proto. Without this, Starlette's trailing-slash redirects
+# and request.url_for() build http:// URLs even though the app is only
+# ever reachable over https://, which browsers block as mixed content.
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware  # noqa: E402
+
+app = ProxyHeadersMiddleware(app, trusted_hosts="*")
