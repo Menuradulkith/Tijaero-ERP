@@ -1,3 +1,4 @@
+# Config file path registered in Railway dashboard as backend/railway.toml
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
