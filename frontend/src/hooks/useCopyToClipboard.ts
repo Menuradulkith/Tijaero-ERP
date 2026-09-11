@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface UseCopyToClipboardResult {
   copied: boolean;
@@ -15,6 +15,15 @@ interface UseCopyToClipboardResult {
 export function useCopyToClipboard(resetDelay: number = 2000): UseCopyToClipboardResult {
   const [copied, setCopied] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
 
   const copy = useCallback(
     async (text: string): Promise<boolean> => {
@@ -29,8 +38,11 @@ export function useCopyToClipboard(resetDelay: number = 2000): UseCopyToClipboar
         setCopied(true);
         setError(null);
 
+        if (resetTimerRef.current) {
+          clearTimeout(resetTimerRef.current);
+        }
         if (resetDelay > 0) {
-          setTimeout(() => {
+          resetTimerRef.current = setTimeout(() => {
             setCopied(false);
           }, resetDelay);
         }
@@ -47,6 +59,9 @@ export function useCopyToClipboard(resetDelay: number = 2000): UseCopyToClipboar
   );
 
   const reset = useCallback(() => {
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current);
+    }
     setCopied(false);
     setError(null);
   }, []);

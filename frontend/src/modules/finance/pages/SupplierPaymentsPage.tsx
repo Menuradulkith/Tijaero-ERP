@@ -21,7 +21,7 @@
  * 5. Review and post payment
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Box,
@@ -275,15 +275,22 @@ export default function SupplierPaymentsPage() {
   }, [location.key, loadSuppliers]);
 
   // Load payment status for selected supplier
+  // Tracks the most recently requested supplier so a slower, stale response
+  // (e.g. switching from A to B before A's request resolves) can't overwrite
+  // the data now shown for a different supplier.
+  const latestSupplierRequestRef = useRef<number | null>(null);
+
   const loadPaymentStatus = useCallback(async (supplierId: number) => {
     try {
       setLoadingStatus(true);
       const status = await supplierCreditApi.getPaymentStatus(supplierId);
+      if (latestSupplierRequestRef.current !== supplierId) return;
       setPaymentStatus(status);
     } catch (err) {
+      if (latestSupplierRequestRef.current !== supplierId) return;
       setPaymentStatus(null);
     } finally {
-      setLoadingStatus(false);
+      if (latestSupplierRequestRef.current === supplierId) setLoadingStatus(false);
     }
   }, []);
 
@@ -292,11 +299,13 @@ export default function SupplierPaymentsPage() {
     try {
       setLoadingInvoices(true);
       const invoices = await purchaseInvoicesApi.getPayableInvoices(supplierId);
+      if (latestSupplierRequestRef.current !== supplierId) return;
       setPayableInvoices(invoices);
     } catch {
+      if (latestSupplierRequestRef.current !== supplierId) return;
       setPayableInvoices([]);
     } finally {
-      setLoadingInvoices(false);
+      if (latestSupplierRequestRef.current === supplierId) setLoadingInvoices(false);
     }
   }, []);
 
@@ -476,6 +485,7 @@ export default function SupplierPaymentsPage() {
 
   // Handlers
   const handleSelectSupplier = useCallback((supplier: Supplier) => {
+    latestSupplierRequestRef.current = supplier.id;
     setSelectedSupplier(supplier);
     setViewMode("overview");
     setActiveStep(0);

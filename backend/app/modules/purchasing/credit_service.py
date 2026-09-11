@@ -1046,24 +1046,32 @@ class SupplierCreditService:
             Supplier.id == settlement_data.suppliers_id
         ).with_for_update().first()
 
+        # Lock all referenced GRN rows in one query (instead of one query per
+        # transaction) so two concurrent settlements on the same GRN cannot both
+        # pass the remaining-balance check with stale data.
+        grn_ids = [trans.good_received_id for trans in settlement_data.transactions]
+        grns_by_id = {
+            grn.id: grn
+            for grn in db.query(GoodReceivedNote)
+            .filter(GoodReceivedNote.id.in_(grn_ids))
+            .with_for_update()
+            .all()
+        }
+        po_ids = {grn.purchasingorders_id for grn in grns_by_id.values()}
+        pos_by_id = {
+            po.id: po
+            for po in db.query(PurchasingOrder).filter(PurchasingOrder.id.in_(po_ids)).all()
+        }
+
         for trans in settlement_data.transactions:
-            # Lock the GRN row so two concurrent settlements on the same GRN
-            # cannot both pass the remaining-balance check with stale data.
-            grn = (
-                db.query(GoodReceivedNote)
-                .filter(GoodReceivedNote.id == trans.good_received_id)
-                .with_for_update()
-                .first()
-            )
+            grn = grns_by_id.get(trans.good_received_id)
             if not grn:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"GRN {trans.good_received_id} not found"
                 )
 
-            po = db.query(PurchasingOrder).filter(
-                PurchasingOrder.id == grn.purchasingorders_id
-            ).first()
+            po = pos_by_id.get(grn.purchasingorders_id)
             if not po or po.first_suppliers_id != settlement_data.suppliers_id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

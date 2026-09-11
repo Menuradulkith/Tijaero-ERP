@@ -715,16 +715,28 @@ class PayrollService:
                 commission_map[comm.employee_id] = Decimal("0")
             commission_map[comm.employee_id] += comm.individual_commission_amount or Decimal("0")
 
+        # Resolve all employees' internal ids in one query instead of one-per-profile.
+        employee_id_map: Dict[str, int] = {
+            emp_id: internal_id
+            for internal_id, emp_id in self.db.query(Employee.id, Employee.employee_id).filter(
+                Employee.employee_id.in_([profile.employee_id for profile in profiles])
+            ).all()
+        }
+
+        # Load all deductions for those employees in one query instead of one-per-profile.
+        all_deductions = self.db.query(SalaryDeductions).filter(
+            SalaryDeductions.employee_id.in_(employee_id_map.values())
+        ).all()
+        deductions_by_employee: Dict[int, list] = {}
+        for d in all_deductions:
+            deductions_by_employee.setdefault(d.employee_id, []).append(d)
+
         for profile in profiles:
             # Get employee's internal id
-            emp_internal_id = self.db.query(Employee.id).filter(
-                Employee.employee_id == profile.employee_id
-            ).scalar()
-            
+            emp_internal_id = employee_id_map.get(profile.employee_id)
+
             # Get deductions for this employee and period
-            deductions = self.db.query(SalaryDeductions).filter(
-                SalaryDeductions.employee_id == emp_internal_id,
-            ).all()
+            deductions = deductions_by_employee.get(emp_internal_id, [])
             # Filter period-specific deductions if deduction_period matches
             period_deductions = [d for d in deductions if not d.deduction_period or d.deduction_period == period_str]
 

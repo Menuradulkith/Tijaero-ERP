@@ -572,13 +572,16 @@ class SalesService:
 
         # ── Validate all products are active ──
         from app.modules.products.models import Product
-        for item_data in invoice_data.items:
-            product = db.query(Product).filter(Product.id == item_data.product_id).first()
-            if product and not product.active:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to an invoice."
-                )
+        product_ids = [item_data.product_id for item_data in invoice_data.items]
+        inactive_products = db.query(Product).filter(
+            Product.id.in_(product_ids), Product.active == False
+        ).all()
+        if inactive_products:
+            product = inactive_products[0]
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to an invoice."
+            )
 
         # ── Validate coupon is still active (if provided) ──
         coupon_id = getattr(invoice_data, 'cupon_id', None)
@@ -1702,14 +1705,20 @@ class SalesService:
         # ── Validate products are active (if items are being changed) ──
         if invoice_data.items is not None:
             from app.modules.products.models import Product
-            for item_data in invoice_data.items:
-                if hasattr(item_data, 'product_id') and item_data.product_id:
-                    product = db.query(Product).filter(Product.id == item_data.product_id).first()
-                    if product and not product.active:
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to an invoice."
-                        )
+            product_ids = [
+                item_data.product_id for item_data in invoice_data.items
+                if hasattr(item_data, 'product_id') and item_data.product_id
+            ]
+            if product_ids:
+                inactive_products = db.query(Product).filter(
+                    Product.id.in_(product_ids), Product.active == False
+                ).all()
+                if inactive_products:
+                    product = inactive_products[0]
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to an invoice."
+                    )
 
         # Track original status for re-approval logic
         was_completed = invoice.approval_status == DocumentStatus.COMPLETED

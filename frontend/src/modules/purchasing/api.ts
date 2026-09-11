@@ -258,10 +258,15 @@ export const goodReceivedNotesApi = {
   },
 
   create: async (data: GoodReceivedNoteCreate, allowCreditOverride?: boolean) => {
+    // Errors are handled by the caller (e.g. the credit-limit override dialog),
+    // so suppress the global interceptor's toast to avoid showing it twice.
     const response = await apiClient.post<GoodReceivedNote>(
       "/purchasing/grn",
       data,
-      { params: allowCreditOverride ? { allow_credit_override: true } : {} }
+      {
+        params: allowCreditOverride ? { allow_credit_override: true } : {},
+        headers: { "X-Hide-Error-Toast": "true" },
+      }
     );
     return response.data;
   },

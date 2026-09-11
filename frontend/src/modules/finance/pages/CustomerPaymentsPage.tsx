@@ -18,7 +18,7 @@
  * 4. Review and post payment
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Box,
@@ -293,16 +293,23 @@ export default function CustomerPaymentsPage() {
     loadCustomers();
   }, [location.key, loadCustomers]);
 
+  // Tracks the most recently requested customer so a slower, stale response
+  // (e.g. switching from A to B before A's request resolves) can't overwrite
+  // the data now shown for a different customer.
+  const latestCustomerRequestRef = useRef<number | null>(null);
+
   // Load credit status for selected customer
   const loadCreditStatus = useCallback(async (customerId: number) => {
     try {
       setLoadingStatus(true);
       const status = await customersApi.getCreditSummary(customerId);
+      if (latestCustomerRequestRef.current !== customerId) return;
       setCreditStatus(status);
     } catch {
+      if (latestCustomerRequestRef.current !== customerId) return;
       setCreditStatus(null);
     } finally {
-      setLoadingStatus(false);
+      if (latestCustomerRequestRef.current === customerId) setLoadingStatus(false);
     }
   }, []);
 
@@ -310,8 +317,10 @@ export default function CustomerPaymentsPage() {
   const loadCustomerInvoices = useCallback(async (customerId: number) => {
     try {
       const invoices = await salesApi.getByCustomer(customerId);
+      if (latestCustomerRequestRef.current !== customerId) return;
       setCustomerInvoices(invoices || []);
     } catch {
+      if (latestCustomerRequestRef.current !== customerId) return;
       setCustomerInvoices([]);
     }
   }, []);
@@ -455,6 +464,7 @@ export default function CustomerPaymentsPage() {
 
   // Handlers
   const handleSelectCustomer = useCallback((customer: Customer) => {
+    latestCustomerRequestRef.current = customer.id;
     setSelectedCustomer(customer);
     setViewMode("overview");
     setActiveStep(0);

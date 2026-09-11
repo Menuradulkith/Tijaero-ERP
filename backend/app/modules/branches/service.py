@@ -1,8 +1,12 @@
+import logging
+
 from sqlalchemy.orm import Session
 from app.modules.branches import schemas, repository
 from app.auth.models import Branch
 from typing import List, Optional
 from fastapi import HTTPException, status
+
+logger = logging.getLogger(__name__)
 
 class BranchService:
     def __init__(self):
@@ -50,7 +54,7 @@ class BranchService:
         branch or its locations.
         """
         from sqlalchemy import text
-        from sqlalchemy.exc import IntegrityError
+        from sqlalchemy.exc import IntegrityError, ProgrammingError
 
         branch = self.repository.get_by_id(db, branch_id)
         if not branch:
@@ -94,8 +98,10 @@ class BranchService:
                     ).scalar() or 0
                     if count > 0:
                         usage_checks.append(f"{label} ({count})")
-                except Exception:
+                except ProgrammingError:
+                    # Table/column doesn't exist in this deployment — skip safely.
                     db.rollback()
+                    logger.warning("Skipping usage check on %s: table/column not found", table_name)
 
             # Transfer notes reference a location at BOTH ends.
             try:
@@ -108,8 +114,9 @@ class BranchService:
                 ).scalar() or 0
                 if count > 0:
                     usage_checks.append(f"transfer notes ({count})")
-            except Exception:
+            except ProgrammingError:
                 db.rollback()
+                logger.warning("Skipping usage check on item_transfer_note: table/column not found")
 
         # --- Tables that reference the branch directly by branch_code ---
         branch_code_tables = [
@@ -130,9 +137,10 @@ class BranchService:
                 ).scalar() or 0
                 if count > 0:
                     usage_checks.append(f"{label} ({count})")
-            except Exception:
-                # Table/column might not exist in this deployment — skip safely.
+            except ProgrammingError:
+                # Table/column doesn't exist in this deployment — skip safely.
                 db.rollback()
+                logger.warning("Skipping usage check on %s: table/column not found", table_name)
 
         if usage_checks:
             usage_list = ", ".join(usage_checks)

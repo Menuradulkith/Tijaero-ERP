@@ -45,7 +45,6 @@ def after_cursor_execute(conn, cursor, statement, parameters, context, executema
 
 
 @event.listens_for(Session, "before_flush")
-@event.listens_for(Session, "before_flush")
 def before_flush(session, flush_context, instances):
     """Stamp Sri Lankan local time and audit user on every insert/update.
 

@@ -142,14 +142,24 @@ class PurchaseInvoiceService:
                 detail=f"Supplier invoice '{data.supplier_invoice_no}' already exists for this supplier (Invoice: {existing.invoice_no})"
             )
 
-        # Validate each item's GRN
+        # Validate each item's GRN (batched: one GRN query, one PO query, not per item)
+        grn_ids = [item.grn_id for item in data.items]
+        grns_by_id = {
+            grn.id: grn
+            for grn in self.db.query(GoodReceivedNote).filter(GoodReceivedNote.id.in_(grn_ids)).all()
+        }
+        po_ids = {grn.purchasingorders_id for grn in grns_by_id.values()}
+        pos_by_id = {
+            po.id: po
+            for po in self.db.query(PurchasingOrder).filter(PurchasingOrder.id.in_(po_ids)).all()
+        }
         for item in data.items:
-            grn = self.db.query(GoodReceivedNote).filter(GoodReceivedNote.id == item.grn_id).first()
+            grn = grns_by_id.get(item.grn_id)
             if not grn:
                 raise HTTPException(status_code=400, detail=f"GRN ID {item.grn_id} not found")
-            
+
             # Verify GRN belongs to this supplier
-            po = self.db.query(PurchasingOrder).filter(PurchasingOrder.id == grn.purchasingorders_id).first()
+            po = pos_by_id.get(grn.purchasingorders_id)
             if not po or po.first_suppliers_id != data.supplier_id:
                 raise HTTPException(
                     status_code=400,
@@ -326,6 +336,31 @@ class PurchaseInvoiceService:
 
         invoices = query.order_by(PurchaseInvoice.supplier_invoice_date.desc()).offset(filters.skip).limit(filters.limit).all()
 
+        # Batch-load items for all invoices in one query instead of one-per-invoice.
+        invoice_ids = [inv.id for inv in invoices]
+        items_by_invoice: Dict[int, list] = {}
+        if invoice_ids:
+            for item in self.db.query(PurchaseInvoiceItem).filter(
+                PurchaseInvoiceItem.purchase_invoice_id.in_(invoice_ids)
+            ).all():
+                items_by_invoice.setdefault(item.purchase_invoice_id, []).append(item)
+
+        # Batch-load the GRNs needed to backfill missing purchasing_order_id, instead
+        # of querying GoodReceivedNote once per item.
+        pending_grn_ids = {
+            item.grn_id
+            for items in items_by_invoice.values()
+            for item in items
+            if not item.purchasing_order_id and item.grn_id
+        }
+        grn_po_by_grn_id: Dict[int, int] = {}
+        if pending_grn_ids:
+            for grn_id, po_id in self.db.query(GoodReceivedNote.id, GoodReceivedNote.purchasingorders_id).filter(
+                GoodReceivedNote.id.in_(pending_grn_ids)
+            ).all():
+                if po_id:
+                    grn_po_by_grn_id[grn_id] = po_id
+
         result = []
         today = tz.today()
         for inv in invoices:
@@ -333,17 +368,13 @@ class PurchaseInvoiceService:
             days_overdue = (today - inv.due_date).days if inv.due_date < today else 0
 
             # Collect PO IDs and PO numbers for this invoice
-            items = self.db.query(PurchaseInvoiceItem).filter(
-                PurchaseInvoiceItem.purchase_invoice_id == inv.id
-            ).all()
+            items = items_by_invoice.get(inv.id, [])
             po_ids: set = set()
             for item in items:
                 if item.purchasing_order_id:
                     po_ids.add(item.purchasing_order_id)
-                elif item.grn_id:
-                    grn = self.db.query(GoodReceivedNote).filter(GoodReceivedNote.id == item.grn_id).first()
-                    if grn and grn.purchasingorders_id:
-                        po_ids.add(grn.purchasingorders_id)
+                elif item.grn_id and item.grn_id in grn_po_by_grn_id:
+                    po_ids.add(grn_po_by_grn_id[item.grn_id])
             po_nos_list = []
             for po_id in po_ids:
                 po_no = self.db.query(PurchasingOrder.purchasing_order_no).filter(

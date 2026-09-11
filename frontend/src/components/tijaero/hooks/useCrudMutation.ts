@@ -50,7 +50,10 @@ export function useCrudMutation<TData = unknown, TVariables = void, TContext = u
       await config.onSuccess?.(data, variables, context);
     },
     onError: async (error, variables, context) => {
-      if (config.showError !== false) {
+      // The global axios interceptor (api/client.ts) already surfaces a toast
+      // for every failed request by default, so only add a second one when a
+      // call site explicitly opts in with a message it wants shown instead.
+      if (config.showError === true) {
         showErrorToast(handleApiError(error, config.errorMessage));
       }
       await config.onError?.(error, variables, context);
