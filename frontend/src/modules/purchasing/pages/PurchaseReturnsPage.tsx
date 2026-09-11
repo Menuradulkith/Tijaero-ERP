@@ -286,10 +286,16 @@ export default function PurchaseReturnsPage() {
   }, [handleCancelBase]);
 
   // Handler that wraps hook's handler (which already handles unsaved changes confirm)
+  // Tracks the most recently requested return so a slower, stale response
+  // (e.g. switching from A to B before A's request resolves) can't overwrite
+  // the currently-selected return's line items with a different return's data.
+  const latestReturnRequestRef = useRef<number | null>(null);
+
   const handleSelectReturnWithItems = useCallback(async (ret: PurchasingReturn) => {
     const selected = await handleSelectReturn(ret);
     if (!selected) return; // User cancelled
 
+    latestReturnRequestRef.current = ret.id;
     // Load detailed items after selection
     setTouched({});
     setBarcodeInput("");
@@ -297,6 +303,7 @@ export default function PurchaseReturnsPage() {
     setValidatedItems([]);
     try {
       const detailedReturn = await purchaseReturnsApi.getById(ret.id);
+      if (latestReturnRequestRef.current !== ret.id) return;
       if (detailedReturn.items) {
         setLineItems(detailedReturn.items.map((item: any, idx: number) => ({
           _id: `existing-${idx}`,
@@ -314,6 +321,7 @@ export default function PurchaseReturnsPage() {
         setLineItems([]);
       }
     } catch {
+      if (latestReturnRequestRef.current !== ret.id) return;
       setLineItems([]);
     }
   }, [handleSelectReturn]);

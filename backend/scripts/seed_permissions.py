@@ -385,6 +385,8 @@ def seed_permissions():
         {"name": "generate_reporting_warehouse", "resource": "reporting_warehouse", "action": "generate", "description": "Generate warehouse reports"},
         {"name": "view_reporting_support", "resource": "reporting_support", "action": "view", "description": "View support reports"},
         {"name": "generate_reporting_support", "resource": "reporting_support", "action": "generate", "description": "Generate support reports"},
+        {"name": "view_reporting_branch_summary", "resource": "reporting_branch_summary", "action": "view", "description": "View branch summary reports"},
+        {"name": "generate_reporting_branch_summary", "resource": "reporting_branch_summary", "action": "generate", "description": "Generate branch summary reports"},
 
         # ══════════════════════════════════════════════════════════════
         # ADMINISTRATION — Users, Groups, Branches, Settings, Common
@@ -750,7 +752,7 @@ def seed_permissions():
                 # Reporting
                 "view_reporting_dashboard", "view_reporting_sales", "view_reporting_finance",
                 "view_reporting_inventory", "view_reporting_hr",
-                "view_reporting_warehouse", "view_reporting_support",
+                "view_reporting_warehouse", "view_reporting_support", "view_reporting_branch_summary",
             ),
         },
     ]

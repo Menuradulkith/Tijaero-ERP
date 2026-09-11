@@ -226,11 +226,6 @@ export const PERMISSIONS = {
   // Commission Payment Approvals
   COMMISSION_PAYMENT_APPROVALS_VIEW: { resource: "commission_payment_approvals", action: "view" },
   COMMISSION_PAYMENT_APPROVALS_APPROVE: { resource: "commission_payment_approvals", action: "approve" },
-  // Petty Cash
-  PETTY_CASH_VIEW: { resource: "petty_cash", action: "view" },
-  PETTY_CASH_CREATE: { resource: "petty_cash", action: "create" },
-  PETTY_CASH_UPDATE: { resource: "petty_cash", action: "update" },
-  PETTY_CASH_DELETE: { resource: "petty_cash", action: "delete" },
   // Payment Vouchers
   PAYMENT_VOUCHERS_VIEW: { resource: "payment_vouchers", action: "view" },
   PAYMENT_VOUCHERS_CREATE: { resource: "payment_vouchers", action: "create" },
@@ -377,6 +372,8 @@ export const PERMISSIONS = {
   REPORTING_WAREHOUSE_GENERATE: { resource: "reporting_warehouse", action: "generate" },
   REPORTING_SUPPORT_VIEW: { resource: "reporting_support", action: "view" },
   REPORTING_SUPPORT_GENERATE: { resource: "reporting_support", action: "generate" },
+  REPORTING_BRANCH_SUMMARY_VIEW: { resource: "reporting_branch_summary", action: "view" },
+  REPORTING_BRANCH_SUMMARY_GENERATE: { resource: "reporting_branch_summary", action: "generate" },
 
   // ═══════════════════════════════════════════════════════════════════
   // ADMINISTRATION — Users, Groups, Branches, Settings

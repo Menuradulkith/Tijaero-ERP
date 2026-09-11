@@ -56,7 +56,10 @@ class BranchService:
         from sqlalchemy import text
         from sqlalchemy.exc import IntegrityError, ProgrammingError
 
-        branch = self.repository.get_by_id(db, branch_id)
+        # Lock the branch row so two concurrent delete requests for the same
+        # branch can't both pass the usage checks below at once — the second
+        # blocks until the first commits, then sees the row is already gone.
+        branch = db.query(Branch).filter(Branch.id == branch_id).with_for_update().first()
         if not branch:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

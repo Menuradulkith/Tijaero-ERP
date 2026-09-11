@@ -572,6 +572,7 @@ export default function JournalEntriesPage() {
                   startIcon={<CheckCircleIcon />}
                   color="success"
                   onClick={handlePost}
+                  disabled={postMutation.isPending}
                 >
                   Post to GL
                 </Button>

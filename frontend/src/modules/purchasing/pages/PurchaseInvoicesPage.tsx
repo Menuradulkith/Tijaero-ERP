@@ -271,15 +271,23 @@ export default function PurchaseInvoicesPage() {
     }
   }, [isCreating, formData.supplier_id, formData.branch_code]);
 
+  // Tracks the most recently requested invoice so a slower, stale response
+  // (e.g. switching from A to B before A's request resolves) can't overwrite
+  // the detail panel now shown for a different invoice.
+  const latestInvoiceRequestRef = useRef<number | null>(null);
+
   // Load detailed invoice when selecting
   const handleSelectInvoiceWithDetail = useCallback(
     async (invoice: PurchaseInvoiceListItem) => {
       const selected = await handleSelectInvoice(invoice);
       if (!selected) return;
+      latestInvoiceRequestRef.current = invoice.id;
       try {
         const detail = await purchaseInvoicesApi.getById(invoice.id);
+        if (latestInvoiceRequestRef.current !== invoice.id) return;
         setDetailedInvoice(detail);
       } catch {
+        if (latestInvoiceRequestRef.current !== invoice.id) return;
         setDetailedInvoice(null);
       }
     },

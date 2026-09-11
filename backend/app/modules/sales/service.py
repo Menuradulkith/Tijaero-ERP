@@ -1347,7 +1347,34 @@ class SalesService:
         # Record coupon usage if coupon was applied
         if coupon_id and coupon_amount > 0:
             from app.modules.customers.models import CouponUsage, CustomerCuponCodes
-            
+
+            # Lock the coupon row BEFORE re-validating the usage limits so two
+            # concurrent invoices for the same coupon can't both pass a limit
+            # check that was read before either committed (the earlier
+            # validate_coupon() check is only a pre-flight UX check and isn't
+            # itself race-safe).
+            coupon = db.query(CustomerCuponCodes).filter(
+                CustomerCuponCodes.id == coupon_id
+            ).with_for_update().first()
+            if not coupon:
+                raise HTTPException(status_code=400, detail="Coupon not found")
+
+            total_usage = db.query(func.count(CouponUsage.id)).filter(
+                CouponUsage.coupon_id == coupon_id
+            ).scalar() or 0
+            if total_usage >= coupon.limit_by_usage:
+                raise HTTPException(status_code=400, detail="Coupon usage limit exceeded")
+
+            customer_usage = db.query(func.count(CouponUsage.id)).filter(
+                CouponUsage.coupon_id == coupon_id,
+                CouponUsage.customer_id == invoice_data.customer_id,
+            ).scalar() or 0
+            if customer_usage >= coupon.limit_for_customer:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Coupon usage limit for this customer exceeded",
+                )
+
             # Create usage record
             coupon_usage = CouponUsage(
                 coupon_id=coupon_id,
@@ -1357,16 +1384,11 @@ class SalesService:
                 used_date=tz.now()
             )
             db.add(coupon_usage)
-            
-            # Lock the coupon row before updating usage count to prevent race condition
-            coupon = db.query(CustomerCuponCodes).filter(
-                CustomerCuponCodes.id == coupon_id
-            ).with_for_update().first()
-            if coupon:
-                coupon.usage_count = (coupon.usage_count or 0) + 1
-                # Auto-deactivate coupon when global usage limit is reached
-                if coupon.usage_count >= coupon.limit_by_usage:
-                    coupon.active = False
+
+            coupon.usage_count = (coupon.usage_count or 0) + 1
+            # Auto-deactivate coupon when global usage limit is reached
+            if coupon.usage_count >= coupon.limit_by_usage:
+                coupon.active = False
         
         # Record voucher redemptions - prioritize multiple vouchers over legacy single voucher
         voucher_redemptions = getattr(invoice_data, 'voucher_redemptions', []) or []
