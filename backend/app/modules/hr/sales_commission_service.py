@@ -502,10 +502,12 @@ class SalesCommissionService:
         user_id: int
     ) -> schemas.SalesOfficerCommissionResponse:
         """Finance Manager rejects a commission"""
+        # Lock the commission row to prevent a concurrent approve/reject race
+        # (mirrors approve_commission's locking above).
         commission = self.db.query(SalesOfficerMonthlyCommission).filter(
             SalesOfficerMonthlyCommission.id == commission_id
-        ).first()
-        
+        ).with_for_update().first()
+
         if not commission:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Commission not found")
         

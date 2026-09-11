@@ -350,6 +350,12 @@ class ItemTransferNoteService:
 
     def approve_transfer_note(self, transfer_note_id: int, user_id: int = 0, remarks: Optional[str] = None) -> ItemTransferNote:
         transfer_note = self.get_transfer_note(transfer_note_id)
+        # Lock the transfer note row itself so a concurrent approve/reject on
+        # the same note can't both pass the pending-status check below — this
+        # no longer depends on approval_id being populated.
+        transfer_note = self.db.query(ItemTransferNote).filter(
+            ItemTransferNote.id == transfer_note_id
+        ).with_for_update().first()
         if transfer_note.status != TransferNoteStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -371,19 +377,36 @@ class ItemTransferNoteService:
                 approval_record.status_changed_by = user_id
                 approval_record.remark = remarks or f"Approved by user {user_id}"
 
-        transfer_note.status = TransferNoteStatus.APPROVED
-
         items = self.db.query(ItemTransferNoteItems).filter(
             ItemTransferNoteItems.itemtransfernote_id == transfer_note.id
         ).all()
+
+        # Lock and validate every referenced stock item BEFORE flipping any
+        # status, so a barcode that's no longer available (already sold, or
+        # already committed to another transfer note) blocks the whole
+        # approval instead of being silently overwritten to transfer_pending.
+        locked_stock_items = []
         for item in items:
             if item.barcode:
-                # Lock the stock item row before updating status
                 stock_item = self.db.query(SalesStock).filter(
                     SalesStock.barcode == item.barcode
                 ).with_for_update().first()
+                if stock_item and stock_item.status != StockStatus.AVAILABLE:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Item {item.barcode} is no longer available for transfer "
+                            f"(current status: {stock_item.status}). It may have been sold "
+                            f"or already committed to another transfer."
+                        ),
+                    )
                 if stock_item:
-                    stock_item.status = "transfer_pending"
+                    locked_stock_items.append(stock_item)
+
+        transfer_note.status = TransferNoteStatus.APPROVED
+
+        for stock_item in locked_stock_items:
+            stock_item.status = StockStatus.TRANSFER_PENDING
 
         self.db.commit()
         self.db.refresh(transfer_note)
@@ -391,6 +414,12 @@ class ItemTransferNoteService:
 
     def reject_transfer_note(self, transfer_note_id: int, user_id: int = 0, remarks: Optional[str] = None) -> ItemTransferNote:
         transfer_note = self.get_transfer_note(transfer_note_id)
+        # Lock the transfer note row itself so a concurrent approve/reject on
+        # the same note can't both pass the pending-status check below — this
+        # no longer depends on approval_id being populated.
+        transfer_note = self.db.query(ItemTransferNote).filter(
+            ItemTransferNote.id == transfer_note_id
+        ).with_for_update().first()
         if transfer_note.status != TransferNoteStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

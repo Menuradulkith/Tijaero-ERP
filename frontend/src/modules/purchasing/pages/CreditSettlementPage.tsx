@@ -7,7 +7,7 @@
  * 3. Click PO → Right panel shows PO details + payment form
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Box,
   TextField,
@@ -175,16 +175,23 @@ export default function CreditSettlementPage() {
     }
   }, []);
 
+  // Tracks the most recently requested supplier so a slower, stale response
+  // (e.g. switching from A to B before A's request resolves) can't overwrite
+  // the data now shown for a different supplier.
+  const latestSupplierRequestRef = useRef<number | null>(null);
+
   // Load credit status for selected supplier
   const loadSupplierCredit = useCallback(async (supplierId: number) => {
     try {
       setLoadingCredit(true);
       const status = await supplierCreditApi.getCreditStatus(supplierId);
+      if (latestSupplierRequestRef.current !== supplierId) return;
       setSupplierCreditStatus(status);
     } catch {
+      if (latestSupplierRequestRef.current !== supplierId) return;
       setSupplierCreditStatus(null);
     } finally {
-      setLoadingCredit(false);
+      if (latestSupplierRequestRef.current === supplierId) setLoadingCredit(false);
     }
   }, []);
 
@@ -244,6 +251,7 @@ export default function CreditSettlementPage() {
 
   // Handlers
   const handleSelectSupplier = useCallback((supplier: Supplier) => {
+    latestSupplierRequestRef.current = supplier.id;
     setSelectedSupplier(supplier);
     setSelectedPO(null);
     setViewMode("supplier");
@@ -255,6 +263,7 @@ export default function CreditSettlementPage() {
   useEffect(() => {
     if (filteredSuppliers.length > 0 && !selectedSupplier && !loading) {
       const firstSupplier = filteredSuppliers[0];
+      latestSupplierRequestRef.current = firstSupplier.id;
       setSelectedSupplier(firstSupplier);
       setSelectedPO(null);
       setViewMode("supplier");

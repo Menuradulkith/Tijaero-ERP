@@ -419,7 +419,9 @@ const menuItems: MenuItem[] = [
         text: "Petty Cash",
         icon: <MonetizationOnIcon />,
         path: "/finance/petty-cash",
-        permission: PERMISSIONS.PETTY_CASH_VIEW,
+        // Backend gates petty cash by the cashbook permission — there is no
+        // separate petty_cash permission (see backend/app/auth/rbac.py).
+        permission: PERMISSIONS.CASHBOOK_VIEW,
       },
       {
         text: "Payment Vouchers",

@@ -44,7 +44,7 @@ import {
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   DetailPanelHeader,
@@ -306,11 +306,19 @@ export default function SalesTrackPage() {
 
   // ─── Handlers ────────────────────────────────────────────────────────────
 
+  // Tracks the most recently requested order so a slower, stale response
+  // (e.g. switching from A to B before A's request resolves) can't overwrite
+  // the detail panel now shown for a different order.
+  const latestOrderRequestRef = useRef<number | null>(null);
+
   const handleSelectOrder = useCallback(async (order: Invoice) => {
+    latestOrderRequestRef.current = order.id;
     try {
       const fullOrder = await salesApi.getById(order.id);
+      if (latestOrderRequestRef.current !== order.id) return;
       setSelectedOrder(fullOrder);
     } catch {
+      if (latestOrderRequestRef.current !== order.id) return;
       showErrorToast("Failed to load order details");
     }
   }, []);

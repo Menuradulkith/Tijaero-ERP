@@ -32,7 +32,7 @@ import {
     Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Tijaero components
 import {
@@ -334,12 +334,19 @@ export default function ReimbursementsPage() {
     [handleCancelBase],
   );
 
+  // Tracks the most recently requested reimbursement so a slower, stale
+  // response (e.g. switching from A to B before A's request resolves) can't
+  // overwrite the currently-selected claim's detail/line items.
+  const latestReimbursementRequestRef = useRef<number | null>(null);
+
   const handleSelectReimbursement = useCallback(
     async (item: Reimbursement) => {
       const selected = await handleSelectItem(item);
       if (!selected) return;
+      latestReimbursementRequestRef.current = item.id;
       try {
         const detail = await reimbursementsApi.getById(item.id);
+        if (latestReimbursementRequestRef.current !== item.id) return;
         setSelectedItem(detail);
         setLineItems(
           (detail.items || []).map((i, idx) => ({
@@ -352,6 +359,7 @@ export default function ReimbursementsPage() {
           })),
         );
       } catch {
+        if (latestReimbursementRequestRef.current !== item.id) return;
         setLineItems([]);
       }
     },

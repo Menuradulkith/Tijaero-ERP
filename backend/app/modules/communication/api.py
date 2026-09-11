@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Header
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.api.deps import get_db, get_current_active_user
 from app.auth.models import User
 from app.modules.communication.schemas import EmailDraftResponse, EmailSendRequest
@@ -63,7 +64,13 @@ def get_email_templates(
             db.add(new_template)
     
     if len(existing_docs) < len(default_docs):
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # Another concurrent request already inserted the same default
+            # template(s) (document_type is unique) — that's fine, just
+            # discard our attempt and read back whatever now exists.
+            db.rollback()
         templates = db.query(EmailTemplate).all()
 
     return templates

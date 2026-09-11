@@ -21,74 +21,6 @@ class StockTransferService:
     def __init__(self, db: Session):
         self.db = db
     
-    def validate_sales_stock_transfer(self, sales_stock_id: int) -> tuple[bool, str]:
-        """
-        Validate that a sales stock item can be transferred to company assets.
-        
-        Returns:
-            tuple: (is_valid, error_message)
-        """
-        stock = self.db.query(SalesStock).filter(
-            SalesStock.id == sales_stock_id
-        ).first()
-        
-        if not stock:
-            return False, "Sales stock item not found"
-        
-        if stock.status != 'available':
-            return False, f"Item status is '{stock.status}', must be 'available'"
-        
-        if not stock.barcode:
-            return False, "Item missing barcode"
-        
-        product = self.db.query(Product).filter(
-            Product.id == stock.product_id
-        ).first()
-        
-        if not product:
-            return False, "Item product not found"
-        
-        if stock.transferred_to_company_asset_id:
-            return False, "Item already transferred to company assets"
-        
-        return True, ""
-    
-    def validate_company_asset_transfer(
-        self,
-        company_asset_id: int,
-        reason: str
-    ) -> tuple[bool, str]:
-        """
-        Validate that a company asset can be transferred to sales stock.
-        
-        Returns:
-            tuple: (is_valid, error_message)
-        """
-        asset = self.db.query(CompanyAssets).filter(
-            CompanyAssets.id == company_asset_id
-        ).first()
-        
-        if not asset:
-            return False, "Company asset not found"
-        
-        if asset.status != 'available':
-            return False, f"Asset status is '{asset.status}', must be 'available'"
-        
-        if not reason or not reason.strip():
-            return False, "Reason is required for company asset transfers"
-        
-        if asset.transferred_from_sales_stock_id:
-            return False, "Asset cannot be transferred (already transferred from sales stock)"
-        
-        product = self.db.query(Product).filter(
-            Product.id == asset.product_id
-        ).first()
-        
-        if not product:
-            return False, "Asset product not found"
-        
-        return True, ""
-    
     def transfer_sales_stock_to_company_asset(
         self,
         sales_stock_id: int,
@@ -111,19 +43,35 @@ class StockTransferService:
         Raises:
             HTTPException: If validation fails
         """
-        # Validate
-        is_valid, error_msg = self.validate_sales_stock_transfer(sales_stock_id)
-        if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_msg
-            )
-        
-        # Get source item
+        # Lock the source stock row BEFORE validating so a concurrent transfer
+        # (or sale) of the same item can't both pass the "available" check —
+        # the previous unlocked validate-then-refetch left a window where two
+        # concurrent transfers of the same barcode could both proceed.
         source_stock = self.db.query(SalesStock).filter(
             SalesStock.id == sales_stock_id
+        ).with_for_update().first()
+
+        if not source_stock:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Sales stock item not found")
+        if source_stock.status != 'available':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Item status is '{source_stock.status}', must be 'available'"
+            )
+        if not source_stock.barcode:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item missing barcode")
+        if source_stock.transferred_to_company_asset_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Item already transferred to company assets"
+            )
+
+        product = self.db.query(Product).filter(
+            Product.id == source_stock.product_id
         ).first()
-        
+        if not product:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item product not found")
+
         # Create destination company asset
         new_asset = CompanyAssets(
             product_id=source_stock.product_id,
@@ -207,22 +155,33 @@ class StockTransferService:
         Raises:
             HTTPException: If validation fails
         """
-        # Validate
-        is_valid, error_msg = self.validate_company_asset_transfer(
-            company_asset_id,
-            reason
-        )
-        if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_msg
-            )
-        
-        # Get source asset
+        # Lock the source asset row BEFORE validating so a concurrent transfer
+        # of the same asset can't both pass the "available" check.
         source_asset = self.db.query(CompanyAssets).filter(
             CompanyAssets.id == company_asset_id
+        ).with_for_update().first()
+
+        if not source_asset:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Company asset not found")
+        if source_asset.status != 'available':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Asset status is '{source_asset.status}', must be 'available'"
+            )
+        if not reason or not reason.strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reason is required for company asset transfers")
+        if source_asset.transferred_from_sales_stock_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Asset cannot be transferred (already transferred from sales stock)"
+            )
+
+        product = self.db.query(Product).filter(
+            Product.id == source_asset.product_id
         ).first()
-        
+        if not product:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Asset product not found")
+
         # Create destination sales stock
         new_stock = SalesStock(
             product_id=source_asset.product_id,

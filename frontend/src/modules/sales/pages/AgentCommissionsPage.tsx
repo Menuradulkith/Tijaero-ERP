@@ -71,6 +71,7 @@ export default function AgentCommissionsPage() {
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState("");
   const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [decliningId, setDecliningId] = useState<number | null>(null);
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
@@ -120,12 +121,15 @@ export default function AgentCommissionsPage() {
 
   const handleDecline = async (commission: CustomerAgentCommissionWithDetails) => {
     if (!window.confirm(`Are you sure you want to decline the commission for Invoice ${commission.invoice_no || commission.invoice_id}?`)) return;
+    setDecliningId(commission.id);
     try {
       await commissionsApi.decline(commission.id);
       showSuccessToast("Commission declined successfully.");
       queryClient.invalidateQueries({ queryKey: ["agent-commissions"] });
     } catch (err: any) {
       showErrorToast(handleApiError(err, "Decline failed"));
+    } finally {
+      setDecliningId(null);
     }
   };
 
@@ -373,9 +377,10 @@ export default function AgentCommissionsPage() {
                               size="small"
                               variant="outlined"
                               color="error"
+                              disabled={decliningId === c.id}
                               onClick={() => handleDecline(c)}
                             >
-                              Decline
+                              {decliningId === c.id ? "Declining…" : "Decline"}
                             </Button>
                           </Box>
                         ) : (
@@ -397,9 +402,10 @@ export default function AgentCommissionsPage() {
                                 size="small"
                                 variant="outlined"
                                 color="error"
+                                disabled={decliningId === c.id}
                                 onClick={() => handleDecline(c)}
                               >
-                                Decline
+                                {decliningId === c.id ? "Declining…" : "Decline"}
                               </Button>
                             </Box>
                           ) : (

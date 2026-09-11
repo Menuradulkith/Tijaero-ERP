@@ -4,7 +4,7 @@ from typing import List, Optional
 from app.core import timezone as tz
 from app.core.security import get_password_hash, verify_password
 from fastapi import HTTPException, status
-from sqlalchemy import and_, desc, func
+from sqlalchemy import and_, desc, func, text
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -214,15 +214,20 @@ class CompanySettingsService:
         # Assuming only one company settings record per tenant/installation
         settings = self.db.query(models.Settings).first()
         if not settings:
-            # Create a default one if doesn't exist
-            settings = models.Settings(
-                company_name="Tijaero Default",
-                company_address="Default Address",
-                company_email="admin@tijaero.local",
-            )
-            self.db.add(settings)
-            self.db.commit()
-            self.db.refresh(settings)
+            # Advisory-lock the check-then-create so two concurrent first
+            # requests (e.g. right after a fresh deploy) can't both find no
+            # row and both insert a default one.
+            self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext('company_settings_singleton'))"))
+            settings = self.db.query(models.Settings).first()
+            if not settings:
+                settings = models.Settings(
+                    company_name="Tijaero Default",
+                    company_address="Default Address",
+                    company_email="admin@tijaero.local",
+                )
+                self.db.add(settings)
+                self.db.commit()
+                self.db.refresh(settings)
         return settings
 
     def update_company_settings(

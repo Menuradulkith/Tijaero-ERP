@@ -53,7 +53,10 @@ import {
 
 export default function PettyCashPage() {
   const queryClient = useQueryClient();
-  const canCreate = usePermission("petty_cash", "create");
+  // Petty cash endpoints are gated by the cashbook permission on the backend
+  // (see backend/app/modules/finance/api.py) — there is no separate
+  // petty_cash permission, so the UI must check the same resource.
+  const canCreate = usePermission("cashbook", "create");
   const { filteredBranches } = useReferenceData();
 
   // UI State

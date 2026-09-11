@@ -293,14 +293,21 @@ export default function SaleReturnsPage() {
         setTouched({});
     }, [handleCancelBase]);
 
+    // Tracks the most recently requested return so a slower, stale response
+    // (e.g. switching from A to B before A's request resolves) can't overwrite
+    // the currently-selected return's line items with a different return's data.
+    const latestReturnRequestRef = useRef<number | null>(null);
+
     const handleSelectReturnWithItems = useCallback(async (ret: SaleReturn) => {
         const selected = await handleSelectReturn(ret);
         if (!selected) return;
 
+        latestReturnRequestRef.current = ret.id;
         setTouched({});
         setBarcodeInput("");
         try {
             const detailedReturn = await saleReturnsApi.getById(ret.id);
+            if (latestReturnRequestRef.current !== ret.id) return;
             if (detailedReturn.items) {
                 setLineItems(detailedReturn.items.map((item: any, idx: number) => ({
                     _id: `existing-${idx}`,
@@ -318,6 +325,7 @@ export default function SaleReturnsPage() {
                 setLineItems([]);
             }
         } catch {
+            if (latestReturnRequestRef.current !== ret.id) return;
             setLineItems([]);
         }
     }, [handleSelectReturn]);

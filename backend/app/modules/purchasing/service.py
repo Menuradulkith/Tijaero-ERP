@@ -2450,11 +2450,19 @@ class SupplierAdvancePaymentService:
                 detail=f"Application amount ({data.applied_amount}) exceeds available balance ({advance.remaining_amount})"
             )
         
+        # Lock and update the advance balance FIRST (apply_to_grn re-validates
+        # under the row lock and raises if the balance was already consumed by
+        # a concurrent application). Only once that succeeds do we create the
+        # audit row below — creating it first and validating after would leave
+        # an orphaned application record with no matching deduction if a
+        # concurrent request wins the race.
+        try:
+            self.repo.apply_to_grn(data.advance_id, float(data.applied_amount))
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
         # Create the application
         application = self.application_repo.create(data, created_by)
-        
-        # Update the advance balance
-        self.repo.apply_to_grn(data.advance_id, float(data.applied_amount))
         
         # ── GL Auto-Posting: Scenario 31 – Advance Applied to GRN ─────
         try:

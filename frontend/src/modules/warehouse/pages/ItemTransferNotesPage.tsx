@@ -268,10 +268,16 @@ export default function ItemTransferNotesPage() {
     }));
   }, [prefillTransfer, locations, formData.from_location_id, formData.to_location_id, setFormData]);
 
+  // Tracks the most recently requested ITN so a slower, stale response
+  // (e.g. switching from A to B before A's request resolves) can't overwrite
+  // the currently-selected ITN's line items with a different ITN's data.
+  const latestITNRequestRef = useRef<number | null>(null);
+
   // Load ITN items when selecting an ITN
   const loadITNItems = useCallback(async (itnId: number) => {
     try {
       const items = await transferNoteItemsApi.getAll(itnId);
+      if (latestITNRequestRef.current !== itnId) return;
       setLineItems(items.map((item: ItemTransferNoteItem) => ({
         _id: `existing-${item.id}`,
         id: item.id,
@@ -283,6 +289,7 @@ export default function ItemTransferNotesPage() {
         item_recieved: item.item_recieved,
       })));
     } catch (error) {
+      if (latestITNRequestRef.current !== itnId) return;
       setLineItems([]);
     }
   }, []);
@@ -391,7 +398,8 @@ export default function ItemTransferNotesPage() {
   const handleSelectITNWithItems = useCallback(async (itn: ItemTransferNote) => {
     const selected = await handleSelectITN(itn);
     if (!selected) return;
-    
+
+    latestITNRequestRef.current = itn.id;
     setTouched({});
     loadITNItems(itn.id);
   }, [handleSelectITN, loadITNItems]);
