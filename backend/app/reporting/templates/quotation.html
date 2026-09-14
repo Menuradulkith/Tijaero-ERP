@@ -92,7 +92,7 @@
                 <th class="r" style="width:80px">Unit Price</th>
                 {% if options.show_discount %}<th class="r" style="width:65px">Discount</th>{% endif %}
                 <th class="c" style="width:55px">Warranty</th>
-                <th class="r" style="width:90px">Amount (LKR)</th>
+                <th class="r" style="width:90px">Amount ({{ company.currency_code }})</th>
             </tr>
         </thead>
         <tbody>
@@ -116,7 +116,7 @@
                 <tr><td class="lbl">Items</td><td class="val">{{ items | length }}</td></tr>
                 <tr><td class="lbl">Sub Total</td><td class="val">{{ "%.2f" | format(totals.subtotal) }}</td></tr>
                 {% if options.show_discount and totals.discount > 0 %}<tr><td class="lbl">Discount</td><td class="val">-{{ "%.2f" | format(totals.discount) }}</td></tr>{% endif %}
-                <tr class="grand"><td class="lbl">Grand Total (LKR)</td><td class="val">{{ "%.2f" | format(totals.total_amount) }}</td></tr>
+                <tr class="grand"><td class="lbl">Grand Total ({{ company.currency_code }})</td><td class="val">{{ "%.2f" | format(totals.total_amount) }}</td></tr>
             </table>
         </div>
     </div>

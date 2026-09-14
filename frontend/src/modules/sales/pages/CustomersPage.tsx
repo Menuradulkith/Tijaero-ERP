@@ -5,14 +5,17 @@
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { FileDownload as DownloadIcon } from "@mui/icons-material";
 import PersonIcon from "@mui/icons-material/Person";
+import HistoryIcon from "@mui/icons-material/History";
 import {
   Box,
   Button,
   Chip,
   FormControlLabel,
+  IconButton,
   MenuItem,
   Switch,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -36,11 +39,12 @@ import {
   TDetailSkeleton,
   TITLE_CHOICES,
   TStatusFilter,
+  TTabFilterBar,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
@@ -122,9 +126,14 @@ export default function CustomersPage() {
   const canUpdate = usePermission("customers", "update");
   const canDelete = usePermission("customers", "delete");
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterAgent, setFilterAgent] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftAgent, setDraftAgent] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Use reusable state hook
   const {
@@ -152,6 +161,25 @@ export default function CustomersPage() {
     favoritesKey: "customers_favorites",
     defaultSortField: "customer_name",
   });
+
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Information section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterAgent(draftAgent);
+  }, [draftSearchQuery, draftStatus, draftAgent]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftAgent(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterAgent(null);
+  }, []);
 
   // Data fetching - fetch ALL customers (including inactive) for this management page
   const { data: customers, isLoading } = useQuery({
@@ -323,37 +351,13 @@ export default function CustomersPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search customers..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedCustomer}
       onSelectItem={handleSelectCustomer}
       emptyMessage="No customers found"
-      listHeader={
-        <Box
-          sx={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 1,
-            padding: 1.5,
-            paddingBottom: 0,
-          }}
-        >
-          <SalesFilterPanel
-            statusOptions={CUSTOMER_STATUS_OPTIONS}
-            statusValue={filterStatus}
-            onStatusChange={setFilterStatus}
-          >
-            <TStatusFilter
-              options={AGENT_FILTER_OPTIONS}
-              value={filterAgent}
-              onChange={setFilterAgent}
-              label="Type"
-            />
-          </SalesFilterPanel>
-        </Box>
-      }
       renderItem={(customer, isSelected) => (
         <SelectableListItem
           key={customer.id}
@@ -863,21 +867,33 @@ export default function CustomersPage() {
 
             {/* Record Information (view mode only) */}
             {selectedCustomer && !isCreating && !isEditing && (
-              <FormSection title="Record Information" columns={2}>
+              <FormSection
+                title="Record Information"
+                columns={2}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <Box>
                   <Typography variant="caption" color="text.secondary">
-                    Created
+                    Created By
                   </Typography>
                   <Typography variant="body2">
-                    {formatDateTimeReadable(selectedCustomer.created_at) || "-"}
+                    {selectedCustomer.created_by_name || "-"}
+                    {selectedCustomer.created_at ? ` on ${formatDateTimeReadable(selectedCustomer.created_at)}` : ""}
                   </Typography>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">
-                    Last Modified
+                    Last Modified By
                   </Typography>
                   <Typography variant="body2">
-                    {formatDateTimeReadable(selectedCustomer.updated_at) || "-"}
+                    {selectedCustomer.updated_by_name || "-"}
+                    {selectedCustomer.updated_at ? ` on ${formatDateTimeReadable(selectedCustomer.updated_at)}` : ""}
                   </Typography>
                 </Box>
               </FormSection>
@@ -892,6 +908,52 @@ export default function CustomersPage() {
     <>
       <MasterDetailLayout
         title="Customers"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Customer",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search customers..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TStatusFilter options={CUSTOMER_STATUS_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
+                ),
+              },
+              {
+                key: "type",
+                label: "Type",
+                hasValue: !!draftAgent,
+                render: () => (
+                  <TStatusFilter options={AGENT_FILTER_OPTIONS} value={draftAgent} onChange={setDraftAgent} label="" size="small" />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftAgent && !searchQuery && !filterStatus && !filterAgent}
+          />
+        }
         headerActions={
           <Button
             variant="outlined"
@@ -913,6 +975,18 @@ export default function CustomersPage() {
         detailPanel={detailPanel}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="customer"
+        entityId={selectedCustomer?.id}
+        actionLabels={{
+          create: "Customer created",
+          update: "Customer updated",
+          delete: "Customer deleted",
+        }}
+      />
     </>
   );
 }

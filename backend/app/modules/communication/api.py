@@ -140,16 +140,14 @@ def get_email_draft(
             doc_display_id = doc.purchasing_order_no
             if doc.supplier:
                 to_email = doc.supplier.email
-                supplier_name = doc.supplier.full_name or doc.supplier.title
-                person_title = doc.supplier.title or ""
+                supplier_name = doc.supplier.company_name
     elif document_type == "purchase-return":
         doc = db.query(PurchasingReturn).filter(PurchasingReturn.id == document_id).first()
         if doc:
             doc_display_id = doc.purchasing_return_no
             if doc.supplier:
                 to_email = doc.supplier.email
-                supplier_name = doc.supplier.full_name or doc.supplier.title
-                person_title = doc.supplier.title or ""
+                supplier_name = doc.supplier.company_name
 
     # Fetch Company Settings for company_name replacement
     from app.modules.settings.models import Settings

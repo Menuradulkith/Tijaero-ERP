@@ -29,6 +29,7 @@ import {
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import PaymentIcon from "@mui/icons-material/Payment";
 
@@ -40,7 +41,7 @@ import {
   DetailPanelHeader,
   FormSection,
   EmptyState,
-  TFilterPanel,
+  TTabFilterBar,
   TBranchFilter,
   TStatusFilter,
   SortOption,
@@ -52,6 +53,7 @@ import {
   useConfirmDialog,
   useCrudMutation,
   fmtLKR,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -116,12 +118,21 @@ export default function PaymentApprovalsPage() {
 
   const [selectedPayment, setSelectedPayment] = useState<PaymentItem | null>(null);
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Info section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   // Confirm dialog for verification warning
   const confirmDialog = useConfirmDialog();
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>("pending");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -169,8 +180,24 @@ export default function PaymentApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftStatus, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranch(null);
+  }, []);
 
   // Force fresh data whenever this route is entered (fixes stale list on navigation).
   useEffect(() => {
@@ -226,7 +253,6 @@ export default function PaymentApprovalsPage() {
       
       return (
         paymentNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        supplier?.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         supplier?.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         refNo?.toLowerCase().includes(searchQuery.toLowerCase())
       );
@@ -400,7 +426,7 @@ export default function PaymentApprovalsPage() {
 
   const getSupplierName = (supplierId: number) => {
     const s = supplierMap.get(supplierId);
-    return s ? s.full_name || s.company_name || "Unknown" : "Unknown";
+    return s ? s.company_name || "Unknown" : "Unknown";
   };
 
   // Master Panel
@@ -410,26 +436,12 @@ export default function PaymentApprovalsPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search payments..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedPayment}
       emptyMessage="No payments found"
-      listHeader={
-        <TFilterPanel>
-          <TStatusFilter
-            options={PAYMENT_STATUS_FILTER_OPTIONS}
-            value={filterStatus}
-            onChange={setFilterStatus}
-          />
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-        </TFilterPanel>
-      }
       renderItem={(payment, isSelected) => {
         const paymentSupplier = supplierMap.get(payment.supplier_id);
         const paymentDate = payment.payment_type === "payment"
@@ -461,7 +473,7 @@ export default function PaymentApprovalsPage() {
                   <>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        {paymentSupplier?.full_name || paymentSupplier?.company_name || "Unknown Supplier"}
+                        {paymentSupplier?.company_name || "Unknown Supplier"}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Supplier)
@@ -604,7 +616,6 @@ export default function PaymentApprovalsPage() {
 
             {/* Supplier Information */}
             <FormSection title="Supplier Information" columns={2}>
-              <TextField label="Supplier Name" size="small" value={supplier?.full_name || ""} disabled />
               <TextField label="Company" size="small" value={supplier?.company_name || "N/A"} disabled />
               <TextField label="Contact" size="small" value={supplier?.mobile_contact_number || ""} disabled />
               <TextField label="Email" size="small" value={supplier?.email || "N/A"} disabled />
@@ -710,7 +721,17 @@ export default function PaymentApprovalsPage() {
             </FormSection>
 
             {/* Creation Info */}
-            <FormSection title="Record Info" columns={2}>
+            <FormSection
+              title="Record Info"
+              columns={2}
+              titleAction={
+                <Tooltip title="View activity history">
+                  <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
               <TextField
                 label="Created Date"
                 size="small"
@@ -787,6 +808,48 @@ export default function PaymentApprovalsPage() {
       <MasterDetailLayout
         title="Payment Approvals"
         icon={<FactCheckIcon color="primary" />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Payment No",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search payments..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => <TStatusFilter options={PAYMENT_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />,
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+          />
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["supplier-payments"] });
           queryClient.invalidateQueries({ queryKey: ["credit-settlements"] });
@@ -800,6 +863,18 @@ export default function PaymentApprovalsPage() {
 
       {/* Confirm Dialog for warnings */}
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType={selectedPayment?.payment_type === "credit" ? "credit_settlement" : "supplier_payment"}
+        entityId={selectedPayment?.id}
+        actionLabels={{
+          create: "Payment created",
+          verify: "Payment verified",
+          reject: "Payment rejected",
+        }}
+      />
     </>
   );
 }

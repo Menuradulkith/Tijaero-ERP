@@ -43,10 +43,10 @@ import {
   EmptyState,
   TDetailSkeleton,
   TExportButton,
-  TFilterPanel,
   TLoadingSkeleton,
   TStatusChip,
   TAlert,
+  TTabFilterBar,
   modernTableStyles,
   getStatusProps,
 } from "@/components/tijaero";
@@ -110,6 +110,11 @@ export default function ReceiveNotesPage() {
   const [branchFilter, setBranchFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Filter state (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatusFilter, setDraftStatusFilter] = useState("");
+  const [draftBranchFilter, setDraftBranchFilter] = useState<string>("");
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
   // Create Mode State
   const [selectedITN, setSelectedITN] = useState<ItemTransferNoteWithItems | null>(null);
   const [receivedItems, setReceivedItems] = useState<ReceivedItem[]>([]);
@@ -125,6 +130,21 @@ export default function ReceiveNotesPage() {
     setReceivedItems([]);
     setActiveStep(0);
   }, [branchFilter, isCreating]);
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setStatusFilter(draftStatusFilter);
+    setBranchFilter(draftBranchFilter);
+  }, [draftSearchQuery, draftStatusFilter, draftBranchFilter]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatusFilter("");
+    setDraftBranchFilter("");
+    setSearchQuery("");
+    setStatusFilter("");
+    setBranchFilter("");
+  }, []);
 
   // Fetch Item Receive Notes
   const {
@@ -416,42 +436,8 @@ export default function ReceiveNotesPage() {
 
   const masterPanel = (
     <SearchableList
-      searchPlaceholder="Search receive notes..."
       onSearchChange={setSearchQuery}
-      listHeader={
-        <TFilterPanel>
-          <TextField
-            select
-            size="small"
-            label="Status"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            sx={{ minWidth: 150 }}
-          >
-            {STATUS_OPTIONS.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <Autocomplete
-            size="small"
-            options={branches}
-            value={branches.find((b) => b.branch_code === branchFilter) || null}
-            isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
-            getOptionLabel={(option) => `${option.branch_name} (${option.branch_code})`}
-            onChange={(_, value) => setBranchFilter(value?.branch_code || "")}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Receiving Branch"
-                placeholder="Search branch"
-                sx={{ minWidth: 220 }}
-              />
-            )}
-          />
-        </TFilterPanel>
-      }
+      hideSearch
     >
       {isLoadingIRNs ? (
         <Box sx={{ p: 1.5 }}>
@@ -1160,6 +1146,84 @@ export default function ReceiveNotesPage() {
   return (
     <MasterDetailLayout
       title="Item Receive Notes"
+      titleSlot={
+        <TTabFilterBar
+          tabs={[
+            {
+              key: "search",
+              label: "Search",
+              hasValue: !!draftSearchQuery,
+              render: ({ close }) => (
+                <TextField
+                  size="small"
+                  autoFocus
+                  placeholder="Search receive notes..."
+                  value={draftSearchQuery}
+                  onChange={(e) => setDraftSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleApplyFilters();
+                      close();
+                    }
+                  }}
+                  fullWidth
+                />
+              ),
+            },
+            {
+              key: "status",
+              label: "Status",
+              hasValue: !!draftStatusFilter,
+              render: () => (
+                <TextField
+                  select
+                  size="small"
+                  label="Status"
+                  value={draftStatusFilter}
+                  onChange={(e) => setDraftStatusFilter(e.target.value)}
+                  fullWidth
+                >
+                  {STATUS_OPTIONS.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              ),
+            },
+            {
+              key: "branch",
+              label: "Branch",
+              hasValue: !!draftBranchFilter,
+              render: () => (
+                <Autocomplete
+                  size="small"
+                  options={branches}
+                  value={branches.find((b) => b.branch_code === draftBranchFilter) || null}
+                  isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
+                  getOptionLabel={(option) => `${option.branch_name} (${option.branch_code})`}
+                  onChange={(_, value) => setDraftBranchFilter(value?.branch_code || "")}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Receiving Branch"
+                      placeholder="Search branch"
+                      sx={{ minWidth: 220 }}
+                    />
+                  )}
+                  fullWidth
+                />
+              ),
+            },
+          ]}
+          onSearch={handleApplyFilters}
+          onClear={handleClearFilters}
+          clearDisabled={
+            !draftSearchQuery && !draftStatusFilter && !draftBranchFilter &&
+            !searchQuery && !statusFilter && !branchFilter
+          }
+        />
+      }
       masterPanel={masterPanel}
       detailPanel={detailPanel}
       onRefresh={() => refetchIRNs()}

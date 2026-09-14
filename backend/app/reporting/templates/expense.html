@@ -78,7 +78,7 @@
 
     <div class="amount-card">
         <div class="label">Expense Amount</div>
-        <div class="value">LKR {{ "%.2f" | format(expense.expense_amount) }}</div>
+        <div class="value">{{ company.currency_code }} {{ "%.2f" | format(expense.expense_amount) }}</div>
     </div>
 
     {% if expense.description %}

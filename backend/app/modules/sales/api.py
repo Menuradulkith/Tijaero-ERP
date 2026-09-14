@@ -383,7 +383,7 @@ def delete_sale_return(
     current_user: User = Depends(require_permission(*Permissions.SALES_RETURN_DELETE)),
 ):
     """Delete a pending sale return."""
-    return service.sales_service.delete_sale_return(db, return_id)
+    return service.sales_service.delete_sale_return(db, return_id, user_id=current_user.id)
 
 
 # NOTE: Sale return approvals are handled through the centralized Approval Dashboard

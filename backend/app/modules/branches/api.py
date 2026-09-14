@@ -63,7 +63,7 @@ def create_branch(
     current_user: User = Depends(get_current_active_user),
 ):
 
-    return service.branch_service.create_branch(db, branch)
+    return service.branch_service.create_branch(db, branch, created_by=current_user.id)
 
 
 @router.put(
@@ -78,7 +78,7 @@ def update_branch(
     current_user: User = Depends(get_current_active_user),
 ):
 
-    return service.branch_service.update_branch(db, branch_id, branch)
+    return service.branch_service.update_branch(db, branch_id, branch, updated_by=current_user.id)
 
 
 @router.delete(
@@ -92,4 +92,4 @@ def delete_branch(
     current_user: User = Depends(get_current_active_user),
 ):
 
-    return service.branch_service.delete_branch(db, branch_id)
+    return service.branch_service.delete_branch(db, branch_id, deleted_by=current_user.id)

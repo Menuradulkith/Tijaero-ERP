@@ -218,13 +218,8 @@ class TestPurchasingAPI:
         r = superclient.post(
             f"{self.PREFIX}/suppliers",
             json={
-                "title": "Mr",
-                "full_name": f"Supplier {_uid()}",
-                "postal_address": "1 Main St",
-                "permenent_address": "1 Main St",
-                "gender": "male",
-                "civil_status": "single",
-                "no_of_kids": "0",
+                "company_name": f"Supplier {_uid()}",
+                "billing_address_line1": "1 Main St",
                 "mobile_contact_number": "0771234567",
                 "credit_days": 30,
                 "max_credit_limit": 500000,
@@ -268,7 +263,7 @@ class TestPurchasingAPI:
         sup = self._create_supplier(superclient)
         r = superclient.get(f"{self.PREFIX}/suppliers/{sup['id']}")
         assert r.status_code == 200
-        assert r.json()["full_name"] == sup["full_name"]
+        assert r.json()["company_name"] == sup["company_name"]
 
     def test_get_supplier_404(self, superclient):
         r = superclient.get(f"{self.PREFIX}/suppliers/999999")

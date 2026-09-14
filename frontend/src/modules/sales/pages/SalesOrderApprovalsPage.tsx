@@ -42,9 +42,12 @@ import {
     SearchableList,
     SelectableListItem,
     SortOption,
+    TBranchFilter,
     TDetailSkeleton,
     TConfirmDialog,
     TStatusChip,
+    TStatusFilter,
+    TTabFilterBar,
     getStatusProps,
     modernTableStyles,
     showErrorToast,
@@ -52,7 +55,6 @@ import {
     useTConfirmDialog,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { customersApi } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
@@ -86,9 +88,14 @@ export default function SalesOrderApprovalsPage() {
     const approveDialog = useTConfirmDialog();
     const rejectDialog = useTConfirmDialog();
 
-    // Filter states
+    // Filter states (applied - drives the actual list filtering)
     const [filterBranch, setFilterBranch] = useState<string | null>(null);
     const [filterStatus, setFilterStatus] = useState<string | null>("pending_approval");
+
+    // Filter states (draft - edited via the header filter bar, only applied on Search click)
+    const [draftBranch, setDraftBranch] = useState<string | null>(null);
+    const [draftStatus, setDraftStatus] = useState<string | null>("pending_approval");
+    const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
     // Dialogs
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -131,8 +138,24 @@ export default function SalesOrderApprovalsPage() {
     useEffect(() => {
       if (defaultBranchCode && filterBranch === null) {
         setFilterBranch(defaultBranchCode);
+        setDraftBranch(defaultBranchCode);
       }
     }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const handleApplyFilters = useCallback(() => {
+      setSearchQuery(draftSearchQuery);
+      setFilterStatus(draftStatus);
+      setFilterBranch(draftBranch);
+    }, [draftSearchQuery, draftStatus, draftBranch]);
+
+    const handleClearFilters = useCallback(() => {
+      setDraftSearchQuery("");
+      setDraftStatus(null);
+      setDraftBranch(null);
+      setSearchQuery("");
+      setFilterStatus(null);
+      setFilterBranch(null);
+    }, []);
 
     // Create lookup maps
     const customerMap = useMemo(() => {
@@ -181,7 +204,7 @@ export default function SalesOrderApprovalsPage() {
         });
 
         return filtered;
-    }, [orders, searchQuery, sortField, customerMap, filterBranch]);
+    }, [orders, searchQuery, sortField, customerMap, filterBranch, filterStatus]);
 
     // Handle selection
     const handleSelectOrder = useCallback(async (order: Invoice) => {
@@ -284,22 +307,12 @@ export default function SalesOrderApprovalsPage() {
             isLoading={isLoading}
             searchValue={searchQuery}
             onSearchChange={setSearchQuery}
-            placeholder="Search orders..."
+            hideSearch
             sortOptions={SORT_OPTIONS}
             sortField={sortField}
             onSortChange={setSortField}
             selectedItem={selectedOrder}
             emptyMessage="No pending orders found"
-            listHeader={
-                <SalesFilterPanel
-                    statusOptions={SO_STATUS_FILTER_OPTIONS}
-                    statusValue={filterStatus}
-                    onStatusChange={setFilterStatus}
-                    branches={branches}
-                    branchValue={filterBranch}
-                    onBranchChange={setFilterBranch}
-                />
-            }
             renderItem={(order, isSelected) => {
                 const orderCustomer = customerMap.get(order.customer_id);
                 const statusChip = getStatusProps(order.approval ? "approved" : "pending_approval", "invoice");
@@ -1055,6 +1068,52 @@ export default function SalesOrderApprovalsPage() {
             <MasterDetailLayout
                 title="Sales Order Approvals"
                 icon={<FactCheckIcon color="primary" />}
+                titleSlot={
+                    <TTabFilterBar
+                        tabs={[
+                            {
+                                key: "search",
+                                label: "Search",
+                                hasValue: !!draftSearchQuery,
+                                render: ({ close }) => (
+                                    <TextField
+                                        size="small"
+                                        autoFocus
+                                        placeholder="Search orders..."
+                                        value={draftSearchQuery}
+                                        onChange={(e) => setDraftSearchQuery(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                handleApplyFilters();
+                                                close();
+                                            }
+                                        }}
+                                        fullWidth
+                                    />
+                                ),
+                            },
+                            {
+                                key: "status",
+                                label: "Status",
+                                hasValue: !!draftStatus,
+                                render: () => (
+                                    <TStatusFilter options={SO_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
+                                ),
+                            },
+                            {
+                                key: "branch",
+                                label: "Branch",
+                                hasValue: !!draftBranch,
+                                render: () => (
+                                    <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                                ),
+                            },
+                        ]}
+                        onSearch={handleApplyFilters}
+                        onClear={handleClearFilters}
+                        clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+                    />
+                }
                 onRefresh={() => refetch()}
                 isLoading={isLoading}
                 masterPanel={masterPanel}

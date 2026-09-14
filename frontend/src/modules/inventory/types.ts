@@ -8,6 +8,10 @@ export interface Category {
   created_date: string;
   created_at: string;
   updated_at: string;
+  created_by?: number;
+  updated_by?: number;
+  created_by_name?: string;
+  updated_by_name?: string;
 }
 
 export interface CategoryCreate {
@@ -32,6 +36,12 @@ export interface Brand {
   brand_code: string;
   description?: string;
   active: boolean;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: number;
+  updated_by?: number;
+  created_by_name?: string;
+  updated_by_name?: string;
 }
 
 export interface BrandCreate {
@@ -67,6 +77,10 @@ export interface Product {
   added_date: string;
   created_at: string;
   updated_at: string;
+  created_by?: number;
+  updated_by?: number;
+  created_by_name?: string;
+  updated_by_name?: string;
   price_tiers: PriceTier[];
 }
 

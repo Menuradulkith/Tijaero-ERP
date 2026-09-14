@@ -48,25 +48,27 @@ class Supplier(Base, AuditMixin):
     __tablename__ = "supplier"
     
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(30), nullable=False)
-    full_name = Column(String(255), nullable=False)
-    name_in_cheque_card = Column(String(255))
-    occupation = Column(String(255))
-    company_name = Column(String(255))
+    company_name = Column(String(255), nullable=False)
     company_registration_number = Column(String(255))
-    company_postal_address = Column(Text)
-    company_contact_number = Column(String(12))
+    tax_registration_number = Column(String(255))
     company_website = Column(String(200))
-    postal_address = Column(Text, nullable=False)
-    permenent_address = Column(Text, nullable=False)
-    bank_details = Column(Text)
+    logo_path = Column(String(500))
+    # Billing address — where PO/payment correspondence is sent.
+    billing_address_line1 = Column(String(255), nullable=False)
+    billing_address_line2 = Column(String(255))
+    billing_city = Column(String(120))
+    billing_state = Column(String(120))
+    billing_postal_code = Column(String(20))
+    # Shipping address — where goods are actually received from this
+    # supplier. Optional: many suppliers ship from the same place they bill
+    # from, so the frontend offers a "same as billing" shortcut rather than
+    # forcing re-entry.
+    shipping_address_line1 = Column(String(255))
+    shipping_address_line2 = Column(String(255))
+    shipping_city = Column(String(120))
+    shipping_state = Column(String(120))
+    shipping_postal_code = Column(String(20))
     date_joined = Column(TIMESTAMP, nullable=False)
-    birthdate = Column(Date)
-    id_card_number = Column(String(12))
-    gender = Column(String(30), nullable=False)
-    civil_status = Column(String(30), nullable=False)
-    passport_no = Column(String(50))
-    no_of_kids = Column(String(30), nullable=False)
     email = Column(String(75))
     home_contact_number = Column(String(12))
     mobile_contact_number = Column(String(12), nullable=False)
@@ -85,6 +87,52 @@ class Supplier(Base, AuditMixin):
     credit_settlements = relationship("SupplierCreditsSettle", back_populates="supplier")
     payments = relationship("SupplierPayment", back_populates="supplier")
     advance_payments = relationship("SupplierAdvancePayment", back_populates="supplier")
+    payment_methods = relationship("SupplierPaymentMethod", back_populates="supplier", cascade="all, delete-orphan")
+    contact_persons = relationship("SupplierContactPerson", back_populates="supplier", cascade="all, delete-orphan")
+
+class SupplierContactPerson(Base, AuditMixin):
+    """
+    A person who works at a supplier company, recorded on the supplier's
+    profile so purchasing/finance staff know who to reach out to. A
+    supplier (company) can have any number of contact persons.
+    """
+    __tablename__ = "supplier_contact_person"
+
+    id = Column(Integer, primary_key=True, index=True)
+    supplier_id = Column(Integer, ForeignKey("supplier.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(30))
+    full_name = Column(String(255), nullable=False)
+    occupation = Column(String(255))
+    gender = Column(String(30))
+    birthdate = Column(Date)
+    id_card_number = Column(String(12))
+    passport_no = Column(String(50))
+    email = Column(String(75))
+    phone = Column(String(12))
+
+    supplier = relationship("Supplier", back_populates="contact_persons")
+
+
+class SupplierPaymentMethod(Base, AuditMixin):
+    """
+    A saved payment method (bank account, cheque, or cash) recorded on a
+    supplier's profile, so it can be quickly selected — rather than retyped —
+    when processing an actual payment to that supplier on the Supplier
+    Payments screen.
+    """
+    __tablename__ = "supplier_payment_method"
+
+    id = Column(Integer, primary_key=True, index=True)
+    supplier_id = Column(Integer, ForeignKey("supplier.id", ondelete="CASCADE"), nullable=False, index=True)
+    method_type = Column(String(30), nullable=False)  # cash, bank_transfer, cheque
+    bank_name = Column(String(255))
+    account_number = Column(String(100))
+    account_holder_name = Column(String(255))
+    is_default = Column(Boolean, nullable=False, default=False)
+    active = Column(Boolean, nullable=False, default=True)
+
+    supplier = relationship("Supplier", back_populates="payment_methods")
+
 
 class PurchasingOrder(Base, AuditMixin):
     __tablename__ = "purchasing_orders"

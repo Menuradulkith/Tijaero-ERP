@@ -1,9 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from typing import Optional, List, Any
 from datetime import datetime
 from decimal import Decimal
 
-from app.common.base_schemas import TijaeroBaseSchema
+from app.common.base_schemas import TijaeroBaseSchema, format_datetime
 
 class CountryBase(BaseModel):
     name: str
@@ -48,6 +48,23 @@ class Approval(ApprovalBase, TijaeroBaseSchema):
     status_changed_by: Optional[int] = None
     next_approval_group: Optional[str] = None
     next_user_to_approve: Optional[int] = None
+
+class ActivityLogEntry(BaseModel):
+    """One row of an entity's modification history (Record Information ->
+    Activity History), backed by the generic audit_logs table. Used across
+    modules — any entity_type that log_audit() has been called with can be
+    queried through GET /common/activity-log."""
+    id: int
+    action: str
+    changes: Optional[dict] = None
+    timestamp: datetime
+    user_id: int
+    user_name: Optional[str] = None
+
+    @field_serializer('timestamp')
+    def _serialize_timestamp(self, dt: datetime) -> str:
+        return format_datetime(dt)
+
 
 class ReferenceDataResponse(TijaeroBaseSchema):
 

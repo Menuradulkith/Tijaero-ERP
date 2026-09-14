@@ -3,6 +3,9 @@ import {
   Supplier,
   SupplierCreate,
   SupplierUpdate,
+  SupplierContactPerson,
+  SupplierContactPersonCreate,
+  SupplierContactPersonUpdate,
   PurchasingOrder,
   PurchasingOrderWithItems,
   PurchasingOrderCreate,
@@ -23,25 +26,42 @@ import {
   SupplierCreditsSettleWithTransactions,
   DailyPOLimitCheck,
   PurchasingStats,
+  SupplierPaymentAccount,
+  SupplierPaymentAccountCreate,
+  SupplierPaymentAccountUpdate,
 } from "./types";
 
-// Helper to clean empty strings to null/undefined for optional fields
+// Helper to clean empty strings to null/undefined for optional fields.
+// company_name is required (non-nullable) so it's trimmed but never nulled.
 const cleanSupplierData = (data: SupplierCreate | SupplierUpdate) => {
   return {
     ...data,
-    name_in_cheque_card: data.name_in_cheque_card?.trim() || null,
-    occupation: data.occupation?.trim() || null,
-    company_name: data.company_name?.trim() || null,
+    company_name: data.company_name?.trim(),
     company_registration_number: data.company_registration_number?.trim() || null,
-    company_postal_address: data.company_postal_address?.trim() || null,
-    company_contact_number: data.company_contact_number?.trim() || null,
     company_website: data.company_website?.trim() || null,
-    bank_details: data.bank_details?.trim() || null,
+    email: data.email?.trim() || null,
+    home_contact_number: data.home_contact_number?.trim() || null,
+  };
+};
+
+// Helper to clean empty strings to null/undefined for optional contact-person
+// fields. birthdate (date) and email (EmailStr) in particular reject "" on
+// the backend — they must be null/omitted, not an empty string.
+// full_name is required (non-nullable) so it's trimmed but never nulled.
+const cleanContactPersonData = (
+  data: SupplierContactPersonCreate | SupplierContactPersonUpdate
+) => {
+  return {
+    ...data,
+    full_name: data.full_name?.trim(),
+    title: data.title?.trim() || null,
+    occupation: data.occupation?.trim() || null,
+    gender: data.gender?.trim() || null,
     birthdate: data.birthdate?.trim() || null,
     id_card_number: data.id_card_number?.trim() || null,
     passport_no: data.passport_no?.trim() || null,
     email: data.email?.trim() || null,
-    home_contact_number: data.home_contact_number?.trim() || null,
+    phone: data.phone?.trim() || null,
   };
 };
 
@@ -97,6 +117,80 @@ export const suppliersApi = {
 
   delete: async (id: number) => {
     await apiClient.delete(`/purchasing/suppliers/${id}`);
+  },
+
+  uploadLogo: async (id: number, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await apiClient.post<Supplier>(
+      `/purchasing/suppliers/${id}/logo`,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+    return response.data;
+  },
+
+  removeLogo: async (id: number) => {
+    const response = await apiClient.delete<Supplier>(
+      `/purchasing/suppliers/${id}/logo`
+    );
+    return response.data;
+  },
+
+  getPaymentMethods: async (supplierId: number) => {
+    const response = await apiClient.get<SupplierPaymentAccount[]>(
+      `/purchasing/suppliers/${supplierId}/payment-methods`
+    );
+    return response.data;
+  },
+
+  createPaymentMethod: async (supplierId: number, data: SupplierPaymentAccountCreate) => {
+    const response = await apiClient.post<SupplierPaymentAccount>(
+      `/purchasing/suppliers/${supplierId}/payment-methods`,
+      data
+    );
+    return response.data;
+  },
+
+  updatePaymentMethod: async (supplierId: number, methodId: number, data: SupplierPaymentAccountUpdate) => {
+    const response = await apiClient.patch<SupplierPaymentAccount>(
+      `/purchasing/suppliers/${supplierId}/payment-methods/${methodId}`,
+      data
+    );
+    return response.data;
+  },
+
+  deletePaymentMethod: async (supplierId: number, methodId: number) => {
+    await apiClient.delete(`/purchasing/suppliers/${supplierId}/payment-methods/${methodId}`);
+  },
+
+  getContactPersons: async (supplierId: number) => {
+    const response = await apiClient.get<SupplierContactPerson[]>(
+      `/purchasing/suppliers/${supplierId}/contact-persons`
+    );
+    return response.data;
+  },
+
+  createContactPerson: async (supplierId: number, data: SupplierContactPersonCreate) => {
+    const cleanData = cleanContactPersonData(data);
+    const response = await apiClient.post<SupplierContactPerson>(
+      `/purchasing/suppliers/${supplierId}/contact-persons`,
+      cleanData
+    );
+    return response.data;
+  },
+
+  updateContactPerson: async (supplierId: number, contactId: number, data: SupplierContactPersonUpdate) => {
+    const cleanData = cleanContactPersonData(data);
+    const response = await apiClient.patch<SupplierContactPerson>(
+      `/purchasing/suppliers/${supplierId}/contact-persons/${contactId}`,
+      cleanData
+    );
+    return response.data;
+  },
+
+  deleteContactPerson: async (supplierId: number, contactId: number) => {
+    await apiClient.delete(`/purchasing/suppliers/${supplierId}/contact-persons/${contactId}`);
   },
 };
 

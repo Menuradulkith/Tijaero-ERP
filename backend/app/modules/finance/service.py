@@ -589,7 +589,6 @@ class CashbookService:
             supplier_rows = (
                 self.db.query(
                     purchasing_models.SupplierPayment.id,
-                    purchasing_models.Supplier.full_name,
                     purchasing_models.Supplier.company_name,
                 )
                 .join(
@@ -600,7 +599,7 @@ class CashbookService:
                 .all()
             )
             supplier_name_by_payment_id = {
-                row.id: ((row.full_name or "").strip() or (row.company_name or "").strip())
+                row.id: (row.company_name or "").strip()
                 for row in supplier_rows
             }
 
@@ -619,7 +618,6 @@ class CashbookService:
             advance_rows = (
                 self.db.query(
                     purchasing_models.SupplierAdvancePayment.id,
-                    purchasing_models.Supplier.full_name,
                     purchasing_models.Supplier.company_name,
                 )
                 .join(
@@ -630,7 +628,7 @@ class CashbookService:
                 .all()
             )
             advance_name_by_advance_id = {
-                row.id: ((row.full_name or "").strip() or (row.company_name or "").strip())
+                row.id: (row.company_name or "").strip()
                 for row in advance_rows
             }
 

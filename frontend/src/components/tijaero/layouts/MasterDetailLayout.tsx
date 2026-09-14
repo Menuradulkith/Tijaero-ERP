@@ -25,6 +25,7 @@ import { MasterDetailLayoutProps } from "../types";
 export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
   title,
   icon,
+  titleSlot,
   onRefresh,
   children,
   masterPanel,
@@ -37,6 +38,23 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+
+  // `isLoading` (typically a query's initial-load flag) only reflects the very
+  // first fetch, so it stays false during a manual refresh — leaving the
+  // refresh button with no visual feedback even though onRefresh (usually
+  // React Query's `refetch`) is working. Track the click locally instead so
+  // the spinner shows for the actual duration of this refresh, regardless of
+  // how the page computes its own isLoading.
+  const handleRefreshClick = async () => {
+    if (!onRefresh) return;
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Get current tab value - support both index and string id
   const getTabValue = () => {
@@ -69,18 +87,24 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
           flexShrink: 0,
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          {icon}
-          <Typography variant="h6" fontWeight={600}>
-            {title}
-          </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
+          {titleSlot ? (
+            titleSlot
+          ) : (
+            <>
+              {icon}
+              <Typography variant="h6" fontWeight={600}>
+                {title}
+              </Typography>
+            </>
+          )}
           {isLoading && <CircularProgress size={18} sx={{ ml: 1 }} />}
         </Box>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {headerActions}
           {onRefresh && (
-            <IconButton onClick={() => onRefresh()} size="small" disabled={isLoading}>
-              <RefreshIcon />
+            <IconButton onClick={handleRefreshClick} size="small" disabled={isLoading || isRefreshing}>
+              {isRefreshing ? <CircularProgress size={18} /> : <RefreshIcon />}
             </IconButton>
           )}
         </Box>

@@ -57,9 +57,9 @@ import {
     TConfirmDialog,
     TCurrency,
     TExportButton,
-    TFilterPanel,
     TStatCard,
     TStatusChip,
+    TTabFilterBar,
     useConfirmDialog,
     useMasterDetailState,
 } from "@/components/tijaero";
@@ -123,9 +123,29 @@ export default function ReimbursementsPage() {
   const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+    setFilterStatus(draftStatus);
+  }, [draftSearchQuery, draftBranch, draftStatus]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setDraftStatus(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+    setFilterStatus(null);
+  }, []);
 
   // Workflow dialog states
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
@@ -159,6 +179,7 @@ export default function ReimbursementsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -208,6 +229,7 @@ export default function ReimbursementsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -521,35 +543,12 @@ export default function ReimbursementsPage() {
         <TStatCard title="Completed" value={stats.completed} color="success" />
       </Box>
 
-      {/* Filters */}
-      <TFilterPanel>
-        <TBranchFilter
-          branches={branches}
-          value={filterBranch}
-          onChange={setFilterBranch}
-        />
-        <TextField
-          select
-          size="small"
-          label="Status"
-          value={filterStatus || ""}
-          onChange={(e) => setFilterStatus(e.target.value || null)}
-          sx={{ minWidth: 150 }}
-        >
-          {REIMBURSEMENT_STATUS_FILTER_OPTIONS.map((opt) => (
-            <MenuItem key={String(opt.value)} value={opt.value || ""}>
-              {opt.label}
-            </MenuItem>
-          ))}
-        </TextField>
-      </TFilterPanel>
-
       {/* List */}
       <SearchableList
         items={filteredItems}
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
-        placeholder="Search by no, employee..."
+        hideSearch
         sortOptions={SORT_OPTIONS}
         sortField={sortField}
         onSortChange={setSortField}
@@ -1284,6 +1283,78 @@ export default function ReimbursementsPage() {
       <MasterDetailLayout
         title="Employee Reimbursements"
         icon={<ReceiptIcon />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search by no, employee..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter
+                    branches={branches}
+                    value={draftBranch}
+                    onChange={setDraftBranch}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TextField
+                    select
+                    size="small"
+                    label=""
+                    value={draftStatus || ""}
+                    onChange={(e) => setDraftStatus(e.target.value || null)}
+                    fullWidth
+                  >
+                    {REIMBURSEMENT_STATUS_FILTER_OPTIONS.map((opt) => (
+                      <MenuItem key={String(opt.value)} value={opt.value || ""}>
+                        {opt.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={
+              !draftSearchQuery &&
+              !draftBranch &&
+              !draftStatus &&
+              !searchQuery &&
+              !filterBranch &&
+              !filterStatus
+            }
+          />
+        }
         masterPanel={renderListPanel()}
         detailPanel={isCreating ? renderCreateForm() : renderDetailView()}
         headerActions={

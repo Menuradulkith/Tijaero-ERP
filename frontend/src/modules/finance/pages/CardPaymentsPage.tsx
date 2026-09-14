@@ -9,12 +9,15 @@ import {
   Autocomplete,
   Box,
   Chip,
+  IconButton,
   InputAdornment,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import {
   CreditCard as CardIcon,
+  History as HistoryIcon,
 } from "@mui/icons-material";
 
 import {
@@ -28,10 +31,11 @@ import {
   SortOption,
   TDetailSkeleton,
   TBranchFilter,
-  TFilterPanel,
+  TTabFilterBar,
   TExportButton,
   CARD_TYPE,
   fmtLKR,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { cardPaymentsApi } from "@/modules/finance/api";
@@ -79,6 +83,10 @@ const getCardColor = (type: string): "primary" | "secondary" | "info" | "default
 export default function CardPaymentsPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
+  // Filter state (draft - edited via the filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
   const {
     searchQuery,
     setSearchQuery,
@@ -97,6 +105,10 @@ export default function CardPaymentsPage() {
     defaultSortField: "date_time",
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Date section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
@@ -104,8 +116,21 @@ export default function CardPaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+  }, []);
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -161,18 +186,13 @@ export default function CardPaymentsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search card payments..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedItem}
       onSelectItem={handleSelectWithCheck}
       emptyMessage="No card payments found"
-      listHeader={
-        <TFilterPanel>
-          <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} />
-        </TFilterPanel>
-      }
       renderItem={(pmt, isSelected) => (
         <SelectableListItem
           key={pmt.id}
@@ -295,7 +315,17 @@ export default function CardPaymentsPage() {
             </FormSection>
 
             {selectedItem && !isCreating && (
-              <FormSection title="Date" columns={1}>
+              <FormSection
+                title="Date"
+                columns={1}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <TextField
                   label="Payment Date"
                   size="small"
@@ -324,8 +354,47 @@ export default function CardPaymentsPage() {
   );
 
   return (
+    <>
     <MasterDetailLayout
       title="Card Payments"
+      titleSlot={
+        <TTabFilterBar
+          tabs={[
+            {
+              key: "search",
+              label: "Search",
+              hasValue: !!draftSearchQuery,
+              render: ({ close }) => (
+                <TextField
+                  size="small"
+                  autoFocus
+                  placeholder="Search card payments..."
+                  value={draftSearchQuery}
+                  onChange={(e) => setDraftSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleApplyFilters();
+                      close();
+                    }
+                  }}
+                  fullWidth
+                />
+              ),
+            },
+            {
+              key: "branch",
+              label: "Branch",
+              hasValue: !!draftBranch,
+              render: () => (
+                <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+              ),
+            },
+          ]}
+          onSearch={handleApplyFilters}
+          onClear={handleClearFilters}
+          clearDisabled={!draftSearchQuery && !draftBranch && !searchQuery && !filterBranch}
+        />
+      }
       onRefresh={refetch}
       isLoading={isLoading}
       headerActions={
@@ -350,5 +419,16 @@ export default function CardPaymentsPage() {
       masterPanel={masterPanel}
       detailPanel={detailPanel}
     />
+
+    <TActivityHistoryPanel
+      open={activityHistoryOpen}
+      onClose={() => setActivityHistoryOpen(false)}
+      entityType="card_payment"
+      entityId={selectedItem?.id}
+      actionLabels={{
+        create: "Card payment created",
+      }}
+    />
+    </>
   );
 }

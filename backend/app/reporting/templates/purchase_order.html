@@ -62,7 +62,6 @@
         <div class="info-box">
             <div class="info-title">Supplier Details</div>
             <table>
-                <tr><td class="lbl">Name</td><td class="val">{{ supplier.full_name | default('N/A') }}</td></tr>
                 <tr><td class="lbl">Company</td><td class="val">{{ supplier.company_name | default('N/A') }}</td></tr>
                 <tr><td class="lbl">Contact</td><td class="val">{{ supplier.mobile_contact_number | default('N/A') }}</td></tr>
                 <tr><td class="lbl">Email</td><td class="val">{{ supplier.email | default('N/A') }}</td></tr>
@@ -90,7 +89,7 @@
                 <th class="c" style="width:40px">Qty</th>
                 <th class="r" style="width:80px">Unit Price</th>
                 <th class="c" style="width:55px">Warranty</th>
-                <th class="r" style="width:90px">Amount (LKR)</th>
+                <th class="r" style="width:90px">Amount ({{ company.currency_code }})</th>
             </tr>
         </thead>
         <tbody>
@@ -111,7 +110,7 @@
         <div class="totals">
             <table>
                 <tr><td class="lbl">Total Items</td><td class="val">{{ items | length }}</td></tr>
-                <tr class="grand"><td class="lbl">Grand Total (LKR)</td><td class="val">{{ "%.2f" | format(subtotal) }}</td></tr>
+                <tr class="grand"><td class="lbl">Grand Total ({{ company.currency_code }})</td><td class="val">{{ "%.2f" | format(subtotal) }}</td></tr>
             </table>
         </div>
     </div>

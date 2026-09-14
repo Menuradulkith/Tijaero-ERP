@@ -65,8 +65,8 @@ export {
   SERVICE_JOB_STATUS_FILTER_OPTIONS, REIMBURSEMENT_STATUS_FILTER_OPTIONS,
   TBranchFilter, TFilterBar,
   TFilterPanel, TFormActions, TFormDialog, TFormField,
-  TFormSection, TLineItemsTable, TStatusFilter, TSupplierFilter, useFormState, type TBranchFilterProps, type TFilterBarProps, type TFilterBranch, type TFilterConfig, type TFilterPanelProps, type TFilterStatusOption, type TFilterSupplier, type TFormActionsProps, type TFormDialogProps, type TFormFieldProps,
-  type TFormSectionProps, type TLineItemColumn, type TLineItemsTableProps, type TStatusFilterProps, type TSupplierFilterProps
+  TFormSection, TLineItemsTable, TStatusFilter, TSupplierFilter, TTabFilterBar, useFormState, type TBranchFilterProps, type TFilterBarProps, type TFilterBranch, type TFilterConfig, type TFilterPanelProps, type TFilterStatusOption, type TFilterSupplier, type TFormActionsProps, type TFormDialogProps, type TFormFieldProps,
+  type TFormSectionProps, type TLineItemColumn, type TLineItemsTableProps, type TStatusFilterProps, type TSupplierFilterProps, type TTabFilterBarProps, type TTabFilterTab
 } from './forms-extended';
 
 // =============================================================================
@@ -88,8 +88,8 @@ export {
 export {
   TBreadcrumbs,
   TContextMenu, TDropdownMenu,
-  TSteps, TTabPanel, TTabs, useContextMenu, type TBreadcrumbItem, type TBreadcrumbsProps, type TContextMenuProps,
-  type TDropdownMenuProps, type TStepConfig, type TStepsProps, type TTabConfig, type TTabsProps
+  TSectionNav, TSteps, TTabPanel, TTabs, useContextMenu, type TBreadcrumbItem, type TBreadcrumbsProps, type TContextMenuProps,
+  type TDropdownMenuProps, type TSectionNavItem, type TSectionNavProps, type TStepConfig, type TStepsProps, type TTabConfig, type TTabsProps
 } from './navigation';
 
 // =============================================================================
@@ -127,7 +127,7 @@ export { MasterDetailLayout } from "./layouts";
 export { SearchableList, SelectableListItem } from "./lists";
 
 // Panels
-export { DetailPanelHeader } from "./panels";
+export { DetailPanelHeader, TSidePanel, type TSidePanelProps, TActivityHistoryPanel, type TActivityHistoryPanelProps } from "./panels";
 
 // Toolbars
 export { ActionToolbar } from "./toolbars";

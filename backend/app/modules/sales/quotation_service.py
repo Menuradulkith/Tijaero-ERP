@@ -143,13 +143,27 @@ class SalesQuoteService:
         self._calculate_quote_totals(quote)
         
         # Save to database
-        return self.repository.create(db, quote)
-    
+        created = self.repository.create(db, quote)
+
+        from app.common.audit import log_audit
+        log_audit(
+            db,
+            user_id=created_by or 0,
+            action="create",
+            entity_type="sales_quote",
+            entity_id=created.id,
+            changes={"quote_no": created.quote_no},
+        )
+        db.commit()
+
+        return created
+
     def update_quote(
         self,
         db: Session,
         quote_id: int,
-        quote_data: SalesQuoteUpdate
+        quote_data: SalesQuoteUpdate,
+        user_id: Optional[int] = None
     ) -> SalesQuote:
         """Update an existing quote"""
         # Lock the quote row to prevent concurrent edits from clobbering each other
@@ -193,6 +207,7 @@ class SalesQuoteService:
 
         # Update fields
         update_data = quote_data.model_dump(exclude_unset=True, exclude={'items'})
+        changed_fields = set(update_data.keys())
         for key, value in update_data.items():
             if value is not None:
                 if key == 'discount_type':
@@ -201,50 +216,79 @@ class SalesQuoteService:
                     setattr(quote, 'discount_percentage', value)
                 else:
                     setattr(quote, key, value)
-        
+
         # Update items if provided
         if quote_data.items is not None:
+            changed_fields.add("items")
             # Delete existing items
             self.repository.delete_items_by_quote_id(db, quote_id)
-            
+
             # Add new items
             now = tz.now()
             quote.items = []
             for item_data in quote_data.items:
                 item = self._create_quote_item(item_data, now)
                 quote.items.append(item)
-        
+
         # Recalculate totals
         self._calculate_quote_totals(quote)
-        
-        return self.repository.update(db, quote)
+
+        updated = self.repository.update(db, quote)
+
+        if changed_fields:
+            from app.common.audit import log_audit
+            log_audit(
+                db,
+                user_id=user_id or 0,
+                action="update",
+                entity_type="sales_quote",
+                entity_id=updated.id,
+                changes={"fields": sorted(changed_fields)},
+            )
+            db.commit()
+
+        return updated
     
-    def delete_quote(self, db: Session, quote_id: int) -> bool:
+    def delete_quote(self, db: Session, quote_id: int, user_id: Optional[int] = None) -> bool:
         """Delete a quote"""
         quote = self.repository.get_by_id(db, quote_id)
-        
+
         if not quote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Quote with ID {quote_id} not found"
             )
-        
+
         # Only prevent deletion of converted or cancelled quotes
         if quote.status in [QuoteStatus.CONVERTED.value, QuoteStatus.CANCELLED.value]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete quote in '{quote.status}' status."
             )
-        
-        return self.repository.delete(db, quote_id)
-    
+
+        quote_no_for_log = quote.quote_no
+        deleted = self.repository.delete(db, quote_id)
+        if deleted:
+            from app.common.audit import log_audit
+            log_audit(
+                db,
+                user_id=user_id or 0,
+                action="delete",
+                entity_type="sales_quote",
+                entity_id=quote_id,
+                changes={"quote_no": quote_no_for_log},
+            )
+            db.commit()
+        return deleted
+
     # ==================== Status Management ====================
-    
+
     def update_status(
         self,
         db: Session,
         quote_id: int,
-        status_update: SalesQuoteStatusUpdate
+        status_update: SalesQuoteStatusUpdate,
+        user_id: Optional[int] = None
     ) -> SalesQuote:
         """Update quote status"""
         # Lock the quote row to prevent concurrent status transition conflicts
@@ -255,40 +299,54 @@ class SalesQuoteService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Quote with ID {quote_id} not found"
             )
-        
+
         new_status = status_update.status.value
-        
+
         # Validate status transition
         if not self._is_valid_status_transition(quote.status, new_status):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid status transition from '{quote.status}' to '{new_status}'"
             )
-        
+
         quote.status = new_status
-        
+
         if status_update.remarks:
             quote.remarks = status_update.remarks
-        
+
         # Set approval flag for approved status
         if new_status == QuoteStatus.APPROVED.value:
             quote.approval = True
             quote.approved_date = tz.now()
-        
+
         # Track dates for workflow states
         now = tz.now()
         if new_status == QuoteStatus.SUBMITTED.value:
             quote.submitted_date = now
         elif new_status == QuoteStatus.REJECTED.value:
             quote.rejection_date = now
-        
-        return self.repository.update(db, quote)
-    
-    def submit_for_approval(self, db: Session, quote_id: int) -> SalesQuote:
+
+        updated = self.repository.update(db, quote)
+
+        from app.common.audit import log_audit
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="status_change",
+            entity_type="sales_quote",
+            entity_id=updated.id,
+            changes={"status": new_status},
+        )
+        db.commit()
+
+        return updated
+
+    def submit_for_approval(self, db: Session, quote_id: int, user_id: Optional[int] = None) -> SalesQuote:
         """Submit quote for approval"""
         return self.update_status(
             db, quote_id,
-            SalesQuoteStatusUpdate(status=QuoteStatusEnum.PENDING_APPROVAL)
+            SalesQuoteStatusUpdate(status=QuoteStatusEnum.PENDING_APPROVAL),
+            user_id=user_id
         )
     
     def submit_to_customer(self, db: Session, quote_id: int) -> SalesQuote:
@@ -409,7 +467,7 @@ class SalesQuoteService:
             SalesQuoteStatusUpdate(status=QuoteStatusEnum.APPROVED)
         )
     
-    def reject_quote(self, db: Session, quote_id: int, reason: Optional[str] = None, cancel_linked_po: bool = False) -> SalesQuote:
+    def reject_quote(self, db: Session, quote_id: int, reason: Optional[str] = None, cancel_linked_po: bool = False, user_id: Optional[int] = None) -> SalesQuote:
         """Reject a quote with optional reason and optional PO cancellation"""
         # Lock the quote row to prevent concurrent approve/reject race
         quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
@@ -443,9 +501,22 @@ class SalesQuoteService:
             if linked_po and linked_po.status in ['pending', 'approved']:
                 linked_po.status = 'cancelled'
                 linked_po.remarks = f"Cancelled due to quotation {quote.quote_no} rejection"
-        
-        return self.repository.update(db, quote)
-    
+
+        updated = self.repository.update(db, quote)
+
+        from app.common.audit import log_audit
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="reject",
+            entity_type="sales_quote",
+            entity_id=updated.id,
+            changes={"reason": reason},
+        )
+        db.commit()
+
+        return updated
+
     def mark_as_sent(self, db: Session, quote_id: int) -> SalesQuote:
         """Mark quote as sent to customer. Allowed from DRAFT or SENT (idempotent)."""
         quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
@@ -923,10 +994,20 @@ class SalesQuoteService:
         quote.converted_at = now
         quote.converted_by = converted_by
         quote.conversion_date = now
-        
+
+        from app.common.audit import log_audit
+        log_audit(
+            db,
+            user_id=converted_by or 0,
+            action="convert",
+            entity_type="sales_quote",
+            entity_id=quote.id,
+            changes={"invoice_id": invoice.id, "invoice_no": getattr(invoice, "invoice_no", None)},
+        )
+
         db.commit()
         db.refresh(invoice)
-        
+
         return invoice
     
     # ==================== Revision Management ====================

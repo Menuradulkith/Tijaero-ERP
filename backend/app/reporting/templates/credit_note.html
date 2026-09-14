@@ -107,7 +107,7 @@
                 <th class="r" style="width:70px">Return Price</th>
                 <th class="c" style="width:55px">Condition</th>
                 <th class="c" style="width:35px">Restock</th>
-                <th class="r" style="width:80px">Amount (LKR)</th>
+                <th class="r" style="width:80px">Amount ({{ company.currency_code }})</th>
             </tr>
         </thead>
         <tbody>
@@ -132,7 +132,7 @@
             <table>
                 <tr><td class="lbl">Sub Total</td><td class="val">{{ "%.2f" | format(totals.subtotal) }}</td></tr>
                 {% if totals.tax_refund and totals.tax_refund > 0 %}<tr><td class="lbl">Tax Refund</td><td class="val">{{ "%.2f" | format(totals.tax_refund) }}</td></tr>{% endif %}
-                <tr class="grand"><td class="lbl">Total Refund (LKR)</td><td class="val">{{ "%.2f" | format(totals.total_refund) }}</td></tr>
+                <tr class="grand"><td class="lbl">Total Refund ({{ company.currency_code }})</td><td class="val">{{ "%.2f" | format(totals.total_refund) }}</td></tr>
             </table>
         </div>
     </div>

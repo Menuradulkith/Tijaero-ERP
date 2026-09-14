@@ -246,7 +246,7 @@ export default function SupplierPaymentReportPage() {
   const handlePrint = () => {
     const win = window.open("", "_blank");
     if (!win) { showErrorToast("Allow popups to print"); return; }
-    const supplierLabel = selectedSupplier ? selectedSupplier.full_name : "All Suppliers";
+    const supplierLabel = selectedSupplier ? selectedSupplier.company_name : "All Suppliers";
 
     if (activeTab === 1) {
       const rowsHtml = filteredOut.map((i) => `
@@ -375,7 +375,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                 onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 155 }} />
             </>
           )}
-          <Autocomplete options={suppliers} getOptionLabel={(o) => o.full_name} value={selectedSupplier}
+          <Autocomplete options={suppliers} getOptionLabel={(o) => o.company_name} value={selectedSupplier}
             onChange={(_, v) => setSelectedSupplier(v)}
             renderInput={(params) => <TextField {...params} label="Supplier" size="small" />} sx={{ width: 220 }} />
           <TextField select size="small" label="Branch" value={selectedBranch}

@@ -56,6 +56,7 @@ import {
   TStatCard,
   TStatusChip,
   TStatusFilter,
+  TTabFilterBar,
   modernTableStyles,
   useCrudMutation,
   useMasterDetailState,
@@ -115,9 +116,14 @@ export default function CommissionPaymentsPage() {
   const canUpdate = usePermission("commission_payments", "update");
   const canViewCustomers = usePermission("customers", "view");
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterAgentId, setFilterAgentId] = useState<number | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftAgentId, setDraftAgentId] = useState<number | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Pending commissions for payment creation
   const [pendingCommissions, setPendingCommissions] = useState<CustomerAgentCommission[]>([]);
@@ -148,6 +154,21 @@ export default function CommissionPaymentsPage() {
     favoritesKey: "commission_payments_favorites",
     defaultSortField: "created_at",
   });
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterAgentId(draftAgentId);
+    setFilterStatus(draftStatus);
+  }, [draftSearchQuery, draftAgentId, draftStatus]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftAgentId(null);
+    setDraftStatus(null);
+    setSearchQuery("");
+    setFilterAgentId(null);
+    setFilterStatus(null);
+  }, []);
 
   // Data fetching
   const { data: paymentsData, isLoading, refetch } = useQuery({
@@ -341,35 +362,13 @@ export default function CommissionPaymentsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search payments..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedPayment}
       onSelectItem={handleSelectPayment}
       emptyMessage="No payments found"
-      listHeader={
-        <Box sx={{ p: 1, borderBottom: "1px solid", borderColor: "divider", display: "flex", flexDirection: "column", gap: 1 }}>
-          <TSearchableSelect
-            label="Filter by Agent"
-            value={filterAgentId}
-            onChange={(val) => setFilterAgentId(val ? Number(val) : null)}
-            options={agents.map((agent) => ({
-              value: agent.id,
-              label: agent.customer_name,
-            }))}
-            showAllOption
-            allOptionLabel="All Agents"
-            placeholder="Search agents..."
-          />
-          <TStatusFilter
-            options={PAYMENT_STATUS_OPTIONS}
-            value={filterStatus}
-            onChange={setFilterStatus}
-            label="Status"
-          />
-        </Box>
-      }
       renderItem={(payment, isSelected) => (
         <SelectableListItem
           key={payment.id}
@@ -810,6 +809,70 @@ export default function CommissionPaymentsPage() {
     <>
       <MasterDetailLayout
         title="Commission Payments"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Payment",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search payments..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "agent",
+                label: "Agent",
+                hasValue: !!draftAgentId,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftAgentId}
+                    onChange={(val) => setDraftAgentId(val ? Number(val) : null)}
+                    options={agents.map((agent) => ({
+                      value: agent.id,
+                      label: agent.customer_name,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Agents"
+                    placeholder="Search agents..."
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TStatusFilter
+                    options={PAYMENT_STATUS_OPTIONS}
+                    value={draftStatus}
+                    onChange={setDraftStatus}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftAgentId && !draftStatus && !searchQuery && !filterAgentId && !filterStatus}
+          />
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}

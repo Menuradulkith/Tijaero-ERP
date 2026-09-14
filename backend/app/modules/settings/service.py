@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
+from zoneinfo import ZoneInfo, available_timezones
 
 from app.core import timezone as tz
 from app.core.security import get_password_hash, verify_password
@@ -240,4 +241,108 @@ class CompanySettingsService:
 
         self.db.commit()
         self.db.refresh(settings)
+
+        if "default_timezone" in update_data:
+            tz.set_timezone(settings.default_timezone)
+
         return settings
+
+
+class CurrencyService:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_currencies(self, active_only: bool = False) -> List[models.Currency]:
+        query = self.db.query(models.Currency)
+        if active_only:
+            query = query.filter(models.Currency.is_active.is_(True))
+        return query.order_by(models.Currency.code).all()
+
+    def create_currency(self, data: schemas.CurrencyCreate) -> models.Currency:
+        code = data.code.upper()
+        existing = (
+            self.db.query(models.Currency)
+            .filter(models.Currency.code == code)
+            .first()
+        )
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Currency code already exists",
+            )
+        currency = models.Currency(
+            code=code,
+            name=data.name,
+            symbol=data.symbol,
+            is_active=data.is_active,
+        )
+        self.db.add(currency)
+        self.db.commit()
+        self.db.refresh(currency)
+        return currency
+
+    def update_currency(
+        self, currency_id: int, data: schemas.CurrencyUpdate
+    ) -> models.Currency:
+        currency = self.db.query(models.Currency).filter(
+            models.Currency.id == currency_id
+        ).first()
+        if not currency:
+            raise HTTPException(status_code=404, detail="Currency not found")
+
+        update_data = data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(currency, field, value)
+
+        self.db.commit()
+        self.db.refresh(currency)
+        return currency
+
+    def delete_currency(self, currency_id: int) -> None:
+        currency = self.db.query(models.Currency).filter(
+            models.Currency.id == currency_id
+        ).first()
+        if not currency:
+            raise HTTPException(status_code=404, detail="Currency not found")
+
+        company_settings = CompanySettingsService(self.db).get_company_settings()
+        if currency.code == company_settings.default_currency:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete the active currency",
+            )
+
+        self.db.delete(currency)
+        self.db.commit()
+
+    def set_active_currency(self, code: str) -> models.Settings:
+        code = code.upper()
+        currency = (
+            self.db.query(models.Currency)
+            .filter(models.Currency.code == code, models.Currency.is_active.is_(True))
+            .first()
+        )
+        if not currency:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Currency not found or is not active",
+            )
+
+        company_service = CompanySettingsService(self.db)
+        settings = company_service.get_company_settings()
+        settings.default_currency = code
+        self.db.commit()
+        self.db.refresh(settings)
+        return settings
+
+
+def list_timezones() -> List[schemas.TimezoneOption]:
+    """Return every IANA timezone with its current UTC offset, for the
+    Settings > Company Configuration timezone dropdown."""
+    now = datetime.now()
+    options = []
+    for name in sorted(available_timezones()):
+        offset = now.astimezone(ZoneInfo(name)).strftime("%z")
+        formatted_offset = f"UTC{offset[:3]}:{offset[3:]}" if offset else "UTC"
+        options.append(schemas.TimezoneOption(name=name, offset=formatted_offset))
+    return options

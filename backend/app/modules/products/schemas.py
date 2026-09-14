@@ -27,6 +27,10 @@ class Category(CategoryBase, TijaeroBaseSchema):
     created_date: datetime
     created_at: datetime
     updated_at: datetime
+    created_by: Optional[int] = None
+    updated_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
 
 class BrandBase(BaseModel):
     brand_name: str = Field(..., max_length=255)
@@ -45,6 +49,12 @@ class BrandUpdate(BaseModel):
 
 class Brand(BrandBase, TijaeroBaseSchema):
     id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    updated_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
 
 class ProductBase(BaseModel):
     name: str = Field(..., max_length=255)
@@ -84,6 +94,10 @@ class Product(ProductBase, TijaeroBaseSchema):
     added_date: datetime
     created_at: datetime
     updated_at: datetime
+    created_by: Optional[int] = None
+    updated_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
     price_tiers: List[PriceTierOut] = []
 
 class ProductWithDetails(Product):

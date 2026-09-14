@@ -30,8 +30,8 @@ import {
   useMasterDetailState,
   SortOption,
   TDetailSkeleton,
-  TFilterPanel,
   TExportButton,
+  TTabFilterBar,
   fmtLKR,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
@@ -67,7 +67,13 @@ const resetFormFromItem = (item: CustomerCreditNote): Partial<CustomerCreditNote
 
 export default function CreditNotesPage() {
   const canViewCustomers = usePermission("customers", "view");
+  // Filter state (applied - drives the actual list filtering)
   const [filterCustomerId, setFilterCustomerId] = useState<number | null>(null);
+
+  // Filter state (draft - edited via the header filter bar, only applied on Search click)
+  const [draftCustomerId, setDraftCustomerId] = useState<number | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [selectedItemForPrint, setSelectedItemForPrint] = useState<CustomerCreditNote | null>(null);
 
@@ -94,6 +100,18 @@ export default function CreditNotesPage() {
     queryFn: () => customersApi.getAll(),
     enabled: canViewCustomers,
   });
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterCustomerId(draftCustomerId);
+  }, [draftSearchQuery, draftCustomerId]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftCustomerId(null);
+    setSearchQuery("");
+    setFilterCustomerId(null);
+  }, []);
 
   const { data: creditNotes = [], isLoading, refetch } = useQuery({
     queryKey: ["credit-notes", filterCustomerId],
@@ -152,37 +170,19 @@ export default function CreditNotesPage() {
     [customers, formData.customer_id]
   );
 
-  const filterCustomer = useMemo(
-    () => customers.find((c: Customer) => c.id === filterCustomerId) || null,
-    [customers, filterCustomerId]
-  );
-
   const masterPanel = (
     <SearchableList<CustomerCreditNote>
       items={filteredNotes}
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search credit notes..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedItem}
       onSelectItem={handleSelectWithCheck}
       emptyMessage="No credit notes found"
-      listHeader={
-        <TFilterPanel>
-          <Autocomplete
-            size="small"
-            options={customers}
-            getOptionLabel={(option: Customer) => option.customer_name || `Customer #${option.id}`}
-            value={filterCustomer}
-            onChange={(_, newValue) => setFilterCustomerId(newValue?.id || null)}
-            renderInput={(params) => <TextField {...params} label="Filter by Customer" placeholder="All Customers" />}
-            sx={{ minWidth: 200 }}
-          />
-        </TFilterPanel>
-      }
       renderItem={(note, isSelected) => (
         <SelectableListItem
           key={note.id}
@@ -346,6 +346,52 @@ export default function CreditNotesPage() {
     <>
       <MasterDetailLayout
         title="Credit Notes"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Credit Note",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search credit notes..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "customer",
+                label: "Customer",
+                hasValue: !!draftCustomerId,
+                render: () => (
+                  <Autocomplete
+                    size="small"
+                    options={customers}
+                    getOptionLabel={(option: Customer) => option.customer_name || `Customer #${option.id}`}
+                    value={customers.find((c: Customer) => c.id === draftCustomerId) || null}
+                    onChange={(_, newValue) => setDraftCustomerId(newValue?.id || null)}
+                    renderInput={(params) => <TextField {...params} placeholder="All Customers" />}
+                    fullWidth
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftCustomerId && !searchQuery && !filterCustomerId}
+          />
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         headerActions={

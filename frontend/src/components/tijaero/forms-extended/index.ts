@@ -11,6 +11,7 @@ export { TFormDialog, type TFormDialogProps } from "./TFormDialog";
 export { TFormActions, type TFormActionsProps } from "./TFormActions";
 export { TLineItemsTable, type TLineItemsTableProps, type TLineItemColumn } from "./TLineItemsTable";
 export { TFilterBar, type TFilterBarProps, type TFilterConfig } from "./TFilterBar";
+export { TTabFilterBar, type TTabFilterBarProps, type TTabFilterTab } from "./TTabFilterBar";
 export { useFormState, type UseFormStateOptions, type UseFormStateReturn } from "./useFormState";
 export {
   TFilterPanel,

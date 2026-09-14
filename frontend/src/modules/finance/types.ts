@@ -335,6 +335,10 @@ export interface ChartOfAccount {
   description?: string;
   created_at?: string;
   updated_at?: string;
+  created_by?: number;
+  updated_by?: number;
+  created_by_name?: string;
+  updated_by_name?: string;
 }
 
 export interface ChartOfAccountCreate {
@@ -416,8 +420,15 @@ export interface JournalEntry {
   branch_code?: string;
   lines: JournalEntryLine[];
   created_by?: number;
+  submitted_by?: number;
+  approved_by?: number;
+  posted_by?: number;
   created_at?: string;
   updated_at?: string;
+  created_by_name?: string;
+  submitted_by_name?: string;
+  approved_by_name?: string;
+  posted_by_name?: string;
 }
 
 export interface JournalEntryCreate {
@@ -585,9 +596,15 @@ export interface CashFlowStatement {
   prepared_by?: number;
   approved_by?: number;
   approved_at?: string;
+  created_by?: number;
+  updated_by?: number;
   lines: CashFlowStatementLine[];
   created_at?: string;
   updated_at?: string;
+  prepared_by_name?: string;
+  approved_by_name?: string;
+  created_by_name?: string;
+  updated_by_name?: string;
 }
 
 // ─── Accounting Dashboard Types ───────────────────────────────────────────────

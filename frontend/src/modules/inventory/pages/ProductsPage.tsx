@@ -15,17 +15,19 @@ import {
     TabConfig,
     TConfirmDialog,
     TExportButton,
-    TFilterPanel,
     TStatusFilter,
+    TTabFilterBar,
     useConfirmDialog,
   useCrudMutation,
     useMasterDetailState,
+    TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import {
     Sell as BrandIcon,
     Category as CategoryIcon,
     FileDownload as DownloadIcon,
+    History as HistoryIcon,
     Inventory as InventoryIcon,
 } from "@mui/icons-material";
 import {
@@ -39,10 +41,12 @@ import {
     DialogContent,
     DialogTitle,
     FormControlLabel,
+    IconButton,
     InputAdornment,
     MenuItem,
     Switch,
     TextField,
+    Tooltip,
     Typography,
 } from "@mui/material";
   import { useQuery } from "@tanstack/react-query";
@@ -180,6 +184,15 @@ export default function ProductsPage({
   const [categoryActiveFilter, setCategoryActiveFilter] = useState<string | null>(null);
   const [brandActiveFilter, setBrandActiveFilter] = useState<string | null>(null);
 
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftProductSearchQuery, setDraftProductSearchQuery] = useState("");
+  const [draftProductActiveFilter, setDraftProductActiveFilter] = useState<string | null>(null);
+  const [draftProductWebsiteFilter, setDraftProductWebsiteFilter] = useState<string | null>(null);
+  const [draftCategorySearchQuery, setDraftCategorySearchQuery] = useState("");
+  const [draftCategoryActiveFilter, setDraftCategoryActiveFilter] = useState<string | null>(null);
+  const [draftBrandSearchQuery, setDraftBrandSearchQuery] = useState("");
+  const [draftBrandActiveFilter, setDraftBrandActiveFilter] = useState<string | null>(null);
+
   // Minimum selling price dialog state
   const [minPriceDialogOpen, setMinPriceDialogOpen] = useState(false);
   const [newMinPrice, setNewMinPrice] = useState<number>(0);
@@ -226,6 +239,50 @@ export default function ProductsPage({
         confirmColor: "warning",
       }),
   });
+
+  // Activity History is opened on demand from a detail icon next to each
+  // tab's Record Information title, rather than shown inline. One shared
+  // panel serves all three tabs — entityType/entityId switch per tab.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  const handleApplyProductFilters = useCallback(() => {
+    productState.setSearchQuery(draftProductSearchQuery);
+    setProductActiveFilter(draftProductActiveFilter);
+    setProductWebsiteFilter(draftProductWebsiteFilter);
+  }, [draftProductSearchQuery, draftProductActiveFilter, draftProductWebsiteFilter, productState.setSearchQuery]);
+
+  const handleClearProductFilters = useCallback(() => {
+    setDraftProductSearchQuery("");
+    setDraftProductActiveFilter(null);
+    setDraftProductWebsiteFilter(null);
+    productState.setSearchQuery("");
+    setProductActiveFilter(null);
+    setProductWebsiteFilter(null);
+  }, [productState.setSearchQuery]);
+
+  const handleApplyCategoryFilters = useCallback(() => {
+    categoryState.setSearchQuery(draftCategorySearchQuery);
+    setCategoryActiveFilter(draftCategoryActiveFilter);
+  }, [draftCategorySearchQuery, draftCategoryActiveFilter, categoryState.setSearchQuery]);
+
+  const handleClearCategoryFilters = useCallback(() => {
+    setDraftCategorySearchQuery("");
+    setDraftCategoryActiveFilter(null);
+    categoryState.setSearchQuery("");
+    setCategoryActiveFilter(null);
+  }, [categoryState.setSearchQuery]);
+
+  const handleApplyBrandFilters = useCallback(() => {
+    brandState.setSearchQuery(draftBrandSearchQuery);
+    setBrandActiveFilter(draftBrandActiveFilter);
+  }, [draftBrandSearchQuery, draftBrandActiveFilter, brandState.setSearchQuery]);
+
+  const handleClearBrandFilters = useCallback(() => {
+    setDraftBrandSearchQuery("");
+    setDraftBrandActiveFilter(null);
+    brandState.setSearchQuery("");
+    setBrandActiveFilter(null);
+  }, [brandState.setSearchQuery]);
 
   // Queries - get all items including inactive so they can be viewed and reactivated
   const {
@@ -978,7 +1035,7 @@ export default function ProductsPage({
       <SearchableList
         searchValue={productState.searchQuery}
         onSearchChange={productState.setSearchQuery}
-        searchPlaceholder="Search products..."
+        hideSearch
         sortOptions={productSortOptions}
         currentSort={productState.sortField}
         onSortChange={productState.setSortField}
@@ -987,24 +1044,6 @@ export default function ProductsPage({
         virtualize
         estimatedItemHeight={90}
         overscanCount={8}
-        listHeader={
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: 1.5, paddingBottom: 0 }}>
-            <TFilterPanel>
-              <TStatusFilter
-                options={PRODUCT_ACTIVE_FILTER_OPTIONS}
-                value={productActiveFilter}
-                onChange={setProductActiveFilter}
-                label="Status"
-              />
-              <TStatusFilter
-                options={PRODUCT_WEBSITE_FILTER_OPTIONS}
-                value={productWebsiteFilter}
-                onChange={setProductWebsiteFilter}
-                label="Website"
-              />
-            </TFilterPanel>
-          </Box>
-        }
       >
         {preparedProducts.map(({ product, addedDateLabel }) => {
           const isSelected = productState.selectedItem?.id === product.id;
@@ -1690,25 +1729,37 @@ export default function ProductsPage({
               {productState.selectedItem &&
                 !productState.isCreating &&
                 !productState.isEditing && (
-                  <FormSection title="Record Information" columns={2}>
+                  <FormSection
+                    title="Record Information"
+                    columns={2}
+                    titleAction={
+                      <Tooltip title="View activity history">
+                        <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                          <HistoryIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    }
+                  >
                     <Box>
                       <Typography variant="caption" color="text.secondary">
-                        Created
+                        Created By
                       </Typography>
                       <Typography variant="body2">
-                        {formatDateTimeReadable(
-                          productState.selectedItem.created_at,
-                        ) || "-"}
+                        {productState.selectedItem.created_by_name || "-"}
+                        {productState.selectedItem.created_at
+                          ? ` on ${formatDateTimeReadable(productState.selectedItem.created_at)}`
+                          : ""}
                       </Typography>
                     </Box>
                     <Box>
                       <Typography variant="caption" color="text.secondary">
-                        Last Modified
+                        Last Modified By
                       </Typography>
                       <Typography variant="body2">
-                        {formatDateTimeReadable(
-                          productState.selectedItem.updated_at,
-                        ) || "-"}
+                        {productState.selectedItem.updated_by_name || "-"}
+                        {productState.selectedItem.updated_at
+                          ? ` on ${formatDateTimeReadable(productState.selectedItem.updated_at)}`
+                          : ""}
                       </Typography>
                     </Box>
                   </FormSection>
@@ -1733,24 +1784,12 @@ export default function ProductsPage({
       <SearchableList
         searchValue={categoryState.searchQuery}
         onSearchChange={categoryState.setSearchQuery}
-        searchPlaceholder="Search categories..."
+        hideSearch
         sortOptions={categorySortOptions}
         currentSort={categoryState.sortField}
         onSortChange={categoryState.setSortField}
         isLoading={categoriesLoading}
         emptyMessage="No categories found"
-        listHeader={
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: 1.5, paddingBottom: 0 }}>
-            <TFilterPanel>
-              <TStatusFilter
-                options={PRODUCT_ACTIVE_FILTER_OPTIONS}
-                value={categoryActiveFilter}
-                onChange={setCategoryActiveFilter}
-                label="Status"
-              />
-            </TFilterPanel>
-          </Box>
-        }
       >
         {filteredCategories.map((category) => {
           const isSelected = categoryState.selectedItem?.id === category.id;
@@ -1919,7 +1958,7 @@ export default function ProductsPage({
                   </Alert>
                 )}
 
-              <FormSection title="Category Information" isLast>
+              <FormSection title="Category Information">
                 <TextField
                   label="Category Name"
                   size="small"
@@ -2025,6 +2064,47 @@ export default function ProductsPage({
                   sx={{ gridColumn: { sm: "1 / -1" } }}
                 />
               </FormSection>
+
+              {/* Record Information (view mode only) */}
+              {categoryState.selectedItem &&
+                !categoryState.isCreating &&
+                !categoryState.isEditing && (
+                  <FormSection
+                    title="Record Information"
+                    columns={2}
+                    isLast
+                    titleAction={
+                      <Tooltip title="View activity history">
+                        <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                          <HistoryIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    }
+                  >
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Created By
+                      </Typography>
+                      <Typography variant="body2">
+                        {categoryState.selectedItem.created_by_name || "-"}
+                        {categoryState.selectedItem.created_at
+                          ? ` on ${formatDateTimeReadable(categoryState.selectedItem.created_at)}`
+                          : ""}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Last Modified By
+                      </Typography>
+                      <Typography variant="body2">
+                        {categoryState.selectedItem.updated_by_name || "-"}
+                        {categoryState.selectedItem.updated_at
+                          ? ` on ${formatDateTimeReadable(categoryState.selectedItem.updated_at)}`
+                          : ""}
+                      </Typography>
+                    </Box>
+                  </FormSection>
+                )}
             </>
           )}
         </Box>
@@ -2045,24 +2125,12 @@ export default function ProductsPage({
       <SearchableList
         searchValue={brandState.searchQuery}
         onSearchChange={brandState.setSearchQuery}
-        searchPlaceholder="Search brands..."
+        hideSearch
         sortOptions={brandSortOptions}
         currentSort={brandState.sortField}
         onSortChange={brandState.setSortField}
         isLoading={brandsLoading}
         emptyMessage="No brands found"
-        listHeader={
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, padding: 1.5, paddingBottom: 0 }}>
-            <TFilterPanel>
-              <TStatusFilter
-                options={PRODUCT_ACTIVE_FILTER_OPTIONS}
-                value={brandActiveFilter}
-                onChange={setBrandActiveFilter}
-                label="Status"
-              />
-            </TFilterPanel>
-          </Box>
-        }
       >
         {filteredBrands.map((brand) => {
           const isSelected = brandState.selectedItem?.id === brand.id;
@@ -2230,7 +2298,7 @@ export default function ProductsPage({
                   </Alert>
                 )}
 
-              <FormSection title="Brand Information" isLast>
+              <FormSection title="Brand Information">
               <TextField
                 label="Brand Name"
                 size="small"
@@ -2321,6 +2389,47 @@ export default function ProductsPage({
                 sx={{ gridColumn: { sm: "1 / -1" } }}
               />
             </FormSection>
+
+              {/* Record Information (view mode only) */}
+              {brandState.selectedItem &&
+                !brandState.isCreating &&
+                !brandState.isEditing && (
+                  <FormSection
+                    title="Record Information"
+                    columns={2}
+                    isLast
+                    titleAction={
+                      <Tooltip title="View activity history">
+                        <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                          <HistoryIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    }
+                  >
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Created By
+                      </Typography>
+                      <Typography variant="body2">
+                        {brandState.selectedItem.created_by_name || "-"}
+                        {brandState.selectedItem.created_at
+                          ? ` on ${formatDateTimeReadable(brandState.selectedItem.created_at)}`
+                          : ""}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Last Modified By
+                      </Typography>
+                      <Typography variant="body2">
+                        {brandState.selectedItem.updated_by_name || "-"}
+                        {brandState.selectedItem.updated_at
+                          ? ` on ${formatDateTimeReadable(brandState.selectedItem.updated_at)}`
+                          : ""}
+                      </Typography>
+                    </Box>
+                  </FormSection>
+                )}
             </>
           )}
         </Box>
@@ -2332,6 +2441,161 @@ export default function ProductsPage({
     <>
       <MasterDetailLayout
         title={pageTitle}
+        titleSlot={
+          activeTab === 0 ? (
+            <TTabFilterBar
+              tabs={[
+                {
+                  key: "search",
+                  label: "Product",
+                  hasValue: !!draftProductSearchQuery,
+                  render: ({ close }) => (
+                    <TextField
+                      size="small"
+                      autoFocus
+                      placeholder="Search product..."
+                      value={draftProductSearchQuery}
+                      onChange={(e) => setDraftProductSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleApplyProductFilters();
+                          close();
+                        }
+                      }}
+                      fullWidth
+                    />
+                  ),
+                },
+                {
+                  key: "status",
+                  label: "Status",
+                  hasValue: !!draftProductActiveFilter,
+                  render: () => (
+                    <TStatusFilter
+                      options={PRODUCT_ACTIVE_FILTER_OPTIONS}
+                      value={draftProductActiveFilter}
+                      onChange={setDraftProductActiveFilter}
+                      label=""
+                      size="small"
+                    />
+                  ),
+                },
+                {
+                  key: "website",
+                  label: "Website",
+                  hasValue: !!draftProductWebsiteFilter,
+                  render: () => (
+                    <TStatusFilter
+                      options={PRODUCT_WEBSITE_FILTER_OPTIONS}
+                      value={draftProductWebsiteFilter}
+                      onChange={setDraftProductWebsiteFilter}
+                      label=""
+                      size="small"
+                    />
+                  ),
+                },
+              ]}
+              onSearch={handleApplyProductFilters}
+              onClear={handleClearProductFilters}
+              clearDisabled={
+                !draftProductSearchQuery && !draftProductActiveFilter && !draftProductWebsiteFilter &&
+                !productState.searchQuery && !productActiveFilter && !productWebsiteFilter
+              }
+            />
+          ) : activeTab === 1 ? (
+            <TTabFilterBar
+              tabs={[
+                {
+                  key: "search",
+                  label: "Category",
+                  hasValue: !!draftCategorySearchQuery,
+                  render: ({ close }) => (
+                    <TextField
+                      size="small"
+                      autoFocus
+                      placeholder="Search category..."
+                      value={draftCategorySearchQuery}
+                      onChange={(e) => setDraftCategorySearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleApplyCategoryFilters();
+                          close();
+                        }
+                      }}
+                      fullWidth
+                    />
+                  ),
+                },
+                {
+                  key: "status",
+                  label: "Status",
+                  hasValue: !!draftCategoryActiveFilter,
+                  render: () => (
+                    <TStatusFilter
+                      options={PRODUCT_ACTIVE_FILTER_OPTIONS}
+                      value={draftCategoryActiveFilter}
+                      onChange={setDraftCategoryActiveFilter}
+                      label=""
+                      size="small"
+                    />
+                  ),
+                },
+              ]}
+              onSearch={handleApplyCategoryFilters}
+              onClear={handleClearCategoryFilters}
+              clearDisabled={
+                !draftCategorySearchQuery && !draftCategoryActiveFilter &&
+                !categoryState.searchQuery && !categoryActiveFilter
+              }
+            />
+          ) : (
+            <TTabFilterBar
+              tabs={[
+                {
+                  key: "search",
+                  label: "Brand",
+                  hasValue: !!draftBrandSearchQuery,
+                  render: ({ close }) => (
+                    <TextField
+                      size="small"
+                      autoFocus
+                      placeholder="Search brand..."
+                      value={draftBrandSearchQuery}
+                      onChange={(e) => setDraftBrandSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleApplyBrandFilters();
+                          close();
+                        }
+                      }}
+                      fullWidth
+                    />
+                  ),
+                },
+                {
+                  key: "status",
+                  label: "Status",
+                  hasValue: !!draftBrandActiveFilter,
+                  render: () => (
+                    <TStatusFilter
+                      options={PRODUCT_ACTIVE_FILTER_OPTIONS}
+                      value={draftBrandActiveFilter}
+                      onChange={setDraftBrandActiveFilter}
+                      label=""
+                      size="small"
+                    />
+                  ),
+                },
+              ]}
+              onSearch={handleApplyBrandFilters}
+              onClear={handleClearBrandFilters}
+              clearDisabled={
+                !draftBrandSearchQuery && !draftBrandActiveFilter &&
+                !brandState.searchQuery && !brandActiveFilter
+              }
+            />
+          )
+        }
         onRefresh={handleRefresh}
         headerActions={
           activeTab === 0 ? (
@@ -2432,6 +2696,24 @@ export default function ProductsPage({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType={activeTab === 1 ? "category" : activeTab === 2 ? "brand" : "product"}
+        entityId={
+          activeTab === 1
+            ? categoryState.selectedItem?.id
+            : activeTab === 2
+              ? brandState.selectedItem?.id
+              : productState.selectedItem?.id
+        }
+        actionLabels={{
+          create: "Created",
+          update: "Updated",
+          delete: "Deleted",
+        }}
+      />
     </>
   );
 }

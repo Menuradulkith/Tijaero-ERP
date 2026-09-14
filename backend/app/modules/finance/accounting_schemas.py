@@ -49,10 +49,13 @@ class ChartOfAccountUpdate(BaseModel):
 class ChartOfAccountResponse(ChartOfAccountBase, TijaeroBaseSchema):
     id: int
     created_by: Optional[int] = None
+    updated_by: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     # Resolved fields
     parent_account_name: Optional[str] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
 
 
 class ChartOfAccountTree(ChartOfAccountResponse):
@@ -413,9 +416,16 @@ class CashFlowStatementResponse(TijaeroBaseSchema):
     prepared_by: Optional[int] = None
     approved_by: Optional[int] = None
     approved_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    updated_by: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     lines: List[CashFlowStatementLineResponse] = []
+    # Resolved fields
+    prepared_by_name: Optional[str] = None
+    approved_by_name: Optional[str] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
 
 
 class CashFlowStatementListFilter(BaseModel):

@@ -7,6 +7,7 @@
  */
 
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import HistoryIcon from "@mui/icons-material/History";
 import LockIcon from "@mui/icons-material/Lock";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import {
@@ -17,6 +18,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   Paper,
   Table,
   TableBody,
@@ -24,6 +26,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
@@ -45,13 +48,14 @@ import {
   TCurrency,
   TDetailSkeleton,
   TExportButton,
-  TFilterPanel,
   TSearchableSelect,
+  TTabFilterBar,
   type SortOption,
   modernTableStyles,
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -96,6 +100,11 @@ export default function CashFlowStatementsPage() {
   const [filterYear, setFilterYear] = useState<number | "">(new Date().getFullYear());
   const [selectedStatement, setSelectedStatement] = useState<CashFlowStatement | null>(null);
 
+  // Filter state (draft - edited via the filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftYear, setDraftYear] = useState<number | "">(new Date().getFullYear());
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
   // Generate dialog
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [genYear, setGenYear] = useState(new Date().getFullYear());
@@ -105,6 +114,25 @@ export default function CashFlowStatementsPage() {
     return d.toISOString().split("T")[0];
   });
   const [genEndDate, setGenEndDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Information section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterYear(draftYear);
+  }, [draftSearchQuery, draftStatus, draftYear]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftYear("");
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterYear("");
+  }, []);
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -247,38 +275,13 @@ export default function CashFlowStatementsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search statements..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedStatement}
       onSelectItem={(stmt) => setSelectedStatement(stmt)}
       emptyMessage="No cash flow statements found"
-      listHeader={
-        <TFilterPanel>
-          <TSearchableSelect
-            label="Status"
-            value={filterStatus}
-            onChange={(val) => setFilterStatus(val as string | null)}
-            options={STATUS_FILTER_OPTIONS.map((s) => ({
-              value: s.value,
-              label: s.label,
-              color: s.color,
-            }))}
-            showAllOption
-            allOptionLabel="All Statuses"
-            placeholder="Search status..."
-          />
-          <TextField
-            label="Fiscal Year"
-            type="number"
-            size="small"
-            value={filterYear}
-            onChange={(e) => setFilterYear(e.target.value ? Number(e.target.value) : "")}
-            fullWidth
-          />
-        </TFilterPanel>
-      }
       renderItem={(stmt: CashFlowStatement, isSelected: boolean) => {
         const statusColor = getStatusColor(stmt.status);
         return (
@@ -518,15 +521,43 @@ export default function CashFlowStatementsPage() {
 
             {/* Record Information */}
             {detail && (
-              <FormSection title="Record Information" columns={2}>
+              <FormSection
+                title="Record Information"
+                columns={2}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Created</Typography>
-                  <Typography variant="body2">{formatDateTimeReadable(detail.created_at) || "-"}</Typography>
+                  <Typography variant="caption" color="text.secondary">Created By</Typography>
+                  <Typography variant="body2">
+                    {detail.created_by_name || "-"}
+                    {detail.created_at ? ` on ${formatDateTimeReadable(detail.created_at)}` : ""}
+                  </Typography>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Last Modified</Typography>
                   <Typography variant="body2">{formatDateTimeReadable(detail.updated_at) || "-"}</Typography>
                 </Box>
+                {detail.prepared_by_name && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Prepared By</Typography>
+                    <Typography variant="body2">{detail.prepared_by_name}</Typography>
+                  </Box>
+                )}
+                {detail.approved_by_name && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Approved By</Typography>
+                    <Typography variant="body2">
+                      {detail.approved_by_name}
+                      {detail.approved_at ? ` on ${formatDateTimeReadable(detail.approved_at)}` : ""}
+                    </Typography>
+                  </Box>
+                )}
               </FormSection>
             )}
           </>
@@ -542,6 +573,74 @@ export default function CashFlowStatementsPage() {
       <MasterDetailLayout
         title="Cash Flow Statements"
         icon={<MonetizationOnIcon color="primary" />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search statements..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    size="small"
+                    value={draftStatus}
+                    onChange={(val) => setDraftStatus(val as string | null)}
+                    options={STATUS_FILTER_OPTIONS.map((s) => ({
+                      value: s.value,
+                      label: s.label,
+                      color: s.color,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Statuses"
+                    placeholder="Search status..."
+                  />
+                ),
+              },
+              {
+                key: "fiscalYear",
+                label: "Fiscal Year",
+                hasValue: draftYear !== "",
+                render: () => (
+                  <TextField
+                    type="number"
+                    size="small"
+                    value={draftYear}
+                    onChange={(e) => setDraftYear(e.target.value ? Number(e.target.value) : "")}
+                    fullWidth
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={
+              !draftSearchQuery && !draftStatus && draftYear === "" &&
+              !searchQuery && !filterStatus && filterYear === ""
+            }
+          />
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}
@@ -639,6 +738,19 @@ export default function CashFlowStatementsPage() {
       </Dialog>
 
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="cash_flow_statement"
+        entityId={selectedStatement?.id}
+        actionLabels={{
+          create: "Statement generated",
+          finalize: "Statement finalized",
+          approve: "Statement approved",
+          delete: "Statement deleted",
+        }}
+      />
     </>
   );
 }

@@ -2,15 +2,75 @@ import CssBaseline from "@mui/material/CssBaseline";
 import { ThemeProvider } from "@mui/material/styles";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "react-hot-toast";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { ErrorBoundary } from "./components/tijaero/ErrorBoundary";
 import { useThemeStore } from "./state/themeStore";
+import { useCurrencyStore } from "./state/currencyStore";
+import { useTimezoneStore } from "./state/timezoneStore";
+import { useAuthStore } from "./state/authStore";
+import { settingsApi } from "./modules/settings/api";
 import "./styles/global.css"; // Import global styles for required fields
 import { createAppTheme } from "./styles/theme";
+
+/**
+ * Seed the currency store from the server once on app load, so the active
+ * ERP currency (Settings > Company Configuration > Currency) is reflected
+ * across all TCurrency/formatCurrency call sites without a hard reload.
+ */
+function useCurrencyBootstrap() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [company, currencies] = await Promise.all([
+          settingsApi.getCompanySettings(),
+          settingsApi.getCurrencies(),
+        ]);
+        const active = currencies.find((c) => c.code === company.default_currency);
+        if (!cancelled && active) {
+          useCurrencyStore.getState().setCurrency(active.code, active.symbol);
+        }
+      } catch {
+        // Not logged in yet, or request failed — keep persisted/default currency.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+}
+
+/**
+ * Seed the timezone store from the server once on app load, so the ERP's
+ * configured timezone (Settings > Company Configuration > Company Details)
+ * is reflected across TDate/formatDateTimeReadable without a hard reload.
+ */
+function useTimezoneBootstrap() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const company = await settingsApi.getCompanySettings();
+        if (!cancelled && company.default_timezone) {
+          useTimezoneStore.getState().setTimezone(company.default_timezone);
+        }
+      } catch {
+        // Not logged in yet, or request failed — keep persisted/default timezone.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+}
 
 /**
  * OPTIMIZED QueryClient Configuration
@@ -35,6 +95,8 @@ const queryClient = new QueryClient({
 function ThemedApp() {
   const { mode } = useThemeStore();
   const theme = useMemo(() => createAppTheme(mode), [mode]);
+  useCurrencyBootstrap();
+  useTimezoneBootstrap();
 
   return (
     <ThemeProvider theme={theme}>

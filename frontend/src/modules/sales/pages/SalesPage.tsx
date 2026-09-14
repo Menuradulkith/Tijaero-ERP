@@ -16,15 +16,19 @@ import {
     showErrorToast,
     showSuccessToast,
     SortOption,
+    TBranchFilter,
     TConfirmDialog,
     TEmailDialog,
     TPrintButton,
     TPrintPreviewDialog,
     TStatusChip,
+    TStatusFilter,
     TSteps,
+    TTabFilterBar,
     useCrudMutation,
     useMasterDetailState,
     useTConfirmDialog,
+    TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { couponsApi, customersApi, vouchersApi } from "@/modules/customers/api";
@@ -36,7 +40,6 @@ import { creditNotesApi } from "@/modules/finance/api";
 import { settingsApi } from "@/modules/settings/api";
 import { salesStockApi } from "@/modules/inventory/api";
 import { Brand, SalesStock } from "@/modules/inventory/types";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import {
     Add as AddIcon,
     ThumbUp as ApproveIcon,
@@ -55,6 +58,7 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
@@ -418,9 +422,14 @@ export default function SalesPage() {
     });
   };
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Permissions
   const canCreate = usePermission("sales_orders", "create");
@@ -447,6 +456,10 @@ export default function SalesPage() {
     },
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Tracking section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   // OPTIMIZED: Single API call for products, brands and branches (was 2 calls)
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "brands", "branches"]);
   const products = refData?.products || [];
@@ -457,8 +470,24 @@ export default function SalesPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    state.setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+    setFilterStatus(draftStatus);
+  }, [draftSearchQuery, draftBranch, draftStatus]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setDraftStatus(null);
+    state.setSearchQuery("");
+    setFilterBranch(null);
+    setFilterStatus(null);
+  }, []);
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
@@ -2262,7 +2291,17 @@ export default function SalesPage() {
         </FormSection>
 
         {/* Tracking */}
-        <FormSection title="Tracking" columns={2}>
+        <FormSection
+          title="Tracking"
+          columns={2}
+          titleAction={
+            <Tooltip title="View activity history">
+              <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                <HistoryIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          }
+        >
           <TextField
             label="Created Date"
             size="small"
@@ -5124,6 +5163,52 @@ export default function SalesPage() {
     <>
       <MasterDetailLayout
         title="Sales Orders"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search by invoice no, customer name..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TStatusFilter options={INVOICE_STATUS_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftBranch && !draftStatus && !state.searchQuery && !filterBranch && !filterStatus}
+          />
+        }
         headerActions={
           <Button
             variant="outlined"
@@ -5154,32 +5239,12 @@ export default function SalesPage() {
           <SearchableList
             searchValue={state.searchQuery}
             onSearchChange={state.setSearchQuery}
-            searchPlaceholder="Search by invoice no, customer name..."
+            hideSearch
             sortOptions={sortOptions}
             currentSort={state.sortField}
             onSortChange={state.setSortField}
             isLoading={isLoading}
             emptyMessage="No sales orders found"
-            listHeader={
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 1,
-                  padding: 1.5,
-                  paddingBottom: 0,
-                }}
-              >
-                <SalesFilterPanel
-                  statusOptions={INVOICE_STATUS_OPTIONS}
-                  statusValue={filterStatus}
-                  onStatusChange={setFilterStatus}
-                  branches={branches}
-                  branchValue={filterBranch}
-                  onBranchChange={setFilterBranch}
-                />
-              </Box>
-            }
           >
             {filteredInvoices.map((invoice) => {
               const isSelected = state.selectedItem?.id === invoice.id;
@@ -5608,6 +5673,21 @@ export default function SalesPage() {
           documentId={state.selectedItem.id}
         />
       )}
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="sales_order"
+        entityId={state.selectedItem?.id}
+        actionLabels={{
+          create: "Order created",
+          update: "Order updated",
+          approve: "Order approved",
+          complete: "Order completed",
+          cancel: "Order cancelled",
+          delete: "Order deleted",
+        }}
+      />
     </>
   );
 }

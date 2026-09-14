@@ -46,6 +46,7 @@ export function SearchableList<T extends BaseEntity>({
   emptyMessage = "No items found",
   width = 280,
   listHeader,
+  hideSearch = false,
   virtualize = false,
   estimatedItemHeight = 84,
   overscanCount = 6,
@@ -149,22 +150,24 @@ export function SearchableList<T extends BaseEntity>({
       }}
     >
       {/* Search Input */}
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <TextField
-          size="small"
-          placeholder={currentPlaceholder}
-          value={currentSearchValue}
-          onChange={(e) => onSearchChange(e.target.value)}
-          fullWidth
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            ),
-          }}
-        />
-      </Box>
+      {!hideSearch && (
+        <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+          <TextField
+            size="small"
+            placeholder={currentPlaceholder}
+            value={currentSearchValue}
+            onChange={(e) => onSearchChange(e.target.value)}
+            fullWidth
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Box>
+      )}
 
       {/* Sort Options */}
       {sortOptions && sortOptions.length > 0 && (

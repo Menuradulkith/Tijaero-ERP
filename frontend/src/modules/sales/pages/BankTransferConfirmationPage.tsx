@@ -4,7 +4,7 @@
  * Follows the same UI pattern as SalesOrderApprovalsPage
  */
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Box,
@@ -41,6 +41,9 @@ import {
   SortOption,
   TDetailSkeleton,
   TConfirmDialog,
+  TBranchFilter,
+  TStatusFilter,
+  TTabFilterBar,
   showSuccessToast,
   showErrorToast,
   modernTableStyles,
@@ -48,7 +51,6 @@ import {
   useTConfirmDialog,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { bankTransferApi, PendingBankTransfer } from "../api/bankTransfer";
 import { customersApi } from "@/modules/customers/api";
@@ -85,6 +87,11 @@ export default function BankTransferConfirmationPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>("all");
 
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>("all");
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
   // Reject reason dialog
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -98,8 +105,24 @@ export default function BankTransferConfirmationPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftStatus, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus("all");
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus("all");
+    setFilterBranch(null);
+  }, []);
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -271,23 +294,13 @@ export default function BankTransferConfirmationPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search transfers..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedTransfer}
       onSelectItem={handleSelectTransfer}
       emptyMessage="No pending bank transfers found"
-      listHeader={
-        <SalesFilterPanel
-          statusOptions={BT_STATUS_FILTER_OPTIONS}
-          statusValue={filterStatus}
-          onStatusChange={setFilterStatus}
-          branches={branches}
-          branchValue={filterBranch}
-          onBranchChange={setFilterBranch}
-        />
-      }
       renderItem={(transfer, isSelected) => {
         const transferCustomer = customerMap.get(transfer.customer_id);
         const statusChip = getStatusChip(transfer.bank_transfer_status);
@@ -589,7 +602,60 @@ export default function BankTransferConfirmationPage() {
 
   return (
     <>
-      <MasterDetailLayout masterPanel={masterPanel} detailPanel={detailPanel} title="Bank Transfer Verification" />
+      <MasterDetailLayout
+        title="Bank Transfer Verification"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search transfers..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: draftStatus !== "all" && !!draftStatus,
+                render: () => (
+                  <TStatusFilter options={BT_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={
+              !draftSearchQuery && draftStatus === "all" && !draftBranch &&
+              !searchQuery && filterStatus === "all" && !filterBranch
+            }
+          />
+        }
+        masterPanel={masterPanel}
+        detailPanel={detailPanel}
+      />
 
       {/* Confirm Dialogs */}
       <TConfirmDialog {...verifyDialog.dialogProps} confirmColor="success" />

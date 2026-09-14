@@ -29,6 +29,7 @@ import {
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 
@@ -41,7 +42,7 @@ import {
   FormSection,
   EmptyState,
   fmtLKR,
-  TFilterPanel,
+  TTabFilterBar,
   TBranchFilter,
   TStatusFilter,
   RETURN_STATUS_FILTER_OPTIONS,
@@ -51,6 +52,7 @@ import {
   showErrorToast,
   modernTableStyles,
   useCrudMutation,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
@@ -73,9 +75,18 @@ export default function PurchaseReturnApprovalsPage() {
   const [sortField, setSortField] = useState("added_date");
   const [selectedReturn, setSelectedReturn] = useState<PurchasingReturnWithItems | null>(null);
 
-  // Filter states
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Information section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>("pending"); // Default to pending
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -92,8 +103,24 @@ export default function PurchaseReturnApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftStatus, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranch(null);
+  }, []);
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
@@ -239,26 +266,12 @@ export default function PurchaseReturnApprovalsPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search returns..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedReturn}
       emptyMessage="No returns found"
-      listHeader={
-        <TFilterPanel>
-          <TStatusFilter
-            options={RETURN_STATUS_FILTER_OPTIONS}
-            value={filterStatus}
-            onChange={setFilterStatus}
-          />
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-        </TFilterPanel>
-      }
       renderItem={(ret, isSelected) => {
         const returnGrn = grnMap.get(ret.goodreceivednote_id);
         const statusChip = getStatusProps(ret.status || "draft", "purchaseReturn");
@@ -489,7 +502,17 @@ export default function PurchaseReturnApprovalsPage() {
             </FormSection>
 
             {/* Record Information */}
-            <FormSection title="Record Information" columns={2}>
+            <FormSection
+              title="Record Information"
+              columns={2}
+              titleAction={
+                <Tooltip title="View activity history">
+                  <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
               <Box>
                 <Typography variant="caption" color="text.secondary">Created</Typography>
                 <Typography variant="body2">{formatDateTimeReadable(selectedReturn.added_date) || "-"}</Typography>
@@ -569,6 +592,18 @@ export default function PurchaseReturnApprovalsPage() {
         loading={approveMutation.isPending || rejectMutation.isPending}
         title={rejectDialogOpen ? "Authenticate to Reject" : "Authenticate to Approve"}
       />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="purchase_return"
+        entityId={selectedReturn?.id}
+        actionLabels={{
+          create: "Return created",
+          approve: "Return approved",
+          reject: "Return rejected",
+        }}
+      />
     </Box>
   );
 
@@ -576,6 +611,48 @@ export default function PurchaseReturnApprovalsPage() {
     <MasterDetailLayout
       title="Purchase Return Approvals"
       icon={<FactCheckIcon color="primary" />}
+      titleSlot={
+        <TTabFilterBar
+          tabs={[
+            {
+              key: "search",
+              label: "Return No",
+              hasValue: !!draftSearchQuery,
+              render: ({ close }) => (
+                <TextField
+                  size="small"
+                  autoFocus
+                  placeholder="Search returns..."
+                  value={draftSearchQuery}
+                  onChange={(e) => setDraftSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleApplyFilters();
+                      close();
+                    }
+                  }}
+                  fullWidth
+                />
+              ),
+            },
+            {
+              key: "status",
+              label: "Status",
+              hasValue: !!draftStatus,
+              render: () => <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />,
+            },
+            {
+              key: "branch",
+              label: "Branch",
+              hasValue: !!draftBranch,
+              render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
+            },
+          ]}
+          onSearch={handleApplyFilters}
+          onClear={handleClearFilters}
+          clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+        />
+      }
       onRefresh={() => refetch()}
       isLoading={isLoading}
       masterPanel={masterPanel}

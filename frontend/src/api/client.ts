@@ -123,8 +123,13 @@ apiClient.interceptors.response.use(
           toast.error("Your password was changed by an administrator. Please log in again.");
         }
 
-        const currentPath = window.location.pathname + window.location.search;
-        window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+        // Avoid an infinite redirect loop: if we're already on the login
+        // page (e.g. an unauthenticated bootstrap call 401'd there), don't
+        // re-navigate with an ever-growing nested `redirect` param.
+        if (window.location.pathname !== "/login") {
+          const currentPath = window.location.pathname + window.location.search;
+          window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+        }
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

@@ -38,6 +38,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TextField,
   Tooltip,
   Typography,
   useTheme,
@@ -54,16 +55,18 @@ import {
   SearchableList,
   SelectableListItem,
   SortOption,
+  TBranchFilter,
   TDetailSkeleton,
   TInfoCard,
   TStatCard,
   TStatusChip,
+  TStatusFilter,
+  TTabFilterBar,
   getStatusProps,
   modernTableStyles,
   showErrorToast,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { useReferenceData } from "@/hooks";
 import { customersApi } from "@/modules/customers/api";
@@ -210,6 +213,11 @@ export default function SalesTrackPage() {
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
   // ─── Data Queries ────────────────────────────────────────────────────────
 
   // OPTIMIZED: Using aggregated endpoint for branches — resolved BEFORE query fires
@@ -220,10 +228,28 @@ export default function SalesTrackPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+    setPage(1);
+  }, [draftSearchQuery, draftStatus, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranch(null);
+    setPage(1);
+  }, []);
 
   // Paginated invoice list
   const {
@@ -353,28 +379,12 @@ export default function SalesTrackPage() {
         setSearchQuery(q);
         setPage(1);
       }}
-      placeholder="Search invoice number, customer..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedOrder}
       emptyMessage="No invoices found"
-      listHeader={
-        <SalesFilterPanel
-          statusOptions={STATUS_FILTER_OPTIONS}
-          statusValue={filterStatus}
-          onStatusChange={(s: string | null) => {
-            setFilterStatus(s);
-            setPage(1);
-          }}
-          branches={branches}
-          branchValue={filterBranch}
-          onBranchChange={(b: string | null) => {
-            setFilterBranch(b);
-            setPage(1);
-          }}
-        />
-      }
       renderItem={(order: Invoice, isSelected: boolean) => {
         const orderCustomer = customerMap.get(order.customer_id);
         const approvalChip = getStatusProps(order.approval_status || "pending_approval", "invoice");
@@ -1068,7 +1078,57 @@ export default function SalesTrackPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Sales Track" masterPanel={masterPanel} detailPanel={detailPanel} />
+      <MasterDetailLayout
+        title="Sales Track"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search invoice number, customer..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TStatusFilter options={STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+          />
+        }
+        masterPanel={masterPanel}
+        detailPanel={detailPanel}
+      />
     </>
   );
 }

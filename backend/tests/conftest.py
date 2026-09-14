@@ -138,20 +138,15 @@ def make_supplier(db) -> Callable[..., object]:
     def _make_supplier(
         *,
         active: bool = True,
-        full_name: Optional[str] = None,
+        company_name: Optional[str] = None,
         credit_days: int = 30,
         max_credit_limit: int = 1_000_000,
         left_credit_amount: Optional[int] = None,
         initial_credit_amount: Optional[int] = None,
     ) -> Supplier:
         supplier = Supplier(
-            title="Mr",
-            full_name=full_name or _unique("Supplier"),
-            postal_address="Postal Address",
-            permenent_address="Permanent Address",
-            gender="male",
-            civil_status="single",
-            no_of_kids="0",
+            company_name=company_name or _unique("Supplier"),
+            billing_address_line1="Billing Address",
             mobile_contact_number="0770000000",
             credit_days=credit_days,
             max_credit_limit=max_credit_limit,

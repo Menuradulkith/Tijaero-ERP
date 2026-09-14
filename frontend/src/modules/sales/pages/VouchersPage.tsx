@@ -46,6 +46,7 @@ import {
   TConfirmDialog,
   TPrintButton,
   TPrintPreviewDialog,
+  TTabFilterBar,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
@@ -131,8 +132,12 @@ export default function VouchersPage() {
   const canUpdate = usePermission("customers", "update");
   const canDelete = usePermission("customers", "delete");
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string>("");
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string>("");
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Use reusable state hook
   const {
@@ -160,6 +165,18 @@ export default function VouchersPage() {
     favoritesKey: "vouchers_favorites",
     defaultSortField: "barcode_no",
   });
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+  }, [draftSearchQuery, draftStatus]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus("");
+    setSearchQuery("");
+    setFilterStatus("");
+  }, []);
 
   // Data fetching
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
@@ -388,31 +405,13 @@ export default function VouchersPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search by voucher code or invoice..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedVoucher}
       onSelectItem={handleSelectVoucher}
       emptyMessage="No vouchers found"
-      listHeader={
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider" }}>
-          <TextField
-            select
-            size="small"
-            label="Filter by Status"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            fullWidth
-          >
-            {STATUS_OPTIONS.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </TextField>
-        </Box>
-      }
       renderItem={(voucher: CustomerGiftVoucher, isSelected: boolean) => {
         const status = getVoucherStatus(voucher);
         const expiryDate = calculateExpiryDate(voucher.date, voucher.valid_period_in_months);
@@ -749,6 +748,56 @@ export default function VouchersPage() {
     <>
       <MasterDetailLayout
         title="Gift Vouchers"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search by voucher code or invoice..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TextField
+                    select
+                    size="small"
+                    value={draftStatus}
+                    onChange={(e) => setDraftStatus(e.target.value)}
+                    fullWidth
+                  >
+                    {STATUS_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !searchQuery && !filterStatus}
+          />
+        }
         headerActions={
           <Button
             variant="outlined"

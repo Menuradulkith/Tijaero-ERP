@@ -16,6 +16,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import EmailIcon from "@mui/icons-material/Email";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import DeleteIcon from "@mui/icons-material/Delete";
+import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
     Alert,
@@ -56,21 +57,24 @@ import {
     showErrorToast,
     showSuccessToast,
     SortOption,
+    TBranchFilter,
     TConfirmDialog,
     TPrintButton,
     TPrintPreviewDialog,
     TEmailDialog,
     TStatusChip,
+    TStatusFilter,
     TSteps,
+    TTabFilterBar,
     canPrintDocument,
     getStatusProps,
     modernTableStyles,
     useCrudMutation,
     useMasterDetailState,
     useTConfirmDialog,
+    TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { useReferenceData } from "@/hooks";
 import { saleReturnsApi, salesApi } from "../api";
@@ -184,9 +188,14 @@ export default function SaleReturnsPage() {
         setTouched(prev => ({ ...prev, [fieldName]: true }));
     };
 
-    // Filter states
+    // Filter states (applied - drives the actual list filtering)
     const [filterBranch, setFilterBranch] = useState<string | null>(null);
     const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+    // Filter states (draft - edited via the header filter bar, only applied on Search click)
+    const [draftBranch, setDraftBranch] = useState<string | null>(null);
+    const [draftStatus, setDraftStatus] = useState<string | null>(null);
+    const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
     // Barcode input state
     const [barcodeInput, setBarcodeInput] = useState("");
@@ -233,6 +242,10 @@ export default function SaleReturnsPage() {
         onDiscard: () => { setLineItems([]); setFormStep(0); },
     });
 
+    // Activity History is opened on demand from a detail icon next to the
+    // Status & Dates section title, rather than shown inline.
+    const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
     // Use aggregated endpoint for branches/products (placed before handlers that need defaultBranchCode)
     const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["branches", "products"]);
     const branches = filteredBranches || [];
@@ -242,11 +255,27 @@ export default function SaleReturnsPage() {
     useEffect(() => {
       if (defaultBranchCode && filterBranch === null) {
         setFilterBranch(defaultBranchCode);
+        setDraftBranch(defaultBranchCode);
       }
     }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
     const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+    const handleApplyFilters = useCallback(() => {
+        setSearchQuery(draftSearchQuery);
+        setFilterBranch(draftBranch);
+        setFilterStatus(draftStatus);
+    }, [draftSearchQuery, draftBranch, draftStatus]);
+
+    const handleClearFilters = useCallback(() => {
+        setDraftSearchQuery("");
+        setDraftBranch(null);
+        setDraftStatus(null);
+        setSearchQuery("");
+        setFilterBranch(null);
+        setFilterStatus(null);
+    }, []);
 
     const handleNewReturn = useCallback(() => {
         handleNewReturnBase();
@@ -622,23 +651,13 @@ export default function SaleReturnsPage() {
             isLoading={isLoading}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
-            placeholder="Search returns..."
+            hideSearch
             sortOptions={SORT_OPTIONS}
             sortField={sortField}
             onSortChange={setSortField}
             selectedItem={selectedReturn}
             onSelectItem={handleSelectReturnWithItems}
             emptyMessage="No sale returns found"
-            listHeader={
-                <SalesFilterPanel
-                    statusOptions={RETURN_STATUS_FILTER_OPTIONS}
-                    statusValue={filterStatus}
-                    onStatusChange={setFilterStatus}
-                    branches={branches}
-                    branchValue={filterBranch}
-                    onBranchChange={setFilterBranch}
-                />
-            }
             renderItem={(ret, isSelected) => (
                 <SelectableListItem
                     key={ret.id}
@@ -885,7 +904,17 @@ export default function SaleReturnsPage() {
                                 {/* View mode: Show date, status, and totals */}
                                 {!isCreating && !isEditing && selectedReturn && (
                                     <>
-                                        <FormSection title="Status & Dates" columns={4}>
+                                        <FormSection
+                                            title="Status & Dates"
+                                            columns={4}
+                                            titleAction={
+                                                <Tooltip title="View activity history">
+                                                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                                                        <HistoryIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            }
+                                        >
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Status</Typography>
                                                 <Box sx={{ mt: 0.5 }}>
@@ -1317,6 +1346,52 @@ export default function SaleReturnsPage() {
         <>
             <MasterDetailLayout
                 title="Sale Returns"
+                titleSlot={
+                    <TTabFilterBar
+                        tabs={[
+                            {
+                                key: "search",
+                                label: "Search",
+                                hasValue: !!draftSearchQuery,
+                                render: ({ close }) => (
+                                    <TextField
+                                        size="small"
+                                        autoFocus
+                                        placeholder="Search returns..."
+                                        value={draftSearchQuery}
+                                        onChange={(e) => setDraftSearchQuery(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                handleApplyFilters();
+                                                close();
+                                            }
+                                        }}
+                                        fullWidth
+                                    />
+                                ),
+                            },
+                            {
+                                key: "status",
+                                label: "Status",
+                                hasValue: !!draftStatus,
+                                render: () => (
+                                    <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
+                                ),
+                            },
+                            {
+                                key: "branch",
+                                label: "Branch",
+                                hasValue: !!draftBranch,
+                                render: () => (
+                                    <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                                ),
+                            },
+                        ]}
+                        onSearch={handleApplyFilters}
+                        onClear={handleClearFilters}
+                        clearDisabled={!draftSearchQuery && !draftBranch && !draftStatus && !searchQuery && !filterBranch && !filterStatus}
+                    />
+                }
                 headerActions={
                     <Button
                         variant="outlined"
@@ -1365,6 +1440,20 @@ export default function SaleReturnsPage() {
                     documentId={selectedReturn.id}
                 />
             )}
+
+            <TActivityHistoryPanel
+                open={activityHistoryOpen}
+                onClose={() => setActivityHistoryOpen(false)}
+                entityType="sale_return"
+                entityId={selectedReturn?.id}
+                actionLabels={{
+                    create: "Return created",
+                    approve: "Return approved",
+                    reject: "Return rejected",
+                    process: "Return processed",
+                    delete: "Return deleted",
+                }}
+            />
         </>
     );
 }

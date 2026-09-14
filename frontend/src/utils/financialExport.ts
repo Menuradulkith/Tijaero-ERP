@@ -6,6 +6,7 @@
  */
 
 import { ExportOptions } from "@/components/tijaero/buttons/TExportButton";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 /**
  * Generic function to convert any table data to CSV export format
@@ -275,9 +276,10 @@ function formatCurrency(amount: any): string {
   if (amount === null || amount === undefined) return "";
   const num = typeof amount === "number" ? amount : parseFloat(amount);
   if (isNaN(num)) return String(amount);
-  return num.toLocaleString("en-US", {
+  const { code, locale } = useCurrencyStore.getState();
+  return num.toLocaleString(locale, {
     style: "currency",
-    currency: "USD",
+    currency: code,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

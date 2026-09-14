@@ -67,13 +67,8 @@ def _po_create(branch_code, first_supplier_id, product_id, *, second_supplier_id
 class TestSupplierService:
     def _supplier_payload(self, **over):
         base = dict(
-            title="Mr",
-            full_name="Acme Distributors",
-            postal_address="1 Market St",
-            permenent_address="1 Market St",
-            gender="male",
-            civil_status="single",
-            no_of_kids="0",
+            company_name="Acme Distributors",
+            billing_address_line1="1 Market St",
             mobile_contact_number="0771234567",
             credit_days=30,
             max_credit_limit=500000,
@@ -87,7 +82,7 @@ class TestSupplierService:
         created = svc.create_supplier(self._supplier_payload())
         assert created.id is not None
         assert created.active is True
-        assert created.full_name == "Acme Distributors"
+        assert created.company_name == "Acme Distributors"
 
     def test_get_missing_supplier_raises_404(self, db):
         svc = service.SupplierService(db)
@@ -96,12 +91,12 @@ class TestSupplierService:
         assert exc.value.status_code == 404
 
     def test_update_supplier_name(self, db, make_supplier):
-        supplier = make_supplier(full_name="Old Name")
+        supplier = make_supplier(company_name="Old Name")
         svc = service.SupplierService(db)
         updated = svc.update_supplier(
-            supplier.id, schemas.SupplierUpdate(full_name="New Name")
+            supplier.id, schemas.SupplierUpdate(company_name="New Name")
         )
-        assert updated.full_name == "New Name"
+        assert updated.company_name == "New Name"
 
     def test_cannot_deactivate_supplier_with_pending_po(
         self, db, make_branch, make_supplier, make_product
@@ -286,13 +281,8 @@ class TestDailyLimit:
 # --------------------------------------------------------------------------- #
 class TestPurchasingRBAC:
     _SUPPLIER_BODY = dict(
-        title="Mr",
-        full_name="API Supplier",
-        postal_address="addr",
-        permenent_address="addr",
-        gender="male",
-        civil_status="single",
-        no_of_kids="0",
+        company_name="API Supplier",
+        billing_address_line1="addr",
         mobile_contact_number="0770000000",
         credit_days=30,
         max_credit_limit=100000,
@@ -310,7 +300,7 @@ class TestPurchasingRBAC:
         client.headers.update({"Authorization": f"Bearer {token}"})
         resp = client.post("/api/v1/purchasing/suppliers", json=self._SUPPLIER_BODY)
         assert resp.status_code == 201
-        assert resp.json()["full_name"] == "API Supplier"
+        assert resp.json()["company_name"] == "API Supplier"
 
     def test_list_suppliers_requires_permission(self, client, make_user):
         _user, token = make_user()

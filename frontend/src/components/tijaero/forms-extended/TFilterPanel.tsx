@@ -86,8 +86,7 @@ export interface TFilterBranch {
 /** Supplier entity for filter */
 export interface TFilterSupplier {
   id: number;
-  full_name: string;
-  company_name?: string;
+  company_name: string;
 }
 
 /** Status option for filter */
@@ -124,7 +123,7 @@ export const TBranchFilter: React.FC<TBranchFilterProps> = ({
   branches,
   value,
   onChange,
-  label = "Filter by Branch",
+  label = "Branch",
   placeholder = "All Branches",
   size = "small",
   fullWidth = true,
@@ -172,7 +171,7 @@ export const TSupplierFilter: React.FC<TSupplierFilterProps> = ({
   suppliers,
   value,
   onChange,
-  label = "Filter by Supplier",
+  label = "Supplier",
   placeholder = "All Suppliers",
   size = "small",
   fullWidth = true,
@@ -182,11 +181,7 @@ export const TSupplierFilter: React.FC<TSupplierFilterProps> = ({
       size={size}
       fullWidth={fullWidth}
       options={suppliers}
-      getOptionLabel={(option: TFilterSupplier) =>
-        option.company_name
-          ? `${option.full_name} (${option.company_name})`
-          : option.full_name
-      }
+      getOptionLabel={(option: TFilterSupplier) => option.company_name}
       value={suppliers.find((s) => s.id === value) || null}
       onChange={(_, newValue: TFilterSupplier | null) => onChange(newValue?.id || null)}
       renderInput={(params) => (
@@ -224,7 +219,7 @@ export const TStatusFilter: React.FC<TStatusFilterProps> = ({
   options,
   value,
   onChange,
-  label = "Filter by Status",
+  label = "Status",
   placeholder = "All Statuses",
   size = "small",
   fullWidth = true,

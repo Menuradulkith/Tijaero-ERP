@@ -133,7 +133,7 @@ class SupplierCreditService:
         
         return {
             "supplier_id": supplier_id,
-            "supplier_name": supplier.full_name,
+            "supplier_name": supplier.company_name,
             "company_name": supplier.company_name,
             "credit_days": supplier.credit_days,
             "max_credit_limit": supplier.max_credit_limit,
@@ -280,7 +280,7 @@ class SupplierCreditService:
         
         return {
             "supplier_id": supplier_id,
-            "supplier_name": supplier.full_name,
+            "supplier_name": supplier.company_name,
             "company_name": supplier.company_name,
             "credit_days": supplier.credit_days,
             "max_credit_limit": supplier.max_credit_limit,
@@ -311,7 +311,7 @@ class SupplierCreditService:
         
         return {
             "supplier_id": supplier_id,
-            "supplier_name": supplier.full_name,
+            "supplier_name": supplier.company_name,
             "company_name": supplier.company_name,
             "total_outstanding": total_outstanding,
             "overdue_count": len(overdue_pos),
@@ -1377,7 +1377,7 @@ class SupplierCreditService:
         
         return {
             "supplier_id": supplier_id,
-            "supplier_name": supplier.full_name,
+            "supplier_name": supplier.company_name,
             "company_name": supplier.company_name,
             "from_date": from_date,
             "to_date": to_date,
@@ -1404,7 +1404,7 @@ class SupplierCreditService:
 
         # --- 1. Direct payments (all statuses except auto-recorded GRN cash) ---
         sp_query = (
-            db.query(SupplierPayment, Supplier.full_name)
+            db.query(SupplierPayment, Supplier.company_name)
             .join(Supplier, Supplier.id == SupplierPayment.supplier_id)
             .filter(
                 or_(
@@ -1459,7 +1459,7 @@ class SupplierCreditService:
                 SupplierCreditsSettle.branch_code,
                 SupplierCreditsSettle.suppliers_id,
                 SupplierCreditsSettle.status,
-                Supplier.full_name,
+                Supplier.company_name,
                 GoodReceivedNote.good_received_no,
             )
             .join(
@@ -1507,7 +1507,7 @@ class SupplierCreditService:
                 SupplierAdvancePayment.advance_no,
                 SupplierAdvancePayment.supplier_id,
                 SupplierAdvancePayment.branch_code,
-                Supplier.full_name,
+                Supplier.company_name,
                 GoodReceivedNote.good_received_no,
             )
             .join(
@@ -1548,7 +1548,7 @@ class SupplierCreditService:
 
         # --- 4. Supplier advance payments (the actual payment made to hold as advance) ---
         ap_query = (
-            db.query(SupplierAdvancePayment, Supplier.full_name)
+            db.query(SupplierAdvancePayment, Supplier.company_name)
             .join(Supplier, Supplier.id == SupplierAdvancePayment.supplier_id)
         )
         if date_from:
@@ -1654,7 +1654,7 @@ class SupplierCreditService:
                 "reference_no": grn.supplier_invoice_no or "-",
                 "po_no": po.purchasing_order_no,
                 "supplier_id": supplier.id,
-                "supplier_name": supplier.full_name,
+                "supplier_name": supplier.company_name,
                 "total_amount": float(grn_total),
                 "paid_amount": float(grn_total - remaining),
                 "balance_due": float(remaining),
@@ -1758,7 +1758,7 @@ class SupplierCreditService:
                 "reference_no": po.purchasing_invoice_no or (grn.good_received_no if grn else "-"),
                 "po_no": po.purchasing_order_no,
                 "supplier_id": supplier.id,
-                "supplier_name": supplier.full_name,
+                "supplier_name": supplier.company_name,
                 "total_amount": float(base_amount),
                 "paid_amount": float(total_paid + effective_advance + total_returns),
                 "balance_due": float(remaining),

@@ -12,25 +12,42 @@ Then use:
   tz.now_aware()    → timezone-aware local datetime (rarely needed)
   tz.LOCAL_TZ       → the system timezone object
 
-The ERP uses the system's local time.
+The ERP uses a configurable timezone (Settings.default_timezone, managed via
+Settings > Company Configuration > Company Details), defaulting to Asia/Colombo.
 This ensures every timestamp — invoice dates, GL postings, payroll,
 approvals, audit logs — uses the same consistent clock.
 """
 
-from datetime import date as _date, datetime as _dt, timezone as _tz, timedelta as _timedelta
+from datetime import date as _date, datetime as _dt
+from zoneinfo import ZoneInfo as _ZoneInfo
 from app.core.config import settings
 
 # ──────────────────────────────────────────────────────────────────────────────
 # System Local Time
-# Uses the server's configured timezone automatically, or defaults to Colombo if configured.
+# Uses the ERP's configured timezone (Settings.default_timezone), defaulting to
+# the app config's TIMEZONE (itself defaulting to "Asia/Colombo") until the
+# company settings singleton is loaded at startup. Mutable so that changing
+# the setting takes effect immediately in this process — see set_timezone().
 # ──────────────────────────────────────────────────────────────────────────────
-if settings.TIMEZONE == "Asia/Colombo":
-    LOCAL_TZ = _tz(_timedelta(hours=5, minutes=30), name="Asia/Colombo")
-else:
-    LOCAL_TZ = _dt.now(_tz.utc).astimezone().tzinfo
+LOCAL_TZ = _ZoneInfo(settings.TIMEZONE or "Asia/Colombo")
 
 # Keep SL_TZ as alias for backward compatibility
 SL_TZ = LOCAL_TZ
+
+
+def set_timezone(tz_name: str) -> None:
+    """Update the ERP's active timezone in-process.
+
+    Called after Settings.default_timezone changes so that subsequent
+    tz.now() calls (audit timestamps, PDF generation, reports) immediately
+    reflect the new zone without a process restart. Note: with multiple
+    worker processes, only the worker that handles the update (or a worker
+    that re-reads company settings on its own next request) picks this up —
+    other workers keep their previous zone until they do the same.
+    """
+    global LOCAL_TZ, SL_TZ
+    LOCAL_TZ = _ZoneInfo(tz_name)
+    SL_TZ = LOCAL_TZ
 
 
 def now_aware() -> _dt:

@@ -101,6 +101,8 @@ import {
 import { useReferenceData } from "@/hooks";
 import {
   Supplier,
+  SupplierPaymentAccount,
+  SupplierPaymentAccountType,
 } from "@/modules/purchasing/types";
 
 // ─── Monthly Instalment Outstanding ─────────────────────────────────────────
@@ -146,7 +148,7 @@ interface SortOption {
 }
 
 const SORT_OPTIONS: SortOption[] = [
-  { value: "full_name", label: "Name" },
+  { value: "company_name", label: "Name" },
   { value: "outstanding", label: "Outstanding" },
   { value: "max_credit_limit", label: "Credit Limit" },
 ];
@@ -156,6 +158,15 @@ const PAYMENT_METHODS = [
   { value: "bank_transfer", label: "Bank Transfer" },
   { value: "cheque", label: "Cheque" },
 ];
+
+// Maps a saved payment account's type (backend enum) to the Title-Case
+// strings this page's own paymentMethod state/comparisons use ("Cash" /
+// "Bank Transfer" / "Cheque").
+const ACCOUNT_TYPE_TO_PAYMENT_METHOD_LABEL: Record<SupplierPaymentAccountType, string> = {
+  cash: "Cash",
+  bank_transfer: "Bank Transfer",
+  cheque: "Cheque",
+};
 
 // Payment type tab
 type PaymentTypeTab = "all" | "credit" | "non_credit";
@@ -209,7 +220,7 @@ export default function SupplierPaymentsPage() {
 
   // Selection state
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("full_name");
+  const [sortField, setSortField] = useState("company_name");
 
   // View state
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
@@ -247,6 +258,10 @@ export default function SupplierPaymentsPage() {
   // Previous payment suggestions (populated when a supplier is selected)
   const [previousBankNames, setPreviousBankNames] = useState<string[]>([]);
   const [lastPaymentSuggestion, setLastPaymentSuggestion] = useState<{ payment_method: string; bank_name: string } | null>(null);
+
+  // Saved payment methods configured on the supplier's profile (Suppliers >
+  // Payment section), offered here as a quick pick to auto-fill the form.
+  const [savedPaymentAccounts, setSavedPaymentAccounts] = useState<SupplierPaymentAccount[]>([]);
 
   // FIFO mode
   const [useFIFO, setUseFIFO] = useState(false);
@@ -460,7 +475,6 @@ export default function SupplierPaymentsPage() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter((s) =>
-        s.full_name.toLowerCase().includes(query) ||
         s.company_name?.toLowerCase().includes(query) ||
         s.email?.toLowerCase().includes(query)
       );
@@ -468,8 +482,8 @@ export default function SupplierPaymentsPage() {
 
     filtered.sort((a, b) => {
       switch (sortField) {
-        case "full_name":
-          return a.full_name.localeCompare(b.full_name);
+        case "company_name":
+          return a.company_name.localeCompare(b.company_name);
         case "outstanding":
           return (b.max_credit_limit - (b.left_credit_amount ?? b.max_credit_limit)) -
             (a.max_credit_limit - (a.left_credit_amount ?? a.max_credit_limit));
@@ -495,9 +509,15 @@ export default function SupplierPaymentsPage() {
     setUseFIFO(false);
     setFifoAmount(0);
     resetPaymentForm();
+    setSavedPaymentAccounts([]);
     // Load data for this supplier
     loadPaymentStatus(supplier.id);
     loadPayableInvoices(supplier.id);
+    // Fetch payment methods saved on the supplier's profile
+    suppliersApi
+      .getPaymentMethods(supplier.id)
+      .then(setSavedPaymentAccounts)
+      .catch(() => setSavedPaymentAccounts([]));
     // Fetch previous payment data to auto-populate payment form
     supplierPaymentsApi
       .getAll({ supplier_id: supplier.id, status: "verified", limit: 10 })
@@ -547,6 +567,13 @@ export default function SupplierPaymentsPage() {
     setChequeDate(new Date().toISOString().split("T")[0]);
     setPaymentDate(new Date().toISOString().split("T")[0]);
     setRemarks("");
+  };
+
+  // Fill the payment form from one of the supplier's saved payment methods.
+  const handleSelectSavedPaymentAccount = (account: SupplierPaymentAccount | null) => {
+    if (!account) return;
+    setPaymentMethod(ACCOUNT_TYPE_TO_PAYMENT_METHOD_LABEL[account.method_type]);
+    if (account.bank_name) setBankName(account.bank_name);
   };
 
   const handleStartPayment = useCallback(() => {
@@ -721,7 +748,7 @@ export default function SupplierPaymentsPage() {
       return;
     }
 
-    const confirmMessage = `Post payment of Rs. ${fmtLKR(totalPaymentAmount)} for ${selectedSupplier.full_name}?`;
+    const confirmMessage = `Post payment of Rs. ${fmtLKR(totalPaymentAmount)} for ${selectedSupplier.company_name}?`;
 
     const confirmed = await confirmDialog.confirm({
       title: "Post Payment",
@@ -855,7 +882,7 @@ export default function SupplierPaymentsPage() {
             primaryText={
               <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{supplier.full_name}</span>
+                  <span>{supplier.company_name}</span>
                 </Box>
                 {isSelected && (
                   <>
@@ -945,12 +972,7 @@ export default function SupplierPaymentsPage() {
         <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
           <BusinessIcon sx={{ fontSize: 40, color: "primary.main" }} />
           <Box>
-            <Typography variant="h5">{selectedSupplier?.full_name}</Typography>
-            {selectedSupplier?.company_name && (
-              <Typography variant="body2" color="text.secondary">
-                {selectedSupplier.company_name}
-              </Typography>
-            )}
+            <Typography variant="h5">{selectedSupplier?.company_name}</Typography>
           </Box>
         </Box>
 
@@ -1596,6 +1618,31 @@ export default function SupplierPaymentsPage() {
 
       {/* Payment Method */}
       <FormSection title="Payment Method" columns={2}>
+        {savedPaymentAccounts.length > 0 && (
+          <Autocomplete
+            options={savedPaymentAccounts}
+            getOptionLabel={(option) =>
+              [
+                ACCOUNT_TYPE_TO_PAYMENT_METHOD_LABEL[option.method_type],
+                option.bank_name,
+                option.account_number ? `•••${option.account_number.slice(-4)}` : null,
+                option.is_default ? "(Default)" : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            }
+            onChange={(_, value) => handleSelectSavedPaymentAccount(value)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Use Saved Payment Method"
+                size="small"
+                placeholder="Select to auto-fill"
+              />
+            )}
+            sx={{ gridColumn: "span 2" }}
+          />
+        )}
         <TextField
           select
           label="Payment Method"
@@ -1723,7 +1770,7 @@ export default function SupplierPaymentsPage() {
         <Grid container spacing={2}>
           <Grid item xs={12} sm={6}>
             <Typography variant="caption" color="text.secondary">Supplier</Typography>
-            <Typography variant="body1">{selectedSupplier?.full_name}</Typography>
+            <Typography variant="body1">{selectedSupplier?.company_name}</Typography>
           </Grid>
           <Grid item xs={12} sm={6}>
             <Typography variant="caption" color="text.secondary">Payment Date</Typography>
@@ -1846,7 +1893,7 @@ export default function SupplierPaymentsPage() {
         breadcrumbs={[
           { label: "Purchasing", href: "/purchasing" },
           { label: "Supplier Payments", href: "/purchasing/payments" },
-          ...(selectedSupplier ? [{ label: selectedSupplier.full_name }] : []),
+          ...(selectedSupplier ? [{ label: selectedSupplier.company_name }] : []),
           ...(viewMode !== "overview" ? [{ label: STEPS[activeStep] }] : []),
         ]}
         title={
@@ -1856,7 +1903,7 @@ export default function SupplierPaymentsPage() {
               ? "Payment Details"
               : viewMode === "documents"
                 ? "Select Documents"
-                : selectedSupplier?.full_name || ""
+                : selectedSupplier?.company_name || ""
         }
         titleIcon={
           viewMode === "review" ? (

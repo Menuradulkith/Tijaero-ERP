@@ -1,27 +1,39 @@
 /**
  * Utility functions for formatting data for display
  */
+import { useCurrencyStore } from "@/state/currencyStore";
+import { useTimezoneStore } from "@/state/timezoneStore";
 
 /**
- * Default currency for the ERP system
+ * Default currency for the ERP system.
+ * These are fallback constants — prefer reading the active currency via
+ * useCurrencyStore (or its getState() outside components) since the ERP's
+ * currency is user-configurable in Settings > Company Configuration > Currency.
  */
 export const ERP_CURRENCY = "LKR";
 export const ERP_CURRENCY_SYMBOL = "Rs.";
 export const ERP_LOCALE = "en-LK";
+/**
+ * Fallback timezone constant (this file's browser-local read at load time).
+ * Prefer useTimezoneStore (or its getState() outside components) since the
+ * ERP's display timezone is user-configurable in
+ * Settings > Company Configuration > Company Details.
+ */
 export const ERP_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 /**
- * Format a number as currency with LKR and two decimal places
+ * Format a number as currency using the ERP's active currency and two decimal places
  * @param value - The numeric value to format
  * @returns Formatted currency string (e.g., "Rs. 12,345.60")
  */
 export function formatCurrency(value: number): string {
+  const { symbol, locale } = useCurrencyStore.getState();
   // Handle invalid numbers
   const numValue = Number(value);
   if (isNaN(numValue)) {
-    return `${ERP_CURRENCY_SYMBOL} 0.00`;
+    return `${symbol} 0.00`;
   }
-  return `${ERP_CURRENCY_SYMBOL} ${new Intl.NumberFormat(ERP_LOCALE, {
+  return `${symbol} ${new Intl.NumberFormat(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(numValue)}`;
@@ -33,12 +45,13 @@ export function formatCurrency(value: number): string {
  * @returns Formatted amount string (e.g., "12,345.60")
  */
 export function formatAmount(value: number): string {
+  const { locale } = useCurrencyStore.getState();
   // Handle invalid numbers
   const numValue = Number(value);
   if (isNaN(numValue)) {
     return "0.00";
   }
-  return new Intl.NumberFormat(ERP_LOCALE, {
+  return new Intl.NumberFormat(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(numValue);
@@ -145,6 +158,7 @@ export function formatDateTimeReadable(date: Date | string | null | undefined): 
   try {
     const d = typeof date === "string" ? new Date(date) : date;
     if (isNaN(d.getTime())) return "";
+    const { timezone } = useTimezoneStore.getState();
     return d.toLocaleString(ERP_LOCALE, {
       year: "numeric",
       month: "short",
@@ -152,7 +166,7 @@ export function formatDateTimeReadable(date: Date | string | null | undefined): 
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
-      timeZone: ERP_TIMEZONE,
+      timeZone: timezone,
     });
   } catch {
     return "";

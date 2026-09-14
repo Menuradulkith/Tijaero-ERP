@@ -11,11 +11,13 @@
 
 import CancelIcon from "@mui/icons-material/Cancel";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
+import HistoryIcon from "@mui/icons-material/History";
 import PersonIcon from "@mui/icons-material/Person";
 import VerifiedIcon from "@mui/icons-material/Verified";
 import {
   Box,
   Button,
+  IconButton,
   Paper,
   Table,
   TableBody,
@@ -23,6 +25,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
@@ -42,14 +45,15 @@ import {
   SortOption,
   TConfirmDialog,
   TDetailSkeleton,
-  TFilterPanel,
   TSearchableSelect,
+  TTabFilterBar,
   TStatusChip,
   modernTableStyles,
   showErrorToast,
   showSuccessToast,
   useCrudMutation,
   useTConfirmDialog,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
@@ -86,9 +90,21 @@ export default function CommissionPaymentApprovalsPage() {
   // State
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_at");
+
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>("pending");
   const [filterAgentId, setFilterAgentId] = useState<number | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
+  const [draftAgentId, setDraftAgentId] = useState<number | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithAgent | null>(null);
+
+  // Activity History is opened on demand from a detail icon next to the
+  // Status & Dates section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   // Confirm dialogs
   const verifyDialog = useTConfirmDialog();
@@ -125,6 +141,21 @@ export default function CommissionPaymentApprovalsPage() {
     (allCustomers || []).forEach((c) => map.set(c.id, c.customer_name));
     return map;
   }, [allCustomers]);
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterAgentId(draftAgentId);
+  }, [draftSearchQuery, draftStatus, draftAgentId]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftAgentId(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterAgentId(null);
+  }, []);
 
   // Fetch payment details when selected
   const { data: paymentDetails, isLoading: isDetailLoading } = useQuery({
@@ -249,41 +280,12 @@ export default function CommissionPaymentApprovalsPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search by payment no, agent..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedPayment}
       emptyMessage="No payments found"
-      listHeader={
-        <TFilterPanel>
-          <TSearchableSelect
-            label="Status"
-            value={filterStatus}
-            onChange={(val) => setFilterStatus(val as string | null)}
-            options={STATUS_FILTER_OPTIONS.map((opt) => ({
-              value: opt.value,
-              label: opt.label,
-              color: opt.color,
-            }))}
-            showAllOption
-            allOptionLabel="All Statuses"
-            placeholder="Search status..."
-          />
-          <TSearchableSelect
-            label="Filter by Agent"
-            value={filterAgentId}
-            onChange={(val) => setFilterAgentId(val ? Number(val) : null)}
-            options={agents.map((agent) => ({
-              value: agent.id,
-              label: agent.customer_name,
-            }))}
-            showAllOption
-            allOptionLabel="All Agents"
-            placeholder="Search agents..."
-          />
-        </TFilterPanel>
-      }
       renderItem={(payment, isSelected) => {
         const statusChip = getStatusProps(payment.status, "commissionPaymentStatus");
         return (
@@ -556,7 +558,17 @@ export default function CommissionPaymentApprovalsPage() {
             )}
 
             {/* Status & Dates */}
-            <FormSection title="Status & Dates" columns={2}>
+            <FormSection
+              title="Status & Dates"
+              columns={2}
+              titleAction={
+                <Tooltip title="View activity history">
+                  <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 1 }}>
                 <Typography variant="body2" color="text.secondary">
                   Status:
@@ -691,6 +703,77 @@ export default function CommissionPaymentApprovalsPage() {
       <MasterDetailLayout
         title="Commission Payment Approvals"
         icon={<FactCheckIcon color="primary" />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search by payment no, agent..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftStatus}
+                    onChange={(val) => setDraftStatus(val as string | null)}
+                    options={STATUS_FILTER_OPTIONS.map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                      color: opt.color,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Statuses"
+                    placeholder="Search status..."
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "agent",
+                label: "Agent",
+                hasValue: !!draftAgentId,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftAgentId}
+                    onChange={(val) => setDraftAgentId(val ? Number(val) : null)}
+                    options={agents.map((agent) => ({
+                      value: agent.id,
+                      label: agent.customer_name,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Agents"
+                    placeholder="Search agents..."
+                    size="small"
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftAgentId && !searchQuery && !filterStatus && !filterAgentId}
+          />
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}
@@ -698,6 +781,18 @@ export default function CommissionPaymentApprovalsPage() {
       />
       <TConfirmDialog {...verifyDialog.dialogProps} />
       <TConfirmDialog {...cancelDialog.dialogProps} />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="commission_payment"
+        entityId={selectedPayment?.id}
+        actionLabels={{
+          create: "Payment created",
+          verify: "Payment verified",
+          cancel: "Payment cancelled",
+        }}
+      />
     </>
   );
 }

@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import date, datetime
 from . import models, schemas
 from app.core import timezone as tz
+from app.common.enums import PurchaseOrderStatus
 
 class SupplierRepository:
     def __init__(self, db: Session):
@@ -34,20 +35,64 @@ class SupplierRepository:
             search_term = f"%{filters.search}%"
             query = query.filter(
                 or_(
-                    models.Supplier.full_name.ilike(search_term),
                     models.Supplier.company_name.ilike(search_term),
                     models.Supplier.email.ilike(search_term)
                 )
             )
         if filters.min_credit_limit:
             query = query.filter(models.Supplier.max_credit_limit >= filters.min_credit_limit)
-        
+
         return query.offset(filters.skip).limit(filters.limit).all()
-    
+
+    def find_by_field_value(
+        self, field_name: str, value: str, exclude_id: Optional[int] = None
+    ) -> Optional[models.Supplier]:
+        """Case/whitespace-insensitive lookup used for pre-save uniqueness checks."""
+        column = getattr(models.Supplier, field_name)
+        query = self.db.query(models.Supplier).filter(
+            func.lower(func.trim(column)) == value.strip().lower()
+        )
+        if exclude_id is not None:
+            query = query.filter(models.Supplier.id != exclude_id)
+        return query.first()
+
+    def get_average_lead_times(self, supplier_ids: Optional[List[int]] = None) -> dict:
+        """Average days between PO placement (added_date) and final GRN (added_date) for completed POs."""
+        last_grn = (
+            self.db.query(
+                models.GoodReceivedNote.purchasingorders_id.label("po_id"),
+                func.max(models.GoodReceivedNote.added_date).label("received_at"),
+            )
+            .group_by(models.GoodReceivedNote.purchasingorders_id)
+            .subquery()
+        )
+
+        query = (
+            self.db.query(
+                models.PurchasingOrder.first_suppliers_id.label("supplier_id"),
+                func.avg(
+                    func.extract("epoch", last_grn.c.received_at - models.PurchasingOrder.added_date)
+                ).label("avg_seconds"),
+            )
+            .join(last_grn, last_grn.c.po_id == models.PurchasingOrder.id)
+            .filter(models.PurchasingOrder.status == PurchaseOrderStatus.COMPLETED)
+            .group_by(models.PurchasingOrder.first_suppliers_id)
+        )
+        if supplier_ids is not None:
+            query = query.filter(models.PurchasingOrder.first_suppliers_id.in_(supplier_ids))
+
+        return {
+            row.supplier_id: round(row.avg_seconds / 86400, 1)
+            for row in query.all()
+            if row.avg_seconds is not None
+        }
+
     def update(self, supplier_id: int, supplier_update: schemas.SupplierUpdate) -> Optional[models.Supplier]:
         db_supplier = self.get_by_id(supplier_id)
         if db_supplier:
-            update_data = supplier_update.model_dump(exclude_unset=True)
+            # expected_updated_at is a concurrency-check field only (see
+            # SupplierService.update_supplier) — it isn't a real column.
+            update_data = supplier_update.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
             for field, value in update_data.items():
                 setattr(db_supplier, field, value)
             self.db.commit()
@@ -61,6 +106,130 @@ class SupplierRepository:
             self.db.commit()
             return True
         return False
+
+class SupplierPaymentMethodRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_supplier(self, supplier_id: int) -> List[models.SupplierPaymentMethod]:
+        return (
+            self.db.query(models.SupplierPaymentMethod)
+            .filter(models.SupplierPaymentMethod.supplier_id == supplier_id)
+            .order_by(models.SupplierPaymentMethod.is_default.desc(), models.SupplierPaymentMethod.id)
+            .all()
+        )
+
+    def get_by_id(self, method_id: int) -> Optional[models.SupplierPaymentMethod]:
+        return (
+            self.db.query(models.SupplierPaymentMethod)
+            .filter(models.SupplierPaymentMethod.id == method_id)
+            .first()
+        )
+
+    def _clear_default(self, supplier_id: int, exclude_id: Optional[int] = None) -> None:
+        query = self.db.query(models.SupplierPaymentMethod).filter(
+            models.SupplierPaymentMethod.supplier_id == supplier_id,
+            models.SupplierPaymentMethod.is_default.is_(True),
+        )
+        if exclude_id is not None:
+            query = query.filter(models.SupplierPaymentMethod.id != exclude_id)
+        query.update({"is_default": False})
+        self.db.commit()
+
+    def create(self, supplier_id: int, data: schemas.SupplierPaymentMethodCreate) -> models.SupplierPaymentMethod:
+        if data.is_default:
+            self._clear_default(supplier_id)
+        db_method = models.SupplierPaymentMethod(supplier_id=supplier_id, **data.model_dump())
+        self.db.add(db_method)
+        self.db.commit()
+        self.db.refresh(db_method)
+        return db_method
+
+    def update(
+        self, method_id: int, data: schemas.SupplierPaymentMethodUpdate
+    ) -> Optional[models.SupplierPaymentMethod]:
+        db_method = self.get_by_id(method_id)
+        if not db_method:
+            return None
+        update_data = data.model_dump(exclude_unset=True)
+        if update_data.get("is_default"):
+            self._clear_default(db_method.supplier_id, exclude_id=db_method.id)
+        for field, value in update_data.items():
+            setattr(db_method, field, value)
+        self.db.commit()
+        self.db.refresh(db_method)
+        return db_method
+
+    def delete(self, method_id: int) -> bool:
+        db_method = self.get_by_id(method_id)
+        if db_method:
+            self.db.delete(db_method)
+            self.db.commit()
+            return True
+        return False
+
+
+class SupplierContactPersonRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_supplier(self, supplier_id: int) -> List[models.SupplierContactPerson]:
+        return (
+            self.db.query(models.SupplierContactPerson)
+            .filter(models.SupplierContactPerson.supplier_id == supplier_id)
+            .order_by(models.SupplierContactPerson.id)
+            .all()
+        )
+
+    def get_by_id(self, contact_id: int) -> Optional[models.SupplierContactPerson]:
+        return (
+            self.db.query(models.SupplierContactPerson)
+            .filter(models.SupplierContactPerson.id == contact_id)
+            .first()
+        )
+
+    def find_by_field_value(
+        self, field_name: str, value: str, exclude_id: Optional[int] = None
+    ) -> Optional[models.SupplierContactPerson]:
+        """Case/whitespace-insensitive lookup used for pre-save uniqueness checks.
+        Scoped across all suppliers' contact persons, not just one supplier —
+        an ID card/passport number identifies one real person system-wide."""
+        column = getattr(models.SupplierContactPerson, field_name)
+        query = self.db.query(models.SupplierContactPerson).filter(
+            func.lower(func.trim(column)) == value.strip().lower()
+        )
+        if exclude_id is not None:
+            query = query.filter(models.SupplierContactPerson.id != exclude_id)
+        return query.first()
+
+    def create(self, supplier_id: int, data: schemas.SupplierContactPersonCreate) -> models.SupplierContactPerson:
+        db_contact = models.SupplierContactPerson(supplier_id=supplier_id, **data.model_dump())
+        self.db.add(db_contact)
+        self.db.commit()
+        self.db.refresh(db_contact)
+        return db_contact
+
+    def update(
+        self, contact_id: int, data: schemas.SupplierContactPersonUpdate
+    ) -> Optional[models.SupplierContactPerson]:
+        db_contact = self.get_by_id(contact_id)
+        if not db_contact:
+            return None
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(db_contact, field, value)
+        self.db.commit()
+        self.db.refresh(db_contact)
+        return db_contact
+
+    def delete(self, contact_id: int) -> bool:
+        db_contact = self.get_by_id(contact_id)
+        if db_contact:
+            self.db.delete(db_contact)
+            self.db.commit()
+            return True
+        return False
+
 
 class PurchasingOrderRepository:
     def __init__(self, db: Session):

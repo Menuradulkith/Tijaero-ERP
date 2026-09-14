@@ -99,7 +99,7 @@ def delete_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_DELETE)),
 ):
-    return service.product_service.delete_product(db, product_id)
+    return service.product_service.delete_product(db, product_id, user_id=current_user.id)
 
 
 @router.get(
@@ -175,7 +175,7 @@ def delete_category(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CATEGORY_DELETE)),
 ):
-    return service.category_service.delete_category(db, category_id)
+    return service.category_service.delete_category(db, category_id, user_id=current_user.id)
 
 
 @router.get(
@@ -220,7 +220,7 @@ def create_brand(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.BRAND_CREATE)),
 ):
-    return service.brand_service.create_brand(db, brand)
+    return service.brand_service.create_brand(db, brand, user_id=current_user.id)
 
 
 @router.put(
@@ -235,7 +235,7 @@ def update_brand(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.BRAND_UPDATE)),
 ):
-    return service.brand_service.update_brand(db, brand_id, brand)
+    return service.brand_service.update_brand(db, brand_id, brand, user_id=current_user.id)
 
 
 @router.delete(
@@ -249,7 +249,7 @@ def delete_brand(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.BRAND_DELETE)),
 ):
-    return service.brand_service.delete_brand(db, brand_id)
+    return service.brand_service.delete_brand(db, brand_id, user_id=current_user.id)
 
 
 @router.get(

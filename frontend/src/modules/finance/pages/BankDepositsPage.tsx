@@ -11,13 +11,16 @@ import {
   Box,
   Button,
   Chip,
+  IconButton,
   InputAdornment,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { Download as DownloadIcon } from "@mui/icons-material";
 import {
   AccountBalance as BankIcon,
+  History as HistoryIcon,
 } from "@mui/icons-material";
 
 import {
@@ -31,9 +34,10 @@ import {
   SortOption,
   TDetailSkeleton,
   TBranchFilter,
-  TFilterPanel,
   TStatusFilter,
+  TTabFilterBar,
   fmtLKR,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { bankDepositsApi } from "@/modules/finance/api";
@@ -73,6 +77,11 @@ export default function BankDepositsPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterVerified, setFilterVerified] = useState<string | null>(null);
 
+  // Filter state (draft - edited via the filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftVerified, setDraftVerified] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
   const {
     searchQuery,
     setSearchQuery,
@@ -91,6 +100,10 @@ export default function BankDepositsPage() {
     defaultSortField: "created_date",
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Status section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
@@ -98,8 +111,24 @@ export default function BankDepositsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+    setFilterVerified(draftVerified);
+  }, [draftSearchQuery, draftBranch, draftVerified]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setDraftVerified(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+    setFilterVerified(null);
+  }, []);
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -156,51 +185,13 @@ export default function BankDepositsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search deposits..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedItem}
       onSelectItem={handleSelectWithCheck}
       emptyMessage="No bank deposits found"
-      listHeader={
-        <>
-          <TFilterPanel>
-            <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} />
-            <TStatusFilter
-              options={[
-                { value: null, label: "All" },
-                { value: "verified", label: "Verified" },
-                { value: "pending", label: "Pending" },
-              ]}
-              value={filterVerified}
-              onChange={setFilterVerified}
-              label="Status"
-            />
-          </TFilterPanel>
-          <Box sx={{ display: "flex", justifyContent: "flex-end", px: 1, pb: 1 }}>
-            <Button
-              size="small"
-              startIcon={<DownloadIcon />}
-              onClick={() => {
-                if (!filteredDeposits.length) return;
-                const headers = ["Date", "Bank", "Branch", "Amount", "Status", "Remarks"];
-                const rows = filteredDeposits.map((d: BankDeposit) => [
-                  d.created_date ?? "",
-                  d.bank_name ?? "",
-                  d.branch_code ?? "",
-                  d.deposits_amount ?? "",
-                  d.verified ? "Verified" : "Pending",
-                  d.remarks ?? "",
-                ]);
-                exportToCSV({ filename: "bank_deposits", headers, rows });
-              }}
-            >
-              Export CSV
-            </Button>
-          </Box>
-        </>
-      }
       renderItem={(dep, isSelected) => (
         <SelectableListItem
           key={dep.id}
@@ -325,7 +316,17 @@ export default function BankDepositsPage() {
             </FormSection>
 
             {selectedItem && !isCreating && (
-              <FormSection title="Status" columns={3}>
+              <FormSection
+                title="Status"
+                columns={3}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Verification:</Typography>
                   <Chip label={selectedItem.verified ? "Verified" : "Pending"} size="small" color={selectedItem.verified ? "success" : "warning"} />
@@ -364,12 +365,102 @@ export default function BankDepositsPage() {
   );
 
   return (
+    <>
     <MasterDetailLayout
       title="Bank Deposits"
+      titleSlot={
+        <TTabFilterBar
+          tabs={[
+            {
+              key: "search",
+              label: "Search",
+              hasValue: !!draftSearchQuery,
+              render: ({ close }) => (
+                <TextField
+                  size="small"
+                  autoFocus
+                  placeholder="Search deposits..."
+                  value={draftSearchQuery}
+                  onChange={(e) => setDraftSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleApplyFilters();
+                      close();
+                    }
+                  }}
+                  fullWidth
+                />
+              ),
+            },
+            {
+              key: "branch",
+              label: "Branch",
+              hasValue: !!draftBranch,
+              render: () => (
+                <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+              ),
+            },
+            {
+              key: "status",
+              label: "Status",
+              hasValue: !!draftVerified,
+              render: () => (
+                <TStatusFilter
+                  options={[
+                    { value: null, label: "All" },
+                    { value: "verified", label: "Verified" },
+                    { value: "pending", label: "Pending" },
+                  ]}
+                  value={draftVerified}
+                  onChange={setDraftVerified}
+                  label=""
+                  size="small"
+                />
+              ),
+            },
+          ]}
+          onSearch={handleApplyFilters}
+          onClear={handleClearFilters}
+          clearDisabled={!draftSearchQuery && !draftBranch && !draftVerified && !searchQuery && !filterBranch && !filterVerified}
+        />
+      }
+      headerActions={
+        <Button
+          size="small"
+          startIcon={<DownloadIcon />}
+          onClick={() => {
+            if (!filteredDeposits.length) return;
+            const headers = ["Date", "Bank", "Branch", "Amount", "Status", "Remarks"];
+            const rows = filteredDeposits.map((d: BankDeposit) => [
+              d.created_date ?? "",
+              d.bank_name ?? "",
+              d.branch_code ?? "",
+              d.deposits_amount ?? "",
+              d.verified ? "Verified" : "Pending",
+              d.remarks ?? "",
+            ]);
+            exportToCSV({ filename: "bank_deposits", headers, rows });
+          }}
+        >
+          Export CSV
+        </Button>
+      }
       onRefresh={refetch}
       isLoading={isLoading}
       masterPanel={masterPanel}
       detailPanel={detailPanel}
     />
+
+    <TActivityHistoryPanel
+      open={activityHistoryOpen}
+      onClose={() => setActivityHistoryOpen(false)}
+      entityType="bank_deposit"
+      entityId={selectedItem?.id}
+      actionLabels={{
+        create: "Deposit created",
+        verify: "Deposit verified",
+      }}
+    />
+    </>
   );
 }

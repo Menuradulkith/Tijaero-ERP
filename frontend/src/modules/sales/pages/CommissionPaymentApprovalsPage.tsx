@@ -44,6 +44,7 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TStatusChip,
+  TTabFilterBar,
   modernTableStyles,
   useCrudMutation,
   useTConfirmDialog,
@@ -87,9 +88,29 @@ export default function CommissionPaymentApprovalsPage() {
   const [filterAgentId, setFilterAgentId] = useState<number | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithAgent | null>(null);
 
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
+  const [draftAgentId, setDraftAgentId] = useState<number | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
   // Confirm dialogs
   const verifyDialog = useTConfirmDialog();
   const cancelDialog = useTConfirmDialog();
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterAgentId(draftAgentId);
+  }, [draftSearchQuery, draftStatus, draftAgentId]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftAgentId(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterAgentId(null);
+  }, []);
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -244,57 +265,12 @@ export default function CommissionPaymentApprovalsPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search by payment no, agent..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedPayment}
       emptyMessage="No payments found"
-      listHeader={
-        <Box
-          sx={{
-            p: 1,
-            borderBottom: "1px solid",
-            borderColor: "divider",
-            display: "flex",
-            flexDirection: "column",
-            gap: 1,
-          }}
-        >
-          <TextField
-            select
-            size="small"
-            fullWidth
-            label="Status"
-            value={filterStatus || ""}
-            onChange={(e) => setFilterStatus(e.target.value || null)}
-          >
-            <MenuItem value="">All Statuses</MenuItem>
-            {STATUS_FILTER_OPTIONS.map((opt) => (
-              <MenuItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            size="small"
-            fullWidth
-            label="Filter by Agent"
-            value={filterAgentId || ""}
-            onChange={(e) =>
-              setFilterAgentId(e.target.value ? Number(e.target.value) : null)
-            }
-          >
-            <MenuItem value="">All Agents</MenuItem>
-            {agents.map((agent: any) => (
-              <MenuItem key={agent.id} value={agent.id}>
-                {agent.customer_name}
-              </MenuItem>
-            ))}
-          </TextField>
-        </Box>
-      }
       renderItem={(payment: PaymentWithAgent, isSelected: boolean) => {
         const statusChip = getStatusProps(payment.status, "commissionPaymentStatus");
         return (
@@ -702,6 +678,82 @@ export default function CommissionPaymentApprovalsPage() {
       <MasterDetailLayout
         title="Commission Approvals"
         icon={<FactCheckIcon color="primary" />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search by payment no, agent..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TextField
+                    select
+                    size="small"
+                    fullWidth
+                    label="Status"
+                    value={draftStatus || ""}
+                    onChange={(e) => setDraftStatus(e.target.value || null)}
+                  >
+                    <MenuItem value="">All Statuses</MenuItem>
+                    {STATUS_FILTER_OPTIONS.map((opt) => (
+                      <MenuItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                ),
+              },
+              {
+                key: "agent",
+                label: "Agent",
+                hasValue: !!draftAgentId,
+                render: () => (
+                  <TextField
+                    select
+                    size="small"
+                    fullWidth
+                    label="Filter by Agent"
+                    value={draftAgentId || ""}
+                    onChange={(e) =>
+                      setDraftAgentId(e.target.value ? Number(e.target.value) : null)
+                    }
+                  >
+                    <MenuItem value="">All Agents</MenuItem>
+                    {agents.map((agent: any) => (
+                      <MenuItem key={agent.id} value={agent.id}>
+                        {agent.customer_name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftAgentId && !searchQuery && !filterStatus && !filterAgentId}
+          />
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}

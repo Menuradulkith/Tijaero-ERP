@@ -8,11 +8,14 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Box,
   Chip,
+  IconButton,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import {
   CreditScore as CreditIcon,
+  History as HistoryIcon,
 } from "@mui/icons-material";
 
 import {
@@ -26,9 +29,10 @@ import {
   SortOption,
   TDetailSkeleton,
   TBranchFilter,
-  TFilterPanel,
   TExportButton,
+  TTabFilterBar,
   fmtLKR,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { creditPaymentsApi } from "@/modules/finance/api";
@@ -77,7 +81,12 @@ const getStatusColor = (status: string): "warning" | "success" | "error" | "defa
 };
 
 export default function CreditPaymentsPage() {
+  // Filter state (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Filter state (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
@@ -97,6 +106,10 @@ export default function CreditPaymentsPage() {
     defaultSortField: "created_date",
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Metadata & Audit section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
@@ -104,8 +117,21 @@ export default function CreditPaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+  }, []);
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -165,18 +191,13 @@ export default function CreditPaymentsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search credit payments..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedItem}
       onSelectItem={handleSelectWithCheck}
       emptyMessage="No credit payments found"
-      listHeader={
-        <TFilterPanel>
-          <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} />
-        </TFilterPanel>
-      }
       renderItem={(pmt, isSelected) => (
         <SelectableListItem
           key={pmt.id}
@@ -308,7 +329,17 @@ export default function CreditPaymentsPage() {
             </FormSection>
 
             {selectedItem && !isCreating && (
-              <FormSection title="Metadata & Audit" columns={2}>
+              <FormSection
+                title="Metadata & Audit"
+                columns={2}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <TextField
                   label="Date Created"
                   size="small"
@@ -332,8 +363,45 @@ export default function CreditPaymentsPage() {
   );
 
   return (
+    <>
     <MasterDetailLayout
       title="Credit Payments"
+      titleSlot={
+        <TTabFilterBar
+          tabs={[
+            {
+              key: "search",
+              label: "Payment",
+              hasValue: !!draftSearchQuery,
+              render: ({ close }) => (
+                <TextField
+                  size="small"
+                  autoFocus
+                  placeholder="Search credit payments..."
+                  value={draftSearchQuery}
+                  onChange={(e) => setDraftSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleApplyFilters();
+                      close();
+                    }
+                  }}
+                  fullWidth
+                />
+              ),
+            },
+            {
+              key: "branch",
+              label: "Branch",
+              hasValue: !!draftBranch,
+              render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
+            },
+          ]}
+          onSearch={handleApplyFilters}
+          onClear={handleClearFilters}
+          clearDisabled={!draftSearchQuery && !draftBranch && !searchQuery && !filterBranch}
+        />
+      }
       onRefresh={refetch}
       isLoading={isLoading}
       headerActions={
@@ -358,5 +426,18 @@ export default function CreditPaymentsPage() {
       masterPanel={masterPanel}
       detailPanel={detailPanel}
     />
+
+    <TActivityHistoryPanel
+      open={activityHistoryOpen}
+      onClose={() => setActivityHistoryOpen(false)}
+      entityType="credit_payment"
+      entityId={selectedItem?.id}
+      actionLabels={{
+        create: "Credit payment created",
+        approve: "Credit payment approved",
+        cancel: "Credit payment cancelled",
+      }}
+    />
+    </>
   );
 }

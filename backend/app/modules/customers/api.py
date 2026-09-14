@@ -750,4 +750,4 @@ def delete_customer(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_DELETE)),
 ):
-    return service.customer_service.delete_customer(db, customer_id)
+    return service.customer_service.delete_customer(db, customer_id, user_id=current_user.id)

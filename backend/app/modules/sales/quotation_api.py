@@ -240,7 +240,7 @@ def update_quote(
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Update an existing quote. Only draft quotes can be edited."""
-    return sales_quote_service.update_quote(db, quote_id, quote_data)
+    return sales_quote_service.update_quote(db, quote_id, quote_data, user_id=current_user.id)
 
 
 @router.delete(
@@ -255,7 +255,7 @@ def delete_quote(
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_DELETE))
 ):
     """Delete a quote. Only draft quotes can be deleted."""
-    sales_quote_service.delete_quote(db, quote_id)
+    sales_quote_service.delete_quote(db, quote_id, user_id=current_user.id)
     return None
 
 
@@ -274,7 +274,7 @@ def update_quote_status(
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Update quote status."""
-    return sales_quote_service.update_status(db, quote_id, status_update)
+    return sales_quote_service.update_status(db, quote_id, status_update, user_id=current_user.id)
 
 
 @router.post(
@@ -289,7 +289,7 @@ def submit_for_approval(
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Submit quote for approval."""
-    return sales_quote_service.submit_for_approval(db, quote_id)
+    return sales_quote_service.submit_for_approval(db, quote_id, user_id=current_user.id)
 
 
 @router.post(
@@ -320,7 +320,7 @@ def reject_quote(
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Reject a quote."""
-    return sales_quote_service.reject_quote(db, quote_id, reason)
+    return sales_quote_service.reject_quote(db, quote_id, reason, user_id=current_user.id)
 
 
 @router.post(
@@ -448,7 +448,7 @@ def reject_quote_with_options(
     """
     reason = data.reason if data else None
     cancel_po = data.cancel_linked_po if data else False
-    return sales_quote_service.reject_quote(db, quote_id, reason, cancel_po)
+    return sales_quote_service.reject_quote(db, quote_id, reason, cancel_po, user_id=current_user.id)
 
 
 @router.post(

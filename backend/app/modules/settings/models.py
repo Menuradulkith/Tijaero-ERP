@@ -38,12 +38,24 @@ class Settings(Base, AuditMixin):
     # Additional settings
     fiscal_year_start = Column(String(10), default="01-01")  # MM-DD format
     default_currency = Column(String(3), default="LKR")
+    default_timezone = Column(String(50), default="Asia/Colombo")  # IANA timezone id
     tax_registration_number = Column(String(50))
 
     # Passcode security settings
     # Mandatory monthly reset: admin can only lower (1–30 days), default is 30
     passcode_expiry_days = Column(Integer, nullable=False, default=30)
     
+
+class Currency(Base, AuditMixin):
+    """Manageable list of currencies available for selection as the ERP's active currency"""
+    __tablename__ = "currencies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(3), unique=True, nullable=False, index=True)  # ISO 4217, e.g. "LKR"
+    name = Column(String(100), nullable=False)  # "Sri Lankan Rupee"
+    symbol = Column(String(10), nullable=False)  # "Rs."
+    is_active = Column(Boolean, nullable=False, default=True)
+
 
 class UserNotification(Base, AuditMixin):
     """User notifications"""

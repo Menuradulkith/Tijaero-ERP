@@ -82,7 +82,7 @@ from app.modules.sales.models import (
     SaleReturnItems,
 )
 from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
-from app.modules.settings.models import Settings, UserNotification, UserPreferences
+from app.modules.settings.models import Currency, Settings, UserNotification, UserPreferences
 from app.modules.support.models import (
     CSJobItem,
     CustomerCallLog,
@@ -144,4 +144,5 @@ __all__ = [
     "EmailTemplate",
     "EmailLog",
     "ProductPriceTier",
+    "Currency",
 ]

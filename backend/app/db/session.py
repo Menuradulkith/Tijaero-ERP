@@ -46,11 +46,12 @@ def after_cursor_execute(conn, cursor, statement, parameters, context, executema
 
 @event.listens_for(Session, "before_flush")
 def before_flush(session, flush_context, instances):
-    """Stamp Sri Lankan local time and audit user on every insert/update.
+    """Stamp the ERP's configured local time and audit user on every insert/update.
 
-    This guarantees that created_at / updated_at always reflect Asia/Colombo
-    (UTC+5:30) time for every CRUD operation across the whole ERP, regardless
-    of the per-column default (Python-side or DB-side func.now())."""
+    This guarantees that created_at / updated_at always reflect the ERP's
+    configured timezone (Settings.default_timezone, see app.core.timezone) for
+    every CRUD operation across the whole ERP, regardless of the per-column
+    default (Python-side or DB-side func.now())."""
     from app.core import timezone as tz
 
     now = tz.now()
