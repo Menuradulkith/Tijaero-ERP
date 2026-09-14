@@ -11,13 +11,16 @@ import {
   Autocomplete,
   Box,
   Chip,
+  IconButton,
   InputAdornment,
   MenuItem,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import {
   AccountBalanceWallet as WalletIcon,
+  History as HistoryIcon,
 } from "@mui/icons-material";
 
 import {
@@ -36,12 +39,13 @@ import {
   TDetailSkeleton,
   TExportButton,
   TBranchFilter,
-  TFilterPanel,
+  TTabFilterBar,
   GENERIC_PAYMENT_METHOD,
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
   fmtLKR,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -100,8 +104,12 @@ export default function CustomerAdvancePaymentsPage() {
     setTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
@@ -135,6 +143,10 @@ export default function CustomerAdvancePaymentsPage() {
       }),
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Status section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   // Reference data
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
@@ -143,8 +155,21 @@ export default function CustomerAdvancePaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+  }, []);
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -294,22 +319,13 @@ export default function CustomerAdvancePaymentsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search advances..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedItem}
       onSelectItem={handleSelectWithCheck}
       emptyMessage="No customer advance payments found"
-      listHeader={
-        <TFilterPanel>
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-        </TFilterPanel>
-      }
       renderItem={(adv, isSelected) => (
         <SelectableListItem
           key={adv.id}
@@ -531,7 +547,17 @@ export default function CustomerAdvancePaymentsPage() {
 
             {/* View-only status section */}
             {selectedItem && !isCreating && (
-              <FormSection title="Status" columns={3}>
+              <FormSection
+                title="Status"
+                columns={3}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Status:</Typography>
                   <Chip
@@ -578,6 +604,42 @@ export default function CustomerAdvancePaymentsPage() {
     <>
       <MasterDetailLayout
         title="Customer Advance Payments"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Payment No",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search advances..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftBranch && !searchQuery && !filterBranch}
+          />
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}
@@ -612,6 +674,16 @@ export default function CustomerAdvancePaymentsPage() {
         }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="customer_advance_payment"
+        entityId={selectedItem?.id}
+        actionLabels={{
+          create: "Advance payment created",
+        }}
+      />
     </>
   );
 }

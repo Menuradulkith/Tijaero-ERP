@@ -2,6 +2,7 @@
  * UsersPage - Refactored to use Tijaero-style reusable components
  */
 
+import HistoryIcon from "@mui/icons-material/History";
 import PersonIcon from "@mui/icons-material/Person";
 import {
     Alert,
@@ -10,8 +11,10 @@ import {
     Checkbox,
     Chip,
     FormControlLabel,
+    IconButton,
     Switch,
     TextField,
+    Tooltip,
     Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -37,6 +40,7 @@ import {
     handleApiError,
     useCrudMutation,
     showErrorToast,
+    TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/components/PermissionGuard";
@@ -173,6 +177,10 @@ export default function UsersPage() {
       confirmColor: "warning",
     }),
   });
+
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Information section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -898,7 +906,17 @@ export default function UsersPage() {
 
             {/* Record Information (view mode only) */}
             {selectedUser && !isEditing && !isCreating && (
-              <FormSection title="Record Information" columns={2}>
+              <FormSection
+                title="Record Information"
+                columns={2}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <Box>
                   <Typography variant="caption" color="text.secondary">Created</Typography>
                   <Typography variant="body2">{formatDateTimeReadable(selectedUser.created_at) || "-"}</Typography>
@@ -958,6 +976,18 @@ export default function UsersPage() {
         }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="user"
+        entityId={selectedUser?.id}
+        actionLabels={{
+          create: "User created",
+          update: "User updated",
+          delete: "User deleted",
+        }}
+      />
     </>
   );
 }

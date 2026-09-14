@@ -12,9 +12,14 @@ import BusinessIcon from "@mui/icons-material/Business";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SecurityIcon from "@mui/icons-material/Security";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import PaymentsIcon from "@mui/icons-material/Payments";
 import {
+  Autocomplete,
   Avatar,
   Box,
   Button,
@@ -44,8 +49,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { settingsApi } from "../api";
 import { paymentCardsApi } from "@/modules/sales/api";
 import { PaymentCard, PaymentCardCreate, PaymentCardUpdate } from "@/modules/sales/types";
+import { Currency, CurrencyCreate, TimezoneOption } from "../types";
 import { TDataGridColumn } from "@/components/tijaero/data";
 import { GridRenderCellParams } from "@mui/x-data-grid";
+import { useCurrencyStore } from "@/state/currencyStore";
+import { useTimezoneStore } from "@/state/timezoneStore";
 
 const INITIAL_CARD_FORM: PaymentCardCreate = {
   card_name: "",
@@ -53,6 +61,13 @@ const INITIAL_CARD_FORM: PaymentCardCreate = {
   service_charge_percent: 0,
   description: "",
   active: true,
+};
+
+const INITIAL_CURRENCY_FORM: CurrencyCreate = {
+  code: "",
+  name: "",
+  symbol: "",
+  is_active: true,
 };
 
 interface TabPanelProps {
@@ -75,6 +90,7 @@ interface CompanySettingsForm {
   company_email: string;
   tax_registration_number: string;
   depreciation_rate: number;
+  default_timezone: string;
 }
 
 export default function CompanySettingsPage() {
@@ -93,6 +109,12 @@ export default function CompanySettingsPage() {
   // ── Passcode expiry settings ─────────────────────────────────────────────
   const [passcodeExpiryDays, setPasscodeExpiryDays] = useState(30);
   const [savingPasscodeSetting, setSavingPasscodeSetting] = useState(false);
+
+  // ── Currency state ────────────────────────────────────────────────────
+  const [currencyDialogOpen, setCurrencyDialogOpen] = useState(false);
+  const [editingCurrency, setEditingCurrency] = useState<Currency | null>(null);
+  const [currencyFormData, setCurrencyFormData] = useState<CurrencyCreate>(INITIAL_CURRENCY_FORM);
+  const [settingActiveCode, setSettingActiveCode] = useState<string | null>(null);
 
   const { data: companySettings } = useQuery({
     queryKey: ["company-settings"],
@@ -127,6 +149,95 @@ export default function CompanySettingsPage() {
     errorMessage: "Failed to update payment card",
     onSuccess: () => handleCloseCardDialog(),
   });
+
+  // ── Currency queries & mutations ─────────────────────────────────────
+  const { data: currencies, isLoading: currenciesLoading } = useQuery({
+    queryKey: ["currencies"],
+    queryFn: () => settingsApi.getCurrencies(),
+  });
+
+  const createCurrencyMutation = useCrudMutation({
+    mutationFn: (data: CurrencyCreate) => settingsApi.createCurrency(data),
+    invalidateQueryKeys: [["currencies"]],
+    successMessage: "Currency added successfully",
+    errorMessage: "Failed to add currency",
+    showError: true,
+    onSuccess: () => handleCloseCurrencyDialog(),
+  });
+
+  const updateCurrencyMutation = useCrudMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<CurrencyCreate> }) =>
+      settingsApi.updateCurrency(id, data),
+    invalidateQueryKeys: [["currencies"]],
+    successMessage: "Currency updated successfully",
+    errorMessage: "Failed to update currency",
+    showError: true,
+    onSuccess: () => handleCloseCurrencyDialog(),
+  });
+
+  const deleteCurrencyMutation = useCrudMutation({
+    mutationFn: (id: number) => settingsApi.deleteCurrency(id),
+    invalidateQueryKeys: [["currencies"]],
+    successMessage: "Currency deleted",
+    errorMessage: "Failed to delete currency",
+    showError: true,
+  });
+
+  const handleOpenCreateCurrency = () => {
+    setEditingCurrency(null);
+    setCurrencyFormData(INITIAL_CURRENCY_FORM);
+    setCurrencyDialogOpen(true);
+  };
+
+  const handleOpenEditCurrency = (currency: Currency) => {
+    setEditingCurrency(currency);
+    setCurrencyFormData({
+      code: currency.code,
+      name: currency.name,
+      symbol: currency.symbol,
+      is_active: currency.is_active,
+    });
+    setCurrencyDialogOpen(true);
+  };
+
+  const handleCloseCurrencyDialog = () => {
+    setCurrencyDialogOpen(false);
+    setEditingCurrency(null);
+    setCurrencyFormData(INITIAL_CURRENCY_FORM);
+  };
+
+  const handleSubmitCurrency = () => {
+    if (editingCurrency) {
+      updateCurrencyMutation.mutate({
+        id: editingCurrency.id,
+        data: {
+          name: currencyFormData.name,
+          symbol: currencyFormData.symbol,
+          is_active: currencyFormData.is_active,
+        },
+      });
+    } else {
+      createCurrencyMutation.mutate({
+        ...currencyFormData,
+        code: currencyFormData.code.toUpperCase(),
+      });
+    }
+  };
+
+  const handleSetActiveCurrency = async (currency: Currency) => {
+    try {
+      setSettingActiveCode(currency.code);
+      const updatedCompanySettings = await settingsApi.setActiveCurrency(currency.code);
+      useCurrencyStore.getState().setCurrency(currency.code, currency.symbol);
+      queryClient.setQueryData(["company-settings"], updatedCompanySettings);
+      queryClient.invalidateQueries({ queryKey: ["company-settings"] });
+      showSuccessToast(`${currency.code} is now the active ERP currency`);
+    } catch (err) {
+      showErrorToast(handleApiError(err, "Failed to set active currency"));
+    } finally {
+      setSettingActiveCode(null);
+    }
+  };
 
   const handleOpenCreateCard = () => {
     setEditingCard(null);
@@ -269,6 +380,108 @@ export default function CompanySettingsPage() {
     [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  const activeCurrencyCode = companySettings?.default_currency;
+
+  const currencyColumns: TDataGridColumn<Currency>[] = useMemo(
+    () => [
+      {
+        field: "code",
+        header: "Code",
+        width: 90,
+        renderCell: (params: GridRenderCellParams<Currency>) => (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, height: "100%" }}>
+            <Typography fontWeight={600}>{params.row.code}</Typography>
+          </Box>
+        ),
+      },
+      {
+        field: "name",
+        header: "Name",
+        flex: 1,
+        minWidth: 150,
+      },
+      {
+        field: "symbol",
+        header: "Symbol",
+        width: 90,
+      },
+      {
+        field: "is_active",
+        header: "Available",
+        width: 100,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Currency>) => (
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+            <Chip
+              label={params.row.is_active ? "Yes" : "No"}
+              size="small"
+              color={params.row.is_active ? "success" : "default"}
+              variant="outlined"
+            />
+          </Box>
+        ),
+      },
+      {
+        field: "status",
+        header: "Active Currency",
+        width: 150,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Currency>) => {
+          const isActive = params.row.code === activeCurrencyCode;
+          return (
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+              <Tooltip title={isActive ? "Currently the active ERP currency" : "Set as active ERP currency"}>
+                <span>
+                  <Button
+                    size="small"
+                    variant={isActive ? "contained" : "outlined"}
+                    color={isActive ? "success" : "primary"}
+                    startIcon={isActive ? <CheckCircleIcon /> : <RadioButtonUncheckedIcon />}
+                    disabled={isActive || !params.row.is_active || settingActiveCode === params.row.code}
+                    onClick={() => handleSetActiveCurrency(params.row)}
+                  >
+                    {isActive ? "Active" : "Set Active"}
+                  </Button>
+                </span>
+              </Tooltip>
+            </Box>
+          );
+        },
+      },
+      {
+        field: "actions",
+        header: "Actions",
+        width: 100,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Currency>) => (
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", gap: 0.5 }}>
+            <Tooltip title="Edit">
+              <IconButton size="small" onClick={() => handleOpenEditCurrency(params.row)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={params.row.code === activeCurrencyCode ? "Cannot delete the active currency" : "Delete"}>
+              <span>
+                <IconButton
+                  size="small"
+                  disabled={params.row.code === activeCurrencyCode}
+                  onClick={() => deleteCurrencyMutation.mutate(params.row.id)}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
+        ),
+      },
+    ],
+    [activeCurrencyCode, settingActiveCode] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   // ── Company Settings form ────────────────────────────────────────────
 
   const {
@@ -284,7 +497,13 @@ export default function CompanySettingsPage() {
       company_email: "",
       tax_registration_number: "",
       depreciation_rate: 0,
+      default_timezone: "Asia/Colombo",
     },
+  });
+
+  const { data: timezones, isLoading: timezonesLoading } = useQuery({
+    queryKey: ["timezones"],
+    queryFn: () => settingsApi.getTimezones(),
   });
 
   const fetchSettings = useCallback(async () => {
@@ -298,6 +517,7 @@ export default function CompanySettingsPage() {
         company_email: data.company_email || "",
         tax_registration_number: data.tax_registration_number || "",
         depreciation_rate: data.depreciation_rate || 0,
+        default_timezone: data.default_timezone || "Asia/Colombo",
       });
     } catch (err: unknown) {
       console.error("Failed to load company settings:", err);
@@ -315,6 +535,7 @@ export default function CompanySettingsPage() {
     try {
       setSaving(true);
       await settingsApi.updateCompanySettings(data);
+      useTimezoneStore.getState().setTimezone(data.default_timezone);
       showSuccessToast("Company settings updated successfully");
       reset(data); // reset form to clear isDirty state
     } catch (err: unknown) {
@@ -357,6 +578,11 @@ export default function CompanySettingsPage() {
           <Tab
             label="Payment Cards"
             icon={<CreditCardIcon fontSize="small" />}
+            iconPosition="start"
+          />
+          <Tab
+            label="Currency"
+            icon={<PaymentsIcon fontSize="small" />}
             iconPosition="start"
           />
           <Tab
@@ -492,6 +718,43 @@ export default function CompanySettingsPage() {
                       error={!!error}
                       helperText={error?.message || "Standard annual depreciation percentage"}
                       InputProps={{ inputProps: { min: 0, max: 100, step: "0.1" } }}
+                    />
+                  )}
+                />
+              </Grid>
+            </Grid>
+
+            <Divider sx={{ my: 4 }} />
+
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Regional Settings
+            </Typography>
+            <Grid container spacing={3}>
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="default_timezone"
+                  control={control}
+                  rules={{ required: "Timezone is required" }}
+                  render={({ field: { onChange, value }, fieldState: { error } }) => (
+                    <Autocomplete
+                      options={timezones ?? []}
+                      loading={timezonesLoading}
+                      getOptionLabel={(option: TimezoneOption) => `${option.name} (${option.offset})`}
+                      isOptionEqualToValue={(option, val) => option.name === val.name}
+                      value={timezones?.find((t) => t.name === value) ?? null}
+                      onChange={(_, newValue) => onChange(newValue?.name ?? "")}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="ERP Timezone"
+                          required
+                          error={!!error}
+                          helperText={
+                            error?.message ||
+                            "Used for audit timestamps, generated documents, and date displays across the ERP"
+                          }
+                        />
+                      )}
                     />
                   )}
                 />
@@ -662,8 +925,104 @@ export default function CompanySettingsPage() {
           </TFormDialog>
         </TabPanel>
 
-        {/* ── Tab 2: Security ── */}
+        {/* ── Tab 2: Currency ── */}
         <TabPanel value={activeTab} index={2}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 3 }}>
+            <Box>
+              <Typography variant="h6" fontWeight={600}>
+                Currency Management
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Add currencies and choose which one is active across the ERP
+              </Typography>
+            </Box>
+            <TButton variant="primary" startIcon={<AddIcon />} onClick={handleOpenCreateCurrency}>
+              Add Currency
+            </TButton>
+          </Box>
+
+          <Divider sx={{ mb: 2 }} />
+
+          {currenciesLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : currencies && currencies.length > 0 ? (
+            <TDataGrid
+              rows={currencies}
+              columns={currencyColumns}
+              pageSizeOptions={[10, 25, 50]}
+              pageSize={10}
+              autoHeight
+              density="standard"
+            />
+          ) : (
+            <TEmptyState
+              title="No Currencies"
+              message="Add a currency to make it available for selection as the ERP's active currency."
+              action={{ label: "Add Currency", onClick: handleOpenCreateCurrency, icon: <AddIcon /> }}
+              icon={<PaymentsIcon sx={{ fontSize: 64 }} />}
+            />
+          )}
+
+          {/* Create / Edit Dialog */}
+          <TFormDialog
+            open={currencyDialogOpen}
+            onClose={handleCloseCurrencyDialog}
+            title={editingCurrency ? "Edit Currency" : "Add Currency"}
+            onSubmit={handleSubmitCurrency}
+            submitText={editingCurrency ? "Update" : "Create"}
+            isSubmitting={createCurrencyMutation.isPending || updateCurrencyMutation.isPending}
+            maxWidth="sm"
+          >
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5, pt: 1 }}>
+              <TextField
+                label="Currency Code"
+                value={currencyFormData.code}
+                onChange={(e) =>
+                  setCurrencyFormData({ ...currencyFormData, code: e.target.value.toUpperCase().slice(0, 3) })
+                }
+                required
+                fullWidth
+                disabled={!!editingCurrency}
+                placeholder="e.g., LKR, USD, EUR"
+                helperText={editingCurrency ? "Code cannot be changed" : "3-letter ISO 4217 code"}
+                inputProps={{ maxLength: 3 }}
+              />
+
+              <TextField
+                label="Name"
+                value={currencyFormData.name}
+                onChange={(e) => setCurrencyFormData({ ...currencyFormData, name: e.target.value })}
+                required
+                fullWidth
+                placeholder="e.g., Sri Lankan Rupee"
+              />
+
+              <TextField
+                label="Symbol"
+                value={currencyFormData.symbol}
+                onChange={(e) => setCurrencyFormData({ ...currencyFormData, symbol: e.target.value })}
+                required
+                fullWidth
+                placeholder="e.g., Rs., $, €"
+              />
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={currencyFormData.is_active ?? true}
+                    onChange={(e) => setCurrencyFormData({ ...currencyFormData, is_active: e.target.checked })}
+                  />
+                }
+                label="Available for selection"
+              />
+            </Box>
+          </TFormDialog>
+        </TabPanel>
+
+        {/* ── Tab 3: Security ── */}
+        <TabPanel value={activeTab} index={3}>
           <Typography variant="h6" fontWeight={600} gutterBottom>
             Passcode Security Policy
           </Typography>

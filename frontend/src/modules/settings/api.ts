@@ -102,4 +102,47 @@ export const settingsApi = {
     );
     return response.data;
   },
+
+  // Currencies
+  getCurrencies: async () => {
+    const response = await apiClient.get<types.Currency[]>(
+      "/settings/currencies",
+    );
+    return response.data;
+  },
+
+  createCurrency: async (data: types.CurrencyCreate) => {
+    const response = await apiClient.post<types.Currency>(
+      "/settings/currencies",
+      data,
+    );
+    return response.data;
+  },
+
+  updateCurrency: async (id: number, data: types.CurrencyUpdate) => {
+    const response = await apiClient.put<types.Currency>(
+      `/settings/currencies/${id}`,
+      data,
+    );
+    return response.data;
+  },
+
+  deleteCurrency: async (id: number) => {
+    await apiClient.delete(`/settings/currencies/${id}`);
+  },
+
+  setActiveCurrency: async (code: string) => {
+    const response = await apiClient.put<types.CompanySettings>(
+      `/settings/currencies/active/${code}`,
+    );
+    return response.data;
+  },
+
+  // Timezones
+  getTimezones: async () => {
+    const response = await apiClient.get<types.TimezoneOption[]>(
+      "/settings/timezones",
+    );
+    return response.data;
+  },
 };

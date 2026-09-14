@@ -258,7 +258,7 @@ def cancel_payment(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.COMMISSION_PAYMENT_UPDATE)),
 ):
-    return commission_service.cancel_payment(db, payment_id)
+    return commission_service.cancel_payment(db, payment_id, cancelled_by=current_user.id)
 
 
 # =============================================================================

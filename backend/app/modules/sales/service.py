@@ -1188,6 +1188,11 @@ class SalesService:
             db.add(credit_payment)
             db.flush()
             credit_payment_id = credit_payment.id
+            log_audit(
+                db, user_id=user_id or 0, action="create",
+                entity_type="credit_payment", entity_id=credit_payment.id,
+                changes={"amount": str(credit_payment.amount), "customer_id": credit_payment.customer_id},
+            )
         
         # Set payment record IDs
         invoice_dict['cheque_payment_id'] = cheque_payment_id
@@ -1627,10 +1632,19 @@ class SalesService:
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to update linked proforma status: {e}")
-        
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="create",
+            entity_type="sales_order",
+            entity_id=invoice.id,
+            changes={"invoice_no": invoice.invoice_no, "status": str(invoice.status)},
+        )
+
         db.commit()
         return repository.sales_repository.get_by_id(db, invoice.id)
-    
+
     def _assert_branch_access(self, db: Session, user_id: Optional[int], branch_code: Optional[str]) -> None:
         """Block an operational mutation when the acting user has no access to
         the target branch. Superusers (and unresolved/system callers) pass.
@@ -1849,15 +1863,28 @@ class SalesService:
                 update_data['approval'] = True
                 update_data['approval_status'] = DocumentStatus.COMPLETED
         
+        changed_header_fields = set(update_data.keys())
+        if invoice_data.items is not None:
+            changed_header_fields.add("items")
+
         for field, value in update_data.items():
             setattr(invoice, field, value)
-        
+
         # Items changed → keep the header (subtotal/tax/grand_total/balance_due)
         # in lock-step with the new lines so it never drifts from their sum.
         if invoice_data.items is not None:
             db.flush()
             self._recompute_invoice_totals(db, invoice)
-        
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="update",
+            entity_type="sales_order",
+            entity_id=invoice.id,
+            changes={"fields": sorted(changed_header_fields)},
+        )
+
         db.commit()
         db.refresh(invoice)
         
@@ -2058,10 +2085,22 @@ class SalesService:
                     stock_item.status = StockStatus.AVAILABLE
                     stock_item.is_active = True
         
+        invoice_id_for_log = invoice.id
+        invoice_no_for_log = invoice.invoice_no
         db.delete(invoice)
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="delete",
+            entity_type="sales_order",
+            entity_id=invoice_id_for_log,
+            changes={"invoice_no": invoice_no_for_log},
+        )
+
         db.commit()
         return {"message": "Invoice deleted successfully and stock restored"}
-    
+
     def approve_invoice(self, db: Session, invoice_id: int, user_id: int):
         """
         Approve a pending credit invoice through the centralized approval system.
@@ -2137,6 +2176,11 @@ class SalesService:
             credit_payment = db.query(CreditPayments).filter(CreditPayments.id == invoice.credit_payment_id).first()
             if credit_payment:
                 credit_payment.status = ApprovalStatus.APPROVED
+                log_audit(
+                    db, user_id=user_id or 0, action="approve",
+                    entity_type="credit_payment", entity_id=credit_payment.id,
+                    changes={"status": ApprovalStatus.APPROVED},
+                )
         
         # Update customer's left_credit_amount for credit sales
         if invoice.credit_amount and invoice.credit_amount > 0:
@@ -2171,10 +2215,19 @@ class SalesService:
                 error=e,
                 user_id=user_id,
             )
-        
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="approve",
+            entity_type="sales_order",
+            entity_id=invoice.id,
+            changes={"status": str(invoice.approval_status)},
+        )
+
         db.commit()
         return repository.sales_repository.get_by_id(db, invoice.id)
-    
+
     def complete_invoice(self, db: Session, invoice_id: int, user_id: int):
         """
         Mark an approved invoice as completed (e.g., when delivered/paid).
@@ -2223,10 +2276,19 @@ class SalesService:
                 error=e,
                 user_id=user_id,
             )
-        
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="complete",
+            entity_type="sales_order",
+            entity_id=invoice.id,
+            changes={"status": str(invoice.approval_status)},
+        )
+
         db.commit()
         return repository.sales_repository.get_by_id(db, invoice.id)
-    
+
     def cancel_invoice(self, db: Session, invoice_id: int, user_id: int):
         """
         Cancel an invoice and restore stock to available.
@@ -2260,6 +2322,11 @@ class SalesService:
             credit_payment = db.query(CreditPayments).filter(CreditPayments.id == invoice.credit_payment_id).first()
             if credit_payment:
                 credit_payment.status = DocumentStatus.CANCELLED
+                log_audit(
+                    db, user_id=user_id or 0, action="cancel",
+                    entity_type="credit_payment", entity_id=credit_payment.id,
+                    changes={"status": DocumentStatus.CANCELLED},
+                )
         
         # Give back everything the order consumed: gift vouchers, coupon
         # allowance and applied advance balance — and cancel its pending
@@ -2268,9 +2335,18 @@ class SalesService:
         
         invoice.status = False
         invoice.approval_status = DocumentStatus.CANCELLED
-        
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="cancel",
+            entity_type="sales_order",
+            entity_id=invoice.id,
+            changes={"status": str(invoice.approval_status)},
+        )
+
         db.commit()
-        
+
         # Restore customer credit balance (recalculate left_credit_amount)
         if invoice.credit_amount and invoice.credit_amount > 0:
             customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
@@ -2543,11 +2619,20 @@ class SalesService:
             approval_group="sales_approvers"
         )
         sale_return.approval_id = approval_record.id
-        
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="create",
+            entity_type="sale_return",
+            entity_id=sale_return.id,
+            changes={"return_no": sale_return.sale_return_no},
+        )
+
         db.commit()
         db.refresh(sale_return)
         return sale_return
-    
+
     def create_full_invoice_return(
         self,
         db: Session,
@@ -2701,11 +2786,20 @@ class SalesService:
         
         sale_return.status = DocumentStatus.APPROVED
         sale_return.approved_by = user_id
-        
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="approve",
+            entity_type="sale_return",
+            entity_id=sale_return.id,
+            changes={"status": str(sale_return.status)},
+        )
+
         db.commit()
         db.refresh(sale_return)
         return sale_return
-    
+
     def reject_sale_return(self, db: Session, return_id: int, user_id: int, reason: str = None):
         """
         Reject a pending sale return through the centralized approval system.
@@ -2733,11 +2827,20 @@ class SalesService:
         sale_return.status = DocumentStatus.REJECTED
         if reason:
             sale_return.remark = f"{sale_return.remark or ''} | Rejected: {reason}".strip(' |')
-        
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="reject",
+            entity_type="sale_return",
+            entity_id=sale_return.id,
+            changes={"status": str(sale_return.status), "reason": reason},
+        )
+
         db.commit()
         db.refresh(sale_return)
         return sale_return
-    
+
     def process_sale_return(self, db: Session, return_id: int, user_id: int):
         """
         Process an approved sale return:
@@ -2959,7 +3062,16 @@ class SalesService:
         # identity holds. Credit-note refunds move no money → no cashbook entry.
         if (sale_return.payment_method or "").lower() in ("cash", "bank_transfer", "cheque"):
             self._ensure_cashbook_entry_for_sale_return(db, sale_return, invoice)
-        
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="process",
+            entity_type="sale_return",
+            entity_id=sale_return.id,
+            changes={"status": str(sale_return.status)},
+        )
+
         db.commit()
         
         # Update customer credit balance if this return affects a credit invoice
@@ -3045,17 +3157,29 @@ class SalesService:
                 f"Cashbook posting for sale return {sale_return.sale_return_no} failed (non-blocking): {cashbook_err}"
             )
 
-    def delete_sale_return(self, db: Session, return_id: int):
+    def delete_sale_return(self, db: Session, return_id: int, user_id: Optional[int] = None):
         """Delete a pending sale return."""
         sale_return = self.get_sale_return(db, return_id)
-        
+
         if sale_return.status not in [DocumentStatus.PENDING, DocumentStatus.REJECTED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete a processed or approved sale return"
             )
-        
+
+        return_id_for_log = sale_return.id
+        return_no_for_log = sale_return.sale_return_no
         db.delete(sale_return)
+
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="delete",
+            entity_type="sale_return",
+            entity_id=return_id_for_log,
+            changes={"return_no": return_no_for_log},
+        )
+
         db.commit()
         return {"message": "Sale return deleted successfully"}
     

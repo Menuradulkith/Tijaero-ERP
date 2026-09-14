@@ -77,8 +77,7 @@ export interface CountryRef {
 
 export interface SupplierRef {
   id: number;
-  full_name: string;
-  company_name?: string;
+  company_name: string;
 }
 
 export interface CustomerRef {

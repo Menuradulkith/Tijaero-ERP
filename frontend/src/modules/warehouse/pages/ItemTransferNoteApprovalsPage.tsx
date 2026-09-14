@@ -38,7 +38,7 @@ import {
   DetailPanelHeader,
   FormSection,
   EmptyState,
-  TFilterPanel,
+  TTabFilterBar,
   TBranchFilter,
   TStatusFilter,
   getStatusProps,
@@ -85,9 +85,14 @@ export default function ItemTransferNoteApprovalsPage() {
   // Confirm dialog for warnings
   const confirmDialog = useTConfirmDialog();
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>("pending");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -104,11 +109,27 @@ export default function ItemTransferNoteApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftStatus, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranch(null);
+  }, []);
 
   // Fetch transfer notes with approval status
   const { data: transferNotes = [], isLoading, refetch } = useQuery({
@@ -292,26 +313,12 @@ export default function ItemTransferNoteApprovalsPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search transfer notes..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedITN}
       emptyMessage="No transfer notes found"
-      listHeader={
-        <TFilterPanel>
-          <TStatusFilter
-            options={STATUS_FILTER_OPTIONS}
-            value={filterStatus}
-            onChange={setFilterStatus}
-          />
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-        </TFilterPanel>
-      }
       renderItem={(itn, isSelected) => {
         const status = itn.status || "pending";
         const statusProps = getStatusProps(status, "orderStatus");
@@ -555,6 +562,52 @@ export default function ItemTransferNoteApprovalsPage() {
     <>
       <MasterDetailLayout
         title="ITN Approvals"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search transfer notes..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TStatusFilter options={STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+          />
+        }
         masterPanel={masterPanel}
         detailPanel={detailPanel}
         onRefresh={() => refetch()}

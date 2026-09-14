@@ -14,13 +14,85 @@ from app.modules.finance.gl_posting_service import record_gl_commit_failure
 
 DAILY_PO_LIMIT_PER_BRANCH = 5
 
+
+def _normalize_timestamp_for_compare(dt: Optional[datetime]) -> Optional[datetime]:
+    """Make a DB-naive-local and a client-sent-aware `updated_at` comparable.
+
+    Audit timestamps are stored naive (already local wall-clock time, per
+    app.core.timezone), but the API serializes them with a UTC offset
+    attached (see format_datetime), so a value round-tripped from the client
+    comes back timezone-aware. Also truncate to whole seconds, matching the
+    precision format_datetime actually sends the client (sub-second changes
+    within the same second are not distinguishable to a caller either way)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(tz.LOCAL_TZ).replace(tzinfo=None)
+    return dt.replace(microsecond=0)
+
+# Fields that must be unique across all suppliers, and their user-facing labels.
+SUPPLIER_UNIQUE_FIELDS = {
+    "company_name": "Company name",
+    "company_registration_number": "Company registration number",
+    "tax_registration_number": "Tax/VAT number",
+    "email": "Email",
+}
+
 class SupplierService:
     def __init__(self, db: Session):
         self.repo = repository.SupplierRepository(db)
-    
-    def create_supplier(self, supplier: schemas.SupplierCreate) -> models.Supplier:
-        return self.repo.create(supplier)
-    
+
+    def _check_duplicate_fields(self, data, exclude_id: Optional[int] = None) -> None:
+        for field, label in SUPPLIER_UNIQUE_FIELDS.items():
+            value = getattr(data, field, None)
+            if not value or not str(value).strip():
+                continue
+            existing = self.repo.find_by_field_value(field, str(value), exclude_id=exclude_id)
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{label} '{value}' is already used by another supplier."
+                )
+
+    def _attach_user_names(self, suppliers: List[models.Supplier]) -> None:
+        """Resolve created_by/updated_by ids to display names, in one batched
+        query, and stamp them onto each supplier as dynamic attributes (same
+        pattern as average_lead_time_days below)."""
+        from app.auth.models import User
+
+        user_ids = {
+            uid for s in suppliers for uid in (s.created_by, s.updated_by) if uid
+        }
+        if not user_ids:
+            for s in suppliers:
+                s.created_by_name = None
+                s.updated_by_name = None
+            return
+
+        users = self.repo.db.query(User).filter(User.id.in_(user_ids)).all()
+        name_map = {
+            u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+            for u in users
+        }
+        for s in suppliers:
+            s.created_by_name = name_map.get(s.created_by)
+            s.updated_by_name = name_map.get(s.updated_by)
+
+    def create_supplier(self, supplier: schemas.SupplierCreate, created_by: Optional[int] = None) -> models.Supplier:
+        self._check_duplicate_fields(supplier)
+        created = self.repo.create(supplier)
+        log_audit(
+            self.repo.db,
+            user_id=created_by or 0,
+            action="create",
+            entity_type="supplier",
+            entity_id=created.id,
+            changes={"company_name": created.company_name},
+        )
+        self.repo.db.commit()
+        self._attach_user_names([created])
+        return created
+
     def get_supplier(self, supplier_id: int) -> models.Supplier:
         supplier = self.repo.get_by_id(supplier_id)
         if not supplier:
@@ -28,12 +100,91 @@ class SupplierService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier with id {supplier_id} not found"
             )
+        supplier.average_lead_time_days = self.repo.get_average_lead_times([supplier_id]).get(supplier_id)
+        self._attach_user_names([supplier])
+        return supplier
+
+    def get_activity_log(self, supplier_id: int) -> List[schemas.SupplierActivityLogEntry]:
+        from app.auth.models import User
+        from app.common.audit import AuditLog
+
+        supplier = self.repo.get_by_id(supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {supplier_id} not found"
+            )
+
+        entries = (
+            self.repo.db.query(AuditLog)
+            .filter(AuditLog.entity_type == "supplier", AuditLog.entity_id == supplier_id)
+            .order_by(AuditLog.timestamp.desc())
+            .limit(200)
+            .all()
+        )
+        user_ids = {e.user_id for e in entries if e.user_id}
+        name_map = {}
+        if user_ids:
+            users = self.repo.db.query(User).filter(User.id.in_(user_ids)).all()
+            name_map = {
+                u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+                for u in users
+            }
+
+        return [
+            schemas.SupplierActivityLogEntry(
+                id=e.id,
+                action=e.action,
+                changes=e.changes,
+                timestamp=e.timestamp,
+                user_id=e.user_id,
+                user_name=name_map.get(e.user_id),
+            )
+            for e in entries
+        ]
+
+    def update_logo(self, supplier_id: int, relative_path: str) -> models.Supplier:
+        from app.common.file_storage import delete_file
+
+        supplier = self.repo.get_by_id(supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {supplier_id} not found"
+            )
+        old_logo_path = supplier.logo_path
+        supplier.logo_path = relative_path
+        self.repo.db.commit()
+        self.repo.db.refresh(supplier)
+        if old_logo_path and old_logo_path != relative_path:
+            delete_file(old_logo_path)
+        return supplier
+
+    def remove_logo(self, supplier_id: int) -> models.Supplier:
+        from app.common.file_storage import delete_file
+
+        supplier = self.repo.get_by_id(supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {supplier_id} not found"
+            )
+        old_logo_path = supplier.logo_path
+        supplier.logo_path = None
+        self.repo.db.commit()
+        self.repo.db.refresh(supplier)
+        delete_file(old_logo_path)
         return supplier
     
     def list_suppliers(self, filters: schemas.SupplierListFilter) -> List[models.Supplier]:
-        return self.repo.get_all(filters)
-    
-    def update_supplier(self, supplier_id: int, supplier_update: schemas.SupplierUpdate) -> models.Supplier:
+        suppliers = self.repo.get_all(filters)
+        lead_times = self.repo.get_average_lead_times([s.id for s in suppliers])
+        for s in suppliers:
+            s.average_lead_time_days = lead_times.get(s.id)
+        self._attach_user_names(suppliers)
+        return suppliers
+
+    def update_supplier(self, supplier_id: int, supplier_update: schemas.SupplierUpdate, updated_by: Optional[int] = None) -> models.Supplier:
         if supplier_update.active is False:
             supplier = self.repo.get_by_id(supplier_id)
             if not supplier:
@@ -56,22 +207,54 @@ class SupplierService:
             if pending_orders > 0:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot deactivate supplier '{supplier.full_name}': {pending_orders} pending purchase order(s) exist. Complete or cancel all pending orders first."
+                    detail=f"Cannot deactivate supplier '{supplier.company_name}': {pending_orders} pending purchase order(s) exist. Complete or cancel all pending orders first."
                 )
-            
+
             if supplier.left_credit_amount and supplier.left_credit_amount < supplier.initial_credit_amount:
                 outstanding = supplier.initial_credit_amount - supplier.left_credit_amount
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot deactivate supplier '{supplier.full_name}': Outstanding credit balance of Rs. {outstanding:,.2f}. Settle all dues first."
+                    detail=f"Cannot deactivate supplier '{supplier.company_name}': Outstanding credit balance of Rs. {outstanding:,.2f}. Settle all dues first."
                 )
         
+        # Snapshot the fields the request actually touched (exclude_unset) so
+        # the audit log only lists what the user genuinely changed, not the
+        # entire form the frontend happens to submit on every save.
+        self._check_duplicate_fields(supplier_update, exclude_id=supplier_id)
+
+        submitted_fields = supplier_update.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
+        before = self.repo.get_by_id(supplier_id)
+        if not before:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {supplier_id} not found"
+            )
+
+        # Optimistic concurrency check: reject a stale edit instead of silently
+        # overwriting a change someone else made after this client loaded the
+        # record (the "lost update" problem — two editors, second save wins
+        # with no warning). Only enforced when the client actually sends
+        # expected_updated_at, so older/other callers are unaffected.
+        if supplier_update.expected_updated_at is not None:
+            if _normalize_timestamp_for_compare(before.updated_at) != _normalize_timestamp_for_compare(supplier_update.expected_updated_at):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Supplier '{before.company_name}' was modified by someone else since you loaded it. Refresh and try again."
+                )
+
+        before_values = {field: getattr(before, field) for field in submitted_fields}
+
         supplier = self.repo.update(supplier_id, supplier_update)
         if not supplier:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier with id {supplier_id} not found"
             )
+
+        changed_fields = {
+            field for field, new_value in submitted_fields.items()
+            if before_values.get(field) != new_value
+        }
 
         # When max_credit_limit changes, recalculate left_credit_amount
         if supplier_update.max_credit_limit is not None:
@@ -82,15 +265,153 @@ class SupplierService:
             self.repo.db.commit()
             self.repo.db.refresh(supplier)
 
+        if changed_fields:
+            log_audit(
+                self.repo.db,
+                user_id=updated_by or 0,
+                action="update",
+                entity_type="supplier",
+                entity_id=supplier.id,
+                changes={"fields": sorted(changed_fields)},
+            )
+            self.repo.db.commit()
+
+        self._attach_user_names([supplier])
         return supplier
-    
-    def delete_supplier(self, supplier_id: int) -> bool:
+
+    def delete_supplier(self, supplier_id: int, deleted_by: Optional[int] = None) -> bool:
+        supplier = self.repo.get_by_id(supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {supplier_id} not found"
+            )
+        company_name = supplier.company_name
         if not self.repo.delete(supplier_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier with id {supplier_id} not found"
             )
+        log_audit(
+            self.repo.db,
+            user_id=deleted_by or 0,
+            action="delete",
+            entity_type="supplier",
+            entity_id=supplier_id,
+            changes={"company_name": company_name},
+        )
+        self.repo.db.commit()
         return True
+
+class SupplierPaymentMethodService:
+    def __init__(self, db: Session):
+        self.repo = repository.SupplierPaymentMethodRepository(db)
+        self.supplier_repo = repository.SupplierRepository(db)
+
+    def _ensure_supplier(self, supplier_id: int) -> models.Supplier:
+        supplier = self.supplier_repo.get_by_id(supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {supplier_id} not found"
+            )
+        return supplier
+
+    def _get_owned_method(self, supplier_id: int, method_id: int) -> models.SupplierPaymentMethod:
+        method = self.repo.get_by_id(method_id)
+        if not method or method.supplier_id != supplier_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Payment method with id {method_id} not found for this supplier"
+            )
+        return method
+
+    def list_payment_methods(self, supplier_id: int) -> List[models.SupplierPaymentMethod]:
+        self._ensure_supplier(supplier_id)
+        return self.repo.get_by_supplier(supplier_id)
+
+    def create_payment_method(
+        self, supplier_id: int, data: schemas.SupplierPaymentMethodCreate
+    ) -> models.SupplierPaymentMethod:
+        self._ensure_supplier(supplier_id)
+        return self.repo.create(supplier_id, data)
+
+    def update_payment_method(
+        self, supplier_id: int, method_id: int, data: schemas.SupplierPaymentMethodUpdate
+    ) -> models.SupplierPaymentMethod:
+        self._get_owned_method(supplier_id, method_id)
+        return self.repo.update(method_id, data)
+
+    def delete_payment_method(self, supplier_id: int, method_id: int) -> None:
+        self._get_owned_method(supplier_id, method_id)
+        self.repo.delete(method_id)
+
+
+# Fields that must be unique across all contact persons (system-wide, not just
+# within one supplier — an ID card/passport number identifies one real person).
+CONTACT_PERSON_UNIQUE_FIELDS = {
+    "id_card_number": "ID card number",
+    "passport_no": "Passport number",
+    "email": "Email",
+}
+
+class SupplierContactPersonService:
+    def __init__(self, db: Session):
+        self.repo = repository.SupplierContactPersonRepository(db)
+        self.supplier_repo = repository.SupplierRepository(db)
+
+    def _ensure_supplier(self, supplier_id: int) -> models.Supplier:
+        supplier = self.supplier_repo.get_by_id(supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {supplier_id} not found"
+            )
+        return supplier
+
+    def _check_duplicate_fields(self, data, exclude_id: Optional[int] = None) -> None:
+        for field, label in CONTACT_PERSON_UNIQUE_FIELDS.items():
+            value = getattr(data, field, None)
+            if not value or not str(value).strip():
+                continue
+            existing = self.repo.find_by_field_value(field, str(value), exclude_id=exclude_id)
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{label} '{value}' is already used by another contact person."
+                )
+
+    def _get_owned_contact(self, supplier_id: int, contact_id: int) -> models.SupplierContactPerson:
+        contact = self.repo.get_by_id(contact_id)
+        if not contact or contact.supplier_id != supplier_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Contact person with id {contact_id} not found for this supplier"
+            )
+        return contact
+
+    def list_contacts(self, supplier_id: int) -> List[models.SupplierContactPerson]:
+        self._ensure_supplier(supplier_id)
+        return self.repo.get_by_supplier(supplier_id)
+
+    def create_contact(
+        self, supplier_id: int, data: schemas.SupplierContactPersonCreate
+    ) -> models.SupplierContactPerson:
+        self._ensure_supplier(supplier_id)
+        self._check_duplicate_fields(data)
+        return self.repo.create(supplier_id, data)
+
+    def update_contact(
+        self, supplier_id: int, contact_id: int, data: schemas.SupplierContactPersonUpdate
+    ) -> models.SupplierContactPerson:
+        self._get_owned_contact(supplier_id, contact_id)
+        self._check_duplicate_fields(data, exclude_id=contact_id)
+        return self.repo.update(contact_id, data)
+
+    def delete_contact(self, supplier_id: int, contact_id: int) -> None:
+        self._get_owned_contact(supplier_id, contact_id)
+        self.repo.delete(contact_id)
+
 
 class PurchasingOrderService:
     def __init__(self, db: Session):
@@ -142,7 +463,7 @@ class PurchasingOrderService:
         if not first_supplier.active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Supplier '{first_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
+                detail=f"Supplier '{first_supplier.company_name}' is inactive. Please reactivate the supplier before creating a purchase order."
             )
         
         if order.second_suppliers_id:
@@ -155,7 +476,7 @@ class PurchasingOrderService:
             if not second_supplier.active:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier before creating a purchase order."
+                    detail=f"Supplier '{second_supplier.company_name}' is inactive. Please reactivate the supplier before creating a purchase order."
                 )
         
         # ── Validate all products in order items are active ──
@@ -269,7 +590,7 @@ class PurchasingOrderService:
             if not first_supplier.active:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Supplier '{first_supplier.full_name}' is inactive. Please reactivate the supplier before updating the purchase order."
+                    detail=f"Supplier '{first_supplier.company_name}' is inactive. Please reactivate the supplier before updating the purchase order."
                 )
         
         if order_update.second_suppliers_id:
@@ -282,7 +603,7 @@ class PurchasingOrderService:
             if not second_supplier.active:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier before updating the purchase order."
+                    detail=f"Supplier '{second_supplier.company_name}' is inactive. Please reactivate the supplier before updating the purchase order."
                 )
         
         # Track if this was an approved PO being edited
@@ -876,7 +1197,7 @@ class PurchasingReturnService:
             supplier_name = "Supplier"
             grn = purchase_return.good_received_note
             if grn and grn.purchasing_order and grn.purchasing_order.first_supplier:
-                supplier_name = grn.purchasing_order.first_supplier.full_name or supplier_name
+                supplier_name = grn.purchasing_order.first_supplier.company_name or supplier_name
 
             return_no = purchase_return.purchasing_return_no or f"PR-{purchase_return.id}"
 
@@ -933,7 +1254,12 @@ class GoodReceivedNoteService:
         self.repo = repository.GoodReceivedNoteRepository(db)
         self.db = db
     
-    def create(self, grn: schemas.GoodReceivedNoteCreate, allow_credit_override: bool = False) -> models.GoodReceivedNote:
+    def create(
+        self,
+        grn: schemas.GoodReceivedNoteCreate,
+        allow_credit_override: bool = False,
+        created_by: Optional[int] = None,
+    ) -> models.GoodReceivedNote:
         from app.modules.purchasing.credit_service import SupplierCreditService
         from app.modules.common.models import Locations
         from decimal import Decimal
@@ -964,7 +1290,7 @@ class GoodReceivedNoteService:
         if first_supplier and not first_supplier.active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot create GRN: Supplier '{first_supplier.full_name}' is inactive. Please reactivate the supplier first."
+                detail=f"Cannot create GRN: Supplier '{first_supplier.company_name}' is inactive. Please reactivate the supplier first."
             )
         
         second_supplier = self.db.query(models.Supplier).filter(
@@ -974,7 +1300,7 @@ class GoodReceivedNoteService:
         if second_supplier and not second_supplier.active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot create GRN: Supplier '{second_supplier.full_name}' is inactive. Please reactivate the supplier first."
+                detail=f"Cannot create GRN: Supplier '{second_supplier.company_name}' is inactive. Please reactivate the supplier first."
             )
 
         normalized_invoice_no = (grn.supplier_invoice_no or "").strip().lower()
@@ -1082,7 +1408,7 @@ class GoodReceivedNoteService:
         credit_service = SupplierCreditService()
         credit_service.update_supplier_credit_balance(self.db, po.first_suppliers_id)
 
-        actor_user_id = getattr(grn, "created_by", None)
+        actor_user_id = created_by or getattr(grn, "created_by", None)
         
         # Cash supplier payments are posted manually from Supplier Payments.
 
@@ -1113,7 +1439,17 @@ class GoodReceivedNoteService:
                 user_id=actor_user_id or 0,
             )
         # ────────────────────────────────────────────────────────────────
-        
+
+        log_audit(
+            self.db,
+            user_id=actor_user_id or 0,
+            action="create",
+            entity_type="good_received_note",
+            entity_id=created_grn.id,
+            changes={"grn_no": created_grn.good_received_no},
+        )
+        self.db.commit()
+
         return created_grn
 
     def _auto_apply_advances_to_grn(self, grn_id: int, created_by: Optional[int] = None) -> Decimal:
@@ -1749,7 +2085,7 @@ class SupplierPaymentService:
 
             supplier_name = None
             if payment.supplier:
-                supplier_name = payment.supplier.full_name or payment.supplier.company_name
+                supplier_name = payment.supplier.company_name
             if not supplier_name:
                 supplier_name = f"Supplier #{payment.supplier_id}"
 
@@ -1809,7 +2145,7 @@ class SupplierPaymentService:
         if not supplier.active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Supplier '{supplier.full_name}' is inactive. Please reactivate the supplier before creating a payment."
+                detail=f"Supplier '{supplier.company_name}' is inactive. Please reactivate the supplier before creating a payment."
             )
 
         if payment.purchasing_order_id:
@@ -1850,7 +2186,7 @@ class SupplierPaymentService:
         po_no = None
         
         if payment.supplier:
-            supplier_name = payment.supplier.full_name
+            supplier_name = payment.supplier.company_name
         
         if payment.purchasing_order:
             po_no = payment.purchasing_order.purchasing_order_no
@@ -1887,7 +2223,7 @@ class SupplierPaymentService:
             po_no = None
             
             if payment.supplier:
-                supplier_name = payment.supplier.full_name
+                supplier_name = payment.supplier.company_name
             
             if payment.purchasing_order:
                 po_no = payment.purchasing_order.purchasing_order_no
@@ -2109,7 +2445,7 @@ class SupplierAdvancePaymentService:
         if not supplier.active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Supplier '{supplier.full_name}' is inactive. Please reactivate the supplier before creating an advance payment."
+                detail=f"Supplier '{supplier.company_name}' is inactive. Please reactivate the supplier before creating an advance payment."
             )
 
         if data.purchasing_order_id:
@@ -2214,7 +2550,7 @@ class SupplierAdvancePaymentService:
         
         return schemas.SupplierAdvanceBalanceSummary(
             supplier_id=supplier_id,
-            supplier_name=supplier.full_name,
+            supplier_name=supplier.company_name,
             total_advances=total_advances,
             total_applied=total_applied,
             available_balance=available_balance,
@@ -2376,7 +2712,7 @@ class SupplierAdvancePaymentService:
 
         supplier_name = None
         if advance.supplier:
-            supplier_name = advance.supplier.full_name or advance.supplier.company_name
+            supplier_name = advance.supplier.company_name
         if not supplier_name:
             supplier_name = f"Supplier #{advance.supplier_id}"
 
@@ -2685,7 +3021,7 @@ def get_purchasing_statistics(db: Session, branch_codes: Optional[List[str]] = N
     # ── Top 5 suppliers by PO value ───────────────────────────────────
     top_suppliers_raw = (
         db.query(
-            models.Supplier.full_name,
+            models.Supplier.company_name,
             func.count(models.PurchasingOrder.id).label("order_count"),
             func.coalesce(func.sum(models.PurchasingOrderItems.unit_price * models.PurchasingOrderItems.quantity), 0).label("total_value"),
         )
@@ -2695,13 +3031,13 @@ def get_purchasing_statistics(db: Session, branch_codes: Optional[List[str]] = N
     if branch_codes:
         top_suppliers_raw = top_suppliers_raw.filter(models.PurchasingOrder.branch_code.in_(branch_codes))
     top_suppliers_raw = (
-        top_suppliers_raw.group_by(models.Supplier.id, models.Supplier.full_name)
+        top_suppliers_raw.group_by(models.Supplier.id, models.Supplier.company_name)
         .order_by(func.sum(models.PurchasingOrderItems.unit_price * models.PurchasingOrderItems.quantity).desc())
         .limit(5)
         .all()
     )
     top_suppliers = [
-        {"name": s.full_name or "Unknown", "orders": s.order_count, "value": float(s.total_value or 0)}
+        {"name": s.company_name or "Unknown", "orders": s.order_count, "value": float(s.total_value or 0)}
         for s in top_suppliers_raw
     ]
 
@@ -2721,7 +3057,7 @@ def get_purchasing_statistics(db: Session, branch_codes: Optional[List[str]] = N
     recent_pos_raw = po_base().order_by(models.PurchasingOrder.added_date.desc()).limit(5).all()
     recent_pos = []
     for po in recent_pos_raw:
-        supplier = db.query(models.Supplier.full_name).filter(models.Supplier.id == po.first_suppliers_id).scalar()
+        supplier = db.query(models.Supplier.company_name).filter(models.Supplier.id == po.first_suppliers_id).scalar()
         recent_pos.append({
             "id": po.id,
             "po_no": po.purchasing_order_no,

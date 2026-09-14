@@ -27,6 +27,7 @@ export const FormSection: React.FC<FormSectionProps> = ({
   collapsible = false,
   defaultCollapsed = false,
   icon,
+  titleAction,
   isLast = false,
   sx,
 }) => {
@@ -58,11 +59,18 @@ export const FormSection: React.FC<FormSectionProps> = ({
             {title}
           </Typography>
         </Box>
-        {collapsible && (
-          <IconButton size="small">
-            {isCollapsed ? <ExpandMoreIcon /> : <ExpandLessIcon />}
-          </IconButton>
-        )}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          {titleAction && (
+            <Box onClick={(e) => e.stopPropagation()}>
+              {titleAction}
+            </Box>
+          )}
+          {collapsible && (
+            <IconButton size="small">
+              {isCollapsed ? <ExpandMoreIcon /> : <ExpandLessIcon />}
+            </IconButton>
+          )}
+        </Box>
       </Box>
 
       {/* Section Content */}

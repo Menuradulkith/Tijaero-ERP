@@ -109,7 +109,7 @@ def create_user(
     current_user: User = Depends(require_permission(*Permissions.USER_CREATE)),
 ):
     """Create a new user with employee record, branches, and groups."""
-    return service.auth_service.create_user(db, user)
+    return service.auth_service.create_user(db, user, created_by=current_user.id)
 
 
 @router.put(
@@ -125,7 +125,7 @@ def update_user(
     current_user: User = Depends(require_permission(*Permissions.USER_UPDATE)),
 ):
     """Update user information, branches, and groups."""
-    return service.auth_service.update_user(db, user_id, user)
+    return service.auth_service.update_user(db, user_id, user, updated_by=current_user.id)
 
 
 @router.delete(
@@ -140,4 +140,4 @@ def delete_user(
     current_user: User = Depends(require_permission(*Permissions.USER_DELETE)),
 ):
     """Delete a user by ID."""
-    return service.auth_service.delete_user(db, user_id)
+    return service.auth_service.delete_user(db, user_id, deleted_by=current_user.id)

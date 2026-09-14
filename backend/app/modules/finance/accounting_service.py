@@ -36,6 +36,31 @@ from . import accounting_schemas as schemas
 # CHART OF ACCOUNTS SERVICE
 # =============================================================================
 
+def _attach_user_names(db: Session, records: List) -> None:
+    """Resolve created_by/updated_by (or similar actor) ids to display names
+    and stamp them onto each record as dynamic attributes. Shared across the
+    various AuditMixin-based accounting entities in this module."""
+    from app.auth.models import User
+
+    user_ids = {
+        uid for r in records for uid in (getattr(r, "created_by", None), getattr(r, "updated_by", None)) if uid
+    }
+    if not user_ids:
+        for r in records:
+            r.created_by_name = None
+            r.updated_by_name = None
+        return
+
+    users = db.query(User).filter(User.id.in_(user_ids)).all()
+    name_map = {
+        u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+        for u in users
+    }
+    for r in records:
+        r.created_by_name = name_map.get(getattr(r, "created_by", None))
+        r.updated_by_name = name_map.get(getattr(r, "updated_by", None))
+
+
 class ChartOfAccountsService:
     def __init__(self, db: Session):
         self.db = db
@@ -75,6 +100,7 @@ class ChartOfAccountsService:
         )
         self.db.commit()
         self.db.refresh(account)
+        _attach_user_names(self.db, [account])
         return account
 
     def update_account(self, account_id: int, data: schemas.ChartOfAccountUpdate, updated_by: int = None) -> ChartOfAccounts:
@@ -119,6 +145,7 @@ class ChartOfAccountsService:
         )
         self.db.commit()
         self.db.refresh(account)
+        _attach_user_names(self.db, [account])
         return account
 
     def get_account(self, account_id: int) -> ChartOfAccounts:
@@ -130,6 +157,7 @@ class ChartOfAccountsService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Account with id {account_id} not found"
             )
+        _attach_user_names(self.db, [account])
         return account
 
     def get_account_by_code(self, account_code: str) -> Optional[ChartOfAccounts]:
@@ -156,7 +184,9 @@ class ChartOfAccountsService:
                 ChartOfAccounts.description.ilike(s),
             ))
 
-        return query.order_by(ChartOfAccounts.account_code).all()
+        accounts = query.order_by(ChartOfAccounts.account_code).all()
+        _attach_user_names(self.db, accounts)
+        return accounts
 
     def get_account_tree(self) -> List[dict]:
         """Get hierarchical tree structure of COA."""
@@ -229,6 +259,27 @@ class ChartOfAccountsService:
 # =============================================================================
 # JOURNAL ENTRY SERVICE
 # =============================================================================
+
+def _attach_je_user_names(db: Session, entries: List) -> None:
+    """Resolve created_by/submitted_by/approved_by/posted_by ids to display
+    names for a batch of JournalEntry rows."""
+    from app.auth.models import User
+
+    fields = ("created_by", "submitted_by", "approved_by", "posted_by")
+    user_ids = {getattr(e, f, None) for e in entries for f in fields} - {None}
+    name_map = {}
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        name_map = {
+            u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+            for u in users
+        }
+    for e in entries:
+        e.created_by_name = name_map.get(getattr(e, "created_by", None))
+        e.submitted_by_name = name_map.get(getattr(e, "submitted_by", None))
+        e.approved_by_name = name_map.get(getattr(e, "approved_by", None))
+        e.posted_by_name = name_map.get(getattr(e, "posted_by", None))
+
 
 class JournalEntryService:
     def __init__(self, db: Session):
@@ -330,12 +381,19 @@ class JournalEntryService:
             )
             self.db.add(line)
 
+        log_audit(
+            self.db, user_id=created_by or 0, action="create",
+            entity_type="journal_entry", entity_id=je.id,
+            changes={"journal_entry_no": je.journal_entry_no, "entry_type": je.entry_type},
+        )
+
         self.db.commit()
         self.db.refresh(je)
+        _attach_je_user_names(self.db, [je])
         return je
 
     def update_journal_entry(
-        self, je_id: int, data: schemas.JournalEntryUpdate
+        self, je_id: int, data: schemas.JournalEntryUpdate, updated_by: Optional[int] = None
     ) -> JournalEntry:
         je = self.get_journal_entry(je_id)
         if je.status != "draft":
@@ -344,17 +402,22 @@ class JournalEntryService:
                 detail=f"Cannot edit journal entry in '{je.status}' status"
             )
 
+        changed_fields = set()
         if data.entry_date:
             je.entry_date = data.entry_date
             fiscal_year, fiscal_period = self._get_fiscal_period(data.entry_date)
             je.fiscal_year = fiscal_year
             je.fiscal_period = fiscal_period
+            changed_fields.add("entry_date")
         if data.description:
             je.description = data.description
+            changed_fields.add("description")
         if data.branch_code is not None:
             je.branch_code = data.branch_code
+            changed_fields.add("branch_code")
 
         if data.lines is not None:
+            changed_fields.add("lines")
             # Replace all lines
             self.db.query(JournalEntryLine).filter(
                 JournalEntryLine.journal_entry_id == je_id
@@ -379,8 +442,16 @@ class JournalEntryService:
                 )
                 self.db.add(line)
 
+        if changed_fields:
+            log_audit(
+                self.db, user_id=updated_by or 0, action="update",
+                entity_type="journal_entry", entity_id=je.id,
+                changes={"fields": sorted(changed_fields)},
+            )
+
         self.db.commit()
         self.db.refresh(je)
+        _attach_je_user_names(self.db, [je])
         return je
 
     def get_journal_entry(self, je_id: int) -> JournalEntry:
@@ -392,6 +463,7 @@ class JournalEntryService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Journal entry with id {je_id} not found"
             )
+        _attach_je_user_names(self.db, [je])
         return je
 
     def list_journal_entries(self, filters: schemas.JournalEntryListFilter) -> Tuple[List[JournalEntry], int]:
@@ -440,6 +512,7 @@ class JournalEntryService:
             filters.skip
         ).limit(filters.limit).all()
 
+        _attach_je_user_names(self.db, items)
         return items, total
 
     def post_journal_entry(self, je_id: int, posted_by: int, posting_date: Optional[date] = None) -> JournalEntry:
@@ -521,6 +594,12 @@ class JournalEntryService:
         je.status = "posted"
         je.posted_by = posted_by
         je.posted_at = tz.now()
+
+        log_audit(
+            self.db, user_id=posted_by or 0, action="post",
+            entity_type="journal_entry", entity_id=je.id,
+            changes={"status": "posted"},
+        )
 
         self.db.commit()
 
@@ -615,6 +694,17 @@ class JournalEntryService:
         je.is_reversed = True
         je.reversed_by_je_id = reversal_je.id
 
+        log_audit(
+            self.db, user_id=reversed_by or 0, action="reverse",
+            entity_type="journal_entry", entity_id=je.id,
+            changes={"reason": reason, "reversal_je_id": reversal_je.id},
+        )
+        log_audit(
+            self.db, user_id=reversed_by or 0, action="create",
+            entity_type="journal_entry", entity_id=reversal_je.id,
+            changes={"journal_entry_no": reversal_je.journal_entry_no, "reverses_je_id": je.id},
+        )
+
         self.db.commit()
 
         # Update running balances for affected accounts
@@ -628,7 +718,7 @@ class JournalEntryService:
         self.db.refresh(reversal_je)
         return reversal_je
 
-    def delete_journal_entry(self, je_id: int) -> bool:
+    def delete_journal_entry(self, je_id: int, deleted_by: Optional[int] = None) -> bool:
         # Lock row to prevent concurrent status mutation
         self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
@@ -637,6 +727,11 @@ class JournalEntryService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete journal entry in '{je.status}' status. Only draft entries can be deleted."
             )
+        log_audit(
+            self.db, user_id=deleted_by or 0, action="delete",
+            entity_type="journal_entry", entity_id=je_id,
+            changes={"journal_entry_no": je.journal_entry_no},
+        )
         self.db.delete(je)
         self.db.commit()
         return True
@@ -746,6 +841,12 @@ class JournalEntryService:
         if remarks:
             je.description = je.description + f"\n[Submitted] {remarks}"
 
+        log_audit(
+            self.db, user_id=submitted_by or 0, action="submit",
+            entity_type="journal_entry", entity_id=je.id,
+            changes={"status": "submitted"},
+        )
+
         self.db.commit()
         self.db.refresh(je)
         return je
@@ -771,6 +872,12 @@ class JournalEntryService:
         if remarks:
             je.description = je.description + f"\n[Approved] {remarks}"
 
+        log_audit(
+            self.db, user_id=approved_by or 0, action="approve",
+            entity_type="journal_entry", entity_id=je.id,
+            changes={"status": "approved"},
+        )
+
         self.db.commit()
         self.db.refresh(je)
         return je
@@ -795,6 +902,12 @@ class JournalEntryService:
         je.submitted_at = None
 
         je.description = je.description + f"\n[Rejected] {reason}"
+
+        log_audit(
+            self.db, user_id=rejected_by or 0, action="reject",
+            entity_type="journal_entry", entity_id=je.id,
+            changes={"reason": reason},
+        )
 
         self.db.commit()
         self.db.refresh(je)
@@ -2090,6 +2203,26 @@ class AccountingPeriodService:
 # CASH FLOW SERVICE
 # =============================================================================
 
+def _attach_cfs_user_names(db: Session, statements: List) -> None:
+    """Resolve created_by/updated_by/prepared_by/approved_by ids to display
+    names for a batch of CashFlowStatement rows."""
+    from app.auth.models import User
+    fields = ("created_by", "updated_by", "prepared_by", "approved_by")
+    user_ids = {getattr(s, f, None) for s in statements for f in fields} - {None}
+    name_map = {}
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        name_map = {
+            u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+            for u in users
+        }
+    for s in statements:
+        s.created_by_name = name_map.get(getattr(s, "created_by", None))
+        s.updated_by_name = name_map.get(getattr(s, "updated_by", None))
+        s.prepared_by_name = name_map.get(getattr(s, "prepared_by", None))
+        s.approved_by_name = name_map.get(getattr(s, "approved_by", None))
+
+
 class CashFlowService:
     """
     Enhanced Cash Flow Statement service (Scenario 36).
@@ -2388,8 +2521,15 @@ class CashFlowService:
             line.cash_flow_statement_id = statement.id
             self.db.add(line)
 
+        log_audit(
+            self.db, user_id=prepared_by or 0, action="create",
+            entity_type="cash_flow_statement", entity_id=statement.id,
+            changes={"fiscal_year": statement.fiscal_year, "fiscal_period": statement.fiscal_period},
+        )
+
         self.db.commit()
         self.db.refresh(statement)
+        _attach_cfs_user_names(self.db, [statement])
         return statement
 
     def regenerate_statement(
@@ -3027,6 +3167,7 @@ class CashFlowService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Cash flow statement with id {statement_id} not found"
             )
+        _attach_cfs_user_names(self.db, [statement])
         return statement
 
     def list_statements(self, filters: schemas.CashFlowStatementListFilter) -> List[CashFlowStatement]:
@@ -3037,12 +3178,14 @@ class CashFlowService:
             query = query.filter(CashFlowStatement.fiscal_period == filters.fiscal_period)
         if filters.status:
             query = query.filter(CashFlowStatement.status == filters.status)
-        return query.order_by(
+        statements = query.order_by(
             CashFlowStatement.fiscal_year.desc(),
             CashFlowStatement.fiscal_period.desc()
         ).all()
+        _attach_cfs_user_names(self.db, statements)
+        return statements
 
-    def finalize_statement(self, statement_id: int) -> CashFlowStatement:
+    def finalize_statement(self, statement_id: int, finalized_by: Optional[int] = None) -> CashFlowStatement:
         # Lock row to prevent concurrent status mutation
         self.db.query(CashFlowStatement).filter(CashFlowStatement.id == statement_id).with_for_update().first()
         statement = self.get_statement(statement_id)
@@ -3052,8 +3195,14 @@ class CashFlowService:
                 detail=f"Cannot finalize statement in '{statement.status}' status"
             )
         statement.status = "final"
+        log_audit(
+            self.db, user_id=finalized_by or 0, action="finalize",
+            entity_type="cash_flow_statement", entity_id=statement.id,
+            changes={"status": "final"},
+        )
         self.db.commit()
         self.db.refresh(statement)
+        _attach_cfs_user_names(self.db, [statement])
         return statement
 
     def approve_statement(self, statement_id: int, approved_by: int) -> CashFlowStatement:
@@ -3068,11 +3217,17 @@ class CashFlowService:
         statement.status = "approved"
         statement.approved_by = approved_by
         statement.approved_at = tz.now()
+        log_audit(
+            self.db, user_id=approved_by or 0, action="approve",
+            entity_type="cash_flow_statement", entity_id=statement.id,
+            changes={"status": "approved"},
+        )
         self.db.commit()
         self.db.refresh(statement)
+        _attach_cfs_user_names(self.db, [statement])
         return statement
 
-    def delete_statement(self, statement_id: int) -> bool:
+    def delete_statement(self, statement_id: int, deleted_by: Optional[int] = None) -> bool:
         # Lock row to prevent concurrent status mutation
         self.db.query(CashFlowStatement).filter(CashFlowStatement.id == statement_id).with_for_update().first()
         statement = self.get_statement(statement_id)
@@ -3081,6 +3236,11 @@ class CashFlowService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete statement in '{statement.status}' status"
             )
+        log_audit(
+            self.db, user_id=deleted_by or 0, action="delete",
+            entity_type="cash_flow_statement", entity_id=statement_id,
+            changes={"fiscal_year": statement.fiscal_year, "fiscal_period": statement.fiscal_period},
+        )
         self.db.delete(statement)
         self.db.commit()
         return True

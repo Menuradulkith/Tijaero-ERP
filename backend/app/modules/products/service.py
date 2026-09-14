@@ -1,7 +1,33 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
+from app.common.audit import log_audit
 from app.modules.products import repository, schemas, models
+
+def _attach_user_names(db: Session, records: List) -> None:
+    """Resolve created_by/updated_by ids to display names, in one batched
+    query, and stamp them onto each record as dynamic attributes. Shared
+    across Product/Category/Brand — all follow the same AuditMixin shape."""
+    from app.auth.models import User
+
+    user_ids = {
+        uid for r in records for uid in (getattr(r, "created_by", None), getattr(r, "updated_by", None)) if uid
+    }
+    if not user_ids:
+        for r in records:
+            r.created_by_name = None
+            r.updated_by_name = None
+        return
+
+    users = db.query(User).filter(User.id.in_(user_ids)).all()
+    name_map = {
+        u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+        for u in users
+    }
+    for r in records:
+        r.created_by_name = name_map.get(getattr(r, "created_by", None))
+        r.updated_by_name = name_map.get(getattr(r, "updated_by", None))
+
 
 class ProductService:
     def get_product(self, db: Session, product_id: int) -> schemas.Product:
@@ -11,14 +37,19 @@ class ProductService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Product with id {product_id} not found"
             )
+        _attach_user_names(db, [product])
         return product
-    
+
     def get_all_products(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = True) -> List[schemas.Product]:
-        return repository.product_repository.get_all(db, skip, limit, active_only)
-    
+        products = repository.product_repository.get_all(db, skip, limit, active_only)
+        _attach_user_names(db, products)
+        return products
+
     def search_products(self, db: Session, query: str, skip: int = 0, limit: int = 100) -> List[schemas.Product]:
-        return repository.product_repository.search(db, query, skip, limit)
-    
+        products = repository.product_repository.search(db, query, skip, limit)
+        _attach_user_names(db, products)
+        return products
+
     def create_product(self, db: Session, product: schemas.ProductCreate, user_id: int) -> schemas.Product:
         existing = repository.product_repository.get_by_item_code(db, product.item_code)
         if existing:
@@ -26,14 +57,14 @@ class ProductService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Product with item_code {product.item_code} already exists"
             )
-            
+
         existing_name = repository.product_repository.get_by_name(db, product.name)
         if existing_name:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Product with name '{product.name}' already exists"
             )
-            
+
         if product.selling_price is not None and product.selling_price < product.cost_price:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -44,9 +75,20 @@ class ProductService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Website price cannot be less than cost price."
             )
-            
-        return repository.product_repository.create(db, product, user_id)
-    
+
+        created = repository.product_repository.create(db, product, user_id)
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="create",
+            entity_type="product",
+            entity_id=created.id,
+            changes={"name": created.name, "item_code": created.item_code},
+        )
+        db.commit()
+        _attach_user_names(db, [created])
+        return created
+
     def update_product(self, db: Session, product_id: int, product: schemas.ProductUpdate, user_id: int) -> schemas.Product:
         curr_product = repository.product_repository.get_by_id(db, product_id)
         if not curr_product:
@@ -54,7 +96,7 @@ class ProductService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Product with id {product_id} not found"
             )
-            
+
         if product.name:
             existing_name = repository.product_repository.get_by_name(db, product.name)
             if existing_name and existing_name.id != product_id:
@@ -62,11 +104,11 @@ class ProductService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Product with name '{product.name}' already exists"
                 )
-            
+
         new_cost_price = product.cost_price if product.cost_price is not None else curr_product.cost_price
         new_selling_price = product.selling_price if product.selling_price is not None else curr_product.selling_price
         new_website_price = product.website_price if product.website_price is not None else curr_product.website_price
-        
+
         if new_selling_price is not None and new_selling_price < new_cost_price:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -78,15 +120,35 @@ class ProductService:
                 detail="Website price cannot be less than cost price."
             )
 
+        submitted_fields = product.model_dump(exclude_unset=True)
+        before_values = {field: getattr(curr_product, field) for field in submitted_fields}
+
         updated_product = repository.product_repository.update(db, product_id, product, user_id)
         if not updated_product:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Product with id {product_id} not found"
             )
+
+        changed_fields = {
+            field for field, new_value in submitted_fields.items()
+            if before_values.get(field) != new_value
+        }
+        if changed_fields:
+            log_audit(
+                db,
+                user_id=user_id or 0,
+                action="update",
+                entity_type="product",
+                entity_id=updated_product.id,
+                changes={"fields": sorted(changed_fields)},
+            )
+            db.commit()
+
+        _attach_user_names(db, [updated_product])
         return updated_product
-    
-    def delete_product(self, db: Session, product_id: int) -> dict:
+
+    def delete_product(self, db: Session, product_id: int, user_id: Optional[int] = None) -> dict:
         product = repository.product_repository.get_by_id(db, product_id)
         if not product:
             raise HTTPException(
@@ -139,6 +201,15 @@ class ProductService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Product with id {product_id} not found"
             )
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="delete",
+            entity_type="product",
+            entity_id=product_id,
+            changes={"name": product.name, "item_code": product.item_code},
+        )
+        db.commit()
         return {"message": f"Product '{product.name}' deleted successfully"}
 
 class CategoryService:
@@ -149,11 +220,14 @@ class CategoryService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Category with id {category_id} not found"
             )
+        _attach_user_names(db, [category])
         return category
     
     def get_all_categories(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[schemas.Category]:
-        return repository.category_repository.get_all(db, skip, limit, active_only)
-    
+        categories = repository.category_repository.get_all(db, skip, limit, active_only)
+        _attach_user_names(db, categories)
+        return categories
+
     def create_category(self, db: Session, category: schemas.CategoryCreate, user_id: int) -> schemas.Category:
         existing = repository.category_repository.get_by_code(db, category.category_code)
         if existing:
@@ -169,14 +243,25 @@ class CategoryService:
             )
         from sqlalchemy.exc import IntegrityError
         try:
-            return repository.category_repository.create(db, category, user_id)
+            created = repository.category_repository.create(db, category, user_id)
         except IntegrityError:
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Category with name '{category.name}' or code '{category.category_code}' already exists"
             )
-    
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="create",
+            entity_type="category",
+            entity_id=created.id,
+            changes={"name": created.name, "category_code": created.category_code},
+        )
+        db.commit()
+        _attach_user_names(db, [created])
+        return created
+
     def update_category(self, db: Session, category_id: int, category: schemas.CategoryUpdate, user_id: int) -> schemas.Category:
         curr_category = repository.category_repository.get_by_id(db, category_id)
         if not curr_category:
@@ -198,35 +283,65 @@ class CategoryService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Category with name '{category.name}' already exists"
                 )
+
+        submitted_fields = category.model_dump(exclude_unset=True)
+        before_values = {field: getattr(curr_category, field) for field in submitted_fields}
+
         updated_category = repository.category_repository.update(db, category_id, category, user_id)
         if not updated_category:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Category with id {category_id} not found"
             )
+
+        changed_fields = {
+            field for field, new_value in submitted_fields.items()
+            if before_values.get(field) != new_value
+        }
+        if changed_fields:
+            log_audit(
+                db,
+                user_id=user_id or 0,
+                action="update",
+                entity_type="category",
+                entity_id=updated_category.id,
+                changes={"fields": sorted(changed_fields)},
+            )
+            db.commit()
+
+        _attach_user_names(db, [updated_category])
         return updated_category
-    
-    def delete_category(self, db: Session, category_id: int) -> dict:
+
+    def delete_category(self, db: Session, category_id: int, user_id: Optional[int] = None) -> dict:
         category = repository.category_repository.get_by_id(db, category_id)
         if not category:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Category with id {category_id} not found"
             )
-        
+
         products_count = db.query(models.Product).filter(models.Product.category_id == category_id).count()
         if products_count > 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete category '{category.name}'. It is assigned to {products_count} product(s). Please reassign or delete those products first."
             )
-        
+
         deleted = repository.category_repository.delete(db, category_id)
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Category with id {category_id} not found"
             )
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="delete",
+            entity_type="category",
+            entity_id=category_id,
+            changes={"name": category.name},
+        )
+        db.commit()
         return {"message": f"Category '{category.name}' deleted successfully"}
 
 class BrandService:
@@ -237,12 +352,15 @@ class BrandService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Brand with id {brand_id} not found"
             )
+        _attach_user_names(db, [brand])
         return brand
-    
+
     def get_all_brands(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[schemas.Brand]:
-        return repository.brand_repository.get_all(db, skip, limit, active_only)
-    
-    def create_brand(self, db: Session, brand: schemas.BrandCreate) -> schemas.Brand:
+        brands = repository.brand_repository.get_all(db, skip, limit, active_only)
+        _attach_user_names(db, brands)
+        return brands
+
+    def create_brand(self, db: Session, brand: schemas.BrandCreate, user_id: Optional[int] = None) -> schemas.Brand:
         existing = repository.brand_repository.get_by_code(db, brand.brand_code)
         if existing:
             raise HTTPException(
@@ -257,15 +375,26 @@ class BrandService:
             )
         from sqlalchemy.exc import IntegrityError
         try:
-            return repository.brand_repository.create(db, brand)
+            created = repository.brand_repository.create(db, brand)
         except IntegrityError:
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Brand with name '{brand.brand_name}' or code '{brand.brand_code}' already exists"
             )
-    
-    def update_brand(self, db: Session, brand_id: int, brand: schemas.BrandUpdate) -> schemas.Brand:
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="create",
+            entity_type="brand",
+            entity_id=created.id,
+            changes={"brand_name": created.brand_name, "brand_code": created.brand_code},
+        )
+        db.commit()
+        _attach_user_names(db, [created])
+        return created
+
+    def update_brand(self, db: Session, brand_id: int, brand: schemas.BrandUpdate, user_id: Optional[int] = None) -> schemas.Brand:
         curr_brand = repository.brand_repository.get_by_id(db, brand_id)
         if not curr_brand:
             raise HTTPException(
@@ -286,22 +415,43 @@ class BrandService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Brand with name '{brand.brand_name}' already exists"
                 )
+
+        submitted_fields = brand.model_dump(exclude_unset=True)
+        before_values = {field: getattr(curr_brand, field) for field in submitted_fields}
+
         updated_brand = repository.brand_repository.update(db, brand_id, brand)
         if not updated_brand:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Brand with id {brand_id} not found"
             )
+
+        changed_fields = {
+            field for field, new_value in submitted_fields.items()
+            if before_values.get(field) != new_value
+        }
+        if changed_fields:
+            log_audit(
+                db,
+                user_id=user_id or 0,
+                action="update",
+                entity_type="brand",
+                entity_id=updated_brand.id,
+                changes={"fields": sorted(changed_fields)},
+            )
+            db.commit()
+
+        _attach_user_names(db, [updated_brand])
         return updated_brand
-    
-    def delete_brand(self, db: Session, brand_id: int) -> dict:
+
+    def delete_brand(self, db: Session, brand_id: int, user_id: Optional[int] = None) -> dict:
         brand = repository.brand_repository.get_by_id(db, brand_id)
         if not brand:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Brand with id {brand_id} not found"
             )
-        
+
         products_count = db.query(models.Product).filter(models.Product.items_brand_id == brand_id).count()
         if products_count > 0:
             raise HTTPException(
@@ -315,6 +465,15 @@ class BrandService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Brand with id {brand_id} not found"
             )
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="delete",
+            entity_type="brand",
+            entity_id=brand_id,
+            changes={"brand_name": brand.brand_name},
+        )
+        db.commit()
         return {"message": f"Brand '{brand.brand_name}' deleted successfully"}
 
 product_service = ProductService()

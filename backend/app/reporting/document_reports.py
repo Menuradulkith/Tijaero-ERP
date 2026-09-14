@@ -33,11 +33,18 @@ from app.modules.purchasing.models import (
 )
 from app.modules.sales.models import Invoice, InvoiceItems
 from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
-from app.modules.settings.models import Settings
+from app.modules.settings.models import Currency, Settings
 from app.modules.warehouse.models import ItemTransferNote, ItemTransferNoteItems
 from fastapi import HTTPException
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import Session, joinedload
+
+
+def _format_address(line1, line2, city, state, postal_code) -> str:
+    """Join a structured address's parts into a single printable line,
+    skipping any that are empty."""
+    parts = [line1, line2, city, state, postal_code]
+    return ", ".join(p for p in parts if p)
 
 
 class DocumentReportService:
@@ -64,6 +71,11 @@ class DocumentReportService:
         try:
             settings = self.db.query(Settings).first()
             if settings:
+                currency = (
+                    self.db.query(Currency)
+                    .filter(Currency.code == settings.default_currency)
+                    .first()
+                )
                 return {
                     "name": settings.company_name or "TIJAEROERP",
                     "tagline": "Solutions",
@@ -73,6 +85,8 @@ class DocumentReportService:
                     "phone": settings.company_telephone_number or "0112081667",
                     "fax": settings.company_fax_number or "0112081667",
                     "email": settings.company_email or "info@tijaeroerp.com",
+                    "currency_code": currency.code if currency else "LKR",
+                    "currency_symbol": currency.symbol if currency else "Rs.",
                 }
         except Exception:
             self.db.rollback()
@@ -84,6 +98,8 @@ class DocumentReportService:
             "phone": "0112081667",
             "fax": "0112081667",
             "email": "info@tijaeroerp.com",
+            "currency_code": "LKR",
+            "currency_symbol": "Rs.",
         }
 
     def _get_branch_info(self, branch_code: str) -> dict:
@@ -107,17 +123,18 @@ class DocumentReportService:
         if supplier:
             return {
                 "id": supplier.id,
-                "full_name": supplier.full_name,
                 "company_name": supplier.company_name or "",
                 "mobile_contact_number": supplier.mobile_contact_number or "",
                 "home_contact_number": supplier.home_contact_number or "",
                 "email": supplier.email or "",
-                "address": supplier.postal_address or "",
+                "address": _format_address(
+                    supplier.billing_address_line1, supplier.billing_address_line2,
+                    supplier.billing_city, supplier.billing_state, supplier.billing_postal_code,
+                ),
             }
         return {
             "id": supplier_id,
-            "full_name": f"Supplier #{supplier_id}",
-            "company_name": "",
+            "company_name": f"Supplier #{supplier_id}",
             "mobile_contact_number": "",
             "home_contact_number": "",
             "email": "",

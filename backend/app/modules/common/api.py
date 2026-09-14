@@ -129,7 +129,7 @@ def get_reference_data(
             SupplierListFilter(active=True, limit=500)
         )
         result["suppliers"] = [
-            {"id": s.id, "full_name": s.full_name, "company_name": s.company_name}
+            {"id": s.id, "company_name": s.company_name}
             for s in suppliers
         ]
 
@@ -168,6 +168,93 @@ def get_reference_data(
         result["sales_stock"] = sales_service.get_available_products_from_stock(db)
 
     return result
+
+
+# entity_type values that may be queried through the generic activity-log
+# endpoint below — anything log_audit() has actually been called with across
+# the app. Extend this list as more entities grow a "Record Information ->
+# Activity History" panel; it exists to stop the endpoint being used as an
+# open-ended probe of the audit_logs table for unrelated entity types.
+ACTIVITY_LOG_ENTITY_TYPES = {
+    "supplier",
+    "customer",
+    "purchase_order",
+    "purchase_return",
+    "good_received_note",
+    "sales_order",
+    "sale_return",
+    "sales_quote",
+    "product",
+    "category",
+    "brand",
+    "chart_of_account",
+    "journal_entry",
+    "cash_flow_statement",
+    "credit_settlement",
+    "credit_payment",
+    "commission_payment",
+    "supplier_payment",
+    "supplier_advance",
+    "supplier_advance_application",
+    "sales_stock",
+    "company_asset",
+    "accounting_period",
+    "bank_deposit",
+    "card_payment",
+    "cheque_payment",
+    "expense",
+    "customer_advance_payment",
+    "customer_credit_note",
+    "user",
+    "branch",
+}
+
+
+@router.get("/activity-log", response_model=List[schemas.ActivityLogEntry])
+def get_activity_log(
+    entity_type: str = Query(..., description="e.g. supplier, purchase_order, purchase_return"),
+    entity_id: int = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Generic modification-history lookup for any entity that log_audit()
+    has been recording against — powers the "Activity History" detail panel
+    shown from a Record Information section, across modules."""
+    from app.common.audit import AuditLog
+
+    if entity_type not in ACTIVITY_LOG_ENTITY_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown entity_type '{entity_type}'",
+        )
+
+    entries = (
+        db.query(AuditLog)
+        .filter(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id)
+        .order_by(AuditLog.timestamp.desc())
+        .limit(200)
+        .all()
+    )
+    user_ids = {e.user_id for e in entries if e.user_id}
+    name_map: Dict[int, str] = {}
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        name_map = {
+            u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+            for u in users
+        }
+
+    return [
+        schemas.ActivityLogEntry(
+            id=e.id,
+            action=e.action,
+            changes=e.changes,
+            timestamp=e.timestamp,
+            user_id=e.user_id,
+            user_name=name_map.get(e.user_id),
+        )
+        for e in entries
+    ]
 
 
 @router.get("/countries", response_model=List[schemas.Country])

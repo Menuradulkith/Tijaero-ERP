@@ -364,7 +364,7 @@ class PurchaseInvoiceService:
         result = []
         today = tz.today()
         for inv in invoices:
-            supplier = self.db.query(Supplier.full_name).filter(Supplier.id == inv.supplier_id).scalar()
+            supplier = self.db.query(Supplier.company_name).filter(Supplier.id == inv.supplier_id).scalar()
             days_overdue = (today - inv.due_date).days if inv.due_date < today else 0
 
             # Collect PO IDs and PO numbers for this invoice
@@ -1006,7 +1006,7 @@ class PurchaseInvoiceService:
         # Step 4: Build response
         result = []
         for inv in invoices:
-            supplier_name = self.db.query(Supplier.full_name).filter(Supplier.id == inv.supplier_id).scalar()
+            supplier_name = self.db.query(Supplier.company_name).filter(Supplier.id == inv.supplier_id).scalar()
             days_overdue = (today - inv.due_date).days if inv.due_date < today else 0
             # Collect PO numbers for this invoice
             po_nos_list = []
@@ -1045,7 +1045,7 @@ class PurchaseInvoiceService:
 
     # ─── HELPERS ───────────────────────────────────────────────────────
     def _enrich_invoice(self, invoice: PurchaseInvoice) -> PurchaseInvoiceResponse:
-        supplier_name = self.db.query(Supplier.full_name).filter(Supplier.id == invoice.supplier_id).scalar()
+        supplier_name = self.db.query(Supplier.company_name).filter(Supplier.id == invoice.supplier_id).scalar()
 
         items = []
         for item in invoice.items:
@@ -1176,7 +1176,7 @@ class PurchaseInvoiceService:
                 po_id=po.id if po else 0,
                 po_no=po.purchasing_order_no if po else "",
                 supplier_id=supplier.id if supplier else 0,
-                supplier_name=supplier.full_name if supplier else "Unknown",
+                supplier_name=supplier.company_name if supplier else "Unknown",
                 supplier_invoice_no=grn.supplier_invoice_no,
                 total_received_qty=total_received_qty,
                 total_received_amount=total_received_amount,

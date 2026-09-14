@@ -48,7 +48,7 @@ import {
   EmptyState,
   fmtLKR,
   TExportButton,
-  TFilterPanel,
+  TTabFilterBar,
   TBranchFilter,
   TPrintButton,
   TPrintPreviewDialog,
@@ -170,8 +170,12 @@ export default function ItemTransferNotesPage() {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
   };
   
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
@@ -222,11 +226,24 @@ export default function ItemTransferNotesPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+  }, []);
 
   const handleNewITN = useCallback(() => {
     handleNewITNBase();
@@ -538,22 +555,13 @@ export default function ItemTransferNotesPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search transfer notes..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedITN}
       onSelectItem={handleSelectITNWithItems}
       emptyMessage="No transfer notes found"
-      listHeader={
-        <TFilterPanel>
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-        </TFilterPanel>
-      }
       renderItem={(itn, isSelected) => {
         const status = getITNStatus(itn);
         const statusProps = getStatusProps(status, "orderStatus");
@@ -1072,6 +1080,44 @@ export default function ItemTransferNotesPage() {
     <>
       <MasterDetailLayout
         title="Item Transfer Notes"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search transfer notes..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftBranch && !searchQuery && !filterBranch}
+          />
+        }
         masterPanel={masterPanel}
         detailPanel={detailPanel}
         onRefresh={() => {

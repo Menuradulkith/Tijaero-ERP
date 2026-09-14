@@ -11,15 +11,18 @@ import {
   Autocomplete,
   Box,
   Chip,
+  IconButton,
   InputAdornment,
   MenuItem,
   TextField,
+  Tooltip,
   Typography,
   ToggleButton,
   ToggleButtonGroup,
 } from "@mui/material";
 import {
   AccountBalanceWallet as WalletIcon,
+  History as HistoryIcon,
   Person as PersonIcon,
   Store as SupplierIcon,
   CheckCircle as CheckCircleIcon,
@@ -50,13 +53,14 @@ import {
   TDetailSkeleton,
   TExportButton,
   TBranchFilter,
-  TFilterPanel,
   TSupplierFilter,
+  TTabFilterBar,
   GENERIC_PAYMENT_METHOD,
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
   fmtLKR,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -74,8 +78,7 @@ interface Customer {
 
 interface Supplier {
   id: number;
-  full_name: string;
-  company_name?: string;
+  company_name: string;
 }
 
 // Any for advance records (customer + supplier have different shapes)
@@ -124,9 +127,14 @@ export default function AdvancePaymentsPage() {
     setTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterEntity, setFilterEntity] = useState<number | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftEntity, setDraftEntity] = useState<number | null>(null);
 
   // Master-detail state (generic)
   const [searchQuery, setSearchQuery] = useState("");
@@ -135,6 +143,10 @@ export default function AdvancePaymentsPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [favorites, setFavorites] = useState<number[]>([]);
+
+  // Activity History is opened on demand from a detail icon next to the
+  // Status/Tracking section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   // Form data — customer
   const [customerForm, setCustomerForm] = useState<Partial<CustomerAdvancePaymentCreate>>(CUSTOMER_INITIAL_FORM);
@@ -149,8 +161,24 @@ export default function AdvancePaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+    setFilterEntity(draftEntity);
+  }, [draftSearchQuery, draftBranch, draftEntity]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setDraftEntity(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+    setFilterEntity(null);
+  }, []);
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -346,6 +374,9 @@ export default function AdvancePaymentsPage() {
       setFilterBranch(null);
       setFilterEntity(null);
       setSearchQuery("");
+      setDraftBranch(null);
+      setDraftEntity(null);
+      setDraftSearchQuery("");
       setTouched({});
     },
     []
@@ -427,7 +458,7 @@ export default function AdvancePaymentsPage() {
   const getSupplierName = useCallback(
     (supplierId: number) => {
       const s = suppliers.find((sup: Supplier) => sup.id === supplierId);
-      return s?.full_name || s?.company_name || `Supplier #${supplierId}`;
+      return s?.company_name || `Supplier #${supplierId}`;
     },
     [suppliers]
   );
@@ -513,62 +544,13 @@ export default function AdvancePaymentsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder={`Search ${advanceType} advances...`}
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedItem}
       onSelectItem={handleSelectItem}
       emptyMessage={`No ${advanceType} advance payments found`}
-      listHeader={
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-          {/* Type toggle */}
-          <Box sx={{ display: "flex", justifyContent: "center", py: 0.5 }}>
-            <ToggleButtonGroup
-              value={advanceType}
-              exclusive
-              onChange={handleTypeSwitch}
-              size="small"
-              color="primary"
-            >
-              <ToggleButton value="customer" sx={{ px: 1.5, py: 0.25, fontSize: "0.75rem" }}>
-                <PersonIcon sx={{ fontSize: 16, mr: 0.5 }} /> Customer
-              </ToggleButton>
-              <ToggleButton value="supplier" sx={{ px: 1.5, py: 0.25, fontSize: "0.75rem" }}>
-                <SupplierIcon sx={{ fontSize: 16, mr: 0.5 }} /> Supplier
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-          <TFilterPanel>
-            <TBranchFilter
-              branches={branches}
-              value={filterBranch}
-              onChange={setFilterBranch}
-            />
-            {advanceType === "supplier" && (
-              <TSupplierFilter
-                suppliers={suppliers || []}
-                value={filterEntity}
-                onChange={setFilterEntity}
-              />
-            )}
-            {advanceType === "customer" && (
-              <Autocomplete
-                size="small"
-                options={customers}
-                getOptionLabel={(option: Customer) => option.customer_name || ""}
-                value={customers.find((c: Customer) => c.id === filterEntity) || null}
-                onChange={(_, newVal) => setFilterEntity((newVal as Customer)?.id || null)}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                renderInput={(params) => (
-                  <TextField {...params} label="Customer" placeholder="All Customers" />
-                )}
-                sx={{ minWidth: 180 }}
-              />
-            )}
-          </TFilterPanel>
-        </Box>
-      }
       renderItem={(adv, isSelected) => (
         <SelectableListItem
           key={adv.id}
@@ -842,7 +824,17 @@ export default function AdvancePaymentsPage() {
 
             {/* Status for existing records */}
             {selectedItem && !isCreating && (
-              <FormSection title="Status" columns={3}>
+              <FormSection
+                title="Status"
+                columns={3}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Active:</Typography>
                   <Chip
@@ -888,11 +880,7 @@ export default function AdvancePaymentsPage() {
               <Autocomplete
                 size="small"
                 options={suppliers}
-                getOptionLabel={(option: Supplier) =>
-                  option.company_name
-                    ? `${option.full_name} (${option.company_name})`
-                    : option.full_name || ""
-                }
+                getOptionLabel={(option: Supplier) => option.company_name}
                 value={suppliers.find((s: Supplier) => s.id === supplierForm.supplier_id) || null}
                 onChange={(_, newValue: Supplier | null) => {
                   setSupplierForm({ ...supplierForm, supplier_id: newValue?.id || 0 });
@@ -1048,7 +1036,17 @@ export default function AdvancePaymentsPage() {
 
             {/* Tracking info */}
             {selectedItem && !isCreating && (
-              <FormSection title="Tracking" columns={2}>
+              <FormSection
+                title="Tracking"
+                columns={2}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <TextField
                   label="Created Date"
                   size="small"
@@ -1088,6 +1086,89 @@ export default function AdvancePaymentsPage() {
       <MasterDetailLayout
         title="Advance Payments"
         icon={<WalletIcon />}
+        titleSlot={
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            {/* Type toggle */}
+            <Box sx={{ display: "flex", py: 0.5 }}>
+              <ToggleButtonGroup
+                value={advanceType}
+                exclusive
+                onChange={handleTypeSwitch}
+                size="small"
+                color="primary"
+              >
+                <ToggleButton value="customer" sx={{ px: 1.5, py: 0.25, fontSize: "0.75rem" }}>
+                  <PersonIcon sx={{ fontSize: 16, mr: 0.5 }} /> Customer
+                </ToggleButton>
+                <ToggleButton value="supplier" sx={{ px: 1.5, py: 0.25, fontSize: "0.75rem" }}>
+                  <SupplierIcon sx={{ fontSize: 16, mr: 0.5 }} /> Supplier
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            <TTabFilterBar
+              tabs={[
+                {
+                  key: "search",
+                  label: "Search",
+                  hasValue: !!draftSearchQuery,
+                  render: ({ close }) => (
+                    <TextField
+                      size="small"
+                      autoFocus
+                      placeholder={`Search ${advanceType} advances...`}
+                      value={draftSearchQuery}
+                      onChange={(e) => setDraftSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleApplyFilters();
+                          close();
+                        }
+                      }}
+                      fullWidth
+                    />
+                  ),
+                },
+                {
+                  key: "branch",
+                  label: "Branch",
+                  hasValue: !!draftBranch,
+                  render: () => (
+                    <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                  ),
+                },
+                advanceType === "supplier"
+                  ? {
+                      key: "entity",
+                      label: "Supplier",
+                      hasValue: !!draftEntity,
+                      render: () => (
+                        <TSupplierFilter suppliers={suppliers || []} value={draftEntity} onChange={setDraftEntity} label="" size="small" />
+                      ),
+                    }
+                  : {
+                      key: "entity",
+                      label: "Customer",
+                      hasValue: !!draftEntity,
+                      render: () => (
+                        <Autocomplete
+                          size="small"
+                          options={customers}
+                          getOptionLabel={(option: Customer) => option.customer_name || ""}
+                          value={customers.find((c: Customer) => c.id === draftEntity) || null}
+                          onChange={(_, newVal) => setDraftEntity((newVal as Customer)?.id || null)}
+                          isOptionEqualToValue={(option, value) => option.id === value.id}
+                          renderInput={(params) => <TextField {...params} placeholder="All Customers" />}
+                          fullWidth
+                        />
+                      ),
+                    },
+              ]}
+              onSearch={handleApplyFilters}
+              onClear={handleClearFilters}
+              clearDisabled={!draftSearchQuery && !draftBranch && !draftEntity && !searchQuery && !filterBranch && !filterEntity}
+            />
+          </Box>
+        }
         onRefresh={refetchData}
         isLoading={isLoading}
         masterPanel={masterPanel}
@@ -1124,6 +1205,17 @@ export default function AdvancePaymentsPage() {
         }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType={advanceType === "customer" ? "customer_advance_payment" : "supplier_advance"}
+        entityId={selectedItem?.id}
+        actionLabels={{
+          create: "Advance payment created",
+          return: "Advance payment returned",
+        }}
+      />
     </>
   );
 }

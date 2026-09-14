@@ -9,3 +9,4 @@ export { TBreadcrumbs, type TBreadcrumbsProps, type TBreadcrumbItem } from "./TB
 export { TContextMenu, useContextMenu, type TContextMenuProps, type TContextMenuItem } from "./TContextMenu";
 export { TDropdownMenu, type TDropdownMenuProps, type TDropdownMenuItem } from "./TDropdownMenu";
 export { TSteps, type TStepsProps, type TStepConfig } from "./TSteps";
+export { TSectionNav, type TSectionNavProps, type TSectionNavItem } from "./TSectionNav";

@@ -30,6 +30,7 @@ import {
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 
@@ -42,7 +43,7 @@ import {
   FormSection,
   EmptyState,
   fmtLKR,
-  TFilterPanel,
+  TTabFilterBar,
   TBranchFilter,
   TStatusFilter,
   PO_STATUS_FILTER_OPTIONS,
@@ -53,6 +54,7 @@ import {
   TConfirmDialog,
   useCrudMutation,
   useTConfirmDialog,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 
@@ -79,13 +81,22 @@ export default function POApprovalsPage() {
   const [sortField, setSortField] = useState("added_date");
   const [selectedOrder, setSelectedOrder] = useState<PurchasingOrderWithItems | null>(null);
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Information section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   // Confirm dialog for after-hours warning
   const confirmDialog = useTConfirmDialog();
   const creditWarningDialog = useTConfirmDialog();
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>("pending_approval");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>("pending_approval");
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -122,8 +133,24 @@ export default function POApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftStatus, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranch(null);
+  }, []);
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
@@ -169,7 +196,6 @@ export default function POApprovalsPage() {
       const supplier = supplierMap.get(order.first_suppliers_id);
       return (
         order.purchasing_order_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        supplier?.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         supplier?.company_name?.toLowerCase().includes(searchQuery.toLowerCase())
       );
     });
@@ -251,7 +277,7 @@ export default function POApprovalsPage() {
         // Show warning modal if requires approval
         if (creditCheck.requires_approval) {
           const supplier = supplierMap.get(selectedOrder.first_suppliers_id);
-          const supplierName = supplier?.company_name || supplier?.full_name || 'Unknown';
+          const supplierName = supplier?.company_name || 'Unknown';
 
           const confirmed = await creditWarningDialog.confirm({
             title: "⚠️ Credit Limit Warning",
@@ -329,7 +355,7 @@ export default function POApprovalsPage() {
 
   const getSupplierName = (supplierId: number) => {
     const s = supplierMap.get(supplierId);
-    return s ? s.full_name || s.company_name || "Unknown" : "Unknown";
+    return s ? s.company_name || "Unknown" : "Unknown";
   };
 
   // Master Panel
@@ -339,26 +365,12 @@ export default function POApprovalsPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search orders..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedOrder}
       emptyMessage="No orders found"
-      listHeader={
-        <TFilterPanel>
-          <TStatusFilter
-            options={PO_STATUS_FILTER_OPTIONS}
-            value={filterStatus}
-            onChange={setFilterStatus}
-          />
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-        </TFilterPanel>
-      }
       renderItem={(order, isSelected) => {
         const orderSupplier = supplierMap.get(order.first_suppliers_id);
         const statusChip = getStatusProps(order.status || "draft", "purchaseOrder");
@@ -382,7 +394,7 @@ export default function POApprovalsPage() {
                   <>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        {orderSupplier?.full_name || orderSupplier?.company_name || "Unknown Supplier"}
+                        {orderSupplier?.company_name || "Unknown Supplier"}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Supplier)
@@ -518,7 +530,6 @@ export default function POApprovalsPage() {
 
             {/* Supplier Information */}
             <FormSection title="Supplier Information" columns={2}>
-              <TextField label="Supplier Name" size="small" value={supplier?.full_name || ""} disabled />
               <TextField label="Company" size="small" value={supplier?.company_name || "N/A"} disabled />
               <TextField label="Contact" size="small" value={supplier?.mobile_contact_number || ""} disabled />
               <TextField label="Email" size="small" value={supplier?.email || "N/A"} disabled />
@@ -597,7 +608,17 @@ export default function POApprovalsPage() {
             </FormSection>
 
             {/* Record Information */}
-            <FormSection title="Record Information" columns={2}>
+            <FormSection
+              title="Record Information"
+              columns={2}
+              titleAction={
+                <Tooltip title="View activity history">
+                  <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
               <Box>
                 <Typography variant="caption" color="text.secondary">Created</Typography>
                 <Typography variant="body2">{formatDateTimeReadable(selectedOrder.created_date || selectedOrder.added_date) || "-"}</Typography>
@@ -666,6 +687,48 @@ export default function POApprovalsPage() {
       <MasterDetailLayout
         title="PO Approvals"
         icon={<FactCheckIcon color="primary" />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "PO No",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search orders..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => <TStatusFilter options={PO_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />,
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+          />
+        }
         onRefresh={() => refetch()}
         isLoading={isLoading}
         masterPanel={masterPanel}
@@ -708,6 +771,18 @@ export default function POApprovalsPage() {
         onClose={() => setAuthDialogOpen(false)}
         onSubmit={handleAuthSubmit}
         loading={approveMutation.isPending}
+      />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="purchase_order"
+        entityId={selectedOrder?.id}
+        actionLabels={{
+          create: "Order created",
+          approve: "Order approved",
+          reject: "Order rejected",
+        }}
       />
     </>
   );

@@ -15,6 +15,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
@@ -65,8 +66,8 @@ import {
     SortOption,
     TBranchFilter,
     TConfirmDialog,
-    TFilterPanel,
     TPrintButton,
+    TTabFilterBar,
     TPrintPreviewDialog,
     TStatusChip,
     TSupplierFilter,
@@ -75,6 +76,7 @@ import {
     useCrudMutation,
     useMasterDetailState,
     useTConfirmDialog,
+    TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -210,10 +212,16 @@ export default function PurchaseOrdersPage() {
     setTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSupplier, setDraftSupplier] = useState<number | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Item remarks modal state
   const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
@@ -285,6 +293,10 @@ export default function PurchaseOrdersPage() {
       setFormStep(0);
     },
   });
+
+  // Activity History is opened on demand from a detail icon next to the
+  // Tracking section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   const handleStartEdit = useCallback(() => {
     handleStartEditBase();
@@ -409,8 +421,27 @@ export default function PurchaseOrdersPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+    setFilterSupplier(draftSupplier);
+    setFilterStatus(draftStatus);
+  }, [draftSearchQuery, draftBranch, draftSupplier, draftStatus]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setDraftSupplier(null);
+    setDraftStatus(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+    setFilterSupplier(null);
+    setFilterStatus(null);
+  }, []);
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
@@ -507,7 +538,7 @@ export default function PurchaseOrdersPage() {
     });
 
     return filtered;
-  }, [orders, searchQuery, sortField, filterBranch, filterSupplier]);
+  }, [orders, searchQuery, sortField, filterBranch, filterSupplier, filterStatus]);
 
   const approvalNavTargetId = useMemo(() => {
     const navState = location.state as {
@@ -946,8 +977,7 @@ export default function PurchaseOrdersPage() {
           const supplier = suppliers?.find(
             (s) => s.id === formData.first_suppliers_id,
           );
-          const supplierName =
-            supplier?.company_name || supplier?.full_name || "Unknown";
+          const supplierName = supplier?.company_name || "Unknown";
 
           const confirmed = await creditWarningDialog.confirm({
             title: "⚠️ Credit Limit Warning",
@@ -1034,7 +1064,7 @@ export default function PurchaseOrdersPage() {
   const getSupplierName = (order: PurchasingOrder) => {
     if (order.supplier_name) return order.supplier_name;
     const supplier = suppliers?.find((s: Supplier) => s.id === order.first_suppliers_id);
-    return supplier ? supplier.full_name : "Unknown";
+    return supplier ? supplier.company_name : "Unknown";
   };
 
   // getStatusColor is now imported from common components
@@ -1143,32 +1173,13 @@ export default function PurchaseOrdersPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search orders..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedOrder}
       onSelectItem={handleSelectOrderWithItems}
       emptyMessage="No purchase orders found"
-      listHeader={
-        <TFilterPanel>
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-          <TSupplierFilter
-            suppliers={suppliers || []}
-            value={filterSupplier}
-            onChange={setFilterSupplier}
-          />
-          <TStatusFilter
-            options={PO_STATUS_FILTER_OPTIONS}
-            value={filterStatus}
-            onChange={setFilterStatus}
-          />
-        </TFilterPanel>
-      }
       renderItem={(order, isSelected) => (
         <SelectableListItem
           key={order.id}
@@ -1461,9 +1472,7 @@ export default function PurchaseOrdersPage() {
                     size="small"
                     options={suppliers || []}
                     getOptionLabel={(option: Supplier) => {
-                      const name = option.company_name
-                        ? `${option.full_name} (${option.company_name})`
-                        : option.full_name;
+                      const name = option.company_name;
                       return option.active ? name : `${name} (Inactive)`;
                     }}
                     getOptionDisabled={(option: Supplier) => !option.active}
@@ -1473,11 +1482,23 @@ export default function PurchaseOrdersPage() {
                       ) || null
                     }
                     onChange={(_, newValue: Supplier | null) => {
+                      let computedGrnDate = formData.good_received_note_date;
+                      if (newValue?.average_lead_time_days != null) {
+                        const base = new Date(
+                          `${formData.purchasing_order_date}T00:00:00`,
+                        );
+                        base.setDate(
+                          base.getDate() +
+                            Math.round(newValue.average_lead_time_days),
+                        );
+                        computedGrnDate = base.toISOString().split("T")[0];
+                      }
                       setFormData({
                         ...formData,
                         first_suppliers_id: newValue?.id || 0,
                         credit_date:
                           newValue?.credit_days ?? formData.credit_date,
+                        good_received_note_date: computedGrnDate,
                       });
                       handleBlur("first_suppliers_id");
                     }}
@@ -1497,9 +1518,7 @@ export default function PurchaseOrdersPage() {
                     size="small"
                     options={suppliers || []}
                     getOptionLabel={(option: Supplier) => {
-                      const name = option.company_name
-                        ? `${option.full_name} (${option.company_name})`
-                        : option.full_name;
+                      const name = option.company_name;
                       return option.active ? name : `${name} (Inactive)`;
                     }}
                     getOptionDisabled={(option: Supplier) => !option.active}
@@ -1562,7 +1581,12 @@ export default function PurchaseOrdersPage() {
                     InputLabelProps={{ shrink: true }}
                     required
                     error={hasError("good_received_note_date")}
-                    helperText={getFieldError("good_received_note_date")}
+                    helperText={
+                      getFieldError("good_received_note_date") ||
+                      (isCreating || isEditing
+                        ? "Auto-filled from supplier's average lead time"
+                        : "")
+                    }
                   />
                   <TextField
                     label="Credit Days"
@@ -1640,7 +1664,17 @@ export default function PurchaseOrdersPage() {
                         />
                       </Box>
                     </FormSection>
-                    <FormSection title="Tracking" columns={2}>
+                    <FormSection
+                      title="Tracking"
+                      columns={2}
+                      titleAction={
+                        <Tooltip title="View activity history">
+                          <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                            <HistoryIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      }
+                    >
                       <TextField
                         label="Created Date"
                         size="small"
@@ -2012,6 +2046,54 @@ export default function PurchaseOrdersPage() {
     <>
       <MasterDetailLayout
         title="Purchase Orders"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "PO No",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search PO No"
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
+              },
+              {
+                key: "supplier",
+                label: "Supplier",
+                hasValue: !!draftSupplier,
+                render: () => <TSupplierFilter suppliers={suppliers || []} value={draftSupplier} onChange={setDraftSupplier} label="" size="small" />,
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => <TStatusFilter options={PO_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />,
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftBranch && !draftSupplier && !draftStatus && !searchQuery && !filterBranch && !filterSupplier && !filterStatus}
+          />
+        }
         headerActions={
           <Button
             variant="outlined"
@@ -2166,6 +2248,18 @@ export default function PurchaseOrdersPage() {
           title={`Print Purchase Order: ${selectedOrder?.purchasing_order_no || ""}`}
         />
       )}
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="purchase_order"
+        entityId={selectedOrder?.id}
+        actionLabels={{
+          create: "Order created",
+          approve: "Order approved",
+          reject: "Order rejected",
+        }}
+      />
     </>
   );
 }

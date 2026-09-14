@@ -137,3 +137,70 @@ def update_company_settings(
     # Later add a specific check for admin if needed
     comp_service = service.CompanySettingsService(db)
     return comp_service.update_company_settings(settings_update)
+
+
+# Currency Endpoints
+@router.get("/currencies", response_model=List[schemas.Currency], dependencies=[Depends(require_permission(*Permissions.SETTINGS_VIEW))])
+def list_currencies(
+    active_only: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all currencies available for selection"""
+    currency_service = service.CurrencyService(db)
+    return currency_service.list_currencies(active_only=active_only)
+
+
+@router.post("/currencies", response_model=schemas.Currency, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
+def create_currency(
+    currency: schemas.CurrencyCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add a new currency to the manageable list"""
+    currency_service = service.CurrencyService(db)
+    return currency_service.create_currency(currency)
+
+
+@router.put("/currencies/{currency_id}", response_model=schemas.Currency, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
+def update_currency(
+    currency_id: int,
+    currency: schemas.CurrencyUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update a currency's details"""
+    currency_service = service.CurrencyService(db)
+    return currency_service.update_currency(currency_id, currency)
+
+
+@router.delete("/currencies/{currency_id}", dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
+def delete_currency(
+    currency_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a currency (cannot delete the active one)"""
+    currency_service = service.CurrencyService(db)
+    currency_service.delete_currency(currency_id)
+    return {"message": "Currency deleted"}
+
+
+@router.put("/currencies/active/{code}", response_model=schemas.CompanySettings, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
+def set_active_currency(
+    code: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set the ERP-wide active currency"""
+    currency_service = service.CurrencyService(db)
+    return currency_service.set_active_currency(code)
+
+
+# Timezone Endpoints
+@router.get("/timezones", response_model=List[schemas.TimezoneOption], dependencies=[Depends(require_permission(*Permissions.SETTINGS_VIEW))])
+def list_timezones(
+    current_user: User = Depends(get_current_user),
+):
+    """List every IANA timezone with its current UTC offset"""
+    return service.list_timezones()

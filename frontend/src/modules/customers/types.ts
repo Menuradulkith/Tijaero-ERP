@@ -30,6 +30,8 @@ export interface Customer {
   updated_at: string;
   created_by?: number;
   updated_by?: number;
+  created_by_name?: string;
+  updated_by_name?: string;
 }
 
 export interface CustomerCreate {

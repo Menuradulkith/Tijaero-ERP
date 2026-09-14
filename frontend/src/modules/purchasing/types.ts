@@ -1,24 +1,20 @@
 // Supplier Types
 export interface Supplier {
   id: number;
-  title: string;
-  full_name: string;
-  name_in_cheque_card?: string;
-  occupation?: string;
-  company_name?: string;
+  company_name: string;
   company_registration_number?: string;
-  company_postal_address?: string;
-  company_contact_number?: string;
+  tax_registration_number?: string;
   company_website?: string;
-  postal_address: string;
-  permenent_address: string;
-  bank_details?: string;
-  birthdate?: string;
-  id_card_number?: string;
-  gender: string;
-  civil_status: string;
-  passport_no?: string;
-  no_of_kids: string;
+  billing_address_line1: string;
+  billing_address_line2?: string;
+  billing_city?: string;
+  billing_state?: string;
+  billing_postal_code?: string;
+  shipping_address_line1?: string;
+  shipping_address_line2?: string;
+  shipping_city?: string;
+  shipping_state?: string;
+  shipping_postal_code?: string;
   email?: string;
   home_contact_number?: string;
   mobile_contact_number: string;
@@ -29,27 +25,106 @@ export interface Supplier {
   date_joined: string;
   left_credit_amount?: number;
   initial_credit_amount?: number;
+  logo_path?: string;
+  average_lead_time_days?: number | null;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: number;
+  updated_by?: number;
+  created_by_name?: string;
+  updated_by_name?: string;
+}
+
+export interface SupplierActivityLogEntry {
+  id: number;
+  action: string;
+  changes?: Record<string, unknown> | null;
+  timestamp: string;
+  user_id: number;
+  user_name?: string;
+}
+
+export interface SupplierContactPerson {
+  id: number;
+  supplier_id: number;
+  title?: string;
+  full_name: string;
+  occupation?: string;
+  gender?: string;
+  birthdate?: string;
+  id_card_number?: string;
+  passport_no?: string;
+  email?: string;
+  phone?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierContactPersonCreate {
+  title?: string;
+  full_name: string;
+  occupation?: string;
+  gender?: string;
+  birthdate?: string;
+  id_card_number?: string;
+  passport_no?: string;
+  email?: string;
+  phone?: string;
+}
+
+export type SupplierContactPersonUpdate = Partial<SupplierContactPersonCreate>;
+
+// Supplier Payment Account Types (saved bank/cash/cheque details on a
+// supplier's profile — distinct from `SupplierPaymentMethod` below, which is
+// the method used on an actual posted SupplierPayment transaction)
+export type SupplierPaymentAccountType = "cash" | "bank_transfer" | "cheque";
+
+export interface SupplierPaymentAccount {
+  id: number;
+  supplier_id: number;
+  method_type: SupplierPaymentAccountType;
+  bank_name?: string;
+  account_number?: string;
+  account_holder_name?: string;
+  is_default: boolean;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierPaymentAccountCreate {
+  method_type: SupplierPaymentAccountType;
+  bank_name?: string;
+  account_number?: string;
+  account_holder_name?: string;
+  is_default?: boolean;
+  active?: boolean;
+}
+
+export interface SupplierPaymentAccountUpdate {
+  method_type?: SupplierPaymentAccountType;
+  bank_name?: string;
+  account_number?: string;
+  account_holder_name?: string;
+  is_default?: boolean;
+  active?: boolean;
 }
 
 export interface SupplierCreate {
-  title: string;
-  full_name: string;
-  name_in_cheque_card?: string;
-  occupation?: string;
-  company_name?: string;
+  company_name: string;
   company_registration_number?: string;
-  company_postal_address?: string;
-  company_contact_number?: string;
+  tax_registration_number?: string;
   company_website?: string;
-  postal_address: string;
-  permenent_address: string;
-  bank_details?: string;
-  birthdate?: string;
-  id_card_number?: string;
-  gender: string;
-  civil_status: string;
-  passport_no?: string;
-  no_of_kids: string;
+  billing_address_line1: string;
+  billing_address_line2?: string;
+  billing_city?: string;
+  billing_state?: string;
+  billing_postal_code?: string;
+  shipping_address_line1?: string;
+  shipping_address_line2?: string;
+  shipping_city?: string;
+  shipping_state?: string;
+  shipping_postal_code?: string;
   email?: string;
   home_contact_number?: string;
   mobile_contact_number: string;
@@ -60,24 +135,20 @@ export interface SupplierCreate {
 }
 
 export interface SupplierUpdate {
-  title?: string;
-  full_name?: string;
-  name_in_cheque_card?: string;
-  occupation?: string;
   company_name?: string;
   company_registration_number?: string;
-  company_postal_address?: string;
-  company_contact_number?: string;
+  tax_registration_number?: string;
   company_website?: string;
-  postal_address?: string;
-  permenent_address?: string;
-  bank_details?: string;
-  birthdate?: string;
-  id_card_number?: string;
-  gender?: string;
-  civil_status?: string;
-  passport_no?: string;
-  no_of_kids?: string;
+  billing_address_line1?: string;
+  billing_address_line2?: string;
+  billing_city?: string;
+  billing_state?: string;
+  billing_postal_code?: string;
+  shipping_address_line1?: string;
+  shipping_address_line2?: string;
+  shipping_city?: string;
+  shipping_state?: string;
+  shipping_postal_code?: string;
   email?: string;
   home_contact_number?: string;
   mobile_contact_number?: string;
@@ -85,6 +156,10 @@ export interface SupplierUpdate {
   max_credit_limit?: number;
   active?: boolean;
   country_id?: number;
+  /** The `updated_at` this edit was based on — lets the backend reject the
+   * save with a 409 if someone else changed the record in the meantime,
+   * instead of silently overwriting their change. Omit to skip the check. */
+  expected_updated_at?: string;
 }
 
 // Purchase Order Types

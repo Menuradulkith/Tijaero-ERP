@@ -1,30 +1,26 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, field_serializer
 from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
-from app.common.base_schemas import TijaeroBaseSchema
+from app.common.base_schemas import TijaeroBaseSchema, AuditSchema, format_datetime
 from app.common.enums import PurchaseOrderStatus, DocumentStatus
 
 class SupplierBase(BaseModel):
-    title: str
-    full_name: str
-    name_in_cheque_card: Optional[str] = None
-    occupation: Optional[str] = None
-    company_name: Optional[str] = None
+    company_name: str = Field(..., min_length=1)
     company_registration_number: Optional[str] = None
-    company_postal_address: Optional[str] = None
-    company_contact_number: Optional[str] = None
+    tax_registration_number: Optional[str] = None
     company_website: Optional[str] = None
-    postal_address: str
-    permenent_address: str
-    bank_details: Optional[str] = None
-    birthdate: Optional[date] = None
-    id_card_number: Optional[str] = None
-    gender: str
-    civil_status: str
-    passport_no: Optional[str] = None
-    no_of_kids: str
+    billing_address_line1: str
+    billing_address_line2: Optional[str] = None
+    billing_city: Optional[str] = None
+    billing_state: Optional[str] = None
+    billing_postal_code: Optional[str] = None
+    shipping_address_line1: Optional[str] = None
+    shipping_address_line2: Optional[str] = None
+    shipping_city: Optional[str] = None
+    shipping_state: Optional[str] = None
+    shipping_postal_code: Optional[str] = None
     email: Optional[EmailStr] = None
     home_contact_number: Optional[str] = None
     mobile_contact_number: str
@@ -37,24 +33,20 @@ class SupplierCreate(SupplierBase):
     pass
 
 class SupplierUpdate(BaseModel):
-    title: Optional[str] = None
-    full_name: Optional[str] = None
-    name_in_cheque_card: Optional[str] = None
-    occupation: Optional[str] = None
-    company_name: Optional[str] = None
+    company_name: Optional[str] = Field(default=None, min_length=1)
     company_registration_number: Optional[str] = None
-    company_postal_address: Optional[str] = None
-    company_contact_number: Optional[str] = None
+    tax_registration_number: Optional[str] = None
     company_website: Optional[str] = None
-    postal_address: Optional[str] = None
-    permenent_address: Optional[str] = None
-    bank_details: Optional[str] = None
-    birthdate: Optional[date] = None
-    id_card_number: Optional[str] = None
-    gender: Optional[str] = None
-    civil_status: Optional[str] = None
-    passport_no: Optional[str] = None
-    no_of_kids: Optional[str] = None
+    billing_address_line1: Optional[str] = None
+    billing_address_line2: Optional[str] = None
+    billing_city: Optional[str] = None
+    billing_state: Optional[str] = None
+    billing_postal_code: Optional[str] = None
+    shipping_address_line1: Optional[str] = None
+    shipping_address_line2: Optional[str] = None
+    shipping_city: Optional[str] = None
+    shipping_state: Optional[str] = None
+    shipping_postal_code: Optional[str] = None
     email: Optional[EmailStr] = None
     home_contact_number: Optional[str] = None
     mobile_contact_number: Optional[str] = None
@@ -62,12 +54,112 @@ class SupplierUpdate(BaseModel):
     max_credit_limit: Optional[Decimal] = None
     active: Optional[bool] = None
     country_id: Optional[int] = None
+    # Optimistic concurrency check: the `updated_at` the client last saw for
+    # this supplier. If omitted, no check is performed (backward compatible).
+    # If it no longer matches the current row, the update is rejected with a
+    # 409 instead of silently overwriting someone else's more recent change.
+    expected_updated_at: Optional[datetime] = None
 
-class Supplier(SupplierBase, TijaeroBaseSchema):
+class Supplier(SupplierBase, AuditSchema):
     id: int
     date_joined: datetime
     left_credit_amount: Optional[Decimal] = None
     initial_credit_amount: Optional[Decimal] = None
+    logo_path: Optional[str] = None
+    average_lead_time_days: Optional[float] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
+
+
+class SupplierActivityLogEntry(BaseModel):
+    """One row of the supplier's modification history (Record Information ->
+    Activity History), backed by the generic audit_logs table."""
+    id: int
+    action: str
+    changes: Optional[dict] = None
+    timestamp: datetime
+    user_id: int
+    user_name: Optional[str] = None
+
+    @field_serializer('timestamp')
+    def _serialize_timestamp(self, dt: datetime) -> str:
+        return format_datetime(dt)
+
+
+def _validate_birthdate_not_future(v: Optional[date]) -> Optional[date]:
+    if v is not None and v > date.today():
+        raise ValueError("Birthdate cannot be a future date")
+    return v
+
+
+class SupplierContactPersonBase(BaseModel):
+    title: Optional[str] = None
+    full_name: str
+    occupation: Optional[str] = None
+    gender: Optional[str] = None
+    birthdate: Optional[date] = None
+    id_card_number: Optional[str] = None
+    passport_no: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+
+    @field_validator("birthdate")
+    @classmethod
+    def _birthdate_not_future(cls, v):
+        return _validate_birthdate_not_future(v)
+
+
+class SupplierContactPersonCreate(SupplierContactPersonBase):
+    pass
+
+
+class SupplierContactPersonUpdate(BaseModel):
+    title: Optional[str] = None
+    full_name: Optional[str] = None
+    occupation: Optional[str] = None
+    gender: Optional[str] = None
+    birthdate: Optional[date] = None
+    id_card_number: Optional[str] = None
+    passport_no: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+
+    @field_validator("birthdate")
+    @classmethod
+    def _birthdate_not_future(cls, v):
+        return _validate_birthdate_not_future(v)
+
+
+class SupplierContactPerson(SupplierContactPersonBase, AuditSchema):
+    id: int
+    supplier_id: int
+
+
+class SupplierPaymentMethodBase(BaseModel):
+    method_type: str  # cash, bank_transfer, cheque
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    account_holder_name: Optional[str] = None
+    is_default: bool = False
+    active: bool = True
+
+
+class SupplierPaymentMethodCreate(SupplierPaymentMethodBase):
+    pass
+
+
+class SupplierPaymentMethodUpdate(BaseModel):
+    method_type: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    account_holder_name: Optional[str] = None
+    is_default: Optional[bool] = None
+    active: Optional[bool] = None
+
+
+class SupplierPaymentMethod(SupplierPaymentMethodBase, AuditSchema):
+    id: int
+    supplier_id: int
 
 class PurchasingOrderItemBase(BaseModel):
     product_id: int

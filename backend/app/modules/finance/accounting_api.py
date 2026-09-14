@@ -142,9 +142,14 @@ def create_journal_entry(
 
 
 @router.put("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
-def update_journal_entry(je_id: int, data: schemas.JournalEntryUpdate, db: Session = Depends(get_db)):
+def update_journal_entry(
+    je_id: int,
+    data: schemas.JournalEntryUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Update a draft journal entry."""
-    je = JournalEntryService(db).update_journal_entry(je_id, data)
+    je = JournalEntryService(db).update_journal_entry(je_id, data, updated_by=current_user.id)
     return _serialize_je(je)
 
 
@@ -217,9 +222,13 @@ def reverse_journal_entry(
 
 
 @router.delete("/journal-entries/{je_id}", dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_DELETE))])
-def delete_journal_entry(je_id: int, db: Session = Depends(get_db)):
+def delete_journal_entry(
+    je_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Delete a draft journal entry."""
-    JournalEntryService(db).delete_journal_entry(je_id)
+    JournalEntryService(db).delete_journal_entry(je_id, deleted_by=current_user.id)
     return {"message": "Journal entry deleted successfully"}
 
 
@@ -724,9 +733,13 @@ def get_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/cash-flow/statements/{statement_id}/finalize", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
-def finalize_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
+def finalize_cash_flow_statement(
+    statement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Finalize a draft cash flow statement."""
-    return CashFlowService(db).finalize_statement(statement_id)
+    return CashFlowService(db).finalize_statement(statement_id, finalized_by=current_user.id)
 
 
 @router.post("/cash-flow/statements/{statement_id}/approve", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
@@ -740,9 +753,13 @@ def approve_cash_flow_statement(
 
 
 @router.delete("/cash-flow/statements/{statement_id}", dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
-def delete_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
+def delete_cash_flow_statement(
+    statement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Delete a draft cash flow statement."""
-    CashFlowService(db).delete_statement(statement_id)
+    CashFlowService(db).delete_statement(statement_id, deleted_by=current_user.id)
     return {"message": "Statement deleted successfully"}
 
 

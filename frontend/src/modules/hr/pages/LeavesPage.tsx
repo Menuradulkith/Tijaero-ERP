@@ -20,9 +20,9 @@ import {
   SortOption,
   TConfirmDialog,
   TDetailSkeleton,
-  TFilterPanel,
   TExportButton,
   TStatusFilter,
+  TTabFilterBar,
   type TFilterStatusOption,
   handleApiError,
   showErrorToast,
@@ -92,7 +92,24 @@ export default function LeavesPage() {
   const canUpdate = usePermission("leaves", "update");
   const canDelete = usePermission("leaves", "delete");
 
+  // Filter state (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+  // Filter state (draft - edited via the header filter bar, only applied on Search click)
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+  }, [draftSearchQuery, draftStatus]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+  }, []);
 
   const {
     searchQuery,
@@ -240,24 +257,13 @@ export default function LeavesPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      searchPlaceholder="Search by employee, type, reason..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       currentSort={sortField}
       onSortChange={setSortField}
       selectedItem={selectedLeave}
       onSelectItem={handleSelectItem}
       emptyMessage="No leave applications found"
-      listHeader={
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, p: 1.5, pb: 0 }}>
-          <TFilterPanel>
-            <TStatusFilter
-              options={STATUS_OPTIONS}
-              value={filterStatus}
-              onChange={setFilterStatus}
-            />
-          </TFilterPanel>
-        </Box>
-      }
       renderItem={(leave, isSelected) => (
         <SelectableListItem
           key={leave.id}
@@ -464,6 +470,50 @@ export default function LeavesPage() {
     <>
       <MasterDetailLayout
         title="Leaves"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search by employee, type, reason..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TStatusFilter
+                    options={STATUS_OPTIONS}
+                    value={draftStatus}
+                    onChange={setDraftStatus}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !searchQuery && !filterStatus}
+          />
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}

@@ -41,8 +41,8 @@ import {
   TBranchFilter,
   TConfirmDialog,
   TExportButton,
-  TFilterPanel,
   TStatusChip,
+  TTabFilterBar,
   TSupplierFilter,
   useCrudMutation,
   useMasterDetailState,
@@ -108,12 +108,36 @@ export default function PurchaseInvoicesPage() {
   const [loadingGRNs, setLoadingGRNs] = useState(false);
   const [detailedInvoice, setDetailedInvoice] = useState<PurchaseInvoice | null>(null);
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterPaymentType, setFilterPaymentType] = useState<string | null>(null);
   const [filterPO, setFilterPO] = useState<string>("");
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSupplier, setDraftSupplier] = useState<number | null>(null);
+  const [draftPO, setDraftPO] = useState<string>("");
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+    setFilterSupplier(draftSupplier);
+    setFilterPO(draftPO);
+  }, [draftSearchQuery, draftBranch, draftSupplier, draftPO]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setDraftSupplier(null);
+    setDraftPO("");
+    setSearchQuery("");
+    setFilterBranch(null);
+    setFilterSupplier(null);
+    setFilterPO("");
+  }, []);
 
   const confirmDialog = useTConfirmDialog();
 
@@ -325,7 +349,7 @@ export default function PurchaseInvoicesPage() {
 
   const getSupplierName = (supplierId: number) => {
     const supplier = suppliers?.find((s: Supplier) => s.id === supplierId);
-    return supplier ? supplier.full_name : "Unknown";
+    return supplier ? supplier.company_name : "Unknown";
   };
 
   // GRN selection toggle
@@ -452,39 +476,13 @@ export default function PurchaseInvoicesPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search invoices..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedInvoice}
       onSelectItem={handleSelectInvoiceWithDetail}
       emptyMessage="No purchase invoices found"
-      listHeader={
-        <TFilterPanel>
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-          <TSupplierFilter
-            suppliers={suppliers || []}
-            value={filterSupplier}
-            onChange={setFilterSupplier}
-          />
-          <Autocomplete
-            size="small"
-            options={purchaseOrders}
-            getOptionLabel={(option) => option.purchasing_order_no || ""}
-            value={purchaseOrders.find((po) => po.purchasing_order_no === filterPO) || null}
-            onChange={(_, newValue) => setFilterPO(newValue?.purchasing_order_no || "")}
-            renderInput={(params) => (
-              <TextField {...params} placeholder="Filter by PO" label="Filter by PO" />
-            )}
-            sx={{ minWidth: 200 }}
-            clearOnEscape
-          />
-        </TFilterPanel>
-      }
       renderItem={(invoice, isSelected) => (
         <SelectableListItem
           key={invoice.id}
@@ -645,9 +643,7 @@ export default function PurchaseInvoicesPage() {
               <Autocomplete
                 size="small"
                 options={suppliers || []}
-                getOptionLabel={(option: Supplier) =>
-                  option.company_name ? `${option.full_name} (${option.company_name})` : option.full_name
-                }
+                getOptionLabel={(option: Supplier) => option.company_name}
                 value={suppliers?.find((s: Supplier) => s.id === formData.supplier_id) || null}
                 onChange={(_, newValue: Supplier | null) =>
                   setFormData({ ...formData, supplier_id: newValue?.id || 0 })
@@ -864,6 +860,65 @@ export default function PurchaseInvoicesPage() {
     <>
       <MasterDetailLayout
         title="Supplier Voucher Payment"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Invoice",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search invoices..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
+              },
+              {
+                key: "supplier",
+                label: "Supplier",
+                hasValue: !!draftSupplier,
+                render: () => <TSupplierFilter suppliers={suppliers || []} value={draftSupplier} onChange={setDraftSupplier} label="" size="small" />,
+              },
+              {
+                key: "po",
+                label: "PO",
+                hasValue: !!draftPO,
+                render: () => (
+                  <Autocomplete
+                    size="small"
+                    options={purchaseOrders}
+                    getOptionLabel={(option) => option.purchasing_order_no || ""}
+                    value={purchaseOrders.find((po) => po.purchasing_order_no === draftPO) || null}
+                    onChange={(_, newValue) => setDraftPO(newValue?.purchasing_order_no || "")}
+                    renderInput={(params) => <TextField {...params} placeholder="All POs" />}
+                    clearOnEscape
+                    fullWidth
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftBranch && !draftSupplier && !draftPO && !searchQuery && !filterBranch && !filterSupplier && !filterPO}
+          />
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["purchaseInvoices"] });
         }}

@@ -47,16 +47,18 @@ import {
     getStatusProps,
     handleApiError,
     SortOption,
+    TBranchFilter,
     TConfirmDialog,
     TDetailSkeleton,
     TPrintPreviewDialog,
+    TStatusFilter,
+    TTabFilterBar,
     showSuccessToast,
     showErrorToast,
     modernTableStyles,
     useCrudMutation,
     useTConfirmDialog,
 } from "@/components/tijaero";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 
 import { saleReturnsApi, salesApi } from "@/modules/sales/api";
 import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
@@ -74,9 +76,14 @@ export default function SaleReturnApprovalsPage() {
     const [sortField, setSortField] = useState("added_date");
     const [selectedReturn, setSelectedReturn] = useState<SaleReturnWithItems | null>(null);
 
-    // Filter states
+    // Filter states (applied - drives the actual list filtering)
     const [filterStatus, setFilterStatus] = useState<string | null>("pending"); // Default to pending
     const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+    // Filter states (draft - edited via the header filter bar, only applied on Search click)
+    const [draftStatus, setDraftStatus] = useState<string | null>("pending");
+    const [draftBranch, setDraftBranch] = useState<string | null>(null);
+    const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
     // Dialogs
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -107,8 +114,24 @@ export default function SaleReturnApprovalsPage() {
     useEffect(() => {
       if (defaultBranchCode && filterBranch === null) {
         setFilterBranch(defaultBranchCode);
+        setDraftBranch(defaultBranchCode);
       }
     }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const handleApplyFilters = useCallback(() => {
+      setSearchQuery(draftSearchQuery);
+      setFilterStatus(draftStatus);
+      setFilterBranch(draftBranch);
+    }, [draftSearchQuery, draftStatus, draftBranch]);
+
+    const handleClearFilters = useCallback(() => {
+      setDraftSearchQuery("");
+      setDraftStatus(null);
+      setDraftBranch(null);
+      setSearchQuery("");
+      setFilterStatus(null);
+      setFilterBranch(null);
+    }, []);
 
     // Create lookup maps
     const productMap = useMemo(() => {
@@ -257,22 +280,12 @@ export default function SaleReturnApprovalsPage() {
             isLoading={isLoading}
             searchValue={searchQuery}
             onSearchChange={setSearchQuery}
-            placeholder="Search returns..."
+            hideSearch
             sortOptions={SORT_OPTIONS}
             sortField={sortField}
             onSortChange={setSortField}
             selectedItem={selectedReturn}
             emptyMessage="No returns found"
-            listHeader={
-                <SalesFilterPanel
-                    statusOptions={RETURN_STATUS_FILTER_OPTIONS}
-                    statusValue={filterStatus}
-                    onStatusChange={setFilterStatus}
-                    branches={branches}
-                    branchValue={filterBranch}
-                    onBranchChange={setFilterBranch}
-                />
-            }
             renderItem={(ret, isSelected) => {
                 const statusChip = getStatusProps(ret.status || "pending", "salesReturn");
                 return (
@@ -629,6 +642,52 @@ export default function SaleReturnApprovalsPage() {
             <MasterDetailLayout
                 title="Sale Return Approvals"
                 icon={<FactCheckIcon color="primary" />}
+                titleSlot={
+                    <TTabFilterBar
+                        tabs={[
+                            {
+                                key: "search",
+                                label: "Search",
+                                hasValue: !!draftSearchQuery,
+                                render: ({ close }) => (
+                                    <TextField
+                                        size="small"
+                                        autoFocus
+                                        placeholder="Search returns..."
+                                        value={draftSearchQuery}
+                                        onChange={(e) => setDraftSearchQuery(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                handleApplyFilters();
+                                                close();
+                                            }
+                                        }}
+                                        fullWidth
+                                    />
+                                ),
+                            },
+                            {
+                                key: "status",
+                                label: "Status",
+                                hasValue: !!draftStatus,
+                                render: () => (
+                                    <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
+                                ),
+                            },
+                            {
+                                key: "branch",
+                                label: "Branch",
+                                hasValue: !!draftBranch,
+                                render: () => (
+                                    <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                                ),
+                            },
+                        ]}
+                        onSearch={handleApplyFilters}
+                        onClear={handleClearFilters}
+                        clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+                    />
+                }
                 onRefresh={() => refetch()}
                 isLoading={isLoading}
                 masterPanel={masterPanel}

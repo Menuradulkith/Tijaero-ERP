@@ -10,6 +10,7 @@ from app.core import timezone as tz
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
+from app.common.audit import log_audit
 from app.modules.customers.commission_repository import commission_repository
 from app.modules.customers.commission_schemas import (
     CustomerAgentCommissionCreate,
@@ -405,6 +406,12 @@ class CommissionService:
 
         # Create the payment in 'pending' status. No ledger impact until verified.
         payment = commission_repository.create_payment(db, payment_data, items_data)
+        log_audit(
+            db, user_id=created_by or 0, action="create",
+            entity_type="commission_payment", entity_id=payment.id,
+            changes={"payment_no": payment.payment_no, "payment_amount": str(payment.payment_amount)},
+        )
+        db.commit()
         return payment
 
     def verify_payment(
@@ -444,6 +451,11 @@ class CommissionService:
                 ).scalar()
                 if Decimal(str(total_verified)) >= Decimal(str(commission.commission_amount)):
                     commission.status = "paid"
+        log_audit(
+            db, user_id=verified_by or 0, action="verify",
+            entity_type="commission_payment", entity_id=payment.id,
+            changes={"status": "verified"},
+        )
         db.commit()
 
         # ── GL Auto-Posting: Commission Payment Verified ────────────────
@@ -461,7 +473,7 @@ class CommissionService:
 
         return payment
 
-    def cancel_payment(self, db: Session, payment_id: int) -> CustomerAgentCommissionPayment:
+    def cancel_payment(self, db: Session, payment_id: int, cancelled_by: Optional[int] = None) -> CustomerAgentCommissionPayment:
         """Cancel a pending payment.
 
         Only 'pending' payments can be cancelled, and pending payments never
@@ -493,6 +505,11 @@ class CommissionService:
                 ).scalar()
                 if Decimal(str(total_verified)) < Decimal(str(commission.commission_amount)):
                     commission.status = "approved"
+        log_audit(
+            db, user_id=cancelled_by or 0, action="cancel",
+            entity_type="commission_payment", entity_id=payment.id,
+            changes={"status": "cancelled"},
+        )
         db.commit()
 
         return payment

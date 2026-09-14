@@ -39,8 +39,11 @@ export interface MasterDetailLayoutProps {
   title: string;
   /** Optional icon for the title */
   icon?: ReactNode;
-  /** Refresh callback */
-  onRefresh?: () => void;
+  /** Replaces the icon+title area entirely with custom content (e.g. an inline filter bar) */
+  titleSlot?: ReactNode;
+  /** Refresh callback. May return a Promise (e.g. React Query's `refetch`) so the
+   * header's refresh button can show a spinner for the duration of the refresh. */
+  onRefresh?: () => void | Promise<unknown>;
   /** Page children (for simple usage without masterPanel/detailPanel) */
   children?: ReactNode;
   /** Master list panel content */
@@ -109,6 +112,8 @@ export interface SearchableListProps<T extends BaseEntity> {
   onToggleFavorite?: (id: number, e: React.MouseEvent) => void;
   /** Custom list header */
   listHeader?: ReactNode;
+  /** Hide the built-in search input box (default: false) */
+  hideSearch?: boolean;
   /** Enable lightweight list virtualization (windowed rendering) */
   virtualize?: boolean;
   /** Estimated row height in pixels for virtualization */
@@ -257,6 +262,9 @@ export interface FormSectionProps {
   defaultCollapsed?: boolean;
   /** Section icon */
   icon?: ReactNode;
+  /** Optional action rendered on the same line as the title, right-aligned
+   * (e.g. a detail/history icon button) */
+  titleAction?: ReactNode;
   /** Is last section (no margin bottom) */
   isLast?: boolean;
   /** Custom styles */

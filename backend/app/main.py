@@ -5,6 +5,7 @@ from datetime import date, datetime
 import app.models  # noqa: F401
 import orjson
 from app.api.v1.router import api_router
+from app.common.base_schemas import format_datetime
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.middleware import setup_middleware
@@ -21,9 +22,12 @@ from sqlalchemy.exc import SQLAlchemyError
 # ── Fast ORJSONResponse ───────────────────────────────────────────────
 def _default_serializer(obj):
     """orjson doesn't handle date/datetime natively the way we want.
-    We strip microseconds here so the output stays consistent."""
+    Route datetimes through the same offset-aware formatter Pydantic
+    schemas use (app.common.base_schemas.format_datetime) so every
+    timestamp in the API — whether it went through a response_model or
+    was returned as a raw dict — carries the ERP's configured UTC offset."""
     if isinstance(obj, datetime):
-        return obj.strftime("%Y-%m-%d %H:%M:%S")
+        return format_datetime(obj)
     if isinstance(obj, date):
         return obj.strftime("%Y-%m-%d")
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
@@ -154,6 +158,14 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 setup_middleware(app)
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+# Serve locally-uploaded files (e.g. supplier logos) — see app.common.file_storage.
+from pathlib import Path as _Path
+from fastapi.staticfiles import StaticFiles
+
+_upload_dir = _Path(settings.UPLOAD_DIR)
+_upload_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_upload_dir)), name="uploads")
+
 
 # ── Audit User Context Middleware ────────────────────────────────────
 from app.core.audit_context import current_user_id
@@ -205,12 +217,20 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         field = " -> ".join(str(loc) for loc in err.get("loc", []))
         errors.append({"field": field, "message": err.get("msg")})
 
+    # Each raw error's "ctx" can embed the actual exception object (e.g. a
+    # ValueError raised from a field_validator), which isn't JSON-serializable
+    # on its own — drop "ctx" from the raw payload we echo back (the human
+    # readable "msg"/"message" already carries its text).
+    raw_errors = [
+        {k: v for k, v in err.items() if k != "ctx"} for err in exc.errors()
+    ]
+
     return JSONResponse(
         status_code=422,
         content={
             "detail": "Data validation failed",
             "messages": errors,
-            "raw": exc.errors(),
+            "raw": raw_errors,
         },
     )
 
@@ -274,6 +294,26 @@ def debug_headers(request: Request):
         "client": request.client,
         "headers": dict(request.headers),
     }
+
+
+@app.on_event("startup")
+def _load_configured_timezone():
+    """Seed app.core.timezone.LOCAL_TZ from the persisted company settings
+    (Settings.default_timezone) on boot, so a freshly started worker uses
+    the admin-configured zone instead of only the app config's default."""
+    from app.core import timezone as tz
+    from app.db.session import SessionLocal
+    from app.modules.settings.service import CompanySettingsService
+
+    db = SessionLocal()
+    try:
+        company_settings = CompanySettingsService(db).get_company_settings()
+        if company_settings.default_timezone:
+            tz.set_timezone(company_settings.default_timezone)
+    except Exception:
+        logging.warning("Could not load configured timezone at startup; using default.", exc_info=True)
+    finally:
+        db.close()
 
 
 # Railway (and most PaaS) terminate TLS at the edge and proxy to this

@@ -42,9 +42,9 @@ import {
   SelectableListItem,
   type SortOption,
   TBranchFilter,
-  TFilterPanel,
   TStatCard,
   TStatusChip,
+  TTabFilterBar,
   showErrorToast,
   showSuccessToast,
   TConfirmDialog,
@@ -85,6 +85,11 @@ export default function PayrollApprovalsPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<PayrollBatch | null>(null);
 
+  // Filter state (draft - edited via the header filter bar, only applied on Search click)
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+  const [draftStatus, setDraftStatus] = useState<string>("pending");
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -98,8 +103,24 @@ export default function PayrollApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftStatus, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus("");
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus("");
+    setFilterBranch(null);
+  }, []);
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -211,33 +232,11 @@ export default function PayrollApprovalsPage() {
 
   const masterPanel = (
     <Box>
-      <TFilterPanel>
-        <TBranchFilter
-          branches={branches}
-          value={filterBranch}
-          onChange={setFilterBranch}
-        />
-        <TextField
-          select
-          size="small"
-          label="Status"
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          sx={{ minWidth: 150 }}
-        >
-          {STATUS_FILTER_OPTIONS.map((opt) => (
-            <MenuItem key={opt.value} value={opt.value || ""}>
-              {opt.label}
-            </MenuItem>
-          ))}
-        </TextField>
-      </TFilterPanel>
-
       <SearchableList
         items={filteredBatches}
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
-        placeholder="Search payroll batches..."
+        hideSearch
         sortOptions={SORT_OPTIONS}
         sortField={sortField}
         onSortChange={setSortField}
@@ -440,6 +439,70 @@ export default function PayrollApprovalsPage() {
       <MasterDetailLayout
         title="Payroll Approvals"
         icon={<AccountBalanceWalletIcon />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search by batch no, description..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter
+                    branches={branches}
+                    value={draftBranch}
+                    onChange={setDraftBranch}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TextField
+                    select
+                    size="small"
+                    value={draftStatus}
+                    onChange={(e) => setDraftStatus(e.target.value)}
+                    fullWidth
+                  >
+                    {STATUS_FILTER_OPTIONS.map((opt) => (
+                      <MenuItem key={opt.value} value={opt.value || ""}>
+                        {opt.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+          />
+        }
         masterPanel={masterPanel}
         detailPanel={detailPanel}
       />

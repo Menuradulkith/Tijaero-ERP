@@ -81,9 +81,32 @@ export interface CompanySettings {
   master_card_surcharge: number;
   fiscal_year_start: string;
   default_currency: string;
+  default_timezone: string;
   tax_registration_number?: string;
 }
 
 export interface CompanySettingsUpdate extends Partial<
   Omit<CompanySettings, "id">
 > {}
+
+export interface Currency {
+  id: number;
+  code: string;
+  name: string;
+  symbol: string;
+  is_active: boolean;
+}
+
+export interface CurrencyCreate {
+  code: string;
+  name: string;
+  symbol: string;
+  is_active?: boolean;
+}
+
+export type CurrencyUpdate = Partial<Omit<CurrencyCreate, "code">>;
+
+export interface TimezoneOption {
+  name: string;
+  offset: string;
+}

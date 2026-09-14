@@ -143,13 +143,8 @@ class TestConcurrencyAndRaceConditions:
 
             # 3. Supplier
             self.supplier = Supplier(
-                title="Mr",
-                full_name=_uid("Supp"),
-                postal_address="Postal Address",
-                permenent_address="Permanent Address",
-                gender="male",
-                civil_status="single",
-                no_of_kids="0",
+                company_name=_uid("Supp"),
+                billing_address_line1="Billing Address",
                 mobile_contact_number="0770000000",
                 credit_days=30,
                 max_credit_limit=1000000,

@@ -1,6 +1,7 @@
 
     
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import HistoryIcon from "@mui/icons-material/History";
 import PaymentIcon from "@mui/icons-material/Payment";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SendIcon from "@mui/icons-material/Send";
@@ -16,11 +17,13 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   MenuItem,
   Step,
   StepLabel,
   Stepper,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -49,15 +52,16 @@ import {
   type SortOption,
   TBranchFilter,
   TConfirmDialog,
-  TFilterPanel,
   TPrintButton,
   TPrintPreviewDialog,
   TSearchableSelect,
   TStatusChip,
+  TTabFilterBar,
   useConfirmDialog,
   useTConfirmDialog,
   useMasterDetailState,
   useCrudMutation,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 
@@ -123,6 +127,12 @@ export default function ExpensesPage() {
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [formStep, setFormStep] = useState(0);
 
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftCategory, setDraftCategory] = useState<string | null>(null);
+
   // Workflow dialogs (kept for submit, approve, reject, payment, record actions)
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
@@ -143,6 +153,7 @@ export default function ExpensesPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -184,6 +195,10 @@ export default function ExpensesPage() {
     onDiscard: () => { setFormStep(0); },
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Status & Dates section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   const handleStartEdit = useCallback(() => {
     handleStartEditBase();
     setFormStep(0);
@@ -204,6 +219,24 @@ export default function ExpensesPage() {
     }
     setFormStep(0);
   }, [handleNewExpenseBase, defaultBranchCode, setFormData]);
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+    setFilterCategory(draftCategory);
+  }, [draftSearchQuery, draftStatus, draftBranch, draftCategory]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setDraftCategory(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranch(null);
+    setFilterCategory(null);
+  }, []);
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -455,46 +488,10 @@ export default function ExpensesPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search expenses..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
-      listHeader={
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, p: 1 }}>
-          <TFilterPanel>
-            <TBranchFilter
-              branches={branches}
-              value={filterBranch}
-              onChange={setFilterBranch}
-            />
-          </TFilterPanel>
-          <TSearchableSelect
-            label="Status"
-            value={filterStatus}
-            onChange={(val) => setFilterStatus(val as string | null)}
-            options={STATUS_FILTER_OPTIONS.map((s) => ({
-              value: s.value,
-              label: s.label,
-              color: s.color,
-            }))}
-            showAllOption
-            allOptionLabel="All Statuses"
-            placeholder="Search status..."
-          />
-          <TSearchableSelect
-            label="Category"
-            value={filterCategory}
-            onChange={(val) => setFilterCategory(val as string | null)}
-            options={EXPENSE_CATEGORIES.map((c) => ({
-              value: c.value,
-              label: c.label,
-            }))}
-            showAllOption
-            allOptionLabel="All Categories"
-            placeholder="Search category..."
-          />
-        </Box>
-      }
       renderItem={(expense: Expense, isSelected: boolean) => {
         return (
           <SelectableListItem
@@ -864,7 +861,17 @@ export default function ExpensesPage() {
                 {/* View mode: show additional fields */}
                 {!isCreating && !isEditing && detail && (
                   <>
-                    <FormSection title="Status & Dates" columns={3}>
+                    <FormSection
+                      title="Status & Dates"
+                      columns={3}
+                      titleAction={
+                        <Tooltip title="View activity history">
+                          <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                            <HistoryIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      }
+                    >
                       <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 1 }}>
                         <Typography variant="body2" color="text.secondary">
                           Status:
@@ -993,6 +1000,100 @@ export default function ExpensesPage() {
     <>
       <MasterDetailLayout
         title="Expenses"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search expenses..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter
+                    branches={branches}
+                    value={draftBranch}
+                    onChange={setDraftBranch}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftStatus}
+                    onChange={(val) => setDraftStatus(val as string | null)}
+                    options={STATUS_FILTER_OPTIONS.map((s) => ({
+                      value: s.value,
+                      label: s.label,
+                      color: s.color,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Statuses"
+                    placeholder="Search status..."
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "category",
+                label: "Category",
+                hasValue: !!draftCategory,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftCategory}
+                    onChange={(val) => setDraftCategory(val as string | null)}
+                    options={EXPENSE_CATEGORIES.map((c) => ({
+                      value: c.value,
+                      label: c.label,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Categories"
+                    placeholder="Search category..."
+                    size="small"
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={
+              !draftSearchQuery &&
+              !draftStatus &&
+              !draftBranch &&
+              !draftCategory &&
+              !searchQuery &&
+              !filterStatus &&
+              !filterBranch &&
+              !filterCategory
+            }
+          />
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["expenses"] });
           queryClient.invalidateQueries({ queryKey: ["expense-detail"] });
@@ -1207,6 +1308,19 @@ export default function ExpensesPage() {
           title={`Print Expense: ${selectedExpenseForPrint.expenses_no}`}
         />
       )}
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="expense"
+        entityId={selectedExpense?.id}
+        actionLabels={{
+          create: "Expense created",
+          submit: "Expense submitted",
+          approve: "Expense approved",
+          reject: "Expense rejected",
+        }}
+      />
     </>
   );
 }

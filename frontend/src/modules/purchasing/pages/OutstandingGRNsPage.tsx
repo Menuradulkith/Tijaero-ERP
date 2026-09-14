@@ -216,7 +216,7 @@ export default function OutstandingGRNsPage() {
       return;
     }
     const supplierLabel = selectedSupplier
-      ? selectedSupplier.full_name
+      ? selectedSupplier.company_name
       : "All Suppliers";
     const branchLabel =
       selectedBranch !== "all"
@@ -343,11 +343,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
             <Autocomplete
               size="small"
               options={suppliers}
-              getOptionLabel={(o) =>
-                o.company_name
-                  ? `${o.full_name} (${o.company_name})`
-                  : o.full_name
-              }
+              getOptionLabel={(o) => o.company_name}
               value={selectedSupplier}
               onChange={(_, v) => setSelectedSupplier(v)}
               renderInput={(params) => (

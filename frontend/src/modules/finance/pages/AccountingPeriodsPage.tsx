@@ -8,6 +8,7 @@
 
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import HistoryIcon from "@mui/icons-material/History";
 import LockIcon from "@mui/icons-material/Lock";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import {
@@ -20,8 +21,10 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   MenuItem,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
@@ -39,14 +42,15 @@ import {
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  TFilterPanel,
   TSearchableSelect,
+  TTabFilterBar,
   TExportButton,
   type SortOption,
   TDetailSkeleton,
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { accountingPeriodsApi } from "@/modules/finance/api";
@@ -86,6 +90,30 @@ export default function AccountingPeriodsPage() {
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterYear, setFilterYear] = useState<number | "">(new Date().getFullYear());
   const [selectedPeriod, setSelectedPeriod] = useState<AccountingPeriod | null>(null);
+
+  // Activity History is opened on demand from a detail icon next to the
+  // Audit section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  // Filter state (draft - edited via the filter bar, only applied on Search click)
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftYear, setDraftYear] = useState<number | "">(new Date().getFullYear());
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterYear(draftYear);
+  }, [draftSearchQuery, draftStatus, draftYear]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftYear("");
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterYear("");
+  }, []);
 
   // Generate dialog
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
@@ -218,38 +246,13 @@ export default function AccountingPeriodsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search periods..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedPeriod}
       onSelectItem={(p) => setSelectedPeriod(p)}
       emptyMessage="No accounting periods found"
-      listHeader={
-        <TFilterPanel>
-          <TSearchableSelect
-            label="Status"
-            value={filterStatus}
-            onChange={(val) => setFilterStatus(val as string | null)}
-            options={STATUS_FILTER_OPTIONS.map((s) => ({
-              value: s.value,
-              label: s.label,
-              color: s.color,
-            }))}
-            showAllOption
-            allOptionLabel="All Statuses"
-            placeholder="Search status..."
-          />
-          <TextField
-            label="Fiscal Year"
-            type="number"
-            size="small"
-            value={filterYear}
-            onChange={(e) => setFilterYear(e.target.value ? Number(e.target.value) : "")}
-            fullWidth
-          />
-        </TFilterPanel>
-      }
       renderItem={(period: AccountingPeriod, isSelected: boolean) => {
         const statusColor = getStatusColor(period.status);
         return (
@@ -483,7 +486,17 @@ export default function AccountingPeriodsPage() {
             </FormSection>
 
             {selectedPeriod.created_at && (
-              <FormSection title="Audit" columns={2}>
+              <FormSection
+                title="Audit"
+                columns={2}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
                 <TextField
                   label="Created At"
                   size="small"
@@ -513,6 +526,72 @@ export default function AccountingPeriodsPage() {
       <MasterDetailLayout
         title="Accounting Periods"
         icon={<CalendarMonthIcon color="primary" />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Period",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search periods..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftStatus}
+                    onChange={(val) => setDraftStatus(val as string | null)}
+                    options={STATUS_FILTER_OPTIONS.map((s) => ({
+                      value: s.value,
+                      label: s.label,
+                      color: s.color,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Statuses"
+                    size="small"
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "year",
+                label: "Fiscal Year",
+                hasValue: !!draftYear,
+                render: () => (
+                  <TextField
+                    label=""
+                    type="number"
+                    size="small"
+                    value={draftYear}
+                    onChange={(e) => setDraftYear(e.target.value ? Number(e.target.value) : "")}
+                    fullWidth
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftYear && !searchQuery && !filterStatus && !filterYear}
+          />
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         masterPanel={masterPanel}
@@ -598,6 +677,19 @@ export default function AccountingPeriodsPage() {
       </Dialog>
 
       <TConfirmDialog {...confirmDialog.dialogProps} />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="accounting_period"
+        entityId={selectedPeriod?.id}
+        actionLabels={{
+          create: "Period created",
+          close: "Period closed",
+          reopen: "Period reopened",
+          lock: "Period locked",
+        }}
+      />
     </>
   );
 }

@@ -14,6 +14,7 @@
 
 import React from "react";
 import { Typography, TypographyProps } from "@mui/material";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 export interface TCurrencyProps extends Omit<TypographyProps, "children"> {
   /** Numeric value */
@@ -38,8 +39,8 @@ export interface TCurrencyProps extends Omit<TypographyProps, "children"> {
 
 export const TCurrency: React.FC<TCurrencyProps> = ({
   value,
-  currency = "LKR",
-  locale = "en-LK",
+  currency,
+  locale,
   colorCode = false,
   showSign = false,
   showSymbol = true,
@@ -49,6 +50,9 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
   sx,
   ...rest
 }) => {
+  const activeCurrency = useCurrencyStore();
+  currency = currency ?? activeCurrency.code;
+  locale = locale ?? activeCurrency.locale;
   // Handle null/undefined
   if (value === null || value === undefined) {
     return (
@@ -135,12 +139,16 @@ export default TCurrency;
 export const formatCurrency = (
   value: number | string | null | undefined,
   withSymbol: boolean = false,
-  currency: string = "LKR",
-  locale: string = "en-LK",
+  currency?: string,
+  locale?: string,
 ): string => {
   if (value === null || value === undefined) return "-";
   const numValue = typeof value === "string" ? parseFloat(value) : value;
   if (isNaN(numValue)) return "-";
+
+  const activeCurrency = useCurrencyStore.getState();
+  currency = currency ?? activeCurrency.code;
+  locale = locale ?? activeCurrency.locale;
 
   if (withSymbol) {
     return new Intl.NumberFormat(locale, {
@@ -158,9 +166,10 @@ export const formatCurrency = (
 };
 
 /**
- * Shorthand for formatting LKR currency (Sri Lankan Rupees).
- * Returns formatted string without symbol prefix.
- * 
+ * Shorthand for formatting the ERP's active currency (configured in
+ * Settings > Company Configuration > Currency). Returns formatted string
+ * without symbol prefix. Name kept for backward compatibility.
+ *
  * @example
  * ```tsx
  * fmtLKR(1234.56)  // "1,234.56"

@@ -48,6 +48,7 @@ import {
   TDetailSkeleton,
   TConfirmDialog,
   TSearchableSelect,
+  TTabFilterBar,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
@@ -131,8 +132,12 @@ export default function CouponsPage() {
   const canUpdate = usePermission("customers", "update");
   const canDelete = usePermission("customers", "delete");
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Use reusable state hook
   const {
@@ -160,6 +165,18 @@ export default function CouponsPage() {
     favoritesKey: "coupons_favorites",
     defaultSortField: "cupon_code",
   });
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+  }, [draftSearchQuery, draftStatus]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+  }, []);
 
   // Data fetching
   const { data: coupons, isLoading, refetch } = useQuery({
@@ -353,29 +370,13 @@ export default function CouponsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search coupons..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedCoupon}
       onSelectItem={handleSelectCoupon}
       emptyMessage="No coupons found"
-      listHeader={
-        <Box sx={{ p: 1, borderBottom: "1px solid", borderColor: "divider" }}>
-          <TSearchableSelect
-            label="Filter by Status"
-            value={filterStatus}
-            onChange={(val) => setFilterStatus(val as string | null)}
-            options={STATUS_OPTIONS.map((opt) => ({
-              value: opt.value,
-              label: opt.label,
-            }))}
-            showAllOption
-            allOptionLabel="All Statuses"
-            placeholder="Search status..."
-          />
-        </Box>
-      }
       renderItem={(coupon: CustomerCuponCodes, isSelected: boolean) => {
         const status = getCouponStatus(coupon);
         const discountText = coupon.discount_type === "PERCENT"
@@ -776,6 +777,57 @@ export default function CouponsPage() {
     <>
       <MasterDetailLayout
         title="Coupons"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Coupon",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search coupons..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftStatus}
+                    onChange={(val) => setDraftStatus(val as string | null)}
+                    options={STATUS_OPTIONS.map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Statuses"
+                    placeholder="Search status..."
+                    size="small"
+                    fullWidth
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !searchQuery && !filterStatus}
+          />
+        }
         headerActions={
           <Button
             variant="outlined"

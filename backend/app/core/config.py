@@ -18,6 +18,12 @@ class Settings(BaseSettings, AuditMixin):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     BACKEND_CORS_ORIGINS: Union[List[str], str] = ["http://localhost:3000"]
+
+    # Local disk storage for uploaded files (e.g. supplier logos), served back
+    # via a static route mounted at /uploads. Relative to the backend's
+    # working directory.
+    UPLOAD_DIR: str = "uploads"
+    MAX_UPLOAD_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MB
     
     # Email Settings
     ENABLE_EMAIL_SERVICE: bool = False

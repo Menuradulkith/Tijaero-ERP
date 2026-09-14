@@ -10,7 +10,7 @@ from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.common.audit import AuditLog
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -108,8 +108,8 @@ def _get_supplier_name_map(db: Session, orders) -> Dict[int, str]:
     supplier_ids = list({o.first_suppliers_id for o in orders if o.first_suppliers_id})
     if not supplier_ids:
         return {}
-    rows = db.query(Supplier.id, Supplier.full_name).filter(Supplier.id.in_(supplier_ids)).all()
-    return {r.id: r.full_name for r in rows}
+    rows = db.query(Supplier.id, Supplier.company_name).filter(Supplier.id.in_(supplier_ids)).all()
+    return {r.id: r.company_name for r in rows}
 
 
 def _enrich_grns(db: Session, grns: List[Any]) -> List[Dict[str, Any]]:
@@ -126,8 +126,8 @@ def _enrich_grns(db: Session, grns: List[Any]) -> List[Dict[str, Any]]:
     supplier_ids = list({p.first_suppliers_id for p in po_map.values() if p.first_suppliers_id})
     supplier_map: Dict[int, str] = {}
     if supplier_ids:
-        rows = db.query(Supplier.id, Supplier.full_name).filter(Supplier.id.in_(supplier_ids)).all()
-        supplier_map = {r.id: r.full_name for r in rows}
+        rows = db.query(Supplier.id, Supplier.company_name).filter(Supplier.id.in_(supplier_ids)).all()
+        supplier_map = {r.id: r.company_name for r in rows}
     results = []
     for g in grns:
         payload = schemas.GoodReceivedNote.model_validate(g).model_dump()
@@ -160,8 +160,8 @@ def _enrich_purchase_returns(db: Session, returns: List[Any]) -> List[Dict[str, 
     supplier_ids = list({p.first_suppliers_id for p in po_map.values() if p.first_suppliers_id})
     supplier_map: Dict[int, str] = {}
     if supplier_ids:
-        rows = db.query(Supplier.id, Supplier.full_name).filter(Supplier.id.in_(supplier_ids)).all()
-        supplier_map = {r.id: r.full_name for r in rows}
+        rows = db.query(Supplier.id, Supplier.company_name).filter(Supplier.id.in_(supplier_ids)).all()
+        supplier_map = {r.id: r.company_name for r in rows}
     results = []
     for r in returns:
         payload = schemas.PurchasingReturn.model_validate(r).model_dump()
@@ -229,7 +229,7 @@ def create_supplier(
 ):
 
     supplier_service = service.SupplierService(db)
-    return supplier_service.create_supplier(supplier)
+    return supplier_service.create_supplier(supplier, created_by=current_user.id)
 
 
 @router.get(
@@ -244,6 +244,19 @@ def get_supplier(
 
     supplier_service = service.SupplierService(db)
     return supplier_service.get_supplier(supplier_id)
+
+
+@router.get(
+    "/suppliers/{supplier_id}/activity-log",
+    response_model=List[schemas.SupplierActivityLogEntry],
+)
+def get_supplier_activity_log(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
+):
+    supplier_service = service.SupplierService(db)
+    return supplier_service.get_activity_log(supplier_id)
 
 
 @router.get(
@@ -283,7 +296,7 @@ def update_supplier(
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
 ):
     supplier_service = service.SupplierService(db)
-    return supplier_service.update_supplier(supplier_id, supplier_update)
+    return supplier_service.update_supplier(supplier_id, supplier_update, updated_by=current_user.id)
 
 
 @router.delete(
@@ -296,7 +309,145 @@ def delete_supplier(
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_DELETE)),
 ):
     supplier_service = service.SupplierService(db)
-    supplier_service.delete_supplier(supplier_id)
+    supplier_service.delete_supplier(supplier_id, deleted_by=current_user.id)
+    return None
+
+
+@router.post(
+    "/suppliers/{supplier_id}/logo",
+    response_model=schemas.Supplier,
+)
+def upload_supplier_logo(
+    supplier_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    from app.common.file_storage import save_image
+
+    relative_path = save_image(file, subdir="suppliers")
+    supplier_service = service.SupplierService(db)
+    return supplier_service.update_logo(supplier_id, relative_path)
+
+
+@router.delete(
+    "/suppliers/{supplier_id}/logo",
+    response_model=schemas.Supplier,
+)
+def remove_supplier_logo(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    supplier_service = service.SupplierService(db)
+    return supplier_service.remove_logo(supplier_id)
+
+
+@router.get(
+    "/suppliers/{supplier_id}/payment-methods",
+    response_model=List[schemas.SupplierPaymentMethod],
+)
+def list_supplier_payment_methods(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
+):
+    return service.SupplierPaymentMethodService(db).list_payment_methods(supplier_id)
+
+
+@router.post(
+    "/suppliers/{supplier_id}/payment-methods",
+    response_model=schemas.SupplierPaymentMethod,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_supplier_payment_method(
+    supplier_id: int,
+    payload: schemas.SupplierPaymentMethodCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    return service.SupplierPaymentMethodService(db).create_payment_method(supplier_id, payload)
+
+
+@router.patch(
+    "/suppliers/{supplier_id}/payment-methods/{method_id}",
+    response_model=schemas.SupplierPaymentMethod,
+)
+def update_supplier_payment_method(
+    supplier_id: int,
+    method_id: int,
+    payload: schemas.SupplierPaymentMethodUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    return service.SupplierPaymentMethodService(db).update_payment_method(supplier_id, method_id, payload)
+
+
+@router.delete(
+    "/suppliers/{supplier_id}/payment-methods/{method_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_supplier_payment_method(
+    supplier_id: int,
+    method_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    service.SupplierPaymentMethodService(db).delete_payment_method(supplier_id, method_id)
+    return None
+
+
+@router.get(
+    "/suppliers/{supplier_id}/contact-persons",
+    response_model=List[schemas.SupplierContactPerson],
+)
+def list_supplier_contact_persons(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
+):
+    return service.SupplierContactPersonService(db).list_contacts(supplier_id)
+
+
+@router.post(
+    "/suppliers/{supplier_id}/contact-persons",
+    response_model=schemas.SupplierContactPerson,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_supplier_contact_person(
+    supplier_id: int,
+    payload: schemas.SupplierContactPersonCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    return service.SupplierContactPersonService(db).create_contact(supplier_id, payload)
+
+
+@router.patch(
+    "/suppliers/{supplier_id}/contact-persons/{contact_id}",
+    response_model=schemas.SupplierContactPerson,
+)
+def update_supplier_contact_person(
+    supplier_id: int,
+    contact_id: int,
+    payload: schemas.SupplierContactPersonUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    return service.SupplierContactPersonService(db).update_contact(supplier_id, contact_id, payload)
+
+
+@router.delete(
+    "/suppliers/{supplier_id}/contact-persons/{contact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_supplier_contact_person(
+    supplier_id: int,
+    contact_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    service.SupplierContactPersonService(db).delete_contact(supplier_id, contact_id)
     return None
 
 
@@ -576,7 +727,7 @@ def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
         grn = return_record.good_received_note
         po = getattr(grn, 'purchasing_order', None)
         if po and po.first_supplier:
-            supplier_name = po.first_supplier.full_name
+            supplier_name = po.first_supplier.company_name
 
     return {
         "id": return_record.id,
@@ -632,7 +783,7 @@ def create_grn(
             detail=f"Access denied to branch: {grn.branch_code}",
         )
     grn_service = service.GoodReceivedNoteService(db)
-    created = grn_service.create(grn, allow_credit_override=allow_credit_override)
+    created = grn_service.create(grn, allow_credit_override=allow_credit_override, created_by=current_user.id)
 
     # Notify the branch that stock was received against this GRN.
     from app.modules.notifications import dispatcher as notify
@@ -1251,11 +1402,11 @@ def get_eligible_advance_pos(
     supplier_names: dict = {}
     if supplier_ids:
         rows = (
-            db.query(Supplier.id, Supplier.full_name)
+            db.query(Supplier.id, Supplier.company_name)
             .filter(Supplier.id.in_(supplier_ids))
             .all()
         )
-        supplier_names = {r.id: r.full_name for r in rows}
+        supplier_names = {r.id: r.company_name for r in rows}
 
     # Build result, only include POs with remaining > 0
     # Subtract any existing advance payments linked to this PO

@@ -43,8 +43,8 @@ import {
   SearchableList,
   SelectableListItem,
   TCurrency,
-  TFilterPanel,
   TSearchableSelect,
+  TTabFilterBar,
   type SortOption,
   TDetailSkeleton,
   modernTableStyles,
@@ -100,6 +100,22 @@ export default function GeneralLedgerPage() {
   const [sortField, setSortField] = useState("account_code");
   const [filterAccountType, setFilterAccountType] = useState<string | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<AccountListItem | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+  const [draftAccountType, setDraftAccountType] = useState<string | null>(null);
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterAccountType(draftAccountType);
+  }, [draftSearchQuery, draftAccountType]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftAccountType(null);
+    setSearchQuery("");
+    setFilterAccountType(null);
+  }, []);
 
   // Detail tab (0 = Ledger, 1 = Trial Balance)
   const [detailTab, setDetailTab] = useState(0);
@@ -275,30 +291,13 @@ export default function GeneralLedgerPage() {
       isLoading={accountsLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search accounts..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedAccount}
       onSelectItem={(acc) => setSelectedAccount(acc)}
       emptyMessage="No accounts found"
-      listHeader={
-        <TFilterPanel>
-          <TSearchableSelect
-            label="Account Type"
-            value={filterAccountType}
-            onChange={(val) => setFilterAccountType(val as string | null)}
-            options={ACCOUNT_TYPE_OPTIONS.map((t) => ({
-              value: t.value,
-              label: t.label,
-              color: t.color,
-            }))}
-            showAllOption
-            allOptionLabel="All Types"
-            placeholder="Search types..."
-          />
-        </TFilterPanel>
-      }
       renderItem={(acc: AccountListItem, isSelected: boolean) => (
         <SelectableListItem
           key={acc.id}
@@ -701,6 +700,62 @@ export default function GeneralLedgerPage() {
     <MasterDetailLayout
       title="General Ledger"
       icon={<AccountBalanceIcon color="primary" />}
+      titleSlot={
+        <TTabFilterBar
+          tabs={[
+            {
+              key: "search",
+              label: "Search",
+              hasValue: !!draftSearchQuery,
+              render: ({ close }) => (
+                <TextField
+                  size="small"
+                  autoFocus
+                  placeholder="Search accounts..."
+                  value={draftSearchQuery}
+                  onChange={(e) => setDraftSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleApplyFilters();
+                      close();
+                    }
+                  }}
+                  fullWidth
+                />
+              ),
+            },
+            {
+              key: "accountType",
+              label: "Account Type",
+              hasValue: !!draftAccountType,
+              render: () => (
+                <TSearchableSelect
+                  label=""
+                  value={draftAccountType}
+                  onChange={(val) => setDraftAccountType(val as string | null)}
+                  options={ACCOUNT_TYPE_OPTIONS.map((t) => ({
+                    value: t.value,
+                    label: t.label,
+                    color: t.color,
+                  }))}
+                  showAllOption
+                  allOptionLabel="All Types"
+                  placeholder="Search types..."
+                  size="small"
+                />
+              ),
+            },
+          ]}
+          onSearch={handleApplyFilters}
+          onClear={handleClearFilters}
+          clearDisabled={
+            !draftSearchQuery &&
+            !draftAccountType &&
+            !searchQuery &&
+            !filterAccountType
+          }
+        />
+      }
       onRefresh={handleRefresh}
       isLoading={accountsLoading || glLoading}
       masterPanel={masterPanel}

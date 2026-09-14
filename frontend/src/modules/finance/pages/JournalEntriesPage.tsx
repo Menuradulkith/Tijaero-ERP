@@ -8,6 +8,7 @@
 
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import HistoryIcon from "@mui/icons-material/History";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import UndoIcon from "@mui/icons-material/Undo";
@@ -32,6 +33,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -52,10 +54,10 @@ import {
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  TFilterPanel,
   TPrintButton,
   TPrintPreviewDialog,
   TSearchableSelect,
+  TTabFilterBar,
   TExportButton,
   type SortOption,
   useMasterDetailState,
@@ -63,6 +65,7 @@ import {
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { journalEntriesApi, chartOfAccountsApi } from "@/modules/finance/api";
@@ -149,9 +152,29 @@ export default function JournalEntriesPage() {
   const [formStep, setFormStep] = useState(0);
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftType, setDraftType] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterType(draftType);
+  }, [draftSearchQuery, draftStatus, draftType]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftType(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterType(null);
+  }, []);
 
   // Reverse dialog
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
@@ -196,6 +219,10 @@ export default function JournalEntriesPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); },
   });
+
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Information section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   const handleNew = useCallback(() => {
     handleNewBase();
@@ -411,43 +438,13 @@ export default function JournalEntriesPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search journal entries..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedJE}
       onSelectItem={handleSelectJE}
       emptyMessage="No journal entries found"
-      listHeader={
-        <TFilterPanel>
-          <TSearchableSelect
-            label="Status"
-            value={filterStatus}
-            onChange={(val) => setFilterStatus(val as string | null)}
-            options={STATUS_FILTER_OPTIONS.map((s) => ({
-              value: s.value,
-              label: s.label,
-              color: s.color,
-            }))}
-            showAllOption
-            allOptionLabel="All Statuses"
-            placeholder="Search status..."
-          />
-          <TSearchableSelect
-            label="Entry Type"
-            value={filterType}
-            onChange={(val) => setFilterType(val as string | null)}
-            options={TYPE_FILTER_OPTIONS.map((t) => ({
-              value: t.value,
-              label: t.label,
-              color: t.color,
-            }))}
-            showAllOption
-            allOptionLabel="All Types"
-            placeholder="Search types..."
-          />
-        </TFilterPanel>
-      }
       renderItem={(je: JournalEntry, isSelected: boolean) => {
         const statusColor = getStatusColor(je.status);
         return (
@@ -876,15 +873,46 @@ export default function JournalEntriesPage() {
             </FormSection>
 
             {/* Record Information */}
-            <FormSection title="Record Information" columns={2}>
+            <FormSection
+              title="Record Information"
+              columns={2}
+              titleAction={
+                <Tooltip title="View activity history">
+                  <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
               <Box>
-                <Typography variant="caption" color="text.secondary">Created</Typography>
-                <Typography variant="body2">{formatDateTimeReadable(detail.created_at) || "-"}</Typography>
+                <Typography variant="caption" color="text.secondary">Created By</Typography>
+                <Typography variant="body2">
+                  {detail.created_by_name || "-"}
+                  {detail.created_at ? ` on ${formatDateTimeReadable(detail.created_at)}` : ""}
+                </Typography>
               </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary">Last Modified</Typography>
                 <Typography variant="body2">{formatDateTimeReadable(detail.updated_at) || "-"}</Typography>
               </Box>
+              {detail.submitted_by_name && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Submitted By</Typography>
+                  <Typography variant="body2">{detail.submitted_by_name}</Typography>
+                </Box>
+              )}
+              {detail.approved_by_name && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Approved By</Typography>
+                  <Typography variant="body2">{detail.approved_by_name}</Typography>
+                </Box>
+              )}
+              {detail.posted_by_name && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Posted By</Typography>
+                  <Typography variant="body2">{detail.posted_by_name}</Typography>
+                </Box>
+              )}
             </FormSection>
           </>
         ) : null}
@@ -899,6 +927,80 @@ export default function JournalEntriesPage() {
       <MasterDetailLayout
         title="Journal Entries"
         icon={<ReceiptLongIcon color="primary" />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Entry No / Description",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search entry no or description..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftStatus}
+                    onChange={(val) => setDraftStatus(val as string | null)}
+                    options={STATUS_FILTER_OPTIONS.map((s) => ({
+                      value: s.value,
+                      label: s.label,
+                      color: s.color,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Statuses"
+                    placeholder="Search status..."
+                    size="small"
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "type",
+                label: "Entry Type",
+                hasValue: !!draftType,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftType}
+                    onChange={(val) => setDraftType(val as string | null)}
+                    options={TYPE_FILTER_OPTIONS.map((t) => ({
+                      value: t.value,
+                      label: t.label,
+                      color: t.color,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Types"
+                    placeholder="Search types..."
+                    size="small"
+                    fullWidth
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftType && !searchQuery && !filterStatus && !filterType}
+          />
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
           queryClient.invalidateQueries({ queryKey: ["chart-of-accounts-all"] });
@@ -982,6 +1084,23 @@ export default function JournalEntriesPage() {
           title={`Print Journal Entry: ${selectedJEForPrint.journal_entry_no}`}
         />
       )}
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="journal_entry"
+        entityId={selectedJE?.id}
+        actionLabels={{
+          create: "Journal entry created",
+          update: "Journal entry updated",
+          submit: "Journal entry submitted",
+          approve: "Journal entry approved",
+          reject: "Journal entry rejected",
+          post: "Journal entry posted",
+          reverse: "Journal entry reversed",
+          delete: "Journal entry deleted",
+        }}
+      />
     </>
   );
 }

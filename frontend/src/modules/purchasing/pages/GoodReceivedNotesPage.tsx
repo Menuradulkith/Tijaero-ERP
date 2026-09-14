@@ -23,6 +23,7 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import PaymentIcon from "@mui/icons-material/Payment";
+import HistoryIcon from "@mui/icons-material/History";
 import SaveIcon from "@mui/icons-material/Save";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import {
@@ -57,6 +58,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -82,12 +84,13 @@ import {
   SortOption,
   TBranchFilter,
   TConfirmDialog,
-  TFilterPanel,
   TPrintButton,
+  TTabFilterBar,
   TPrintPreviewDialog,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -238,12 +241,19 @@ export default function GoodReceivedNotesPage() {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
   };
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
   const [filterPOId, setFilterPOId] = useState<number | null>(null);
   const [filterCreatedByUser, setFilterCreatedByUser] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSupplier, setDraftSupplier] = useState<number | null>(null);
+  const [draftPOId, setDraftPOId] = useState<number | null>(null);
+  const [draftCreatedByUser, setDraftCreatedByUser] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
@@ -279,6 +289,10 @@ export default function GoodReceivedNotesPage() {
     onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Information section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   // OPTIMIZED: Fetch locations and branches in a single call
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["locations", "branches"]);
 
@@ -286,8 +300,30 @@ export default function GoodReceivedNotesPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+    setFilterSupplier(draftSupplier);
+    setFilterPOId(draftPOId);
+    setFilterCreatedByUser(draftCreatedByUser);
+  }, [draftSearchQuery, draftBranch, draftSupplier, draftPOId, draftCreatedByUser]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setDraftSupplier(null);
+    setDraftPOId(null);
+    setDraftCreatedByUser(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+    setFilterSupplier(null);
+    setFilterPOId(null);
+    setFilterCreatedByUser(null);
+  }, []);
 
   // Auto-focus the barcode input whenever the active scan item changes.
   // Using useEffect is more reliable than a one-shot setTimeout inside
@@ -482,7 +518,7 @@ export default function GoodReceivedNotesPage() {
 
     // Apply supplier filter
     if (filterSupplier) {
-      const supplierName = suppliers.find(s => s.id === filterSupplier)?.full_name;
+      const supplierName = suppliers.find(s => s.id === filterSupplier)?.company_name;
       if (supplierName) {
         filtered = filtered.filter(grn => grn.supplier_name === supplierName);
       }
@@ -765,7 +801,7 @@ export default function GoodReceivedNotesPage() {
     const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === poId);
     if (!po) return "N/A";
     const supplier = suppliers.find(s => s.id === po.first_suppliers_id);
-    return supplier ? supplier.full_name : "Unknown Supplier";
+    return supplier ? supplier.company_name : "Unknown Supplier";
   }, [purchaseOrders, suppliers]);
 
   const getBranchDisplay = (branchCode: string) => {
@@ -1329,69 +1365,13 @@ export default function GoodReceivedNotesPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search GRNs..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedGRN}
       onSelectItem={handleSelectGRNWithItems}
       emptyMessage="No GRNs found"
-      listHeader={
-        <TFilterPanel>
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-          <Autocomplete
-            size="small"
-            options={suppliers}
-            getOptionLabel={(option) => option.full_name || ''}
-            value={suppliers.find(s => s.id === filterSupplier) || null}
-            onChange={(_, newValue) => setFilterSupplier(newValue?.id || null)}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Filter by Supplier"
-                placeholder="All Suppliers"
-                sx={{ minWidth: 200 }}
-              />
-            )}
-            isOptionEqualToValue={(option, value) => option.id === value.id}
-          />
-          <Autocomplete
-            size="small"
-            options={poFilterOptions}
-            getOptionLabel={(option: POFilterOption) => option.purchasing_order_no || `PO-${option.id}`}
-            value={poFilterOptions.find((po: POFilterOption) => po.id === filterPOId) || null}
-            onChange={(_, newValue) => setFilterPOId(newValue?.id || null)}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Filter by PO"
-                placeholder="All POs"
-                sx={{ minWidth: 200 }}
-              />
-            )}
-            isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
-          />
-          <Autocomplete
-            size="small"
-            options={createdByUserOptions}
-            value={filterCreatedByUser}
-            onChange={(_, newValue) => setFilterCreatedByUser(newValue || null)}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Created by user"
-                placeholder="All Users"
-                sx={{ minWidth: 200 }}
-              />
-            )}
-            isOptionEqualToValue={(option, value) => option === value}
-          />
-        </TFilterPanel>
-      }
       renderItem={(grn, isSelected) => (
         <SelectableListItem
           key={grn.id}
@@ -2106,7 +2086,17 @@ export default function GoodReceivedNotesPage() {
 
         {/* Record Information (view mode only) */}
         {selectedGRN && !isCreating && !isEditing && (
-          <FormSection title="Record Information" columns={2}>
+          <FormSection
+            title="Record Information"
+            columns={2}
+            titleAction={
+              <Tooltip title="View activity history">
+                <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                  <HistoryIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            }
+          >
             <Box>
               <Typography variant="caption" color="text.secondary">Created</Typography>
               <Typography variant="body2">{formatDateTimeReadable(selectedGRN.created_date || selectedGRN.added_date) || "-"}</Typography>
@@ -2121,6 +2111,95 @@ export default function GoodReceivedNotesPage() {
     <>
       <MasterDetailLayout
         title="Good Received Notes"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "GRN / PO No",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search GRN or PO No"
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
+              },
+              {
+                key: "supplier",
+                label: "Supplier",
+                hasValue: !!draftSupplier,
+                render: () => (
+                  <Autocomplete
+                    size="small"
+                    options={suppliers}
+                    getOptionLabel={(option) => option.company_name || ""}
+                    value={suppliers.find((s) => s.id === draftSupplier) || null}
+                    onChange={(_, newValue) => setDraftSupplier(newValue?.id || null)}
+                    renderInput={(params) => <TextField {...params} placeholder="All Suppliers" />}
+                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "po",
+                label: "PO",
+                hasValue: !!draftPOId,
+                render: () => (
+                  <Autocomplete
+                    size="small"
+                    options={poFilterOptions}
+                    getOptionLabel={(option: POFilterOption) => option.purchasing_order_no || `PO-${option.id}`}
+                    value={poFilterOptions.find((po: POFilterOption) => po.id === draftPOId) || null}
+                    onChange={(_, newValue) => setDraftPOId(newValue?.id || null)}
+                    renderInput={(params) => <TextField {...params} placeholder="All POs" />}
+                    isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "createdBy",
+                label: "Created By",
+                hasValue: !!draftCreatedByUser,
+                render: () => (
+                  <Autocomplete
+                    size="small"
+                    options={createdByUserOptions}
+                    value={draftCreatedByUser}
+                    onChange={(_, newValue) => setDraftCreatedByUser(newValue || null)}
+                    renderInput={(params) => <TextField {...params} placeholder="All Users" />}
+                    isOptionEqualToValue={(option, value) => option === value}
+                    fullWidth
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={
+              !draftSearchQuery && !draftBranch && !draftSupplier && !draftPOId && !draftCreatedByUser &&
+              !searchQuery && !filterBranch && !filterSupplier && !filterPOId && !filterCreatedByUser
+            }
+          />
+        }
         headerActions={
           <Button
             variant="outlined"
@@ -2202,6 +2281,14 @@ export default function GoodReceivedNotesPage() {
           )}
         </DialogActions>
       </Dialog>
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="good_received_note"
+        entityId={selectedGRN?.id}
+        actionLabels={{ create: "GRN created" }}
+      />
     </>
   );
 }

@@ -8,11 +8,14 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
   Box,
+  IconButton,
   InputAdornment,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import {
+  History as HistoryIcon,
   Receipt as ChequeIcon,
 } from "@mui/icons-material";
 
@@ -27,10 +30,11 @@ import {
   SortOption,
   TDetailSkeleton,
   TBranchFilter,
-  TFilterPanel,
+  TTabFilterBar,
   TDatePicker,
   TExportButton,
   fmtLKR,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { chequePaymentsApi } from "@/modules/finance/api";
@@ -76,7 +80,12 @@ const resetFormFromItem = (item: ChequePayment): Partial<ChequePaymentCreate> =>
 });
 
 export default function ChequePaymentsPage() {
+  // Filter state (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Filter state (draft - edited via the filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
@@ -96,6 +105,10 @@ export default function ChequePaymentsPage() {
     defaultSortField: "cheque_date",
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Additional Info section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
 
@@ -103,8 +116,21 @@ export default function ChequePaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+  }, []);
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -162,18 +188,13 @@ export default function ChequePaymentsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search cheques..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedItem}
       onSelectItem={handleSelectWithCheck}
       emptyMessage="No cheque payments found"
-      listHeader={
-        <TFilterPanel>
-          <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} />
-        </TFilterPanel>
-      }
       renderItem={(chq, isSelected) => (
         <SelectableListItem
           key={chq.id}
@@ -320,7 +341,17 @@ export default function ChequePaymentsPage() {
               />
             </FormSection>
 
-            <FormSection title="Additional Info" columns={2}>
+            <FormSection
+              title="Additional Info"
+              columns={2}
+              titleAction={
+                <Tooltip title="View activity history">
+                  <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
               <TextField
                 label="Payment For"
                 size="small"
@@ -345,8 +376,47 @@ export default function ChequePaymentsPage() {
   );
 
   return (
+    <>
     <MasterDetailLayout
       title="Cheque Payments"
+      titleSlot={
+        <TTabFilterBar
+          tabs={[
+            {
+              key: "search",
+              label: "Search",
+              hasValue: !!draftSearchQuery,
+              render: ({ close }) => (
+                <TextField
+                  size="small"
+                  autoFocus
+                  placeholder="Search cheques..."
+                  value={draftSearchQuery}
+                  onChange={(e) => setDraftSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleApplyFilters();
+                      close();
+                    }
+                  }}
+                  fullWidth
+                />
+              ),
+            },
+            {
+              key: "branch",
+              label: "Branch",
+              hasValue: !!draftBranch,
+              render: () => (
+                <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+              ),
+            },
+          ]}
+          onSearch={handleApplyFilters}
+          onClear={handleClearFilters}
+          clearDisabled={!draftSearchQuery && !draftBranch && !searchQuery && !filterBranch}
+        />
+      }
       onRefresh={refetch}
       isLoading={isLoading}
       headerActions={
@@ -374,5 +444,16 @@ export default function ChequePaymentsPage() {
       masterPanel={masterPanel}
       detailPanel={detailPanel}
     />
+
+    <TActivityHistoryPanel
+      open={activityHistoryOpen}
+      onClose={() => setActivityHistoryOpen(false)}
+      entityType="cheque_payment"
+      entityId={selectedItem?.id}
+      actionLabels={{
+        create: "Cheque payment created",
+      }}
+    />
+    </>
   );
 }

@@ -14,17 +14,12 @@ def reproduce():
     try:
         # 1. Create a dummy supplier
         supplier_data = schemas.SupplierCreate(
-            title="Mr",
-            full_name="Test Supplier for GRN Conflict",
+            company_name="Test Supplier for GRN Conflict",
             mobile_contact_number="0771234567",
-            gender="Male",
-            civil_status="Single",
-            no_of_kids="None",
             credit_days=30,
             max_credit_limit=100000,
             active=True,
-            postal_address="123 Test St",
-            permenent_address="123 Test St"
+            billing_address_line1="123 Test St",
         )
         supplier_service = service.SupplierService(db)
         supplier = supplier_service.create_supplier(supplier_data)

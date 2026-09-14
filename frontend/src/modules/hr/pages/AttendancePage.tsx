@@ -25,9 +25,9 @@ import {
   TButton,
   TConfirmDialog,
   TDetailSkeleton,
-  TFilterPanel,
   TBranchFilter,
   TStatusFilter,
+  TTabFilterBar,
   type TFilterStatusOption,
   handleApiError,
   showErrorToast,
@@ -85,6 +85,12 @@ export default function AttendancePage() {
 
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+
+  // Filter state (draft - edited via the header filter bar, only applied on Search click)
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+
   const [dateFrom] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -125,6 +131,21 @@ export default function AttendancePage() {
     }),
     defaultSortField: "date_desc",
   });
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftStatus, draftBranch, setSearchQuery]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranch(null);
+  }, [setSearchQuery]);
 
   const { data: attendances, isLoading, refetch } = useQuery({
     queryKey: ["hr-attendance", dateFrom, dateTo],
@@ -295,29 +316,13 @@ export default function AttendancePage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      searchPlaceholder="Search by employee, date..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       currentSort={sortField}
       onSortChange={setSortField}
       selectedItem={selectedAttendance}
       onSelectItem={handleSelectItem}
       emptyMessage="No attendance records found"
-      listHeader={
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, p: 1.5, pb: 0 }}>
-          <TFilterPanel>
-            <TStatusFilter
-              options={STATUS_OPTIONS}
-              value={filterStatus}
-              onChange={setFilterStatus}
-            />
-            <TBranchFilter
-              branches={branchOptions}
-              value={filterBranch}
-              onChange={setFilterBranch}
-            />
-          </TFilterPanel>
-        </Box>
-      }
       renderItem={(att, isSelected) => (
         <SelectableListItem
           key={att.id}
@@ -528,6 +533,64 @@ export default function AttendancePage() {
     <>
       <MasterDetailLayout
         title="Attendance"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search by employee, date..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TStatusFilter
+                    options={STATUS_OPTIONS}
+                    value={draftStatus}
+                    onChange={setDraftStatus}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter
+                    branches={branchOptions}
+                    value={draftBranch}
+                    onChange={setDraftBranch}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+          />
+        }
         headerActions={
           <Button
             variant="outlined"

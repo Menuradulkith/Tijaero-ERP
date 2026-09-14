@@ -18,6 +18,7 @@ from app.modules.sales.models import InvoiceItems
 from app.modules.purchasing.models import (
     PurchasingOrderItems, PurchasingReturnItems,
     SupplierCreditsSettle, SupplierCreditsSettleTransaction,
+    SupplierContactPerson,
 )
 from app.modules.support.models import CSJobItem
 from app.modules.inventory.models import CompanyAssets, SalesStock
@@ -112,7 +113,6 @@ def seed_suppliers():
             db.flush()
 
         created = skipped = 0
-        today = date.today()
 
         for s in SUPPLIERS:
             existing = db.query(Supplier).filter(Supplier.email == s["email"]).first()
@@ -121,29 +121,27 @@ def seed_suppliers():
                 continue
 
             supplier = Supplier(
-                title="Mr" if s["gender"] == "male" else ("Ms" if s["gender"] == "female" else "Co"),
-                full_name=s["name"],
-                name_in_cheque_card=s["name"],
                 company_name=s["company"],
-                company_contact_number=s["mobile"],
-                company_postal_address=f"{s['company']}, Colombo, Sri Lanka",
-                postal_address=f"{s['company']}, Colombo, Sri Lanka",
-                permenent_address=f"{s['company']}, Colombo, Sri Lanka",
+                billing_address_line1=f"{s['company']}",
+                billing_city="Colombo",
                 email=s["email"],
                 mobile_contact_number=s["mobile"],
-                gender=s["gender"],
-                civil_status=s["civil_status"],
-                no_of_kids="0",
                 credit_days=s["credit_days"],
                 max_credit_limit=s["max_credit"],
                 left_credit_amount=s["max_credit"],
                 initial_credit_amount=s["max_credit"],
                 active=True,
                 date_joined=datetime.now(),
-                birthdate=today,
                 country_id=country.id,
             )
             db.add(supplier)
+            db.flush()
+            db.add(SupplierContactPerson(
+                supplier_id=supplier.id,
+                title="Mr" if s["gender"] == "male" else ("Ms" if s["gender"] == "female" else "Co"),
+                full_name=s["name"],
+                gender=s["gender"],
+            ))
             created += 1
 
         db.commit()

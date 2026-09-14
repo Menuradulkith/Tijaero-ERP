@@ -90,8 +90,8 @@
                 <th style="width:80px">Account Code</th>
                 <th>Account Name</th>
                 <th>Description</th>
-                <th class="r" style="width:100px">Debit (LKR)</th>
-                <th class="r" style="width:100px">Credit (LKR)</th>
+                <th class="r" style="width:100px">Debit ({{ company.currency_code }})</th>
+                <th class="r" style="width:100px">Credit ({{ company.currency_code }})</th>
             </tr>
         </thead>
         <tbody>
@@ -116,9 +116,9 @@
     </table>
 
     {% if je.total_debit == je.total_credit %}
-    <div class="balance-check balance-ok">&#10003; Debits and Credits are balanced (LKR {{ "%.2f" | format(je.total_debit) }})</div>
+    <div class="balance-check balance-ok">&#10003; Debits and Credits are balanced ({{ company.currency_code }} {{ "%.2f" | format(je.total_debit) }})</div>
     {% else %}
-    <div class="balance-check balance-err">&#10007; OUT OF BALANCE &mdash; Difference: LKR {{ "%.2f" | format((je.total_debit - je.total_credit) | abs) }}</div>
+    <div class="balance-check balance-err">&#10007; OUT OF BALANCE &mdash; Difference: {{ company.currency_code }} {{ "%.2f" | format((je.total_debit - je.total_credit) | abs) }}</div>
     {% endif %}
 
     {% if je.description %}

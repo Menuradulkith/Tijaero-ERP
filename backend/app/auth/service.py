@@ -3,6 +3,7 @@ from typing import List, Optional
 import logging
 
 from app.auth import models, schemas
+from app.common.audit import log_audit
 from app.core import timezone as tz
 from app.core.exceptions import AuthenticationError
 from app.core.security import (
@@ -43,7 +44,7 @@ class AuthService:
         db.commit()
         return user
 
-    def create_user(self, db: Session, user_in: schemas.UserCreate) -> models.User:
+    def create_user(self, db: Session, user_in: schemas.UserCreate, created_by: Optional[int] = None) -> models.User:
 
         if (
             db.query(models.User)
@@ -115,6 +116,12 @@ class AuthService:
             )
             user.groups = groups
 
+        log_audit(
+            db, user_id=created_by or 0, action="create",
+            entity_type="user", entity_id=user.id,
+            changes={"username": user.username, "email": user.email},
+        )
+
         try:
             db.commit()
             db.refresh(user)
@@ -174,11 +181,15 @@ class AuthService:
         return user
 
     def update_user(
-        self, db: Session, user_id: int, user_in: schemas.UserUpdate
+        self, db: Session, user_id: int, user_in: schemas.UserUpdate, updated_by: Optional[int] = None
     ) -> models.User:
         user = self.get_user(db, user_id)
 
         update_data = user_in.model_dump(exclude_unset=True)
+
+        # Snapshot only the fields actually submitted, before mutation, so the
+        # audit log reflects a real diff rather than "everything the form sent".
+        before_values = {field: getattr(user, field, None) for field in update_data if hasattr(user, field)}
 
         if "password" in update_data and update_data["password"]:
             update_data["hashed_password"] = get_password_hash(
@@ -206,11 +217,22 @@ class AuthService:
         for field, value in update_data.items():
             setattr(user, field, value)
 
+        changed_fields = sorted(
+            field for field, before in before_values.items()
+            if field != "password" and before != getattr(user, field, None)
+        )
+        if changed_fields:
+            log_audit(
+                db, user_id=updated_by or 0, action="update",
+                entity_type="user", entity_id=user.id,
+                changes={"fields": changed_fields},
+            )
+
         db.commit()
         db.refresh(user)
         return user
 
-    def delete_user(self, db: Session, user_id: int):
+    def delete_user(self, db: Session, user_id: int, deleted_by: Optional[int] = None):
         user = self.get_user(db, user_id)
         if user.is_superuser:
             raise HTTPException(
@@ -319,6 +341,11 @@ class AuthService:
                 status_code=status.HTTP_400_BAD_REQUEST, detail=error_message
             )
 
+        log_audit(
+            db, user_id=deleted_by or 0, action="delete",
+            entity_type="user", entity_id=user.id,
+            changes={"username": user.username, "email": user.email},
+        )
         db.delete(user)
         db.commit()
         return {"message": "User deleted successfully"}

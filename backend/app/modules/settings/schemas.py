@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Any, Dict, Optional
+from zoneinfo import available_timezones
 
 from app.common.base_schemas import TijaeroBaseSchema
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # Notification Schemas
@@ -99,9 +100,17 @@ class CompanySettingsBase(BaseModel):
     master_card_surcharge: float = 2.7
     fiscal_year_start: str = "01-01"
     default_currency: str = "LKR"
+    default_timezone: str = "Asia/Colombo"
     tax_registration_number: Optional[str] = None
     # Passcode expiry: mandatory monthly cap — admin can lower (1-30), never disable
     passcode_expiry_days: int = Field(default=30, ge=1, le=30)
+
+    @field_validator("default_timezone")
+    @classmethod
+    def validate_default_timezone(cls, v: str) -> str:
+        if v not in available_timezones():
+            raise ValueError(f"Unknown timezone: {v}")
+        return v
 
 
 class CompanySettingsUpdate(BaseModel):
@@ -123,13 +132,49 @@ class CompanySettingsUpdate(BaseModel):
     master_card_surcharge: Optional[float] = None
     fiscal_year_start: Optional[str] = None
     default_currency: Optional[str] = None
+    default_timezone: Optional[str] = None
     tax_registration_number: Optional[str] = None
     # Passcode expiry: range 1-30 (mandatory monthly cap)
     passcode_expiry_days: Optional[int] = Field(default=None, ge=1, le=30)
 
+    @field_validator("default_timezone")
+    @classmethod
+    def validate_default_timezone(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in available_timezones():
+            raise ValueError(f"Unknown timezone: {v}")
+        return v
+
 
 class CompanySettings(CompanySettingsBase, TijaeroBaseSchema):
     id: int
+
+
+# Currency Schemas
+class CurrencyBase(BaseModel):
+    code: str = Field(..., min_length=3, max_length=3)
+    name: str
+    symbol: str
+    is_active: bool = True
+
+
+class CurrencyCreate(CurrencyBase):
+    pass
+
+
+class CurrencyUpdate(BaseModel):
+    name: Optional[str] = None
+    symbol: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class Currency(CurrencyBase, TijaeroBaseSchema):
+    id: int
+
+
+# Timezone Schemas
+class TimezoneOption(BaseModel):
+    name: str  # IANA id, e.g. "Asia/Colombo"
+    offset: str  # current UTC offset, e.g. "UTC+05:30"
 
 
 # Notification Stats

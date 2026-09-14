@@ -21,23 +21,26 @@ import {
   showErrorToast,
   showSuccessToast,
   SortOption,
+  TBranchFilter,
   TConfirmDialog,
   TCurrency,
   TDate,
   TPrintButton,
   TPrintPreviewDialog,
   TStatusChip,
+  TStatusFilter,
   TSteps,
+  TTabFilterBar,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
   TEmailDialog,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
 import { customersApi } from "@/modules/customers/api";
 import { advancePaymentsApi } from "@/modules/finance/api";
-import SalesFilterPanel from "@/modules/sales/components/ui/SalesFilterPanel";
 import {
   Add as AddIcon,
   ArrowBack as ArrowBackIcon,
@@ -56,6 +59,7 @@ import {
   ThumbDown as RejectIcon,
   Warehouse as WarehouseIcon,
   Email as EmailIcon,
+  History as HistoryIcon,
 } from "@mui/icons-material";
 import {
   Alert,
@@ -165,9 +169,14 @@ export default function QuotationsPage() {
   // Form step state for stepper workflow
   const [formStep, setFormStep] = useState(0);
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -265,6 +274,10 @@ export default function QuotationsPage() {
     onDiscard: () => { setLineItems([]); setLineItemsDirty(false); setFormStep(0); },
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Workflow Timeline section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   // OPTIMIZED: Use aggregated reference data endpoint instead of separate API calls
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches", "customers"], { productsLimit: 2000 });
   const products = refData?.products || [];
@@ -295,11 +308,27 @@ export default function QuotationsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftStatus, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranch(null);
+  }, []);
 
   // Data fetching — filtered by page type
   const { data: quotesData, isLoading } = useQuery({
@@ -1556,7 +1585,17 @@ export default function QuotationsPage() {
 
         {/* Workflow Timeline */}
         {(quote.submitted_date || quote.approved_date || quote.po_created_date || quote.conversion_date || quote.rejection_date) && (
-          <FormSection title="Workflow Timeline" columns={3}>
+          <FormSection
+            title="Workflow Timeline"
+            columns={3}
+            titleAction={
+              <Tooltip title="View activity history">
+                <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                  <HistoryIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            }
+          >
             {quote.submitted_date && (
               <TextField label="Submitted" size="small" value={new Date(quote.submitted_date).toLocaleString()} disabled InputProps={{ readOnly: true }} />
             )}
@@ -2228,6 +2267,58 @@ export default function QuotationsPage() {
 
       <MasterDetailLayout
         title=""
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search quotes..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TStatusFilter
+                    options={pageQuoteType === 'proforma' ? PROFORMA_STATUS_FILTER_OPTIONS : QUOTATION_STATUS_FILTER_OPTIONS}
+                    value={draftStatus}
+                    onChange={setDraftStatus}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
+          />
+        }
         headerActions={
           <Button
             variant="outlined"
@@ -2248,23 +2339,11 @@ export default function QuotationsPage() {
           <SearchableList
             searchValue={searchQuery}
             onSearchChange={setSearchQuery}
-            searchPlaceholder="Search quotes..."
+            hideSearch
             sortOptions={SORT_OPTIONS}
             currentSort={sortField}
             onSortChange={(value) => setSortField(value as string)}
             isLoading={isLoading}
-            listHeader={
-              <Box>
-                <SalesFilterPanel
-                  branches={branches}
-                  branchValue={filterBranch}
-                  onBranchChange={setFilterBranch}
-                  statusOptions={pageQuoteType === 'proforma' ? PROFORMA_STATUS_FILTER_OPTIONS : QUOTATION_STATUS_FILTER_OPTIONS}
-                  statusValue={filterStatus}
-                  onStatusChange={setFilterStatus}
-                />
-              </Box>
-            }
           >
             {filteredQuotes.length === 0 ? (
               <Box sx={{ p: 2, textAlign: 'center' }}>
@@ -2514,6 +2593,20 @@ export default function QuotationsPage() {
         </DialogActions>
       </Dialog>
 
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="sales_quote"
+        entityId={selectedQuote?.id}
+        actionLabels={{
+          create: "Quote created",
+          update: "Quote updated",
+          status_change: "Status changed",
+          reject: "Quote rejected",
+          convert: "Converted to invoice",
+          delete: "Quote deleted",
+        }}
+      />
     </>
   );
 }

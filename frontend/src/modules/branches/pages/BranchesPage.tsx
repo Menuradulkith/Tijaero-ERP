@@ -17,6 +17,7 @@ import AddIcon from "@mui/icons-material/Add";
 import BusinessIcon from "@mui/icons-material/Business";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import HistoryIcon from "@mui/icons-material/History";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import {
     Box,
@@ -36,6 +37,7 @@ import {
     Paper,
     Switch,
     TextField,
+    Tooltip,
     Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -59,6 +61,7 @@ import {
     handleApiError,
     showErrorToast,
     showSuccessToast,
+    TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -136,6 +139,10 @@ export default function BranchesPage() {
       confirmColor: "warning",
     }),
   });
+
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Information section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   // Data fetching
   const { data, isLoading, refetch } = useQuery({
@@ -716,7 +723,17 @@ export default function BranchesPage() {
 
         {/* Record Information (view mode only) */}
         {selectedBranch && !isCreating && !isEditing && (
-          <FormSection title="Record Information" columns={2}>
+          <FormSection
+            title="Record Information"
+            columns={2}
+            titleAction={
+              <Tooltip title="View activity history">
+                <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                  <HistoryIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            }
+          >
             <Box>
               <Typography variant="caption" color="text.secondary">Created</Typography>
               <Typography variant="body2">{formatDateTimeReadable(selectedBranch.created_at) || "-"}</Typography>
@@ -790,6 +807,18 @@ export default function BranchesPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="branch"
+        entityId={selectedBranch?.id}
+        actionLabels={{
+          create: "Branch created",
+          update: "Branch updated",
+          delete: "Branch deleted",
+        }}
+      />
     </>
   );
 }

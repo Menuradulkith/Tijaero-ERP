@@ -164,7 +164,7 @@ def _t_list_purchase_orders(db: Session, user: User, args: Dict) -> Any:
     sup_map: Dict[int, str] = {}
     if sup_ids:
         sup_map = dict(
-            db.query(Supplier.id, Supplier.full_name).filter(Supplier.id.in_(sup_ids)).all()
+            db.query(Supplier.id, Supplier.company_name).filter(Supplier.id.in_(sup_ids)).all()
         )
     return [
         {
@@ -190,7 +190,7 @@ def _t_get_purchase_order(db: Session, user: User, args: Dict) -> Any:
     order = psvc.PurchasingOrderService(db).get_order(int(args["order_id"]))
     _check_entity_branch(user, order.branch_code, "purchase order")
 
-    supplier = db.query(Supplier.full_name).filter(Supplier.id == order.first_suppliers_id).scalar()
+    supplier = db.query(Supplier.company_name).filter(Supplier.id == order.first_suppliers_id).scalar()
     items = []
     total = Decimal("0")
     for it in order.items:
@@ -234,7 +234,6 @@ def _t_list_suppliers(db: Session, user: User, args: Dict) -> Any:
     return [
         {
             "id": s.id,
-            "full_name": s.full_name,
             "company_name": s.company_name,
             "mobile": s.mobile_contact_number,
             "email": s.email,
@@ -392,7 +391,7 @@ def _t_list_supplier_payments(db: Session, user: User, args: Dict) -> Any:
     payments = q.order_by(SupplierPayment.id.desc()).limit(limit).all()
     sup_ids = {p.supplier_id for p in payments}
     sup_map = dict(
-        db.query(Supplier.id, Supplier.full_name).filter(Supplier.id.in_(sup_ids)).all()
+        db.query(Supplier.id, Supplier.company_name).filter(Supplier.id.in_(sup_ids)).all()
     ) if sup_ids else {}
     return [
         {
@@ -521,12 +520,11 @@ def _t_stock_tracking(db: Session, user: User, args: Dict) -> Any:
 # ─── WRITE tools: validate (propose) + execute ─────────────────────────────
 
 def _v_create_supplier(db: Session, user: User, args: Dict) -> Dict:
-    if not args.get("full_name") or not args.get("mobile_contact_number"):
-        raise ToolError("full_name and mobile_contact_number are required.")
+    if not args.get("company_name") or not args.get("mobile_contact_number"):
+        raise ToolError("company_name and mobile_contact_number are required.")
     return {
         "action": "Create supplier",
-        "full_name": args["full_name"],
-        "company_name": args.get("company_name"),
+        "company_name": args["company_name"],
         "mobile": args["mobile_contact_number"],
         "credit_days": int(args.get("credit_days") or 0),
         "max_credit_limit": _fmt_money(args.get("max_credit_limit") or 0),
@@ -537,14 +535,8 @@ def _x_create_supplier(db: Session, user: User, args: Dict) -> Dict:
     from app.modules.purchasing import service as psvc, schemas as pschemas
 
     payload = pschemas.SupplierCreate(
-        title=args.get("title") or "Mr",
-        full_name=args["full_name"],
-        company_name=args.get("company_name"),
-        postal_address=args.get("postal_address") or "N/A",
-        permenent_address=args.get("permenent_address") or args.get("postal_address") or "N/A",
-        gender=args.get("gender") or "other",
-        civil_status=args.get("civil_status") or "unknown",
-        no_of_kids=str(args.get("no_of_kids") or "0"),
+        company_name=args["company_name"],
+        billing_address_line1=args.get("postal_address") or "N/A",
         email=args.get("email"),
         mobile_contact_number=args["mobile_contact_number"],
         credit_days=int(args.get("credit_days") or 0),
@@ -554,8 +546,8 @@ def _x_create_supplier(db: Session, user: User, args: Dict) -> Dict:
     supplier = psvc.SupplierService(db).create_supplier(payload)
     return {
         "supplier_id": supplier.id,
-        "full_name": supplier.full_name,
-        "summary": f"Supplier '{supplier.full_name}' created with ID {supplier.id}.",
+        "company_name": supplier.company_name,
+        "summary": f"Supplier '{supplier.company_name}' created with ID {supplier.id}.",
     }
 
 
@@ -574,7 +566,7 @@ def _v_create_purchase_order(db: Session, user: User, args: Dict) -> Dict:
     if not supplier:
         raise ToolError(f"Supplier {args['supplier_id']} not found.")
     if not supplier.active:
-        raise ToolError(f"Supplier '{supplier.full_name}' is inactive.")
+        raise ToolError(f"Supplier '{supplier.company_name}' is inactive.")
 
     items = args.get("items") or []
     if not items:
@@ -608,7 +600,7 @@ def _v_create_purchase_order(db: Session, user: User, args: Dict) -> Dict:
 
     return {
         "action": "Create purchase order",
-        "supplier": supplier.full_name,
+        "supplier": supplier.company_name,
         "branch_code": branch,
         "payment_method": payment_method,
         "total_amount": _fmt_money(total),
@@ -674,7 +666,7 @@ def _v_approve_purchase_order(db: Session, user: User, args: Dict) -> Dict:
     _check_entity_branch(user, order.branch_code, "purchase order")
     if str(order.status) not in ("pending", "pending_approval", "PurchaseOrderStatus.PENDING", "PurchaseOrderStatus.PENDING_APPROVAL"):
         raise ToolError(f"PO {order.purchasing_order_no} is '{order.status}' — only pending orders can be approved/rejected.")
-    supplier = db.query(Supplier.full_name).filter(Supplier.id == order.first_suppliers_id).scalar()
+    supplier = db.query(Supplier.company_name).filter(Supplier.id == order.first_suppliers_id).scalar()
     decision = "Approve" if args.get("approve", True) else "Reject"
     return {
         "action": f"{decision} purchase order",
@@ -2809,10 +2801,9 @@ TOOLS: List[ToolSpec] = [
     # ── writes (two-phase confirm) ──
     ToolSpec(
         name="create_supplier",
-        description="Create a new supplier. WRITE ACTION — queues a confirmation the user must approve in the UI. Gather full_name and mobile_contact_number at minimum.",
+        description="Create a new supplier (company). WRITE ACTION — queues a confirmation the user must approve in the UI. Gather company_name and mobile_contact_number at minimum.",
         parameters=_params(
             {
-                "full_name": {"type": "string"},
                 "company_name": {"type": "string"},
                 "mobile_contact_number": {"type": "string"},
                 "email": {"type": "string"},
@@ -2820,7 +2811,7 @@ TOOLS: List[ToolSpec] = [
                 "credit_days": {"type": "integer"},
                 "max_credit_limit": {"type": "number"},
             },
-            ["full_name", "mobile_contact_number"],
+            ["company_name", "mobile_contact_number"],
         ),
         permission=Permissions.SUPPLIER_CREATE,
         handler=_v_create_supplier,

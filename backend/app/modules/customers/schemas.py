@@ -69,6 +69,8 @@ class Customer(CustomerBase, TijaeroBaseSchema):
     updated_at: datetime
     created_by: Optional[int] = None
     updated_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
 
 class CustomerList(BaseModel):
     total: int

@@ -64,7 +64,7 @@
     <div class="voucher-card">
         <div class="type">{{ voucher.voucher_type | default('Gift') | upper }} VOUCHER</div>
         <div class="code">{{ voucher.voucher_code }}</div>
-        <div class="amount"><small>LKR</small> {{ "%.2f" | format(voucher.amount) }}</div>
+        <div class="amount"><small>{{ company.currency_code }}</small> {{ "%.2f" | format(voucher.amount) }}</div>
         <div class="dates">
             <span>Issued: {{ voucher.issue_date }}</span>
             {% if voucher.expiry_date %}<span>|</span><span>Expires: {{ voucher.expiry_date }}</span>{% endif %}
@@ -87,8 +87,8 @@
                 <tr><td class="lbl">Customer</td><td class="val">{{ voucher.customer_name | default('-') }}</td></tr>
                 <tr><td class="lbl">Email</td><td class="val">{{ voucher.customer_email | default('-') }}</td></tr>
                 <tr><td class="lbl">Phone</td><td class="val">{{ voucher.customer_phone | default('-') }}</td></tr>
-                <tr><td class="lbl">Amount Used</td><td class="val">LKR {{ "%.2f" | format(voucher.amount_used | default(0)) }}</td></tr>
-                <tr><td class="lbl">Balance</td><td class="val"><strong>LKR {{ "%.2f" | format(voucher.remaining_balance | default(voucher.amount)) }}</strong></td></tr>
+                <tr><td class="lbl">Amount Used</td><td class="val">{{ company.currency_code }} {{ "%.2f" | format(voucher.amount_used | default(0)) }}</td></tr>
+                <tr><td class="lbl">Balance</td><td class="val"><strong>{{ company.currency_code }} {{ "%.2f" | format(voucher.remaining_balance | default(voucher.amount)) }}</strong></td></tr>
             </table>
         </div>
     </div>
@@ -96,8 +96,8 @@
     {% set used_pct = ((voucher.amount_used | default(0)) / voucher.amount * 100) if voucher.amount > 0 else 0 %}
     <div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;font-size:8px;color:#495057;margin-bottom:2px">
-            <span>Used: LKR {{ "%.2f" | format(voucher.amount_used | default(0)) }}</span>
-            <span>Remaining: LKR {{ "%.2f" | format(voucher.remaining_balance | default(voucher.amount)) }}</span>
+            <span>Used: {{ company.currency_code }} {{ "%.2f" | format(voucher.amount_used | default(0)) }}</span>
+            <span>Remaining: {{ company.currency_code }} {{ "%.2f" | format(voucher.remaining_balance | default(voucher.amount)) }}</span>
         </div>
         <div class="balance-bar">
             <div class="used" style="width:{{ used_pct }}%"></div>
@@ -113,7 +113,7 @@
                 <th class="c" style="width:80px">Date</th>
                 <th style="width:90px">Reference</th>
                 <th>Description</th>
-                <th class="r" style="width:90px">Amount (LKR)</th>
+                <th class="r" style="width:90px">Amount ({{ company.currency_code }})</th>
             </tr>
         </thead>
         <tbody>

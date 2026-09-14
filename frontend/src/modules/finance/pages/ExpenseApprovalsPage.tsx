@@ -7,6 +7,7 @@
 
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import HistoryIcon from "@mui/icons-material/History";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import {
   Alert,
@@ -16,7 +17,9 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -42,11 +45,12 @@ import {
   TBranchFilter,
   TConfirmDialog,
   TDetailSkeleton,
-  TFilterPanel,
   TSearchableSelect,
+  TTabFilterBar,
   TStatusChip,
   useCrudMutation,
   useTConfirmDialog,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -79,6 +83,15 @@ export default function ExpenseApprovalsPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Submission Info section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+  const [draftStatus, setDraftStatus] = useState<string | null>("submitted");
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -92,8 +105,24 @@ export default function ExpenseApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranch(draftBranch);
+  }, [draftSearchQuery, draftStatus, draftBranch]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranch(null);
+  }, []);
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -204,34 +233,12 @@ export default function ExpenseApprovalsPage() {
       isLoading={isLoading}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search expenses..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedExpense}
       emptyMessage="No expenses found"
-      listHeader={
-        <TFilterPanel>
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-          <TSearchableSelect
-            label="Status"
-            value={filterStatus}
-            onChange={(val) => setFilterStatus(val as string | null)}
-            options={STATUS_FILTER_OPTIONS.map((s) => ({
-              value: s.value,
-              label: s.label,
-              color: s.color,
-            }))}
-            showAllOption
-            allOptionLabel="All Statuses"
-            placeholder="Search status..."
-          />
-        </TFilterPanel>
-      }
       renderItem={(expense: Expense, isSelected: boolean) => {
         const statusChip = getStatusProps(expense.status, "expenseStatus");
         return (
@@ -477,7 +484,17 @@ export default function ExpenseApprovalsPage() {
             )}
 
             {/* Branch & Submission Info */}
-            <FormSection title="Submission Info" columns={3}>
+            <FormSection
+              title="Submission Info"
+              columns={3}
+              titleAction={
+                <Tooltip title="View activity history">
+                  <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
               <TextField
                 label="Branch"
                 size="small"
@@ -556,6 +573,78 @@ export default function ExpenseApprovalsPage() {
       <MasterDetailLayout
         title="Expense Approvals"
         icon={<ReceiptLongIcon color="primary" />}
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Search",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search expenses..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TBranchFilter
+                    branches={branches}
+                    value={draftBranch}
+                    onChange={setDraftBranch}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TSearchableSelect
+                    label=""
+                    value={draftStatus}
+                    onChange={(val) => setDraftStatus(val as string | null)}
+                    options={STATUS_FILTER_OPTIONS.map((s) => ({
+                      value: s.value,
+                      label: s.label,
+                      color: s.color,
+                    }))}
+                    showAllOption
+                    allOptionLabel="All Statuses"
+                    placeholder="Search status..."
+                    size="small"
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={
+              !draftSearchQuery &&
+              !draftStatus &&
+              !draftBranch &&
+              !searchQuery &&
+              !filterStatus &&
+              !filterBranch
+            }
+          />
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["expense-approvals"] });
           queryClient.invalidateQueries({ queryKey: ["expense-approval-detail"] });
@@ -610,6 +699,19 @@ export default function ExpenseApprovalsPage() {
 
       {/* Approve Confirm */}
       <TConfirmDialog {...approveDialog.dialogProps} />
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="expense"
+        entityId={selectedExpense?.id}
+        actionLabels={{
+          create: "Expense created",
+          submit: "Expense submitted",
+          approve: "Expense approved",
+          reject: "Expense rejected",
+        }}
+      />
     </>
   );
 }

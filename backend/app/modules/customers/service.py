@@ -5,11 +5,35 @@ from fastapi import HTTPException, status
 from datetime import datetime, date
 from decimal import Decimal
 from app.core import timezone as tz
+from app.common.audit import log_audit
 from app.modules.customers import repository, schemas
 from app.modules.customers.models import Customer, CustomerCuponCodes, CouponUsage, CustomerGiftVoucher, VoucherUsage
 from app.modules.products.models import Product
 
 class CustomerService:
+    def _attach_user_names(self, db: Session, customers: List[Customer]) -> None:
+        """Resolve created_by/updated_by ids to display names, in one batched
+        query, and stamp them onto each customer as dynamic attributes."""
+        from app.auth.models import User
+
+        user_ids = {
+            uid for c in customers for uid in (c.created_by, c.updated_by) if uid
+        }
+        if not user_ids:
+            for c in customers:
+                c.created_by_name = None
+                c.updated_by_name = None
+            return
+
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        name_map = {
+            u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+            for u in users
+        }
+        for c in customers:
+            c.created_by_name = name_map.get(c.created_by)
+            c.updated_by_name = name_map.get(c.updated_by)
+
     def get_customer(self, db: Session, customer_id: int) -> Customer:
         customer = repository.customer_repository.get_by_id(db, customer_id)
         if not customer:
@@ -17,35 +41,93 @@ class CustomerService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Customer with id {customer_id} not found"
             )
+        self._attach_user_names(db, [customer])
         return customer
-    
+
     def get_all_customers(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Customer]:
-        return repository.customer_repository.get_all(db, skip, limit, active_only)
-    
+        customers = repository.customer_repository.get_all(db, skip, limit, active_only)
+        self._attach_user_names(db, customers)
+        return customers
+
     def search_customers(self, db: Session, query: str, skip: int = 0, limit: int = 100) -> List[Customer]:
-        return repository.customer_repository.search(db, query, skip, limit)
-    
+        customers = repository.customer_repository.search(db, query, skip, limit)
+        self._attach_user_names(db, customers)
+        return customers
+
     def create_customer(self, db: Session, customer: schemas.CustomerCreate, user_id: int) -> Customer:
-        return repository.customer_repository.create(db, customer, user_id)
-    
+        created = repository.customer_repository.create(db, customer, user_id)
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="create",
+            entity_type="customer",
+            entity_id=created.id,
+            changes={"customer_name": created.customer_name},
+        )
+        db.commit()
+        self._attach_user_names(db, [created])
+        return created
+
     def update_customer(self, db: Session, customer_id: int, customer: schemas.CustomerUpdate, user_id: int) -> Customer:
+        submitted_fields = customer.model_dump(exclude_unset=True)
+        before = repository.customer_repository.get_by_id(db, customer_id)
+        if not before:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer with id {customer_id} not found"
+            )
+        before_values = {field: getattr(before, field) for field in submitted_fields}
+
         updated_customer = repository.customer_repository.update(db, customer_id, customer, user_id)
         if not updated_customer:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Customer with id {customer_id} not found"
             )
+
+        changed_fields = {
+            field for field, new_value in submitted_fields.items()
+            if before_values.get(field) != new_value
+        }
+        if changed_fields:
+            log_audit(
+                db,
+                user_id=user_id or 0,
+                action="update",
+                entity_type="customer",
+                entity_id=updated_customer.id,
+                changes={"fields": sorted(changed_fields)},
+            )
+            db.commit()
+
+        self._attach_user_names(db, [updated_customer])
         return updated_customer
-    
-    def delete_customer(self, db: Session, customer_id: int) -> dict:
+
+    def delete_customer(self, db: Session, customer_id: int, user_id: Optional[int] = None) -> dict:
+        customer = repository.customer_repository.get_by_id(db, customer_id)
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer with id {customer_id} not found"
+            )
+        customer_name = customer.customer_name
         success = repository.customer_repository.delete(db, customer_id)
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Customer with id {customer_id} not found"
             )
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="delete",
+            entity_type="customer",
+            entity_id=customer_id,
+            changes={"customer_name": customer_name},
+        )
+        db.commit()
         return {"message": "Customer deleted successfully"}
-    
+
     def get_customer_count(self, db: Session) -> int:
         return repository.customer_repository.count(db)
 

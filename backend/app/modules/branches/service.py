@@ -1,6 +1,7 @@
 import logging
 
 from sqlalchemy.orm import Session
+from app.common.audit import log_audit
 from app.modules.branches import schemas, repository
 from app.auth.models import Branch
 from typing import List, Optional
@@ -24,7 +25,7 @@ class BranchService:
             )
         return branch
     
-    def create_branch(self, db: Session, branch: schemas.BranchCreate) -> Branch:
+    def create_branch(self, db: Session, branch: schemas.BranchCreate, created_by: Optional[int] = None) -> Branch:
 
         existing = self.repository.get_by_code(db, branch.branch_code)
         if existing:
@@ -32,19 +33,19 @@ class BranchService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Branch code already exists"
             )
-        
-        return self.repository.create(db, branch)
-    
-    def update_branch(self, db: Session, branch_id: int, branch: schemas.BranchUpdate) -> Branch:
-        updated_branch = self.repository.update(db, branch_id, branch)
+
+        return self.repository.create(db, branch, created_by=created_by)
+
+    def update_branch(self, db: Session, branch_id: int, branch: schemas.BranchUpdate, updated_by: Optional[int] = None) -> Branch:
+        updated_branch = self.repository.update(db, branch_id, branch, updated_by=updated_by)
         if not updated_branch:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Branch not found"
             )
         return updated_branch
-    
-    def delete_branch(self, db: Session, branch_id: int) -> dict:
+
+    def delete_branch(self, db: Session, branch_id: int, deleted_by: Optional[int] = None) -> dict:
         """Hard-delete a branch when it has no real activity.
 
         Every branch auto-creates at least one warehouse location, so an empty
@@ -163,6 +164,11 @@ class BranchService:
                     text("DELETE FROM good_received_locations WHERE id = ANY(:ids)"),
                     {"ids": location_ids},
                 )
+            log_audit(
+                db, user_id=deleted_by or 0, action="delete",
+                entity_type="branch", entity_id=branch_id,
+                changes={"branch_code": code, "branch_name": branch.branch_name},
+            )
             success = self.repository.delete(db, branch_id)
         except IntegrityError:
             db.rollback()

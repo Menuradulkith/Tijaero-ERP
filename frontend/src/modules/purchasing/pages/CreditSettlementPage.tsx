@@ -69,7 +69,7 @@ import {
 
 // Configuration
 const SORT_OPTIONS: SortOption[] = [
-  { value: "full_name", label: "Name" },
+  { value: "company_name", label: "Name" },
   { value: "max_credit_limit", label: "Credit Limit" },
   { value: "credit_days", label: "Credit Days" },
 ];
@@ -124,7 +124,7 @@ export default function CreditSettlementPage() {
 
   // Selection state
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("full_name");
+  const [sortField, setSortField] = useState("company_name");
   const [showOnlyWithCredit, setShowOnlyWithCredit] = useState(true);
   
   // View state
@@ -207,11 +207,10 @@ export default function CreditSettlementPage() {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
         (s) =>
-          s.full_name.toLowerCase().includes(query) ||
           s.company_name?.toLowerCase().includes(query) ||
           // Search by branch name
-          branches.some((b: BranchRef) => 
-            b.branch_name.toLowerCase().includes(query) || 
+          branches.some((b: BranchRef) =>
+            b.branch_name.toLowerCase().includes(query) ||
             b.branch_code.toLowerCase().includes(query)
           )
       );
@@ -219,8 +218,8 @@ export default function CreditSettlementPage() {
 
     filtered.sort((a, b) => {
       switch (sortField) {
-        case "full_name":
-          return a.full_name.localeCompare(b.full_name);
+        case "company_name":
+          return a.company_name.localeCompare(b.company_name);
         case "max_credit_limit":
           return b.max_credit_limit - a.max_credit_limit;
         case "credit_days":
@@ -434,7 +433,7 @@ export default function CreditSettlementPage() {
               <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
                 {/* Supplier Name */}
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{supplier.full_name}</span>
+                  <span>{supplier.company_name}</span>
                   {isSelected && (
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                       (Name)
@@ -523,7 +522,7 @@ export default function CreditSettlementPage() {
         <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
           <BusinessIcon sx={{ fontSize: 40, color: "primary.main" }} />
           <Box>
-            <Typography variant="h5">{selectedSupplier?.full_name}</Typography>
+            <Typography variant="h5">{selectedSupplier?.company_name}</Typography>
             {selectedSupplier?.company_name && (
               <Typography variant="body2" color="text.secondary">
                 {selectedSupplier.company_name}
@@ -689,7 +688,7 @@ export default function CreditSettlementPage() {
         onClick={handleBackToSupplier}
         sx={{ mb: 2 }}
       >
-        Back to {selectedSupplier?.full_name}
+        Back to {selectedSupplier?.company_name}
       </Button>
 
       {error && (
@@ -943,13 +942,13 @@ export default function CreditSettlementPage() {
         breadcrumbs={[
           { label: "Purchasing", href: "/purchasing" },
           { label: "Credit Settlements", href: "/purchasing/settlements" },
-          ...(selectedSupplier ? [{ label: selectedSupplier.full_name }] : []),
+          ...(selectedSupplier ? [{ label: selectedSupplier.company_name }] : []),
           ...(selectedPO ? [{ label: selectedPO.po_no }] : []),
         ]}
         title={
           viewMode === "po" && selectedPO
             ? `Payment: ${selectedPO.po_no}`
-            : selectedSupplier?.full_name || ""
+            : selectedSupplier?.company_name || ""
         }
         titleIcon={viewMode === "po" ? <PaymentIcon color="primary" /> : <BusinessIcon color="primary" />}
         isCreating={false}

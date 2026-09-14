@@ -12,6 +12,7 @@ import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import EmailIcon from "@mui/icons-material/Email";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
+import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import {
   Alert,
@@ -55,8 +56,8 @@ import {
   TBranchFilter,
   TConfirmDialog,
   TExportButton,
-  TFilterPanel,
   TPrintButton,
+  TTabFilterBar,
   TPrintPreviewDialog,
   TStatusChip,
   TStatusFilter,
@@ -68,6 +69,7 @@ import {
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
+  TActivityHistoryPanel,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -179,11 +181,17 @@ export default function PurchaseReturnsPage() {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
   };
 
-  // Filter states
+  // Filter states (applied - drives the actual list filtering)
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+
+  // Filter states (draft - edited via the header filter bar, only applied on Search click)
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftSupplier, setDraftSupplier] = useState<number | null>(null);
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Barcode scanning states
   const [barcodeInput, setBarcodeInput] = useState("");
@@ -226,6 +234,10 @@ export default function PurchaseReturnsPage() {
     onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
 
+  // Activity History is opened on demand from a detail icon next to the
+  // Record Information section title, rather than shown inline.
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
   // OPTIMIZED: Use aggregated endpoint for branches (placed before handlers that need defaultBranchCode)
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
@@ -234,8 +246,27 @@ export default function PurchaseReturnsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
+      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftSearchQuery);
+    setFilterBranch(draftBranch);
+    setFilterStatus(draftStatus);
+    setFilterSupplier(draftSupplier);
+  }, [draftSearchQuery, draftBranch, draftStatus, draftSupplier]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftSearchQuery("");
+    setDraftBranch(null);
+    setDraftStatus(null);
+    setDraftSupplier(null);
+    setSearchQuery("");
+    setFilterBranch(null);
+    setFilterStatus(null);
+    setFilterSupplier(null);
+  }, []);
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
@@ -382,7 +413,7 @@ export default function PurchaseReturnsPage() {
 
     // Apply supplier filter
     if (filterSupplier) {
-      const supplierName = suppliers.find(s => s.id === filterSupplier)?.full_name;
+      const supplierName = suppliers.find(s => s.id === filterSupplier)?.company_name;
       if (supplierName) {
         filtered = filtered.filter(ret => ret.supplier_name === supplierName);
       }
@@ -443,7 +474,7 @@ export default function PurchaseReturnsPage() {
     const po = purchaseOrders?.find((o: PurchasingOrder) => o.id === grn.purchasingorders_id);
     if (!po) return "N/A";
     const supplier = suppliers.find(s => s.id === po.first_suppliers_id);
-    return supplier ? supplier.full_name : "Unknown Supplier";
+    return supplier ? supplier.company_name : "Unknown Supplier";
   }, [grns, purchaseOrders, suppliers]);
 
   // getStatusColor is now imported from common components and uses RETURN_STATUS_OPTIONS
@@ -693,43 +724,13 @@ export default function PurchaseReturnsPage() {
       isLoading={isLoading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search returns..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedReturn}
       onSelectItem={handleSelectReturnWithItems}
       emptyMessage="No purchase returns found"
-      listHeader={
-        <TFilterPanel>
-          <TStatusFilter
-            options={RETURN_STATUS_FILTER_OPTIONS}
-            value={filterStatus}
-            onChange={setFilterStatus}
-          />
-          <TBranchFilter
-            branches={branches}
-            value={filterBranch}
-            onChange={setFilterBranch}
-          />
-          <Autocomplete
-            size="small"
-            options={suppliers}
-            getOptionLabel={(option) => option.full_name || ''}
-            value={suppliers.find(s => s.id === filterSupplier) || null}
-            onChange={(_, newValue) => setFilterSupplier(newValue?.id || null)}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Filter by Supplier"
-                placeholder="All Suppliers"
-                sx={{ minWidth: 200 }}
-              />
-            )}
-            isOptionEqualToValue={(option, value) => option.id === value.id}
-          />
-        </TFilterPanel>
-      }
       renderItem={(ret, isSelected) => (
         <SelectableListItem
           key={ret.id}
@@ -1188,7 +1189,17 @@ export default function PurchaseReturnsPage() {
 
         {/* Record Information (view mode only) */}
         {selectedReturn && !isCreating && !isEditing && (
-          <FormSection title="Record Information" columns={2}>
+          <FormSection
+            title="Record Information"
+            columns={2}
+            titleAction={
+              <Tooltip title="View activity history">
+                <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                  <HistoryIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            }
+          >
             <Box>
               <Typography variant="caption" color="text.secondary">Created</Typography>
               <Typography variant="body2">{formatDateTimeReadable(selectedReturn.added_date) || "-"}</Typography>
@@ -1203,6 +1214,68 @@ export default function PurchaseReturnsPage() {
     <>
       <MasterDetailLayout
         title="Purchase Returns"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "search",
+                label: "Return No",
+                hasValue: !!draftSearchQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Search returns..."
+                    value={draftSearchQuery}
+                    onChange={(e) => setDraftSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />,
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
+              },
+              {
+                key: "supplier",
+                label: "Supplier",
+                hasValue: !!draftSupplier,
+                render: () => (
+                  <Autocomplete
+                    size="small"
+                    options={suppliers}
+                    getOptionLabel={(option) => option.company_name || ""}
+                    value={suppliers.find((s) => s.id === draftSupplier) || null}
+                    onChange={(_, newValue) => setDraftSupplier(newValue?.id || null)}
+                    renderInput={(params) => <TextField {...params} placeholder="All Suppliers" />}
+                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                    fullWidth
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={
+              !draftSearchQuery && !draftBranch && !draftStatus && !draftSupplier &&
+              !searchQuery && !filterBranch && !filterStatus && !filterSupplier
+            }
+          />
+        }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["purchaseReturns"] });
           queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
@@ -1257,6 +1330,18 @@ export default function PurchaseReturnsPage() {
           title={`Print Purchase Return: ${selectedReturn?.purchasing_return_no || ''}`}
         />
       )}
+
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="purchase_return"
+        entityId={selectedReturn?.id}
+        actionLabels={{
+          create: "Return created",
+          approve: "Return approved",
+          reject: "Return rejected",
+        }}
+      />
     </>
   );
 }
