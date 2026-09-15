@@ -27,3 +27,17 @@ class Branch(BranchBase, TijaeroBaseSchema):
     active: bool
     created_at: datetime
     updated_at: datetime
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
+
+
+class BranchPerformance(BaseModel):
+    """Quick sales/stock KPIs for a branch, for the detail-panel widget."""
+    sales_today: float = 0
+    sales_month: float = 0
+    orders_today: int = 0
+    orders_month: int = 0
+    in_stock: int = 0
+    reserved: int = 0
+    sold_today: int = 0
+    returned: int = 0

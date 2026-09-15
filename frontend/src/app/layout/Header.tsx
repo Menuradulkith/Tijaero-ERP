@@ -24,6 +24,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import NotificationDropdown from "./NotificationDropdown";
 import TijaeroAIButton from "@/features/chat-agent/TijaeroAIButton";
+import { profilePictureUrl } from "@/modules/users/components/UserAvatarUploader";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -140,7 +141,7 @@ export default function Header({
           <NotificationDropdown />
           <TijaeroAIButton />
           <IconButton onClick={handleMenu} sx={{ ml: { xs: 0, sm: 1 } }}>
-            <Avatar sx={{ width: 32, height: 32, bgcolor: "primary.main" }}>
+            <Avatar src={profilePictureUrl(user?.profile_picture_path)} sx={{ width: 32, height: 32, bgcolor: "primary.main" }}>
               {user?.username?.[0]?.toUpperCase() || "U"}
             </Avatar>
           </IconButton>

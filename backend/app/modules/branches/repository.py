@@ -18,9 +18,17 @@ class BranchRepository:
     
     def get_by_code(self, db: Session, branch_code: str) -> Optional[Branch]:
         return db.query(Branch).filter(Branch.branch_code == branch_code).first()
+
+    def get_by_name(self, db: Session, branch_name: str) -> Optional[Branch]:
+        return db.query(Branch).filter(Branch.branch_name == branch_name).first()
+
+    def get_by_email(self, db: Session, email: str) -> Optional[Branch]:
+        return db.query(Branch).filter(Branch.email == email).first()
     
     def create(self, db: Session, branch: schemas.BranchCreate, created_by: Optional[int] = None) -> Branch:
-        db_branch = Branch(**branch.model_dump())
+        data = branch.model_dump()
+        data["email"] = data.get("email") or None
+        db_branch = Branch(**data)
         db.add(db_branch)
         try:
             db.flush()
@@ -36,7 +44,7 @@ class BranchRepository:
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Branch code or name already exists"
+                detail="Branch code, name, or email already exists"
             )
 
     def update(self, db: Session, branch_id: int, branch: schemas.BranchUpdate, updated_by: Optional[int] = None) -> Optional[Branch]:
@@ -45,6 +53,8 @@ class BranchRepository:
             return None
 
         update_data = branch.model_dump(exclude_unset=True)
+        if "email" in update_data:
+            update_data["email"] = update_data.get("email") or None
         before_values = {field: getattr(db_branch, field, None) for field in update_data if hasattr(db_branch, field)}
 
         for field, value in update_data.items():
@@ -61,7 +71,14 @@ class BranchRepository:
                 changes={"fields": changed_fields},
             )
 
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Branch code, name, or email already exists"
+            )
         db.refresh(db_branch)
         return db_branch
     

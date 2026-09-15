@@ -2,6 +2,7 @@
  * GroupsPage - Refactored to use Tijaero-style reusable components
  */
 
+import HistoryIcon from "@mui/icons-material/History";
 import SecurityIcon from "@mui/icons-material/Security";
 import {
     Alert,
@@ -9,10 +10,12 @@ import {
     Card,
     CardContent,
     Checkbox,
+    IconButton,
     TextField,
+    Tooltip,
     Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Tijaero Components
 import {
@@ -24,6 +27,7 @@ import {
     SearchableList,
     SelectableListItem,
     SortOption,
+    TActivityHistoryPanel,
     TDetailSkeleton,
     TExportButton,
     TPageSkeleton,
@@ -66,6 +70,7 @@ export default function GroupsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   // Use reusable state hook
   const {
@@ -98,7 +103,13 @@ export default function GroupsPage() {
     loadData();
   }, []);
 
+  // Guards against out-of-order responses: if two loadData() calls overlap
+  // (e.g. save then a quick delete), a slower/older call's response must not
+  // clobber state already updated by a call that started later.
+  const loadDataSeqRef = useRef(0);
+
   const loadData = async () => {
+    const seq = ++loadDataSeqRef.current;
     try {
       setLoading(true);
       setError(null);
@@ -106,14 +117,19 @@ export default function GroupsPage() {
         groupsApi.getGroups(),
         permissionsApi.getPermissions(),
       ]);
+
+      // A newer loadData() call has since started — this response is stale.
+      if (seq !== loadDataSeqRef.current) return;
+
       setGroups(groupsData);
       setPermissions(permissionsData);
     } catch (err: unknown) {
+      if (seq !== loadDataSeqRef.current) return;
       const errorMsg = handleApiError(err, "Failed to load data");
       setError(errorMsg);
       showErrorToast(errorMsg);
     } finally {
-      setLoading(false);
+      if (seq === loadDataSeqRef.current) setLoading(false);
     }
   };
 
@@ -145,6 +161,27 @@ export default function GroupsPage() {
       return acc;
     }, {} as Record<string, Permission[]>);
   }, [permissions]);
+
+  // Filter grouped permissions by the permission search box; resources with
+  // no matches are hidden entirely rather than shown empty.
+  const [permissionSearch, setPermissionSearch] = useState("");
+  const filteredGroupedPermissions = useMemo(() => {
+    const query = permissionSearch.trim().toLowerCase();
+    if (!query) return groupedPermissions;
+
+    const result: Record<string, Permission[]> = {};
+    for (const [resource, perms] of Object.entries(groupedPermissions)) {
+      const matched = perms.filter(
+        (p) =>
+          p.name.toLowerCase().includes(query) ||
+          p.resource.toLowerCase().includes(query) ||
+          p.action.toLowerCase().includes(query) ||
+          (p.description || "").toLowerCase().includes(query)
+      );
+      if (matched.length > 0) result[resource] = matched;
+    }
+    return result;
+  }, [groupedPermissions, permissionSearch]);
 
   // Handlers
   const handleSave = useCallback(async () => {
@@ -225,6 +262,16 @@ export default function GroupsPage() {
     }
   }, [setFormData]);
 
+  const handleResourceToggle = useCallback((resourcePerms: Permission[], checked: boolean) => {
+    const resourceIds = resourcePerms.map((p) => p.id);
+    setFormData((prev) => ({
+      ...prev,
+      permission_ids: checked
+        ? [...new Set([...prev.permission_ids, ...resourceIds])]
+        : prev.permission_ids.filter((id) => !resourceIds.includes(id)),
+    }));
+  }, [setFormData]);
+
   if (loading) {
     return <TPageSkeleton variant="detail" />;
   }
@@ -277,6 +324,15 @@ export default function GroupsPage() {
         noSelectionTitle="Select a Role"
         isFavorite={selectedGroup ? favorites.includes(selectedGroup.id) : false}
         onToggleFavorite={selectedGroup ? (e) => toggleFavorite(selectedGroup.id, e) : undefined}
+        actions={
+          selectedGroup && !isCreating ? (
+            <Tooltip title="View activity history">
+              <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                <HistoryIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : undefined
+        }
       />
 
       <ActionToolbar
@@ -323,14 +379,45 @@ export default function GroupsPage() {
             </FormSection>
 
             {/* Permissions Section - Custom because of complex structure */}
-            <FormSection title={`Permissions (${formData.permission_ids.length} selected)`} columns={1}>
+            <FormSection
+              title={`Permissions (${formData.permission_ids.length} selected)`}
+              columns={1}
+              titleAction={
+                <TextField
+                  size="small"
+                  placeholder="Search permissions..."
+                  value={permissionSearch}
+                  onChange={(e) => setPermissionSearch(e.target.value)}
+                  sx={{ width: 220 }}
+                />
+              }
+            >
               <Box sx={{ maxHeight: 400, overflowY: "auto" }}>
-                {Object.entries(groupedPermissions).map(([resource, perms]) => (
+                {Object.keys(filteredGroupedPermissions).length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: "center" }}>
+                    No permissions match "{permissionSearch}"
+                  </Typography>
+                ) : (
+                Object.entries(filteredGroupedPermissions).map(([resource, perms]) => {
+                  const resourceIds = perms.map((p) => p.id);
+                  const selectedCount = resourceIds.filter((id) => formData.permission_ids.includes(id)).length;
+                  const allSelected = selectedCount === resourceIds.length;
+                  const someSelected = selectedCount > 0 && !allSelected;
+                  return (
                   <Card key={resource} sx={{ mb: 2 }} variant="outlined">
                     <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-                      <Typography variant="subtitle2" fontWeight="bold" color="primary" gutterBottom>
-                        {resource.toUpperCase()}
-                      </Typography>
+                      <Box display="flex" alignItems="center" sx={{ mb: 0.5 }}>
+                        <Checkbox
+                          size="small"
+                          checked={allSelected}
+                          indeterminate={someSelected}
+                          disabled={!isEditing && !isCreating}
+                          onChange={(e) => handleResourceToggle(perms, e.target.checked)}
+                        />
+                        <Typography variant="subtitle2" fontWeight="bold" color="primary">
+                          {resource.toUpperCase()}
+                        </Typography>
+                      </Box>
                       <Box
                         sx={{
                           display: "grid",
@@ -359,7 +446,9 @@ export default function GroupsPage() {
                       </Box>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })
+                )}
               </Box>
             </FormSection>
           </>
@@ -389,6 +478,17 @@ export default function GroupsPage() {
         }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
+      <TActivityHistoryPanel
+        open={activityHistoryOpen}
+        onClose={() => setActivityHistoryOpen(false)}
+        entityType="group"
+        entityId={selectedGroup?.id}
+        actionLabels={{
+          create: "Role created",
+          update: "Role updated",
+          delete: "Role deleted",
+        }}
+      />
     </>
   );
 }

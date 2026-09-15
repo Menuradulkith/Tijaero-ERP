@@ -100,9 +100,10 @@ def login(
         passcode_expired = is_passcode_expired(db, user.id, expiry_days)
 
     return {
-        **token_data, 
+        **token_data,
         "passcode_expired": passcode_expired,
-        "passcode_locked_out": passcode_locked_out
+        "passcode_locked_out": passcode_locked_out,
+        "must_change_password": user.must_change_password,
     }
 
 

@@ -203,6 +203,7 @@ class ProfileService:
             )
 
         user.hashed_password = get_password_hash(password_change.new_password)
+        user.must_change_password = False
         self.db.commit()
         return {"message": "Password changed successfully"}
 

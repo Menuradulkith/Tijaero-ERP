@@ -207,6 +207,7 @@ ACTIVITY_LOG_ENTITY_TYPES = {
     "customer_credit_note",
     "user",
     "branch",
+    "group",
 }
 
 

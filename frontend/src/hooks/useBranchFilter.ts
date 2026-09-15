@@ -78,13 +78,14 @@ export function useBranchFilter() {
   );
 
   /**
-   * Get the user's default/first branch code.
+   * Get the user's default branch code: their designated primary branch,
+   * falling back to their first assigned branch if no primary is set.
    * Useful for pre-selecting a branch in forms.
    */
   const getDefaultBranchCode = useMemo((): string | undefined => {
     if (!user) return undefined;
     if (user.is_superuser) return undefined; // Let superusers choose
-    return user.branches?.[0]?.branch_code;
+    return user.primary_branch?.branch_code ?? user.branches?.[0]?.branch_code;
   }, [user]);
 
   /**

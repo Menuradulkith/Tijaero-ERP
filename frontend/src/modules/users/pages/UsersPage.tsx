@@ -8,6 +8,7 @@ import {
     Alert,
     Autocomplete,
     Box,
+    Button,
     Checkbox,
     Chip,
     FormControlLabel,
@@ -17,7 +18,7 @@ import {
     Tooltip,
     Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
 // Tijaero Components
@@ -41,6 +42,10 @@ import {
     useCrudMutation,
     showErrorToast,
     TActivityHistoryPanel,
+    TTabFilterBar,
+    TStatusFilter,
+    TAutocomplete,
+    type TFilterStatusOption,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/components/PermissionGuard";
@@ -50,6 +55,7 @@ import type { Branch } from "../../../api/types";
 import { branchApi } from "../../branches/api";
 import { Group, groupsApi } from "../../groups/api";
 import { UserCreate, UserList, usersApi, UserUpdate } from "../api";
+import UserAvatarUploader from "../components/UserAvatarUploader";
 
 // Configuration
 const SORT_OPTIONS: SortOption[] = [
@@ -58,6 +64,14 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "email", label: "Email" },
 ];
 
+const USER_STATUS_OPTIONS: TFilterStatusOption[] = [
+  { value: null, label: "All Statuses" },
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
+
+const TODAY = new Date().toISOString().split("T")[0];
+
 const INITIAL_FORM_DATA: Partial<UserCreate> = {
   username: "",
   password: "",
@@ -65,14 +79,15 @@ const INITIAL_FORM_DATA: Partial<UserCreate> = {
   first_name: "",
   middle_name: "",
   last_name: "",
-  gender: "m",
-  birthdate: new Date().toISOString().split("T")[0],
-  date_joined: new Date().toISOString().split("T")[0],
-  occupation: "",
+  gender: "",
+  birthdate: "",
+  date_joined: TODAY,
   employee_id: "",
+  phone_number: "",
   is_active: true,
   is_staff: false,
   branch_ids: [],
+  primary_branch_id: undefined,
   group_ids: [],
 };
 
@@ -82,20 +97,28 @@ const resetFormFromUser = (user: UserList): Partial<UserCreate> => ({
   first_name: user.first_name,
   middle_name: user.middle_name || "",
   last_name: user.last_name,
-  gender: user.gender || "m",
-  birthdate: user.birthdate || new Date().toISOString().split("T")[0],
-  date_joined: user.date_joined || new Date().toISOString().split("T")[0],
-  occupation: user.occupation || "",
+  gender: user.gender || "",
+  birthdate: user.birthdate || "",
+  date_joined: user.date_joined || TODAY,
   employee_id: user.employee_id || "",
+  phone_number: user.phone_number || "",
   is_active: user.is_active,
   is_staff: user.is_staff,
   branch_ids: user.branches.map((b) => b.id),
+  primary_branch_id: user.primary_branch?.id,
   group_ids: user.groups?.map((g) => g.id) || [],
 });
 
-// Email validation
+// Date validation
+const validateNotFutureDate = (value: string, label: string): string | null => {
+  if (!value) return null;
+  if (value > TODAY) return `${label} cannot be a future date`;
+  return null;
+};
+
+// Email validation (email is optional; format is only checked when provided)
 const validateEmail = (email: string): string | null => {
-  if (!email) return "Email is required";
+  if (!email) return null;
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) return "Please enter a valid email address";
   return null;
@@ -130,11 +153,20 @@ export default function UsersPage() {
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [employeeIdError, setEmployeeIdError] = useState<string | null>(null);
+  const [birthdateError, setBirthdateError] = useState<string | null>(null);
+  const [dateJoinedError, setDateJoinedError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [filterBranchId, setFilterBranchId] = useState<number | null>(null);
   const [filterRoleId, setFilterRoleId] = useState<number | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+  // Filter state (draft - edited via the filter bar, only applied on Search click)
+  const [draftUserQuery, setDraftUserQuery] = useState("");
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftBranch, setDraftBranch] = useState<Branch | null>(null);
+  const [draftRole, setDraftRole] = useState<Group | null>(null);
 
   // Permissions
   const canCreate = usePermission(PERMISSIONS.USER_CREATE.resource, PERMISSIONS.USER_CREATE.action);
@@ -182,11 +214,35 @@ export default function UsersPage() {
   // Record Information section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
+  const handleApplyFilters = useCallback(() => {
+    setSearchQuery(draftUserQuery);
+    setFilterStatus(draftStatus);
+    setFilterBranchId(draftBranch?.id ?? null);
+    setFilterRoleId(draftRole?.id ?? null);
+  }, [draftUserQuery, draftStatus, draftBranch, draftRole, setSearchQuery]);
+
+  const handleClearFilters = useCallback(() => {
+    setDraftUserQuery("");
+    setDraftStatus(null);
+    setDraftBranch(null);
+    setDraftRole(null);
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterBranchId(null);
+    setFilterRoleId(null);
+  }, [setSearchQuery]);
+
   useEffect(() => {
     loadData();
   }, []);
 
+  // Guards against out-of-order responses: if two loadData() calls overlap
+  // (e.g. two quick admin actions in a row), a slower/older call's response
+  // must not clobber state already updated by a call that started later.
+  const loadDataSeqRef = useRef(0);
+
   const loadData = async (refreshSelectedUserId?: number) => {
+    const seq = ++loadDataSeqRef.current;
     try {
       setLoading(true);
       setError(null);
@@ -196,10 +252,14 @@ export default function UsersPage() {
       promises.push(branchApi.getAll(1, 100).catch(() => ({ items: [] })));
 
       const [usersData, groupsData, branchesData] = await Promise.all(promises);
+
+      // A newer loadData() call has since started — this response is stale.
+      if (seq !== loadDataSeqRef.current) return;
+
       setUsers(usersData);
       setGroups(groupsData);
       setBranches(branchesData.items || []);
-      
+
       // Refresh selected user with updated data
       if (refreshSelectedUserId) {
         const updatedUser = usersData.find((u: UserList) => u.id === refreshSelectedUserId);
@@ -209,11 +269,12 @@ export default function UsersPage() {
         }
       }
     } catch (err: unknown) {
+      if (seq !== loadDataSeqRef.current) return;
       const errorMsg = handleApiError(err, "Failed to load data");
       setError(errorMsg);
       showErrorToast(errorMsg);
     } finally {
-      setLoading(false);
+      if (seq === loadDataSeqRef.current) setLoading(false);
     }
   };
 
@@ -235,25 +296,31 @@ export default function UsersPage() {
       );
     }
 
+    // Filter by status
+    if (filterStatus) {
+      const isActive = filterStatus === "active";
+      filtered = filtered.filter((user) => user.is_active === isActive);
+    }
+
     if (searchQuery) {
       filtered = filtered.filter(
         (user) =>
           user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
           user.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           user.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          user.email.toLowerCase().includes(searchQuery.toLowerCase())
+          (user.email || "").toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
 
     filtered.sort((a, b) => {
       if (sortField === "username") return a.username.localeCompare(b.username);
       if (sortField === "first_name") return a.first_name.localeCompare(b.first_name);
-      if (sortField === "email") return a.email.localeCompare(b.email);
+      if (sortField === "email") return (a.email || "").localeCompare(b.email || "");
       return 0;
     });
 
     return filtered;
-  }, [users, searchQuery, sortField, filterBranchId, filterRoleId]);
+  }, [users, searchQuery, sortField, filterBranchId, filterRoleId, filterStatus]);
 
   const createUserMutation = useCrudMutation({
     mutationFn: (user: UserCreate) => usersApi.createUser(user),
@@ -310,6 +377,26 @@ export default function UsersPage() {
     },
   });
 
+  const unblockUserMutation = useCrudMutation({
+    mutationFn: (id: number) => usersApi.unblockUser(id),
+    invalidateQueryKeys: [["users"]],
+    successMessage: "User unblocked successfully",
+    errorMessage: "Failed to unblock user",
+    onSuccess: async (_data, id) => {
+      await loadData(id);
+    },
+  });
+
+  const forcePasswordResetMutation = useCrudMutation({
+    mutationFn: (id: number) => usersApi.forcePasswordReset(id),
+    invalidateQueryKeys: [["users"]],
+    successMessage: "User will be required to set a new password on next login",
+    errorMessage: "Failed to force password reset",
+    onSuccess: async (_data, id) => {
+      await loadData(id);
+    },
+  });
+
   // Handlers
   const handleSelectUser = useCallback((user: UserList) => {
     setPasswordError(null);
@@ -332,9 +419,35 @@ export default function UsersPage() {
     setPasswordError(validatePassword(value));
   }, [setFormData]);
 
-  const handleEmailChange = useCallback((value: string) => {
+  const handleEmailChange = useCallback(async (value: string) => {
     setFormData((prev) => ({ ...prev, email: value }));
-    setEmailError(validateEmail(value));
+
+    const basicValidation = validateEmail(value);
+    if (basicValidation) {
+      setEmailError(basicValidation);
+      return;
+    }
+
+    if (isCreating) {
+      try {
+        const exists = await usersApi.checkEmailExists(value);
+        setEmailError(exists ? "Email already exists" : null);
+      } catch {
+        setEmailError(null);
+      }
+    } else {
+      setEmailError(null);
+    }
+  }, [setFormData, isCreating]);
+
+  const handleBirthdateChange = useCallback((value: string) => {
+    setFormData((prev) => ({ ...prev, birthdate: value }));
+    setBirthdateError(validateNotFutureDate(value, "Birthdate"));
+  }, [setFormData]);
+
+  const handleDateJoinedChange = useCallback((value: string) => {
+    setFormData((prev) => ({ ...prev, date_joined: value }));
+    setDateJoinedError(validateNotFutureDate(value, "Date joined"));
   }, [setFormData]);
 
   const handleEmployeeIdChange = useCallback(async (value: string) => {
@@ -371,29 +484,45 @@ export default function UsersPage() {
       setUsernameError(null);
       setEmailError(null);
       setEmployeeIdError(null);
+      setBirthdateError(null);
+      setDateJoinedError(null);
       setSaving(true);
-      
+
       // Validate required fields
       const validationErrors = [];
       if (!formData.username?.trim()) validationErrors.push("Username is required");
       if (!formData.first_name?.trim()) validationErrors.push("First name is required");
       if (!formData.last_name?.trim()) validationErrors.push("Last name is required");
-      if (!formData.occupation?.trim()) validationErrors.push("Occupation is required");
-      
+      if (!formData.branch_ids || formData.branch_ids.length === 0) validationErrors.push("At least one branch is required");
+      if (formData.branch_ids?.length && !formData.primary_branch_id) validationErrors.push("Primary branch is required");
+      if (!formData.group_ids || formData.group_ids.length === 0) validationErrors.push("At least one role is required");
+
       // Validate email format
       const emailValidation = validateEmail(formData.email || '');
       if (emailValidation) {
         setEmailError(emailValidation);
         validationErrors.push(emailValidation);
       }
-      
+
       // Validate employee ID
       const employeeIdValidation = validateEmployeeId(formData.employee_id || '');
       if (employeeIdValidation) {
         setEmployeeIdError(employeeIdValidation);
         validationErrors.push(employeeIdValidation);
       }
-      
+
+      // Validate birthdate / date joined are not in the future
+      const birthdateValidation = validateNotFutureDate(formData.birthdate || '', "Birthdate");
+      if (birthdateValidation) {
+        setBirthdateError(birthdateValidation);
+        validationErrors.push(birthdateValidation);
+      }
+      const dateJoinedValidation = validateNotFutureDate(formData.date_joined || '', "Date joined");
+      if (dateJoinedValidation) {
+        setDateJoinedError(dateJoinedValidation);
+        validationErrors.push(dateJoinedValidation);
+      }
+
       // Validate password when creating or when resetting during edit
       if (isCreating || (!!formData.password && formData.password.trim().length > 0)) {
         const passwordValidation = validatePassword(formData.password || '');
@@ -402,24 +531,35 @@ export default function UsersPage() {
           validationErrors.push(passwordValidation);
         }
       }
-      
+
       if (validationErrors.length > 0) {
         showErrorToast(`Please fix the following errors: ${validationErrors.join(", ")}`);
         setSaving(false);
         return;
       }
-      
-      // Check for duplicate username when creating
-      if (isCreating && formData.username) {
+
+      // Check for duplicate username
+      if (formData.username) {
         const exists = await usersApi.checkUsernameExists(formData.username);
-        if (exists) {
+        if (exists && (isCreating || formData.username !== selectedUser?.username)) {
           setUsernameError("Username already exists");
           showErrorToast("Username already exists");
           setSaving(false);
           return;
         }
       }
-      
+
+      // Check for duplicate email
+      if (formData.email) {
+        const emailExists = await usersApi.checkEmailExists(formData.email);
+        if (emailExists && (isCreating || formData.email !== selectedUser?.email)) {
+          setEmailError("Email already exists");
+          showErrorToast("Email already exists");
+          setSaving(false);
+          return;
+        }
+      }
+
       // Check for duplicate employee ID when creating
       if (isCreating && formData.employee_id) {
         const employeeExists = await usersApi.checkEmployeeIdExists(formData.employee_id);
@@ -430,7 +570,7 @@ export default function UsersPage() {
           return;
         }
       }
-      
+
       // Clean up empty strings to null for optional fields
       const cleanedData = {
         ...formData,
@@ -469,6 +609,8 @@ export default function UsersPage() {
     setEmailError(null);
     setEmployeeIdError(null);
     setUsernameError(null);
+    setBirthdateError(null);
+    setDateJoinedError(null);
     baseHandleCancel(filteredUsers);
   }, [baseHandleCancel, filteredUsers]);
 
@@ -495,8 +637,9 @@ export default function UsersPage() {
     return <TPageSkeleton variant="detail" />;
   }
 
-  const isFormValid = formData.username && formData.email && formData.first_name && formData.last_name &&
-    formData.employee_id && formData.occupation &&
+  const isFormValid = formData.username && formData.first_name && formData.last_name &&
+    formData.employee_id &&
+    !!formData.branch_ids?.length && !!formData.primary_branch_id && !!formData.group_ids?.length &&
     (isCreating ? !passwordError && formData.password : true);
   const isDisabled = !isEditing && !isCreating;
 
@@ -507,7 +650,7 @@ export default function UsersPage() {
       isLoading={loading}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search users..."
+      hideSearch
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
@@ -515,31 +658,6 @@ export default function UsersPage() {
       onSelectItem={handleSelectUser}
       emptyMessage="No users found"
       width={300}
-      listHeader={
-        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
-          <Autocomplete
-            size="small"
-            options={branches}
-            getOptionLabel={(option) => option.branch_name}
-            value={branches.find((b) => b.id === filterBranchId) || null}
-            onChange={(_, newValue) => setFilterBranchId(newValue?.id || null)}
-            renderInput={(params) => (
-              <TextField {...params} placeholder="Filter by Branch" size="small" />
-            )}
-            sx={{ mb: 1 }}
-          />
-          <Autocomplete
-            size="small"
-            options={groups}
-            getOptionLabel={(option) => option.name}
-            value={groups.find((g) => g.id === filterRoleId) || null}
-            onChange={(_, newValue) => setFilterRoleId(newValue?.id || null)}
-            renderInput={(params) => (
-              <TextField {...params} placeholder="Filter by Role" size="small" />
-            )}
-          />
-        </Box>
-      }
       renderItem={(user, isSelected) => (
         <SelectableListItem
           key={user.id}
@@ -669,6 +787,19 @@ export default function UsersPage() {
               </Alert>
             )}
 
+            {/* Profile Picture */}
+            {selectedUser && !isCreating && (
+              <Box sx={{ mb: 3 }}>
+                <UserAvatarUploader
+                  user={selectedUser}
+                  disabled={!canUpdate}
+                  onUpdated={(path) => {
+                    setSelectedUser({ ...selectedUser, profile_picture_path: path || undefined });
+                  }}
+                />
+              </Box>
+            )}
+
             {/* Account Information */}
             <FormSection title="Account Information" columns={2}>
               <TextField
@@ -719,7 +850,6 @@ export default function UsersPage() {
                 value={formData.email}
                 onChange={(e) => handleEmailChange(e.target.value)}
                 disabled={isDisabled}
-                required
                 size="small"
                 fullWidth
                 error={!!emailError}
@@ -769,38 +899,43 @@ export default function UsersPage() {
               <Autocomplete
                 options={GENDER_CHOICES}
                 getOptionLabel={(option) => typeof option === 'string' ? option : option.label}
-                value={GENDER_CHOICES.find(g => g.value === formData.gender) || GENDER_CHOICES[0]}
-                onChange={(_, newValue) => setFormData({ ...formData, gender: newValue?.value || "m" })}
+                value={GENDER_CHOICES.find(g => g.value === formData.gender) || null}
+                onChange={(_, newValue) => setFormData({ ...formData, gender: newValue?.value || "" })}
                 disabled={isDisabled}
-                renderInput={(params) => <TextField {...params} label="Gender" size="small" />}
+                renderInput={(params) => <TextField {...params} label="Gender" size="small" placeholder="Select gender..." />}
                 fullWidth
               />
               <TextField
                 label="Birthdate"
                 type="date"
                 value={formData.birthdate}
-                onChange={(e) => setFormData({ ...formData, birthdate: e.target.value })}
+                onChange={(e) => handleBirthdateChange(e.target.value)}
                 disabled={isDisabled}
                 size="small"
                 fullWidth
                 InputLabelProps={{ shrink: true }}
+                inputProps={{ max: TODAY }}
+                error={!!birthdateError}
+                helperText={birthdateError}
               />
               <TextField
                 label="Date Joined"
                 type="date"
                 value={formData.date_joined}
-                onChange={(e) => setFormData({ ...formData, date_joined: e.target.value })}
+                onChange={(e) => handleDateJoinedChange(e.target.value)}
                 disabled={isDisabled}
                 size="small"
                 fullWidth
                 InputLabelProps={{ shrink: true }}
+                inputProps={{ max: TODAY }}
+                error={!!dateJoinedError}
+                helperText={dateJoinedError}
               />
               <TextField
-                label="Occupation"
-                value={formData.occupation}
-                onChange={(e) => setFormData({ ...formData, occupation: e.target.value })}
+                label="Phone Number"
+                value={formData.phone_number}
+                onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
                 disabled={isDisabled}
-                required
                 size="small"
                 fullWidth
               />
@@ -813,10 +948,18 @@ export default function UsersPage() {
                 options={branches}
                 getOptionLabel={(option) => option.branch_name}
                 value={branches.filter((b) => formData.branch_ids?.includes(b.id))}
-                onChange={(_, newValue) => setFormData({ ...formData, branch_ids: newValue.map((b) => b.id) })}
+                onChange={(_, newValue) => {
+                  const newBranchIds = newValue.map((b) => b.id);
+                  const primaryStillAssigned = !!formData.primary_branch_id && newBranchIds.includes(formData.primary_branch_id);
+                  setFormData({
+                    ...formData,
+                    branch_ids: newBranchIds,
+                    primary_branch_id: primaryStillAssigned ? formData.primary_branch_id : newBranchIds[0],
+                  });
+                }}
                 disabled={isDisabled}
                 renderInput={(params) => (
-                  <TextField {...params} label="Branches" placeholder="Search branches..." size="small" />
+                  <TextField {...params} label="Branches" placeholder="Search branches..." size="small" required={!formData.branch_ids?.length} />
                 )}
                 renderOption={(props, option, { selected }) => (
                   <li {...props}>
@@ -828,6 +971,17 @@ export default function UsersPage() {
                 fullWidth
               />
               <Autocomplete
+                options={branches.filter((b) => formData.branch_ids?.includes(b.id))}
+                getOptionLabel={(option) => option.branch_name}
+                value={branches.find((b) => b.id === formData.primary_branch_id) || null}
+                onChange={(_, newValue) => setFormData({ ...formData, primary_branch_id: newValue?.id })}
+                disabled={isDisabled || !formData.branch_ids?.length}
+                renderInput={(params) => (
+                  <TextField {...params} label="Primary Branch" placeholder="Select primary branch..." size="small" required={!!formData.branch_ids?.length} />
+                )}
+                fullWidth
+              />
+              <Autocomplete
                 multiple
                 options={groups}
                 getOptionLabel={(option) => option.name}
@@ -835,7 +989,7 @@ export default function UsersPage() {
                 onChange={(_, newValue) => setFormData({ ...formData, group_ids: newValue.map((g) => g.id) })}
                 disabled={isDisabled}
                 renderInput={(params) => (
-                  <TextField {...params} label="Roles" placeholder="Search roles..." size="small" />
+                  <TextField {...params} label="Roles" placeholder="Search roles..." size="small" required={!formData.group_ids?.length} />
                 )}
                 renderOption={(props, option, { selected }) => (
                   <li {...props}>
@@ -874,15 +1028,18 @@ export default function UsersPage() {
             {selectedUser && !isEditing && !isCreating && selectedUser.branches.length > 0 && (
               <FormSection title="Assigned Branches" columns={1}>
                 <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                  {selectedUser.branches.map((branch) => (
-                    <Chip
-                      key={branch.id}
-                      label={`${branch.branch_name} (${branch.branch_code})`}
-                      size="small"
-                      variant="outlined"
-                      color="primary"
-                    />
-                  ))}
+                  {selectedUser.branches.map((branch) => {
+                    const isPrimary = selectedUser.primary_branch?.id === branch.id;
+                    return (
+                      <Chip
+                        key={branch.id}
+                        label={isPrimary ? `${branch.branch_name} (${branch.branch_code}) · Primary` : `${branch.branch_name} (${branch.branch_code})`}
+                        size="small"
+                        variant={isPrimary ? "filled" : "outlined"}
+                        color="primary"
+                      />
+                    );
+                  })}
                 </Box>
               </FormSection>
             )}
@@ -931,6 +1088,54 @@ export default function UsersPage() {
                 </Box>
               </FormSection>
             )}
+
+            {/* Account Security (view mode only) */}
+            {selectedUser && !isEditing && !isCreating && (
+              <FormSection title="Account Security" columns={2}>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Login Status</Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                    <Chip
+                      label={selectedUser.blocked ? "Blocked" : "Not Blocked"}
+                      size="small"
+                      color={selectedUser.blocked ? "error" : "success"}
+                      variant={selectedUser.blocked ? "filled" : "outlined"}
+                    />
+                    {selectedUser.blocked && canUpdate && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => unblockUserMutation.mutate(selectedUser.id)}
+                        disabled={unblockUserMutation.isPending}
+                      >
+                        Unblock User
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Password Reset</Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                    <Chip
+                      label={selectedUser.must_change_password ? "Required on Next Login" : "Not Required"}
+                      size="small"
+                      color={selectedUser.must_change_password ? "warning" : "default"}
+                      variant={selectedUser.must_change_password ? "filled" : "outlined"}
+                    />
+                    {!selectedUser.must_change_password && canUpdate && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => forcePasswordResetMutation.mutate(selectedUser.id)}
+                        disabled={forcePasswordResetMutation.isPending}
+                      >
+                        Force Password Reset
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+              </FormSection>
+            )}
           </>
         )}
       </Box>
@@ -940,8 +1145,81 @@ export default function UsersPage() {
   return (
     <>
       <MasterDetailLayout
-        title="User Management"
-        icon={<PersonIcon color="primary" />}
+        title="Users"
+        titleSlot={
+          <TTabFilterBar
+            tabs={[
+              {
+                key: "user",
+                label: "User",
+                hasValue: !!draftUserQuery,
+                render: ({ close }) => (
+                  <TextField
+                    size="small"
+                    autoFocus
+                    placeholder="Username, name, or email"
+                    value={draftUserQuery}
+                    onChange={(e) => setDraftUserQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleApplyFilters();
+                        close();
+                      }
+                    }}
+                    fullWidth
+                  />
+                ),
+              },
+              {
+                key: "status",
+                label: "Status",
+                hasValue: !!draftStatus,
+                render: () => (
+                  <TStatusFilter
+                    options={USER_STATUS_OPTIONS}
+                    value={draftStatus}
+                    onChange={setDraftStatus}
+                    label=""
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "branch",
+                label: "Branch",
+                hasValue: !!draftBranch,
+                render: () => (
+                  <TAutocomplete<Branch>
+                    label="Branch"
+                    options={branches}
+                    value={draftBranch}
+                    onChange={(value) => setDraftBranch(value as Branch | null)}
+                    getOptionLabel={(b) => b.branch_name}
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: "role",
+                label: "Role",
+                hasValue: !!draftRole,
+                render: () => (
+                  <TAutocomplete<Group>
+                    label="Role"
+                    options={groups}
+                    value={draftRole}
+                    onChange={(value) => setDraftRole(value as Group | null)}
+                    getOptionLabel={(g) => g.name}
+                    size="small"
+                  />
+                ),
+              },
+            ]}
+            onSearch={handleApplyFilters}
+            onClear={handleClearFilters}
+            clearDisabled={!draftUserQuery && !draftStatus && !draftBranch && !draftRole && !searchQuery && !filterStatus && filterBranchId === null && filterRoleId === null}
+          />
+        }
         onRefresh={loadData}
         isLoading={loading}
         masterPanel={masterPanel}
@@ -952,23 +1230,31 @@ export default function UsersPage() {
             headers={[
               "Username",
               "First Name",
+              "Middle Name",
               "Last Name",
               "Email",
+              "Gender",
+              "Birthdate",
+              "Date Joined",
               "Employee ID",
               "Branches",
               "Roles",
-              "Active",
+              "Status",
             ]}
             rows={() =>
               filteredUsers.map((u) => [
                 u.username || "",
                 u.first_name || "",
+                u.middle_name || "",
                 u.last_name || "",
                 u.email || "",
+                GENDER_CHOICES.find((g) => g.value === u.gender)?.label || "",
+                u.birthdate ? new Date(u.birthdate).toLocaleDateString() : "",
+                u.date_joined ? new Date(u.date_joined).toLocaleDateString() : "",
                 u.employee_id || "",
                 (u.branches || []).map((b) => b.branch_name).join(", "),
                 (u.groups || []).map((g) => g.name).join(", "),
-                u.is_active ? "Yes" : "No",
+                u.is_active ? "Active" : "Inactive",
               ])
             }
             disabled={filteredUsers.length === 0}

@@ -1409,10 +1409,6 @@ export default function SuppliersPage() {
                 }
               >
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Date Joined</Typography>
-                  <Typography variant="body2">{formatDateTimeReadable(selectedSupplier.date_joined) || "-"}</Typography>
-                </Box>
-                <Box>
                   <Typography variant="caption" color="text.secondary">Created By</Typography>
                   <Typography variant="body2">
                     {selectedSupplier.created_by_name || "-"}

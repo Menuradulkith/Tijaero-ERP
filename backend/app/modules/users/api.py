@@ -9,7 +9,7 @@ from app.auth.dependencies import get_current_active_user
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, Query, Security, status
+from fastapi import APIRouter, Depends, File, Query, Security, UploadFile, status
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -64,6 +64,21 @@ def check_username_exists(
     """Check if a username already exists."""
     exists = service.auth_service.check_username_exists(db, username)
     return {"exists": exists, "username": username}
+
+
+@router.get(
+    "/check-email/{email}",
+    summary="Check if email exists",
+    dependencies=[Depends(require_permission(*Permissions.USER_CREATE))],
+)
+def check_email_exists(
+    email: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.USER_CREATE)),
+):
+    """Check if an email already exists."""
+    exists = service.auth_service.check_email_exists(db, email)
+    return {"exists": exists, "email": email}
 
 
 @router.get(
@@ -141,3 +156,65 @@ def delete_user(
 ):
     """Delete a user by ID."""
     return service.auth_service.delete_user(db, user_id, deleted_by=current_user.id)
+
+
+@router.post(
+    "/{user_id}/unblock",
+    response_model=schemas.User,
+    summary="Unblock User",
+    dependencies=[Depends(require_permission(*Permissions.USER_UPDATE))],
+)
+def unblock_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.USER_UPDATE)),
+):
+    """Clear a user's blocked flag (e.g. after too many failed login attempts)."""
+    return service.auth_service.unblock_user(db, user_id, updated_by=current_user.id)
+
+
+@router.post(
+    "/{user_id}/force-password-reset",
+    response_model=schemas.User,
+    summary="Force Password Reset",
+    dependencies=[Depends(require_permission(*Permissions.USER_UPDATE))],
+)
+def force_password_reset(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.USER_UPDATE)),
+):
+    """Require the user to set a new password the next time they log in."""
+    return service.auth_service.force_password_reset(db, user_id, updated_by=current_user.id)
+
+
+@router.post(
+    "/{user_id}/profile-picture",
+    response_model=schemas.User,
+    summary="Upload Profile Picture",
+    dependencies=[Depends(require_permission(*Permissions.USER_UPDATE))],
+)
+def upload_profile_picture(
+    user_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.USER_UPDATE)),
+):
+    from app.common.file_storage import save_image
+
+    relative_path = save_image(file, subdir="users")
+    return service.auth_service.upload_profile_picture(db, user_id, relative_path)
+
+
+@router.delete(
+    "/{user_id}/profile-picture",
+    response_model=schemas.User,
+    summary="Remove Profile Picture",
+    dependencies=[Depends(require_permission(*Permissions.USER_UPDATE))],
+)
+def remove_profile_picture(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.USER_UPDATE)),
+):
+    return service.auth_service.remove_profile_picture(db, user_id)
