@@ -26,6 +26,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { settingsApi } from "../api";
 import { PasscodeSettingsSection } from "@/auth/components/PasscodeSettingsSection";
+import { profilePictureUrl } from "@/modules/users/components/UserAvatarUploader";
 
 
 interface ProfileFormData {
@@ -115,10 +116,20 @@ export default function ProfileSettings() {
 
   return (
     <Box>
+      {user?.must_change_password && (
+        <Alert severity="warning" sx={{ mb: 2.5 }}>
+          Your administrator requires you to set a new password before you can continue using the app.
+          Update it in the <strong>Security</strong> section below.
+        </Alert>
+      )}
+
       <Card variant="outlined" sx={{ borderRadius: 2, mb: 2.5 }}>
         <CardContent>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ xs: "flex-start", sm: "center" }}>
-            <Avatar sx={{ width: 72, height: 72, bgcolor: "primary.main", fontSize: 30, fontWeight: 700 }}>
+            <Avatar
+              src={profilePictureUrl(user?.profile_picture_path)}
+              sx={{ width: 72, height: 72, bgcolor: "primary.main", fontSize: 30, fontWeight: 700 }}
+            >
               {user?.first_name?.[0] || user?.username?.[0] || "U"}
             </Avatar>
             <Box sx={{ flex: 1 }}>

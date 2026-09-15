@@ -64,21 +64,25 @@ class User(Base, AuditMixin):
     last_login = Column(TIMESTAMP)
     is_superuser = Column(Boolean, nullable=False)
     username = Column(String(50), unique=True, nullable=False)
-    email = Column(String(75), unique=True, nullable=False)
+    email = Column(String(75), unique=True, nullable=True)
     first_name = Column(String(30), nullable=False)
     middle_name = Column(String(30))
     last_name = Column(String(30), nullable=False)
-    gender = Column(String(30), nullable=False)
+    gender = Column(String(30), nullable=True)
     is_staff = Column(Boolean, nullable=False)
     is_active = Column(Boolean, nullable=False)
     date_joined = Column(Date, nullable=False)
-    birthdate = Column(Date, nullable=False)
+    birthdate = Column(Date, nullable=True)
     employee_id = Column(String(255), nullable=False)
     verify = Column(Boolean, nullable=False)
     blocked = Column(Boolean, nullable=False)
     occupation = Column(String(30), nullable=False)
     country_id = Column(Integer, ForeignKey("country.id"))
     profile_picture_id = Column(Integer)
+    primary_branch_id = Column(Integer, ForeignKey("branches.id"), nullable=True)
+    phone_number = Column(String(30), nullable=True)
+    profile_picture_path = Column(String(500), nullable=True)
+    must_change_password = Column(Boolean, nullable=False, server_default="false", default=False)
 
     groups = relationship(
         "Group", secondary=user_groups, back_populates="users", lazy="select"
@@ -91,6 +95,9 @@ class User(Base, AuditMixin):
     )
     branches = relationship(
         "Branch", secondary=user_branches, back_populates="users", lazy="select"
+    )
+    primary_branch = relationship(
+        "Branch", foreign_keys=[primary_branch_id], lazy="select"
     )
     country = relationship("Country", back_populates="users", lazy="select")
 
@@ -133,7 +140,7 @@ class Branch(Base, AuditMixin):
     id = Column(Integer, primary_key=True, index=True)
     branch_name = Column(String(255), unique=True, nullable=False)
     address = Column(Text)
-    email = Column(String(75))
+    email = Column(String(75), unique=True)
     contact_number = Column(String(255))
     branch_code = Column(String(255), unique=True, nullable=False)
     active = Column(Boolean, nullable=False, server_default="true", default=True)

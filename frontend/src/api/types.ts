@@ -38,7 +38,10 @@ export interface User {
   employee_id: string;
   verify: boolean;
   blocked: boolean;
+  must_change_password?: boolean;
   occupation: string;
+  phone_number?: string;
+  profile_picture_path?: string;
   country_id?: number;
   profile_picture_id?: number;
   created_at: string;
@@ -47,6 +50,7 @@ export interface User {
   groups: Group[];
   permissions?: Permission[];
   branches?: Branch[]; // User's assigned branches for access control
+  primary_branch?: Branch; // User's designated home branch, used as the default
 }
 
 // Branch types
@@ -60,6 +64,8 @@ export interface Branch {
   active: boolean;
   created_at: string;
   updated_at: string;
+  created_by_name?: string;
+  updated_by_name?: string;
 }
 
 export interface BranchCreate {

@@ -3,22 +3,26 @@ import apiClient from "../../api/client";
 export interface User {
   id: number;
   username: string;
-  email: string;
+  email?: string;
   first_name: string;
   middle_name?: string;
   last_name: string;
-  gender: string;
-  birthdate: string;
-  occupation: string;
+  gender?: string;
+  birthdate?: string;
+  occupation?: string;
+  phone_number?: string;
+  profile_picture_path?: string;
   employee_id: string;
   is_active: boolean;
   is_superuser: boolean;
   is_staff: boolean;
   verify: boolean;
   blocked: boolean;
+  must_change_password: boolean;
   date_joined: string;
   last_login?: string;
   branches: BranchSimple[];
+  primary_branch?: BranchSimple;
   groups: Group[];
   created_at: string;
   updated_at: string;
@@ -27,20 +31,25 @@ export interface User {
 export interface UserList {
   id: number;
   username: string;
-  email: string;
+  email?: string;
   first_name: string;
   middle_name?: string;
   last_name: string;
-  gender: string;
-  birthdate: string;
+  gender?: string;
+  birthdate?: string;
+  phone_number?: string;
+  profile_picture_path?: string;
   date_joined: string;
   last_login?: string;
   is_active: boolean;
   is_superuser: boolean;
   is_staff: boolean;
+  blocked: boolean;
+  must_change_password: boolean;
   employee_id: string;
-  occupation: string;
+  occupation?: string;
   branches: BranchSimple[];
+  primary_branch?: BranchSimple;
   groups: GroupSimple[];
   created_at?: string;
   updated_at?: string;
@@ -74,18 +83,20 @@ export interface Permission {
 export interface UserCreate {
   username: string;
   password: string;
-  email: string;
+  email?: string;
   first_name: string;
   middle_name?: string;
   last_name: string;
-  gender: string;
-  birthdate: string;
-  date_joined: string;
-  occupation: string;
+  gender?: string;
+  birthdate?: string;
+  date_joined?: string;
+  occupation?: string;
+  phone_number?: string;
   employee_id: string;
   is_active: boolean;
   is_staff: boolean;
   branch_ids: number[];
+  primary_branch_id?: number;
   group_ids: number[];
 }
 
@@ -99,10 +110,12 @@ export interface UserUpdate {
   birthdate?: string;
   date_joined?: string;
   occupation?: string;
+  phone_number?: string;
   password?: string;
   is_active?: boolean;
   is_staff?: boolean;
   branch_ids?: number[];
+  primary_branch_id?: number;
   group_ids?: number[];
 }
 
@@ -119,6 +132,16 @@ export const usersApi = {
   checkUsernameExists: async (username: string): Promise<boolean> => {
     try {
       const response = await apiClient.get(`/users/check-username/${username}`);
+      return response.data.exists;
+    } catch {
+      return false;
+    }
+  },
+
+  // Check if email exists
+  checkEmailExists: async (email: string): Promise<boolean> => {
+    try {
+      const response = await apiClient.get(`/users/check-email/${encodeURIComponent(email)}`);
       return response.data.exists;
     } catch {
       return false;
@@ -162,5 +185,33 @@ export const usersApi = {
   // Delete user
   deleteUser: async (id: number): Promise<void> => {
     await apiClient.delete(`/users/${id}`);
+  },
+
+  // Clear a user's blocked flag
+  unblockUser: async (id: number): Promise<User> => {
+    const response = await apiClient.post(`/users/${id}/unblock`);
+    return response.data;
+  },
+
+  // Require the user to set a new password on next login
+  forcePasswordReset: async (id: number): Promise<User> => {
+    const response = await apiClient.post(`/users/${id}/force-password-reset`);
+    return response.data;
+  },
+
+  // Upload/replace a user's profile picture
+  uploadProfilePicture: async (id: number, file: File): Promise<User> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await apiClient.post(`/users/${id}/profile-picture`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data;
+  },
+
+  // Remove a user's profile picture
+  removeProfilePicture: async (id: number): Promise<User> => {
+    const response = await apiClient.delete(`/users/${id}/profile-picture`);
+    return response.data;
   },
 };

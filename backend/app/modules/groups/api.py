@@ -58,7 +58,7 @@ def create_group(
     current_user: User = Depends(require_permission(*Permissions.GROUP_CREATE)),
 ):
     """Create a new group/role with permissions."""
-    return service.group_service.create_group(db, group)
+    return service.group_service.create_group(db, group, created_by=current_user.id)
 
 
 @router.put(
@@ -74,7 +74,7 @@ def update_group(
     current_user: User = Depends(require_permission(*Permissions.GROUP_UPDATE)),
 ):
     """Update group information and permissions."""
-    return service.group_service.update_group(db, group_id, group)
+    return service.group_service.update_group(db, group_id, group, updated_by=current_user.id)
 
 
 @router.delete(
@@ -89,5 +89,4 @@ def delete_group(
     current_user: User = Depends(require_permission(*Permissions.GROUP_DELETE)),
 ):
     """Delete a group by ID."""
-    return service.group_service.delete_group(db, group_id)
-    return service.group_service.delete_group(db, group_id)
+    return service.group_service.delete_group(db, group_id, deleted_by=current_user.id)

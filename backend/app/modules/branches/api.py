@@ -51,6 +51,55 @@ def get_branch(
     return service.branch_service.get_branch(db, branch_id)
 
 
+@router.get("/{branch_id}/performance", response_model=schemas.BranchPerformance)
+def get_branch_performance(
+    branch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Quick sales/stock KPIs for a branch, for the detail-panel widget."""
+    return service.branch_service.get_branch_performance(db, branch_id)
+
+
+@router.get("/check-code/{branch_code}")
+def check_branch_code_exists(
+    branch_code: str,
+    exclude_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Check if a branch code already exists."""
+    existing = service.branch_service.repository.get_by_code(db, branch_code)
+    exists = existing is not None and existing.id != exclude_id
+    return {"exists": exists, "branch_code": branch_code}
+
+
+@router.get("/check-name/{branch_name}")
+def check_branch_name_exists(
+    branch_name: str,
+    exclude_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Check if a branch name already exists."""
+    existing = service.branch_service.repository.get_by_name(db, branch_name)
+    exists = existing is not None and existing.id != exclude_id
+    return {"exists": exists, "branch_name": branch_name}
+
+
+@router.get("/check-email/{email}")
+def check_branch_email_exists(
+    email: str,
+    exclude_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Check if a branch email already exists."""
+    existing = service.branch_service.repository.get_by_email(db, email)
+    exists = existing is not None and existing.id != exclude_id
+    return {"exists": exists, "email": email}
+
+
 @router.post(
     "/",
     response_model=schemas.Branch,

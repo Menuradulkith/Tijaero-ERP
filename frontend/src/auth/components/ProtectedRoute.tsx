@@ -25,8 +25,16 @@ export default function ProtectedRoute({
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // If permission is required, check it
-  if (resource && action) {
+  // A forced password reset (set by an admin, e.g. after unblocking a
+  // locked-out account) traps the user on the Settings page — where they can
+  // change their password — until they do. Every other route redirects back.
+  if (user?.must_change_password && location.pathname !== "/settings") {
+    return <Navigate to="/settings" state={{ from: location }} replace />;
+  }
+
+  // If permission is required, check it (skipped while a password reset is
+  // pending, so it can never be blocked by a missing "settings" permission).
+  if (resource && action && !user?.must_change_password) {
     const hasAccess = hasPermission(user, resource, action);
     if (!hasAccess) {
       return <PermissionDenied />;

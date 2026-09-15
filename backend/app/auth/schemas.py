@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import List, Optional
 
 from app.common.base_schemas import TijaeroBaseSchema
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class BranchBase(BaseModel):
@@ -58,16 +58,24 @@ class Group(TijaeroBaseSchema, GroupBase):
 
 
 class UserBase(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
     username: str = Field(..., max_length=50)
     first_name: str = Field(..., max_length=30)
     middle_name: Optional[str] = Field(None, max_length=30)
     last_name: str = Field(..., max_length=30)
-    gender: str = Field(..., max_length=30)
-    birthdate: date
-    occupation: str = Field(..., max_length=30)
+    gender: Optional[str] = Field(None, max_length=30)
+    birthdate: Optional[date] = None
+    occupation: Optional[str] = Field(None, max_length=30)
+    phone_number: Optional[str] = Field(None, max_length=30)
     is_active: bool = True
     is_staff: bool = False
+
+    @field_validator("birthdate")
+    @classmethod
+    def birthdate_not_in_future(cls, value: Optional[date]) -> Optional[date]:
+        if value is not None and value > date.today():
+            raise ValueError("Birthdate cannot be in the future")
+        return value
 
 
 class UserCreate(UserBase):
@@ -75,8 +83,25 @@ class UserCreate(UserBase):
         ..., min_length=8, description="Password must be at least 8 characters long"
     )
     employee_id: str = Field(..., max_length=255)
-    branch_ids: List[int] = []
-    group_ids: List[int] = []
+    date_joined: Optional[date] = None
+    branch_ids: List[int] = Field(..., min_length=1)
+    primary_branch_id: Optional[int] = None
+    group_ids: List[int] = Field(..., min_length=1)
+
+    @field_validator("primary_branch_id")
+    @classmethod
+    def primary_branch_must_be_assigned(cls, value: Optional[int], info) -> Optional[int]:
+        branch_ids = info.data.get("branch_ids")
+        if value is not None and branch_ids is not None and value not in branch_ids:
+            raise ValueError("Primary branch must be one of the assigned branches")
+        return value
+
+    @field_validator("date_joined")
+    @classmethod
+    def date_joined_not_in_future(cls, value: Optional[date]) -> Optional[date]:
+        if value is not None and value > date.today():
+            raise ValueError("Date joined cannot be in the future")
+        return value
 
 
 class UserUpdate(BaseModel):
@@ -89,11 +114,41 @@ class UserUpdate(BaseModel):
     birthdate: Optional[date] = None
     date_joined: Optional[date] = None
     occupation: Optional[str] = Field(None, max_length=30)
+    phone_number: Optional[str] = Field(None, max_length=30)
     password: Optional[str] = None
     is_active: Optional[bool] = None
     is_staff: Optional[bool] = None
     branch_ids: Optional[List[int]] = None
+    primary_branch_id: Optional[int] = None
     group_ids: Optional[List[int]] = None
+
+    @field_validator("birthdate")
+    @classmethod
+    def birthdate_not_in_future(cls, value: Optional[date]) -> Optional[date]:
+        if value is not None and value > date.today():
+            raise ValueError("Birthdate cannot be in the future")
+        return value
+
+    @field_validator("date_joined")
+    @classmethod
+    def date_joined_not_in_future(cls, value: Optional[date]) -> Optional[date]:
+        if value is not None and value > date.today():
+            raise ValueError("Date joined cannot be in the future")
+        return value
+
+    @field_validator("branch_ids")
+    @classmethod
+    def branch_ids_not_empty(cls, value: Optional[List[int]]) -> Optional[List[int]]:
+        if value is not None and len(value) == 0:
+            raise ValueError("At least one branch is required")
+        return value
+
+    @field_validator("group_ids")
+    @classmethod
+    def group_ids_not_empty(cls, value: Optional[List[int]]) -> Optional[List[int]]:
+        if value is not None and len(value) == 0:
+            raise ValueError("At least one role is required")
+        return value
 
 
 class User(TijaeroBaseSchema, UserBase):
@@ -102,9 +157,12 @@ class User(TijaeroBaseSchema, UserBase):
     employee_id: str
     verify: bool
     blocked: bool
+    must_change_password: bool = False
+    profile_picture_path: Optional[str] = None
     date_joined: date
     last_login: Optional[datetime] = None
     branches: List[BranchSimple] = []
+    primary_branch: Optional[BranchSimple] = None
     groups: List[Group] = []
     permissions: List[Permission] = []
     created_at: datetime
@@ -114,19 +172,24 @@ class User(TijaeroBaseSchema, UserBase):
 class UserList(TijaeroBaseSchema):
     id: int
     username: str
-    email: str
+    email: Optional[str] = None
     first_name: str
     middle_name: Optional[str] = None
     last_name: str
-    gender: str
-    birthdate: date
+    gender: Optional[str] = None
+    birthdate: Optional[date] = None
+    phone_number: Optional[str] = None
     is_active: bool
     is_superuser: bool
     is_staff: bool
+    blocked: bool = False
+    must_change_password: bool = False
+    profile_picture_path: Optional[str] = None
     employee_id: str
-    occupation: str
+    occupation: Optional[str] = None
     last_login: Optional[datetime] = None
     branches: List[BranchSimple] = []
+    primary_branch: Optional[BranchSimple] = None
     groups: List[GroupSimple] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -174,6 +237,7 @@ class PasscodeLoginResponse(Token):
     """Extends the standard Token response with an expiry flag used to
     prompt the user to set a new passcode after a password login."""
     passcode_expired: bool = False
+    must_change_password: bool = False
 
 
 class SetPasscodeRequest(BaseModel):
